@@ -23,7 +23,7 @@ from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.session_query import SessionQuery
-from posthog.queries.trends.sql import TOP_ELEMENTS_ARRAY_OF_KEY_SQL
+from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import parse_timestamps
 
 ALL_USERS_COHORT_ID = 0
@@ -43,6 +43,8 @@ def get_breakdown_prop_values(
     Returns the top N breakdown prop values for event/person breakdown
 
     e.g. for Browser with limit 3 might return ['Chrome', 'Safari', 'Firefox', 'Other']
+
+    When dealing with a histogram though, buckets are returned instead of values.
     """
     column_optimizer = column_optimizer or ColumnOptimizer(filter, team.id)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team)
@@ -122,19 +124,35 @@ def get_breakdown_prop_values(
         filter.breakdown,
         filter.breakdown_group_type_index,
         direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
+        cast_as_float=filter.using_histogram,
     )
 
-    elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
-        value_expression=value_expression,
-        parsed_date_from=parsed_date_from,
-        parsed_date_to=parsed_date_to,
-        prop_filters=prop_filters,
-        aggregate_operation=aggregate_operation,
-        person_join_clauses=person_join_clauses,
-        groups_join_clauses=groups_join_clause,
-        sessions_join_clauses=sessions_join_clause,
-        **entity_format_params,
-    )
+    if filter.using_histogram:
+        bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_historgam_bin_count))
+        elements_query = HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+            bucketing_expression=bucketing_expression,
+            value_expression=value_expression,
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            prop_filters=prop_filters,
+            aggregate_operation=aggregate_operation,
+            person_join_clauses=person_join_clauses,
+            groups_join_clauses=groups_join_clause,
+            sessions_join_clauses=sessions_join_clause,
+            **entity_format_params,
+        )
+    else:
+        elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
+            value_expression=value_expression,
+            parsed_date_from=parsed_date_from,
+            parsed_date_to=parsed_date_to,
+            prop_filters=prop_filters,
+            aggregate_operation=aggregate_operation,
+            person_join_clauses=person_join_clauses,
+            groups_join_clauses=groups_join_clause,
+            sessions_join_clauses=sessions_join_clause,
+            **entity_format_params,
+        )
 
     return sync_execute(
         elements_query,
@@ -160,12 +178,20 @@ def _to_value_expression(
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
     direct_on_events: bool = False,
+    cast_as_float: bool = False,
 ) -> str:
-    if breakdown_type == "person":
-        return get_single_or_multi_property_string_expr(
+    if breakdown_type == "session":
+        if breakdown == "$session_duration":
+            # Return the session duration expression right away because it's already an number,
+            # so it doesn't need casting for the histogram case (like the other properties)
+            value_expression = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
+        else:
+            raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
+    elif breakdown_type == "person":
+        value_expression = get_single_or_multi_property_string_expr(
             breakdown,
+            query_alias=None,
             table="events" if direct_on_events else "person",
-            query_alias="value",
             column="person_properties" if direct_on_events else "person_props",
         )
     elif breakdown_type == "group":
@@ -177,16 +203,28 @@ def _to_value_expression(
             if direct_on_events
             else f"group_properties_{breakdown_group_type_index}",
         )
-        return f"{value_expression} AS value"
-    elif breakdown_type == "session":
-        if breakdown == "$session_duration":
-            return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration AS value"
-        else:
-            raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
     else:
-        return get_single_or_multi_property_string_expr(
-            breakdown, table="events", query_alias="value", column="properties"
+        value_expression = get_single_or_multi_property_string_expr(
+            breakdown, table="events", query_alias=None, column="properties"
         )
+
+    if cast_as_float:
+        value_expression = f"toFloat64OrNull(toString({value_expression}))"
+    return f"{value_expression} AS value"
+
+
+def _to_bucketing_expression(bin_count: int) -> str:
+    if bin_count <= 1:
+        qunatile_expression = "quantiles(0,1)(value)"
+    else:
+        quantiles = []
+        bin_size = 1.0 / bin_count
+        for i in range(bin_count + 1):
+            quantiles.append(i * bin_size)
+
+        qunatile_expression = f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
+
+    return f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))"
 
 
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
