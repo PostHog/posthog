@@ -1,4 +1,7 @@
+import csv
 from unittest.mock import Mock, patch
+
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.models import ExportedAsset
 from posthog.tasks.exports import csv_exporter
@@ -72,5 +75,52 @@ class TestCSVExporter(APIBaseTest):
 
         assert (
             asset.content
+            == b'"distinct_id","elements_chain","event","id","person","properties.$browser","timestamp"\r\n"2","","event_name","e9ca132e-400f-4854-a83c-16c151b2f145","","Safari","2022-07-06T19:37:43.095295+00:00"\r\n"2","","event_name","1624228e-a4f1-48cd-aabc-6baa3ddb22e4","","Safari","2022-07-06T19:37:43.095279+00:00"\r\n"2","","event_name","66d45914-bdf5-4980-a54a-7dc699bdcce9","","Safari","2022-07-06T19:37:43.095262+00:00"\r\n'
+        )
+
+    def test_can_render_known_response_using_renderer(self) -> None:
+        """
+        regression test to triangulate a test that passes locally but fails in CI
+        """
+        csv_data_gathered_in_ci = [
+            {
+                "id": "e9ca132e-400f-4854-a83c-16c151b2f145",
+                "distinct_id": "2",
+                "properties": {"$browser": "Safari"},
+                "event": "event_name",
+                "timestamp": "2022-07-06T19:37:43.095295+00:00",
+                "person": None,
+                "elements": [],
+                "elements_chain": "",
+            },
+            {
+                "id": "1624228e-a4f1-48cd-aabc-6baa3ddb22e4",
+                "distinct_id": "2",
+                "properties": {"$browser": "Safari"},
+                "event": "event_name",
+                "timestamp": "2022-07-06T19:37:43.095279+00:00",
+                "person": None,
+                "elements": [],
+                "elements_chain": "",
+            },
+            {
+                "id": "66d45914-bdf5-4980-a54a-7dc699bdcce9",
+                "distinct_id": "2",
+                "properties": {"$browser": "Safari"},
+                "event": "event_name",
+                "timestamp": "2022-07-06T19:37:43.095262+00:00",
+                "person": None,
+                "elements": [],
+                "elements_chain": "",
+            },
+        ]
+
+        renderer = csvrenderers.CSVRenderer()
+        renderer.writer_opts = {
+            "quoting": csv.QUOTE_ALL,
+        }
+
+        assert (
+            renderer.render(csv_data_gathered_in_ci)
             == b'"distinct_id","elements_chain","event","id","person","properties.$browser","timestamp"\r\n"2","","event_name","e9ca132e-400f-4854-a83c-16c151b2f145","","Safari","2022-07-06T19:37:43.095295+00:00"\r\n"2","","event_name","1624228e-a4f1-48cd-aabc-6baa3ddb22e4","","Safari","2022-07-06T19:37:43.095279+00:00"\r\n"2","","event_name","66d45914-bdf5-4980-a54a-7dc699bdcce9","","Safari","2022-07-06T19:37:43.095262+00:00"\r\n'
         )

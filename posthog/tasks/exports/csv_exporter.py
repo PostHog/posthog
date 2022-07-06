@@ -150,8 +150,6 @@ def _export_to_csv(
         "quoting": csv.QUOTE_ALL,
     }
 
-    print(all_csv_rows)  # noqa - probing for test failures in CI
-
     exported_asset.content = renderer.render(all_csv_rows)
     exported_asset.save(update_fields=["content"])
 
