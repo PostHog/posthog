@@ -348,6 +348,11 @@ class TrendsBreakdown:
         multi_if_conditionals = []
         values_arr = []
 
+        if len(buckets) == 1:
+            # Only one value, so treat this as a single bucket
+            # starting at this value, ending at infinity.
+            buckets = [buckets[0], buckets[0]]
+
         for i in range(len(buckets) - 1):
             last_bucket = i == len(buckets) - 2
 

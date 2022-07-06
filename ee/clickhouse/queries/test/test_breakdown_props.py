@@ -408,13 +408,16 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
 @pytest.mark.parametrize(
     "test_input,expected",
     [
-        (0, "arrayMap(x -> floor(x, 2), quantiles(0,1)(value))"),
-        (1, "arrayMap(x -> floor(x, 2), quantiles(0,1)(value))"),
-        (2, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.50,1.00)(value))"),
-        (3, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.33,0.67,1.00)(value))"),
-        (5, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.20,0.40,0.60,0.80,1.00)(value))"),
-        (7, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.14,0.29,0.43,0.57,0.71,0.86,1.00)(value))"),
-        (10, "arrayMap(x -> floor(x, 2), quantiles(0.00,0.10,0.20,0.30,0.40,0.50,0.60,0.70,0.80,0.90,1.00)(value))"),
+        (0, "arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0,1)(value)))"),
+        (1, "arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0,1)(value)))"),
+        (2, "arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00,0.50,1.00)(value)))"),
+        (3, "arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00,0.33,0.67,1.00)(value)))"),
+        (5, "arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00,0.20,0.40,0.60,0.80,1.00)(value)))"),
+        (7, "arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00,0.14,0.29,0.43,0.57,0.71,0.86,1.00)(value)))"),
+        (
+            10,
+            "arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00,0.10,0.20,0.30,0.40,0.50,0.60,0.70,0.80,0.90,1.00)(value)))",
+        ),
     ],
 )
 def test_bucketing_expression(test_input, expected):

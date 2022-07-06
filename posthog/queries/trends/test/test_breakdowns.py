@@ -208,3 +208,111 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 ('[98.37,""]', 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
+
+    def test_breakdown_by_event_property_with_bucketing_and_duplicate_buckets(self):
+        journey = {
+            "person1": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "properties": {"episode_length": 300},
+                },
+            ],
+            "person2": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 4, 12, 1),
+                    "properties": {"episode_length": 300},
+                },
+            ],
+            "person3": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 6, 12, 1),
+                    "properties": {"episode_length": 300},
+                },
+            ],
+            "person4": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 8, 12, 1),
+                    "properties": {"episode_length": 300},
+                },
+            ],
+        }
+
+        journeys_for(journey, team=self.team, create_people=True)
+
+        # only one unique value, means all quantiles are the same
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "events": [{"id": "watched tv", "name": "watched tv", "type": "events",},],
+                    "date_from": "2020-01-02T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "episode_length",
+                    "breakdown_type": "event",
+                    "breakdown_histogram_bin_count": 5,
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [('[300.0,""]', 4.0, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),],
+        )
+
+    def test_breakdown_by_event_property_with_bucketing_and_single_bucket(self):
+        journey = {
+            "person1": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "properties": {"episode_length": 300},
+                },
+            ],
+            "person2": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 4, 12, 1),
+                    "properties": {"episode_length": 300},
+                },
+            ],
+            "person3": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 5, 12, 1),
+                    "properties": {"episode_length": 320},
+                },
+            ],
+            "person4": [
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 6, 12, 1),
+                    "properties": {"episode_length": 305},
+                },
+            ],
+        }
+
+        journeys_for(journey, team=self.team, create_people=True)
+
+        response = Trends().run(
+            Filter(
+                data={
+                    "events": [{"id": "watched tv", "name": "watched tv", "type": "events",},],
+                    "date_from": "2020-01-02T00:00:00Z",
+                    "date_to": "2020-01-12T00:00:00Z",
+                    "breakdown": "episode_length",
+                    "breakdown_type": "event",
+                    "breakdown_histogram_bin_count": 1,
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [('[300.0,""]', 4.0, [1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),],
+        )

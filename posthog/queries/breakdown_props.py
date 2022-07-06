@@ -224,7 +224,7 @@ def _to_bucketing_expression(bin_count: int) -> str:
 
         qunatile_expression = f"quantiles({','.join([f'{quantile:.2f}' for quantile in quantiles])})(value)"
 
-    return f"arrayMap(x -> floor(x, 2), {qunatile_expression})"
+    return f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))"
 
 
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
