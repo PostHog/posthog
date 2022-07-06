@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -30,6 +32,7 @@ export function BreakdownFilter({
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -79,7 +82,9 @@ export function BreakdownFilter({
           }
         : undefined
 
-    const isHistogramable = !useMultiBreakdown && breakdownArray.every((t) => getPropertyDefinition(t)?.is_numerical)
+    const isHistogramable = featureFlags[FEATURE_FLAGS.HISTOGRAM_INSIGHTS]
+        ? !useMultiBreakdown && breakdownArray.every((t) => getPropertyDefinition(t)?.is_numerical)
+        : false
 
     const tags = !breakdown_type
         ? []
