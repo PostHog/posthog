@@ -170,7 +170,7 @@ kombu==4.6.8
     # via
     #   -r requirements.in
     #   celery
-lxml==4.7.1
+lxml==4.9.1
     # via
     #   python3-saml
     #   toronado
