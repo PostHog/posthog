@@ -16,6 +16,7 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
+from posthog.models.experiment import Experiment
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -26,6 +27,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+    used_in_experiments = serializers.SerializerMethodField()
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -46,6 +48,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "is_simple_flag",
             "rollout_percentage",
             "ensure_experience_continuity",
+            "used_in_experiments",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -57,6 +60,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             and no_properties_used
             and feature_flag.aggregation_group_type_index is None
         )
+
+    def get_used_in_experiments(self, feature_flag: FeatureFlag) -> bool:
+        return Experiment.objects.filter(feature_flag=feature_flag).exists()
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -188,7 +194,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = queryset.filter(deleted=False, experiment__isnull=True)
+            queryset = queryset.filter(deleted=False)
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
