@@ -1,3 +1,4 @@
+import csv
 import datetime
 from typing import Any, List, Optional
 
@@ -144,6 +145,9 @@ def _export_to_csv(
         next_url = data.get("next")
 
     renderer = csvrenderers.CSVRenderer()
+    renderer.writer_opts = {
+        "quoting": csv.QUOTE_ALL,
+    }
 
     if len(all_csv_rows):
         if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
