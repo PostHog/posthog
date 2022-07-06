@@ -96,7 +96,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 resource: exporterResourceParams,
             },
         ]
-        if (supportsCsvExport) {
+        if (supportsCsvExport || !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
             supportedExportOptions.push({
                 format: ExporterFormat.CSV,
                 resource: exporterResourceParams,
