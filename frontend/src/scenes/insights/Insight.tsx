@@ -179,6 +179,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                             items={[
                                                                 {
                                                                     format: ExporterFormat.PNG,
+                                                                    insight: insight.id,
                                                                     resource: exporterResourceParams,
                                                                 },
                                                                 {
