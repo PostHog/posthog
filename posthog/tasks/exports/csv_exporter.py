@@ -67,7 +67,6 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
         elif first_result.get("average_conversion_time"):
             # PATHS LIKE
             return items
-
         elif first_result.get("values") and first_result.get("label"):
             csv_rows = []
             # RETENTION LIKE
@@ -78,14 +77,18 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
 
                 csv_rows.append(line)
             return csv_rows
-
         elif isinstance(first_result.get("data"), list):
             csv_rows = []
             # TRENDS LIKE
             for item in items:
-                line = {"series": item["action"].get("custom_name") or item["label"]}
-                for index, data in enumerate(item["data"]):
-                    line[item["labels"][index]] = data
+                line = {"series": item["label"]}
+                if item.get("action").get("custom_name"):
+                    line["custom name"] = item.get("action").get("custom_name")
+                if item.get("aggregated_value"):
+                    line["total count"] = item.get("aggregated_value")
+                else:
+                    for index, data in enumerate(item["data"]):
+                        line[item["labels"][index]] = data
 
                 csv_rows.append(line)
 
