@@ -41,7 +41,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
         filter = get_filter(request=request, team=team)
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
 
-        # return cached result if possible
+        # return cached result when possible
         if not should_refresh(request):
             cached_result_package = get_safe_cache(cache_key)
             if cached_result_package and cached_result_package.get("result"):
