@@ -1,5 +1,5 @@
 import React from 'react'
-import { Modal, Button, Dropdown, Menu } from 'antd'
+import { Modal, Button, Dropdown, Menu, Input } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
 import { ExclamationCircleOutlined, UpOutlined, DownOutlined, SwapOutlined, CrownFilled } from '@ant-design/icons'
@@ -157,7 +157,8 @@ export interface MembersProps {
 }
 
 export function Members({ user }: MembersProps): JSX.Element {
-    const { members, membersLoading } = useValues(membersLogic)
+    const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { setSearch } = useActions(membersLogic)
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -212,14 +213,25 @@ export function Members({ user }: MembersProps): JSX.Element {
     return (
         <>
             <h2 className="subtitle">Members</h2>
+            <Input.Search
+                placeholder="Search for members"
+                allowClear
+                enterButton
+                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
+                value={search}
+                onChange={(e) => {
+                    setSearch(e.target.value)
+                }}
+            />
             <LemonTable
-                dataSource={members}
+                dataSource={filteredMembers}
                 columns={columns}
                 rowKey="id"
                 style={{ marginTop: '1rem' }}
                 loading={membersLoading}
                 data-attr="org-members-table"
                 defaultSorting={{ columnKey: 'level', order: -1 }}
+                pagination={{ pageSize: 50 }}
             />
         </>
     )

@@ -8,6 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { membershipLevelToName } from '../../../lib/utils/permissioning'
 import { lemonToast } from 'lib/components/lemonToast'
+import Fuse from 'fuse.js'
 
 export const membersLogic = kea<membersLogicType>({
     path: ['scenes', 'organization', 'Settings', 'membersLogic'],
@@ -15,11 +16,15 @@ export const membersLogic = kea<membersLogicType>({
         values: [userLogic, ['user']],
     },
     actions: {
+        setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
             level,
         }),
         postRemoveMember: (userUuid: string) => ({ userUuid }),
+    },
+    reducers: {
+        search: ['', { setSearch: (_, { search }) => search }],
     },
     loaders: ({ values, actions }) => ({
         members: {
@@ -52,6 +57,18 @@ export const membersLogic = kea<membersLogicType>({
                 }
                 return result
             },
+        ],
+        filteredMembers: [
+            (s) => [s.members, s.search],
+            (members, search) =>
+                search
+                    ? new Fuse<OrganizationMemberType>(members, {
+                          keys: ['user.first_name', 'user.last_name', 'user.email'],
+                          threshold: 0.3,
+                      })
+                          .search(search)
+                          .map((result) => result.item)
+                    : members,
         ],
     },
     listeners: ({ actions }) => ({
