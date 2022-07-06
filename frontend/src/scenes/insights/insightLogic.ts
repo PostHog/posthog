@@ -265,6 +265,16 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     try {
                         if (
+                            values.savedInsight?.id &&
+                            objectsEqual(cleanFilters(filters), cleanFilters(values.savedInsight.filters ?? {}))
+                        ) {
+                            // Instead of making a search for filters, reload the insight via its id if possible.
+                            // This makes sure we update the insight's cache key if we get new default filters.
+                            response = await api.get(
+                                `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
+                                cache.abortController.signal
+                            )
+                        } else if (
                             insight === InsightType.TRENDS ||
                             insight === InsightType.STICKINESS ||
                             insight === InsightType.LIFECYCLE
