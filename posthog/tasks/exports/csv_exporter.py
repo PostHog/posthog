@@ -99,8 +99,8 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
     )
 
-    max_limit = 1_000_000
-    limit_size = 100_000
+    max_limit = 10_000
+    limit_size = 1_000
     next_url = None
     all_csv_rows: List[Any] = []
 
