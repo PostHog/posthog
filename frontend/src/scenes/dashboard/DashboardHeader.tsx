@@ -189,9 +189,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     items={[
                                                         {
                                                             format: ExporterFormat.PNG,
-                                                            resource: {
-                                                                path: apiUrl(),
-                                                            },
+                                                            dashboardId: dashboard.id,
                                                         },
                                                         {
                                                             format: ExporterFormat.CSV,

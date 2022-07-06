@@ -1,4 +1,5 @@
 import datetime
+import json
 import tempfile
 from typing import Any, List
 
@@ -63,6 +64,10 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
                 csv_rows.append(line)
             return csv_rows
 
+        elif first_result.get("average_conversion_time"):
+            # PATHS LIKE
+            return items
+
         elif first_result.get("values") and first_result.get("label"):
             csv_rows = []
             # RETENTION LIKE
@@ -110,7 +115,7 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         url += f"{'&' if '?' in url else '?'}limit={limit_size}"
 
         response = requests.request(
-            method=method.lower(), url=url, data=body, headers={"Authorization": f"Bearer {access_token}"}
+            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
 
         data = response.json()

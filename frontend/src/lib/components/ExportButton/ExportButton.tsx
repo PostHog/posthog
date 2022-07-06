@@ -14,7 +14,9 @@ export interface ExportButtonItemResource {
 export interface ExportButtonItem {
     title?: string
     format: ExporterFormat
-    resource: ExportButtonItemResource
+    resource?: ExportButtonItemResource
+    insightId?: number
+    dashboardId?: number
 }
 
 export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'fullWidth'> {
@@ -34,15 +36,17 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                     <>
                         <h5>File type</h5>
                         <LemonDivider />
-                        {items.map((item) => (
+                        {items.map((item, i) => (
                             <LemonButton
-                                key={`${item.format}-${item.resource.path}`}
+                                key={`${item.format}-${i}`}
                                 fullWidth
                                 type="stealth"
                                 onClick={() =>
                                     triggerExport({
                                         export_format: item.format,
                                         export_context: item.resource,
+                                        dashboard: item.dashboardId,
+                                        insight: item.insightId,
                                     })
                                 }
                                 data-attr={`export-button-${item.format.split('/').pop()}`}
