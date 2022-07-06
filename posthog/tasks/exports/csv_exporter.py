@@ -111,10 +111,6 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
-    if path == "TBD":
-        raise Exception(
-            "cannot export CSV if path is not provided. The `insightLogic` needs to know how to generate an API path for this type of insight"
-        )
 
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
