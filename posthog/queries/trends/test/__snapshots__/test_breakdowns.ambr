@@ -1,7 +1,7 @@
 # name: TestBreakdowns.test_breakdown_by_event_property_of_unique_sessions_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
     (SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) AS value,
             count(DISTINCT $session_id) as count
@@ -65,7 +65,7 @@
 # name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
     (SELECT toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', '')) AS value,
             count(*) as count
@@ -211,7 +211,7 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_single_aggregate
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
     (SELECT sessions.session_duration as value,
             count(*) as count
@@ -261,7 +261,7 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
     (SELECT sessions.session_duration as value,
             count(*) as count
@@ -432,7 +432,7 @@
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions_with_bucketing
   '
   
-  SELECT arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value))
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
     (SELECT sessions.session_duration as value,
             count(DISTINCT $session_id) as count
