@@ -99,7 +99,7 @@ class EventDefinitionViewSet(
         return event_definitions_list
 
     def get_object(self):
-        id = self.kwargs["id"]
+        id = self.kwargs.get("id")
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition
 

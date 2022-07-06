@@ -163,7 +163,7 @@ class PropertyDefinitionViewSet(
         return serializer_class
 
     def get_object(self):
-        id = self.kwargs["id"]
+        id = self.kwargs.get("id")
         if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
