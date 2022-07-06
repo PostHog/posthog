@@ -1,6 +1,5 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
 
 import { Hub } from '../../types'
 import { runInstrumentedFunction } from '../utils'
@@ -19,20 +18,25 @@ export function runBufferEventPipeline(hub: Hub, piscina: Piscina, event: Plugin
 
     If we fail to process an event from the buffer, just insert it back into the buffer.
 */
-export async function runBuffer(hub: Hub, piscina: Piscina) {
+export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
     let eventRows: { id: number; event: PluginEvent }[] = []
     await hub.db.postgresTransaction(async (client) => {
-        const eventsResult = await client.query(
-            'SELECT id, event FROM posthog_eventbuffer WHERE process_at <= now() ORDER BY id LIMIT 10 FOR UPDATE SKIP LOCKED'
-        )
+        const eventsResult = await client.query(`
+            UPDATE posthog_eventbuffer SET locked=true WHERE id IN (
+                SELECT id FROM posthog_eventbuffer 
+                WHERE process_at <= now() AND locked=false 
+                ORDER BY id 
+                LIMIT 10 
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING id, event
+        `)
         eventRows = eventsResult.rows
-        const eventIds = eventsResult.rows.map((row) => row.id)
-        if (eventIds.length > 0) {
-            await client.query(`DELETE FROM posthog_eventbuffer WHERE id IN (${eventIds.join(',')})`)
-        }
     })
 
-    const processBufferEvent = async (event: PluginEvent) => {
+    const idsToDelete: number[] = []
+    const idsToUnlock: number[] = []
+    const processBufferEvent = async (event: PluginEvent, id: number) => {
         try {
             await runInstrumentedFunction({
                 server: hub,
@@ -41,11 +45,28 @@ export async function runBuffer(hub: Hub, piscina: Piscina) {
                 statsKey: `kafka_queue.ingest_buffer_event`,
                 timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
             })
+            idsToDelete.push(id)
         } catch (e) {
             hub.statsd?.increment('event_resent_to_buffer')
-            await hub.db.addEventToBuffer(event, DateTime.now())
+            idsToUnlock.push(id)
         }
     }
 
-    await Promise.all(eventRows.map((eventRow) => processBufferEvent(eventRow.event)))
+    await Promise.all(eventRows.map((eventRow) => processBufferEvent(eventRow.event, eventRow.id)))
+
+    if (idsToDelete.length > 0) {
+        await hub.db.postgresQuery(
+            `DELETE FROM posthog_eventbuffer WHERE id IN (${idsToDelete.join(',')})`,
+            [],
+            'completeBufferEvent'
+        )
+    }
+
+    if (idsToUnlock.length > 0) {
+        await hub.db.postgresQuery(
+            `UPDATE posthog_eventbuffer SET locked=false WHERE id IN (${idsToUnlock.join(',')})`,
+            [],
+            'unlockFailedBufferEvents'
+        )
+    }
 }

@@ -2044,8 +2044,8 @@ export class DB {
 
     public async addEventToBuffer(event: Record<string, any>, processAt: DateTime): Promise<void> {
         await this.postgresQuery(
-            `INSERT INTO posthog_eventbuffer (event, process_at) VALUES ($1, $2)`,
-            [event, processAt.toISO()],
+            `INSERT INTO posthog_eventbuffer (event, process_at, locked) VALUES ($1, $2, $3)`,
+            [event, processAt.toISO(), false],
             'addEventToBuffer'
         )
     }
