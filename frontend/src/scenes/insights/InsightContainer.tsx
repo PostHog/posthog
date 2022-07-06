@@ -73,7 +73,7 @@ export function InsightContainer(
         funnelLogic(insightProps)
     )
 
-    const useExportButton = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
+    const newExportButtonActive = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -143,7 +143,7 @@ export function InsightContainer(
                         <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
                             <h2>Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
-                                {useExportButton && exporterResourceParams ? (
+                                {newExportButtonActive && exporterResourceParams ? (
                                     <ExportButton
                                         type="secondary"
                                         items={[
