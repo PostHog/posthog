@@ -592,10 +592,9 @@ export const insightLogic = kea<insightLogicType>({
                     return {
                         filename,
                         method: 'POST',
-                        path: 'TBD',
+                        path: `api/projects/${currentTeamId}/insights/funnel`,
                         body: params,
                     }
-                    // response = await pollFunnel(currentTeamId, params)
                 } else if (insightType === InsightType.PATHS) {
                     return {
                         filename,

@@ -63,10 +63,6 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
 
                 csv_rows.append(line)
             return csv_rows
-
-        elif first_result.get("average_conversion_time"):
-            # PATHS LIKE
-            return items
         elif first_result.get("values") and first_result.get("label"):
             csv_rows = []
             # RETENTION LIKE
@@ -93,6 +89,22 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
                 csv_rows.append(line)
 
             return csv_rows
+        elif first_result.get("action_id"):
+            # FUNNELS LIKE
+            csv_rows = [
+                {
+                    "name": x["custom_name"] or x["action_id"],
+                    "action_id": x["action_id"],
+                    "count": x["count"],
+                    "median_conversion_time (seconds)": x["median_conversion_time"],
+                    "average_conversion_time (seconds)": x["average_conversion_time"],
+                }
+                for x in items
+            ]
+
+            return csv_rows
+        else:
+            return items
 
     return []
 
@@ -120,6 +132,8 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
+
+        # Figure out how to handle funnel polling....
 
         data = response.json()
         csv_rows = _convert_response_to_csv_data(data)
