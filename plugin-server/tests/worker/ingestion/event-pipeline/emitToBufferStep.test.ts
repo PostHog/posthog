@@ -155,6 +155,22 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
+    it('returns false for events from mobile libraries', () => {
+        const eventIos = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-ios' },
+        }
+        const eventAndroid = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-android' },
+        }
+
+        expect(shouldSendEventToBuffer(runner.hub, eventIos, undefined, 2)).toEqual(false)
+        expect(shouldSendEventToBuffer(runner.hub, eventAndroid, undefined, 2)).toEqual(false)
+    })
+
     it('handles CONVERSION_BUFFER_ENABLED and conversionBufferEnabledTeams', () => {
         runner.hub.CONVERSION_BUFFER_ENABLED = false
         runner.hub.conversionBufferEnabledTeams = new Set([2])

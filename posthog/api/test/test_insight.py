@@ -1445,7 +1445,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"filters": {"date_from": "-7d"},},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"filters": {"date_from": "-14d"},},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

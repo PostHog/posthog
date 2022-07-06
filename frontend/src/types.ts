@@ -797,7 +797,7 @@ export interface InsightModel extends DashboardTile {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    derived_name?: string
+    derived_name?: string | null
     description?: string
     favorited?: boolean
     order: number | null
@@ -814,7 +814,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    timezone?: string
+    timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -1433,6 +1433,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    buffer_conversion_seconds?: number
     object_storage: boolean
 }
 
@@ -1733,9 +1734,11 @@ export interface VersionType {
 }
 
 export interface dateMappingOption {
+    key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
     getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    defaultInterval?: IntervalType
 }
 
 export interface Breadcrumb {
