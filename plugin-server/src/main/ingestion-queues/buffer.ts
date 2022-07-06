@@ -55,11 +55,12 @@ export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
     }
 
     if (idsToUnlock.length > 0) {
-        // if we failed processing this event, queue it for a retry in 5min
+        // with every retry we push `process_at` 5min back into the past
+        // with 6 retries it will then stop being fetched
         await hub.db.postgresQuery(
             `
             UPDATE posthog_eventbuffer 
-            SET locked=false 
+            SET locked=false, process_at=(process_at - INTERVAL '5 minute')
             WHERE id IN (${idsToUnlock.join(',')})
             `,
             [],
