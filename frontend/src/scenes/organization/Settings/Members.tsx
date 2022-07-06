@@ -1,20 +1,10 @@
 import React from 'react'
-import { Table, Modal, Button, Dropdown, Menu } from 'antd'
+import { Modal, Button, Dropdown, Menu } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
-import {
-    DeleteOutlined,
-    ExclamationCircleOutlined,
-    LogoutOutlined,
-    UpOutlined,
-    DownOutlined,
-    SwapOutlined,
-    CrownFilled,
-} from '@ant-design/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { ExclamationCircleOutlined, UpOutlined, DownOutlined, SwapOutlined, CrownFilled } from '@ant-design/icons'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -23,7 +13,11 @@ import {
     getReasonForAccessLevelChangeProhibition,
     organizationMembershipLevelIntegers,
     membershipLevelToName,
-} from '../../../lib/utils/permissioning'
+} from 'lib/utils/permissioning'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { TZLabel } from 'lib/components/TimezoneAware'
+import { LemonButton } from 'lib/components/LemonButton'
+import { More } from 'lib/components/LemonButton/More'
 
 function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -110,7 +104,7 @@ function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
     )
 }
 
-function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
+function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { removeMember } = useActions(membersLogic)
@@ -146,19 +140,15 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
         // unless that user is the organization's owner, in which case they can't leave
         member.level !== OrganizationMembershipLevel.Owner
 
-    return (
-        <div>
-            {allowDeletion && (
-                <a className="text-danger" onClick={handleClick} data-attr="delete-org-membership">
-                    {member.user.uuid !== user.uuid ? (
-                        <DeleteOutlined title="Remove from organization" />
-                    ) : (
-                        <LogoutOutlined title="Leave organization" />
-                    )}
-                </a>
-            )}
-        </div>
-    )
+    return allowDeletion ? (
+        <More
+            overlay={
+                <LemonButton type="stealth" status="danger" onClick={handleClick} fullWidth>
+                    {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
+                </LemonButton>
+            }
+        />
+    ) : null
 }
 
 export interface MembersProps {
@@ -169,7 +159,7 @@ export interface MembersProps {
 export function Members({ user }: MembersProps): JSX.Element {
     const { members, membersLoading } = useValues(membersLogic)
 
-    const columns: ColumnsType<OrganizationMemberType> = [
+    const columns: LemonTableColumns<OrganizationMemberType> = [
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
@@ -198,37 +188,38 @@ export function Members({ user }: MembersProps): JSX.Element {
                 return LevelComponent(member)
             },
             sorter: (a, b) => a.level - b.level,
-            defaultSortOrder: 'descend',
         },
         {
-            title: 'Joined At',
+            title: 'Joined',
             dataIndex: 'joined_at',
             key: 'joined_at',
-            render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
+            render: function RenderJoinedAt(joinedAt) {
+                return (
+                    <div className="no-wrap">
+                        <TZLabel time={joinedAt as string} />
+                    </div>
+                )
+            },
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
-            defaultSortOrder: 'ascend',
         },
         {
-            dataIndex: 'actions',
             key: 'actions',
-            align: 'center',
-            render: function ActionsRender(_, member) {
-                return ActionsComponent(member)
-            },
+            width: 0,
+            render: ActionsComponent,
         },
     ]
 
     return (
         <>
             <h2 className="subtitle">Members</h2>
-            <Table
+            <LemonTable
                 dataSource={members}
                 columns={columns}
                 rowKey="id"
-                pagination={false}
                 style={{ marginTop: '1rem' }}
                 loading={membersLoading}
                 data-attr="org-members-table"
+                defaultSorting={{ columnKey: 'level', order: -1 }}
             />
         </>
     )
