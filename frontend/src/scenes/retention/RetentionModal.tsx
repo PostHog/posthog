@@ -65,7 +65,7 @@ export function RetentionModal({
                                     })
                                 }
                             >
-                                Export
+                                Export to CSV
                             </LemonButton>
                         )}
                         <LemonButton type="secondary" onClick={dismissModal}>
