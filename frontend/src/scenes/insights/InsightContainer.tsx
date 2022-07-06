@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { ChartDisplayType, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
@@ -33,6 +33,7 @@ import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -66,10 +67,13 @@ export function InsightContainer(
         showTimeoutMessage,
         showErrorMessage,
         csvExportUrl,
+        exporterResourceParams,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
+
+    const newExportButtonActive = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -139,13 +143,25 @@ export function InsightContainer(
                         <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
                             <h2>Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                    href={csvExportUrl}
-                                >
-                                    Export
-                                </LemonButton>
+                                {newExportButtonActive && exporterResourceParams ? (
+                                    <ExportButton
+                                        type="secondary"
+                                        items={[
+                                            {
+                                                format: ExporterFormat.CSV,
+                                                resource: exporterResourceParams,
+                                            },
+                                        ]}
+                                    />
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
+                                        href={csvExportUrl}
+                                    >
+                                        Export
+                                    </LemonButton>
+                                )}
                             </Tooltip>
                         </div>
                     )}
