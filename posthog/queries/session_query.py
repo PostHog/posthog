@@ -47,7 +47,7 @@ class SessionQuery:
     @property
     def is_used(self):
         "Returns whether any columns from session are actually being queried"
-        if self._filter.breakdown_type == "session":
+        if self._filter.breakdown_type == "session":  # type: ignore # stickyness doesn't have breakdown_type
             return True
 
         if any(prop.type == "session" for prop in self._filter.property_groups.flat):
