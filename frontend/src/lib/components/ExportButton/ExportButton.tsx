@@ -35,7 +35,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 fullWidth
                                 type="stealth"
                                 onClick={() => triggerExport(triggerExportProps)}
-                                data-attr={`export-button-${i}`}
+                                data-attr={`export-button-${triggerExportProps.export_format.split('/').pop()}`}
                             >
                                 {title ? title : `.${triggerExportProps.export_format.split('/').pop()}`}
                             </LemonButton>
