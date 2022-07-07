@@ -10,6 +10,7 @@ from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.storage import object_storage
@@ -173,9 +174,8 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         exported_asset.save(update_fields=["content"])
 
 
+@timed("csv_exporter")
 def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 10_000,) -> None:
-    timer = statsd.timer("csv_exporter").start()
-
     if not limit:
         limit = 1000
 
@@ -199,5 +199,3 @@ def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_l
         logger.error("csv_exporter.failed", exception=e)
         statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
         raise e
-    finally:
-        timer.stop()

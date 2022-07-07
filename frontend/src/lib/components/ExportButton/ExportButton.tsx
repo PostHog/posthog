@@ -29,17 +29,21 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                     <>
                         <h5>File type</h5>
                         <LemonDivider />
-                        {items.map(({ title, ...triggerExportProps }, i) => (
-                            <LemonButton
-                                key={i}
-                                fullWidth
-                                type="stealth"
-                                onClick={() => triggerExport(triggerExportProps)}
-                                data-attr={`export-button-${i}`}
-                            >
-                                {title ? title : `.${triggerExportProps.export_format.split('/').pop()}`}
-                            </LemonButton>
-                        ))}
+                        {items.map(({ title, ...triggerExportProps }, i) => {
+                            const exportFormatExtension = triggerExportProps.export_format.split('/').pop()
+
+                            return (
+                                <LemonButton
+                                    key={i}
+                                    fullWidth
+                                    type="stealth"
+                                    onClick={() => triggerExport(triggerExportProps)}
+                                    data-attr={`export-button-${exportFormatExtension}`}
+                                >
+                                    {title ? title : `.${exportFormatExtension}`}
+                                </LemonButton>
+                            )
+                        })}
                     </>
                 ),
             }}
