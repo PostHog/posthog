@@ -1282,7 +1282,7 @@
        (SELECT e.timestamp as timestamp,
                e."properties" as "properties",
                sessions.session_duration as session_duration,
-               sessions.$session_id as $session_id
+               sessions.$session_id as "$session_id"
         FROM events e
         INNER JOIN
           (SELECT $session_id,
@@ -1310,7 +1310,7 @@
        (SELECT e.timestamp as timestamp,
                e."properties" as "properties",
                sessions.session_duration as session_duration,
-               sessions.$session_id as $session_id
+               sessions.$session_id as "$session_id"
         FROM events e
         INNER JOIN
           (SELECT $session_id,
@@ -1350,7 +1350,7 @@
              (SELECT e.timestamp as timestamp,
                      e."properties" as "properties",
                      sessions.session_duration as session_duration,
-                     sessions.$session_id as $session_id
+                     sessions.$session_id as "$session_id"
               FROM events e
               INNER JOIN
                 (SELECT $session_id,
@@ -1393,7 +1393,7 @@
              (SELECT e.timestamp as timestamp,
                      e."properties" as "properties",
                      sessions.session_duration as session_duration,
-                     sessions.$session_id as $session_id
+                     sessions.$session_id as "$session_id"
               FROM events e
               INNER JOIN
                 (SELECT $session_id,
