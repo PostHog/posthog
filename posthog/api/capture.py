@@ -129,7 +129,7 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         return parser.isoparse(sent_at), None
     except Exception as error:
         statsd.incr("capture_endpoint_invalid_sent_at")
-        logger.error(f"Invalid sent_at value", error=error)
+        logger.exception(f"Invalid sent_at value", error=error)
         return (
             None,
             cors_response(

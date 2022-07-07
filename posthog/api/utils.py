@@ -149,7 +149,7 @@ def get_data(request):
         data = load_data_from_request(request)
     except RequestParsingError as error:
         statsd.incr("capture_endpoint_invalid_payload")
-        logger.error(f"Invalid payload", error=error)
+        logger.exception(f"Invalid payload", error=error)
         return (
             None,
             cors_response(
