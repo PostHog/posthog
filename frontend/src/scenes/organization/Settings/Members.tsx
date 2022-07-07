@@ -96,6 +96,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                             <LemonButton
                                 type="stealth"
                                 status="danger"
+                                data-attr="delete-org-membership"
                                 onClick={() => {
                                     if (!user) {
                                         throw Error
@@ -163,7 +164,7 @@ export function Members({ user }: MembersProps): JSX.Element {
             key: 'level',
             render: function LevelRender(_, member) {
                 return (
-                    <LemonTag data-attr="change-membership-level">
+                    <LemonTag data-attr="membership-level">
                         {member.level === OrganizationMembershipLevel.Owner
                             ? 'Organization owner'
                             : `Project ${membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}`}
