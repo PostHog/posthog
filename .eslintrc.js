@@ -49,7 +49,7 @@ module.exports = {
                 ignoreRestSiblings: true,
             },
         ],
-        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/rules-of-hooks': 'warn',
         'react-hooks/exhaustive-deps': 'warn',
         '@typescript-eslint/prefer-ts-expect-error': 'error',
         '@typescript-eslint/explicit-function-return-type': 'off',
