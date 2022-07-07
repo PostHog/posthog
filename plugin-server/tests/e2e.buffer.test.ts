@@ -1,6 +1,6 @@
 import IORedis from 'ioredis'
-import { DateTime } from 'luxon'
 
+// import { DateTime } from 'luxon'
 import { ONE_HOUR } from '../src/config/constants'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
@@ -77,7 +77,7 @@ describe('E2E with buffer enabled', () => {
             const uuid = new UUIDT().toString()
 
             await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
-            await hub.kafkaProducer.flush()
+            await delay(40000)
 
             await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 500)
             const events = await hub.db.fetchEvents()
@@ -92,63 +92,62 @@ describe('E2E with buffer enabled', () => {
             expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event via buffer']])
         })
 
-        test.skip('three events captured, processed, ingested', async () => {
-            expect((await hub.db.fetchEvents()).length).toBe(0)
+        // test.skip('three events captured, processed, ingested', async () => {
+        //     expect((await hub.db.fetchEvents()).length).toBe(0)
 
-            const uuid1 = new UUIDT().toString()
-            const uuid2 = new UUIDT().toString()
-            const uuid3 = new UUIDT().toString()
+        //     const uuid1 = new UUIDT().toString()
+        //     const uuid2 = new UUIDT().toString()
+        //     const uuid3 = new UUIDT().toString()
 
-            // Batch 1
-            await posthog.capture('custom event via buffer', { name: 'hehe', uuid: uuid1 })
-            await posthog.capture('custom event via buffer', { name: 'hoho', uuid: uuid2 })
-            await hub.kafkaProducer.flush()
-            // Batch 2 - waiting for a few seconds so that the event lands into a separate consumer batch
-            await delay(5000)
-            await posthog.capture('custom event via buffer', { name: 'hihi', uuid: uuid3 })
-            await hub.kafkaProducer.flush()
+        //     // Batch 1
+        //     await posthog.capture('custom event via buffer', { name: 'hehe', uuid: uuid1 })
+        //     await posthog.capture('custom event via buffer', { name: 'hoho', uuid: uuid2 })
+        //     await hub.kafkaProducer.flush()
+        //     // Batch 2 - waiting for a few seconds so that the event lands into a separate consumer batch
+        //     await delay(5000)
+        //     await posthog.capture('custom event via buffer', { name: 'hihi', uuid: uuid3 })
+        //     await hub.kafkaProducer.flush()
 
-            const bufferTopicMessages = await delayUntilBufferMessageProduced(3)
-            const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 3, undefined, 200)
+        //     const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 3, undefined, 200)
 
-            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid1).length).toBe(1)
-            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid2).length).toBe(1)
-            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid3).length).toBe(1)
-            expect(events.length).toBe(3)
+        //     expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid1).length).toBe(1)
+        //     expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid2).length).toBe(1)
+        //     expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid3).length).toBe(1)
+        //     expect(events.length).toBe(3)
 
-            // At least BUFFER_CONVERSION_SECONDS must have elapsed for each event between queuing and saving
-            expect(
-                DateTime.fromSQL(events[0].created_at, { zone: 'utc' })
-                    .diff(DateTime.fromISO(events[0].timestamp))
-                    .toMillis()
-            ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
-            expect(
-                DateTime.fromSQL(events[1].created_at, { zone: 'utc' })
-                    .diff(DateTime.fromISO(events[1].timestamp))
-                    .toMillis()
-            ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
-            expect(
-                DateTime.fromSQL(events[2].created_at, { zone: 'utc' })
-                    .diff(DateTime.fromISO(events[2].timestamp))
-                    .toMillis()
-            ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
+        //     // At least BUFFER_CONVERSION_SECONDS must have elapsed for each event between queuing and saving
+        //     expect(
+        //         DateTime.fromSQL(events[0].created_at, { zone: 'utc' })
+        //             .diff(DateTime.fromISO(events[0].timestamp))
+        //             .toMillis()
+        //     ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
+        //     expect(
+        //         DateTime.fromSQL(events[1].created_at, { zone: 'utc' })
+        //             .diff(DateTime.fromISO(events[1].timestamp))
+        //             .toMillis()
+        //     ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
+        //     expect(
+        //         DateTime.fromSQL(events[2].created_at, { zone: 'utc' })
+        //             .diff(DateTime.fromISO(events[2].timestamp))
+        //             .toMillis()
+        //     ).toBeGreaterThan(hub.BUFFER_CONVERSION_SECONDS * 1000)
 
-            // processEvent ran and modified
-            expect(events[0].properties.processed).toEqual('hell yes')
-            expect(events[1].properties.processed).toEqual('hell yes')
-            expect(events[2].properties.processed).toEqual('hell yes')
-            const eventPluginUuids = events.map((event) => event.properties.upperUuid).sort()
-            expect(eventPluginUuids).toStrictEqual([uuid1.toUpperCase(), uuid2.toUpperCase(), uuid3.toUpperCase()])
+        //     // processEvent ran and modified
+        //     expect(events[0].properties.processed).toEqual('hell yes')
+        //     expect(events[1].properties.processed).toEqual('hell yes')
+        //     expect(events[2].properties.processed).toEqual('hell yes')
+        //     const eventPluginUuids = events.map((event) => event.properties.upperUuid).sort()
+        //     expect(eventPluginUuids).toStrictEqual([uuid1.toUpperCase(), uuid2.toUpperCase(), uuid3.toUpperCase()])
 
-            // onEvent ran
-            expect(testConsole.read()).toEqual([
-                ['processEvent'],
-                ['onEvent', 'custom event via buffer'],
-                ['processEvent'],
-                ['onEvent', 'custom event via buffer'],
-                ['processEvent'],
-                ['onEvent', 'custom event via buffer'],
-            ])
-        })
+        //     // onEvent ran
+        //     expect(testConsole.read()).toEqual([
+        //         ['processEvent'],
+        //         ['onEvent', 'custom event via buffer'],
+        //         ['processEvent'],
+        //         ['onEvent', 'custom event via buffer'],
+        //         ['processEvent'],
+        //         ['onEvent', 'custom event via buffer'],
+        //     ])
+        // })
     })
 })
