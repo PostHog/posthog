@@ -318,7 +318,7 @@ class TestUpdateCache(APIBaseTest):
 
         patch_update_cache_item.assert_any_call(*expected_args)
 
-        update_cache_item(*expected_args)  # type: ignore
+        update_cache_item(*expected_args)
 
         item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
         self.assertIsNotNone(get_safe_cache(item_key))
