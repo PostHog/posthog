@@ -256,8 +256,6 @@ export class EventsProcessor {
                   })
               )
 
-        console.log('CREATING EVENT!!!!!')
-
         await this.kafkaProducer.queueMessage({
             topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
             messages: [

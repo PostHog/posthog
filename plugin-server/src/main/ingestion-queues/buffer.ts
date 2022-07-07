@@ -26,14 +26,11 @@ export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
         eventRows = eventsResult.rows
     })
 
-    console.log(eventRows)
-
     const idsToDelete: number[] = []
 
     // We don't indiscriminately delete all IDs to prevent the case when we don't trigger `runInstrumentedFunction`
     // Once that runs, events will either go to the events table or the dead letter queue
     const processBufferEvent = async (event: PluginEvent, id: number) => {
-        console.log('RUNNING BUFFER PIPELINE')
         await runInstrumentedFunction({
             server: hub,
             event: event,

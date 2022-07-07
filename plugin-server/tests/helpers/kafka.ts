@@ -56,35 +56,3 @@ async function createTopics(kafka: Kafka, topics: string[]) {
     }
     await admin.disconnect()
 }
-
-// export function spyOnKafka(
-//     topic: string,
-//     serverConfig?: Partial<PluginsServerConfig>
-// ): (minLength?: number) => Promise<any[]> {
-//     let bufferTopicMessages: any[]
-//     let bufferConsumer: Consumer
-
-//     beforeAll(async () => {
-//         const kafka = await resetKafka(serverConfig)
-//         bufferConsumer = kafka.consumer({ groupId: 'kafka-test' })
-//         await bufferConsumer.subscribe({ topic })
-//         await bufferConsumer.run({
-//             eachMessage: ({ message }) => {
-//                 const messageValueParsed = JSON.parse(message.value!.toString())
-//                 bufferTopicMessages.push(messageValueParsed)
-//                 return Promise.resolve() // Not really needed but KafkaJS's typing accepts promises only
-//             },
-//         })
-//     })
-
-//     beforeEach(() => {
-//         bufferTopicMessages = []
-//     })
-
-//     afterAll(async () => {
-//         await bufferConsumer.stop()
-//         await bufferConsumer.disconnect()
-//     })
-
-//     return async (minLength) => await delayUntilEventIngested(() => bufferTopicMessages, minLength)
-// }
