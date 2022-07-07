@@ -119,6 +119,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                 propertiesTaxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
                                     TaxonomicFilterGroupType.Cohorts,
                                     TaxonomicFilterGroupType.Elements,
                                 ]}
@@ -144,6 +145,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                 propertiesTaxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.EventProperties,
                                     TaxonomicFilterGroupType.PersonProperties,
+                                    TaxonomicFilterGroupType.EventFeatureFlags,
                                     TaxonomicFilterGroupType.Cohorts,
                                     TaxonomicFilterGroupType.Elements,
                                 ]}
@@ -202,6 +204,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     propertiesTaxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,
                                         TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.EventFeatureFlags,
                                         TaxonomicFilterGroupType.Cohorts,
                                         TaxonomicFilterGroupType.Elements,
                                     ]}
@@ -228,6 +231,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     propertiesTaxonomicGroupTypes={[
                                         TaxonomicFilterGroupType.EventProperties,
                                         TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.EventFeatureFlags,
                                         TaxonomicFilterGroupType.Cohorts,
                                         TaxonomicFilterGroupType.Elements,
                                     ]}

@@ -36,6 +36,7 @@ export function TaxonomicBreakdownButton({
         : [
               TaxonomicFilterGroupType.EventProperties,
               TaxonomicFilterGroupType.PersonProperties,
+              TaxonomicFilterGroupType.EventFeatureFlags,
               ...groupsTaxonomicTypes,
               TaxonomicFilterGroupType.CohortsWithAllUsers,
           ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])

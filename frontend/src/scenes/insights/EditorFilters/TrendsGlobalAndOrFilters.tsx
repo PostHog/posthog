@@ -22,6 +22,7 @@ export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilter
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
                 ...groupsTaxonomicTypes,
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.Elements,

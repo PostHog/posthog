@@ -1,6 +1,6 @@
 import { Button, Col, Row, Space } from 'antd'
 import React from 'react'
-import { LockOutlined, CloseOutlined } from '@ant-design/icons'
+import { CloseOutlined, LockOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -14,14 +14,13 @@ import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnCon
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconTuning } from 'lib/components/icons'
+import { IconTuning, SortableDragIcon } from 'lib/components/icons'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import {
-    SortableHandle as sortableHandle,
     SortableContainer as sortableContainer,
     SortableElement as sortableElement,
+    SortableHandle as sortableHandle,
 } from 'react-sortable-hoc'
-import { SortableDragIcon } from 'lib/components/icons'
 import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from '../RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 
@@ -209,13 +208,17 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                                         <TaxonomicFilter
                                             height={height}
                                             width={width}
-                                            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                            taxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.EventProperties,
+                                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                            ]}
                                             value={undefined}
                                             onChange={(_, value) => value && selectColumn(String(value))}
                                             popoverEnabled={false}
                                             selectFirstItem={false}
                                             excludedProperties={{
                                                 [TaxonomicFilterGroupType.EventProperties]: selectedColumns,
+                                                [TaxonomicFilterGroupType.EventFeatureFlags]: selectedColumns,
                                             }}
                                         />
                                     )

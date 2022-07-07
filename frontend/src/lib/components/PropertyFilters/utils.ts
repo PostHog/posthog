@@ -50,6 +50,7 @@ export function filterMatchesItem(
 const propertyFilterMapping: Record<string, TaxonomicFilterGroupType> = {
     person: TaxonomicFilterGroupType.PersonProperties,
     event: TaxonomicFilterGroupType.EventProperties,
+    feature: TaxonomicFilterGroupType.EventFeatureFlags,
     cohort: TaxonomicFilterGroupType.Cohorts,
     element: TaxonomicFilterGroupType.Elements,
     session: TaxonomicFilterGroupType.Sessions,

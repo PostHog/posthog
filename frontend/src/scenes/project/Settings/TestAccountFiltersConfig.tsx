@@ -29,6 +29,7 @@ export function TestAccountFiltersConfig(): JSX.Element {
                         taxonomicGroupTypes={[
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
                             ...groupsTaxonomicTypes,
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,

@@ -115,6 +115,7 @@ function Example({ value }: { value: string }): JSX.Element {
         // NB: also update "selectedItemHasPopup" below
         type === TaxonomicFilterGroupType.Events ||
         type === TaxonomicFilterGroupType.EventProperties ||
+        type === TaxonomicFilterGroupType.EventFeatureFlags ||
         type === TaxonomicFilterGroupType.PersonProperties ||
         type === TaxonomicFilterGroupType.GroupsPrefix
     ) {

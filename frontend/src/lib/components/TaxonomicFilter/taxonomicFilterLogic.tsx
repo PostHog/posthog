@@ -201,14 +201,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Event properties',
                         searchPlaceholder: 'event properties',
                         type: TaxonomicFilterGroupType.EventProperties,
-                        endpoint: combineUrl(
-                            `api/projects/${teamId}/property_definitions`,
-                            eventNames.length > 0 ? { event_names: eventNames } : {}
-                        ).url,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            is_feature_flag: false,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                        }).url,
                         scopedEndpoint:
                             eventNames.length > 0
                                 ? combineUrl(`api/projects/${teamId}/property_definitions`, {
                                       event_names: eventNames,
+                                      is_feature_flag: false,
                                       is_event_property: true,
                                   }).url
                                 : undefined,
@@ -222,6 +223,34 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
+                        ...propertyTaxonomicGroupProps(),
+                    },
+                    {
+                        name: 'Feature flags',
+                        searchPlaceholder: 'feature flags',
+                        type: TaxonomicFilterGroupType.EventFeatureFlags,
+                        endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
+                            is_feature_flag: true,
+                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                        }).url,
+                        scopedEndpoint:
+                            eventNames.length > 0
+                                ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                      event_names: eventNames,
+                                      is_feature_flag: true,
+                                      is_event_property: true,
+                                  }).url
+                                : undefined,
+                        expandLabel: ({ count, expandedCount }) =>
+                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
+                                eventNames.length,
+                                'has',
+                                'have',
+                                false
+                            )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
+                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
+                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventFeatureFlags],
                         ...propertyTaxonomicGroupProps(),
                     },
                     {

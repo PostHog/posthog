@@ -39,6 +39,7 @@ export function TaxonomicPropertyFilter({
     const groupTypes = taxonomicGroupTypes || [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
     ]

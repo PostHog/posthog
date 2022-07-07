@@ -122,6 +122,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             ]}
                             propertiesTaxonomicGroupTypes={[
                                 TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
                                 TaxonomicFilterGroupType.Elements,
                             ]}
                         />
