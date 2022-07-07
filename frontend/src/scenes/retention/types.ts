@@ -3,6 +3,7 @@ import { ActorType, PersonType } from '~/types'
 export interface RetentionTablePayload {
     date: string
     label: string
+    people_url: string
     values: Record<string, any>[]
 }
 

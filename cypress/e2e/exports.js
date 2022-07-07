@@ -10,6 +10,7 @@ describe('Exporting Insights', () => {
             req.reply(
                 decideResponse({
                     'export-dashboard-insights': true,
+                    ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: true,
                 })
             )
         )
@@ -28,14 +29,14 @@ describe('Exporting Insights', () => {
     })
 
     it('Export an Insight to png', () => {
-        cy.get('[data-attr=more-button]').click()
-        cy.get('[data-attr=export-button]').click()
+        cy.get('.page-buttons [data-attr=more-button]').click()
+        cy.get('.Popup [data-attr=export-button]').click()
         cy.get('[data-attr=export-button-png]').click()
 
-        const expecteFileName = 'export-pageview-count.png'
+        const expectedFileName = 'export-pageview-count.png'
         cy.task('compareToReferenceImage', {
-            source: expecteFileName,
-            reference: `../data/exports/${expecteFileName}`,
+            source: expectedFileName,
+            reference: `../data/exports/${expectedFileName}`,
             diffThreshold: 0.01,
         })
     })

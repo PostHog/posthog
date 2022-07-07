@@ -23,7 +23,6 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
-import { ExporterFormat } from 'lib/components/ExportButton/exporterLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1964,12 +1963,24 @@ export interface SharingConfigurationType {
     created_at: string
 }
 
+export enum ExporterFormat {
+    PNG = 'image/png',
+    CSV = 'text/csv',
+    PDF = 'application/pdf',
+}
+
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    exportContext?: any
+    export_context?: {
+        method?: string
+        path: string
+        query?: any
+        body?: any
+        filename?: string
+    }
     has_content: boolean
     filename: string
 }

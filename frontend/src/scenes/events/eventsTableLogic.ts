@@ -4,13 +4,20 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import type { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, PropertyFilter, PropertyGroupFilter } from '~/types'
+import {
+    AnyPropertyFilter,
+    EventsTableRowItem,
+    EventType,
+    ExporterFormat,
+    PropertyFilter,
+    PropertyGroupFilter,
+} from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ExporterFormat, exporterLogic } from 'lib/components/ExportButton/exporterLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 const DAYS_FIRST_FETCH = 5
 const DAYS_SECOND_FETCH = 365
@@ -73,7 +80,6 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             .join('-'),
     connect: {
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
-        actions: [exporterLogic, ['exportItem']],
     },
     actions: {
         setPollingActive: (pollingActive: boolean) => ({
@@ -217,23 +223,32 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             () => [selectors.events, selectors.newEvents],
             (events, newEvents) => formatEvents(events, newEvents),
         ],
-        exportParams: [
-            () => [selectors.eventFilter, selectors.orderBy, selectors.properties, selectors.minimumExportDate],
-            (eventFilter, orderBy, properties, minimumQueryDate) => ({
+
+        listParams: [
+            () => [selectors.eventFilter, selectors.orderBy, selectors.properties],
+            (eventFilter, orderBy, properties) => ({
                 ...(props.fixedFilters || {}),
                 properties: [...properties, ...(props.fixedFilters?.properties || [])],
                 ...(eventFilter ? { event: eventFilter } : {}),
                 orderBy: [orderBy],
-                after: minimumQueryDate,
             }),
         ],
         exportUrl: [
-            () => [selectors.currentTeamId, selectors.exportParams],
-            (teamId, exportParams) => `/api/projects/${teamId}/events.csv?${toParams(exportParams)}`,
+            () => [selectors.currentTeamId, selectors.listParams],
+            (teamId, listParams) => `/api/projects/${teamId}/events.csv?${toParams(listParams)}`,
+        ],
+
+        eventsUrl: [
+            () => [selectors.currentTeamId, selectors.listParams],
+            (teamId, params) =>
+                (additonalParams = {}) =>
+                    `/api/projects/${teamId}/events?${toParams({
+                        ...params,
+                        ...additonalParams,
+                    })}`,
         ],
         months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
         minimumExportDate: [() => [selectors.months], () => now().subtract(1, 'months').toISOString()],
-        minimumQueryDate: [() => [selectors.months], (months) => now().subtract(months, 'months').toISOString()],
         pollAfter: [
             () => [selectors.events],
             (events) => (events?.length > 0 && events[0].timestamp ? events[0].timestamp : daysAgo(0)),
@@ -282,7 +297,12 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     listeners: ({ actions, values, props }) => ({
         startDownload: () => {
             if (!!values.featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-                actions.exportItem(ExporterFormat.CSV, {}, values.exportParams)
+                triggerExport({
+                    export_format: ExporterFormat.CSV,
+                    export_context: {
+                        path: values.eventsUrl(),
+                    },
+                })
             } else {
                 lemonToast.success('The export is starting. It should finish soon')
                 window.location.href = values.exportUrl
@@ -313,18 +333,12 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 await breakpoint(1)
             }
 
-            const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
-
             async function getAPIResponse(after: string): Promise<any> {
-                const params = {
+                const url = values.eventsUrl({
                     after: after,
-                    ...(props.fixedFilters || {}),
-                    properties,
-                    ...(nextParams || {}),
-                    ...(values.eventFilter ? { event: values.eventFilter } : {}),
-                    orderBy: [values.orderBy],
-                }
-                return api.get(`api/projects/${values.currentTeamId}/events/?${toParams(params)}`)
+                    ...nextParams,
+                })
+                return api.get(url)
             }
 
             let apiResponse = null
@@ -378,21 +392,13 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 return
             }
 
-            const properties = [...values.properties, ...(props.fixedFilters?.properties || [])]
-
-            const params: Record<string, unknown> = {
-                ...(props.fixedFilters || {}),
-                properties,
-                ...(values.eventFilter ? { event: values.eventFilter } : {}),
-                orderBy: [values.orderBy],
+            const url = values.eventsUrl({
                 after: values.pollAfter,
-            }
-
-            const urlParams = toParams(params)
+            })
 
             let apiResponse = null
             try {
-                apiResponse = await api.get(`api/projects/${values.currentTeamId}/events/?${urlParams}`)
+                apiResponse = await api.get(url)
             } catch (e) {
                 // We don't call fetchOrPollFailure because we don't to generate an error alert for this
                 return
