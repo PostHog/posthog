@@ -87,7 +87,7 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
             exported_asset.save(update_fields=["content_location"])
 
 
-@timed("csv_exports")
+@timed("csv_exporter")
 def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
     try:
         if exported_asset.export_format == "text/csv":
