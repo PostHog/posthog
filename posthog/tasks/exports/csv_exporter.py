@@ -1,5 +1,6 @@
 import datetime
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
@@ -38,6 +39,14 @@ logger = structlog.get_logger(__name__)
 # 3. We save the response to a chunk in object storage and then load the `next` page of results
 # 4. Repeat until exhausted or limit reached
 # 5. We save the final blob output and update the ExportedAsset
+
+
+def _modifiy_query(url: str, params: Dict[str, List[str]]) -> str:
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    query_params.update(params)
+    parsed._replace(query=urlencode(query_params))
+    return urlunparse(parsed)
 
 
 def _convert_response_to_csv_data(data: Any) -> List[Any]:
@@ -125,8 +134,7 @@ def _export_to_csv(
     all_csv_rows: List[Any] = []
 
     while len(all_csv_rows) < max_limit:
-        url = next_url or absolute_uri(path)
-        url += f"{'&' if '?' in url else '?'}limit={limit}"  # todo what if limit is already in URL
+        url = _modifiy_query(next_url or absolute_uri(path), {"limit": [str(limit)]})
 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
