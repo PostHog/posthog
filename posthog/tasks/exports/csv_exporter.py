@@ -9,6 +9,7 @@ from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog import settings
+from posthog.logging.timing import timed
 from posthog.models import Filter
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.exported_asset import ExportedAsset
@@ -86,9 +87,8 @@ def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
             exported_asset.save(update_fields=["content_location"])
 
 
+@timed("csv_exporter")
 def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
-    timer = statsd.timer("csv_exporter").start()
-
     try:
         if exported_asset.export_format == "text/csv":
             _export_to_csv(exported_asset, root_bucket)
@@ -109,5 +109,3 @@ def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT
         logger.error("csv_exporter.failed", exception=e)
         statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
         raise e
-    finally:
-        timer.stop()

@@ -33,7 +33,8 @@ class TestCapture(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.client = Client()
+        # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
+        self.client = Client(enforce_csrf_checks=True)
 
     def _to_json(self, data: Union[Dict, List]) -> str:
         return json.dumps(data)
