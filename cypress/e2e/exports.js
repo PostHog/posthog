@@ -31,7 +31,7 @@ describe('Exporting Insights', () => {
     it('Export an Insight to png', () => {
         cy.get('.page-buttons [data-attr=more-button]').click()
         cy.get('.Popup [data-attr=export-button]').click()
-        cy.get('.Popup [data-attr=export-button-png]').click()
+        cy.get('[data-attr=export-button-png]').click()
 
         const expectedFileName = 'export-pageview-count.png'
         cy.task('compareToReferenceImage', {
