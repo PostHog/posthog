@@ -94,7 +94,9 @@ runs:
           shell: bash
           run: |
               pytest -m "not ee and not async_migrations" posthog/ --cov  --cov-report=xml:coverage-postgres.xml \
-                --durations=150 --durations-min=1.0 $PYTEST_ARGS
+                  --splits ${{ inputs.concurrency }} \
+                  --group ${{ inputs.group }} \
+                  --durations=150 --durations-min=1.0 $PYTEST_ARGS
 
         - name: Run ee/ tests
           if: ${{ inputs.ee == 'true' && inputs.person-on-events != 'true' }}
