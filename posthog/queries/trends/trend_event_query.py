@@ -34,7 +34,7 @@ class TrendsEventQuery(EventQuery):
                 [
                     ", "
                     + get_property_string_expr("events", property, f"'{property}'", "properties", table_alias="e")[0]
-                    + f" as {property}"
+                    + f' as "{property}"'
                     for property in self._extra_event_properties
                 ]
             )
@@ -45,7 +45,7 @@ class TrendsEventQuery(EventQuery):
                 else ""
             )
             + (
-                f", {self.SESSION_TABLE_ALIAS}.$session_id as $session_id"
+                f', {self.SESSION_TABLE_ALIAS}.$session_id as "$session_id"'
                 if self._should_join_sessions and "$session_id" not in self._extra_event_properties
                 else ""
             )

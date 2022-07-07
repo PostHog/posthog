@@ -77,6 +77,11 @@ class FunnelEventQuery(EventQuery):
                     for column_name in self._person_query.fields
                 )
 
+        if self._should_join_sessions:
+            if "$session_id" not in self._extra_event_properties:
+                _fields.append(f'{self.SESSION_TABLE_ALIAS}.$session_id as "$session_id"')
+            _fields.append(f"{self.SESSION_TABLE_ALIAS}.session_duration as session_duration")
+
         _fields = list(filter(None, _fields))
 
         date_query, date_params = self._get_date_filter()
@@ -106,11 +111,15 @@ class FunnelEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
+        session_query, session_params = self._get_sessions_query()
+        self.params.update(session_params)
+
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}
+            {session_query}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}

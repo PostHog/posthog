@@ -227,6 +227,36 @@ def _to_bucketing_expression(bin_count: int) -> str:
     return f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))"
 
 
+def get_histogram_breakdown_values_query(raw_breakdown_value: str, buckets: List[int]):
+
+    multi_if_conditionals = []
+    values_arr = []
+
+    if len(buckets) == 1:
+        # Only one value, so treat this as a single bucket
+        # starting at this value, ending at the same value.
+        buckets = [buckets[0], buckets[0]]
+
+    for i in range(len(buckets) - 1):
+        last_bucket = i == len(buckets) - 2
+
+        # Since we always `floor(x, 2)` the value, we add 0.01 to the last bucket
+        # to ensure it's always slightly greater than the maximum value
+        lower_bound = buckets[i]
+        upper_bound = buckets[i + 1] + 0.01 if last_bucket else buckets[i + 1]
+        multi_if_conditionals.append(
+            f"{raw_breakdown_value} >= {lower_bound} AND {raw_breakdown_value} < {upper_bound}"
+        )
+        bucket_value = f"[{lower_bound},{upper_bound}]"
+        multi_if_conditionals.append(f"'{bucket_value}'")
+        values_arr.append(bucket_value)
+
+    # else condition
+    multi_if_conditionals.append(f"""'["",""]'""")
+
+    return f"multiIf({','.join(multi_if_conditionals)})", values_arr
+
+
 def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
     entity = kwargs.pop("entity", None)
     parsed_date_from, parsed_date_to, date_params = parse_timestamps(filter=filter, team=team, table="all_events.")

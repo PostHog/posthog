@@ -10,7 +10,12 @@ from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
-from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
+from posthog.queries.funnels.test.breakdown_cases import (
+    FunnelStepResult,
+    assert_funnel_breakdown_result_is_correct,
+    assert_funnel_results_equal,
+    funnel_breakdown_test_factory,
+)
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import (
@@ -35,7 +40,101 @@ def _create_action(**kwargs):
 
 class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_action, _create_person)):  # type: ignore
     maxDiff = None
-    pass
+
+    # TODO: adapt these tests for other funnel order types as well
+    def test_funnel_histogram_with_sessions(self):
+        people = journeys_for(
+            {
+                "1": [
+                    {
+                        "event": "user signed up",
+                        "properties": {"$session_id": "one"},
+                        "timestamp": "2012-01-14 00:16:00",
+                    },
+                    {
+                        "event": "$pageviewX",
+                        "properties": {"$session_id": "one"},
+                        "timestamp": "2012-01-14 00:16:10",
+                    },  # 10s session, but did not convert
+                ],
+                "2": [
+                    {
+                        "event": "user signed up",
+                        "properties": {"$session_id": "three"},
+                        "timestamp": "2012-01-14 00:16:00",
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "three"},
+                        "timestamp": "2012-01-14 00:16:30",
+                    },  # 30s session, converted!
+                ],
+                "3": [
+                    {
+                        "event": "user signed up",
+                        "properties": {"$session_id": "five"},
+                        "timestamp": "2012-01-15 00:16:00",
+                    },
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "five"},
+                        "timestamp": "2012-01-15 00:16:35",
+                    },  # 35s session, converted
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "events": [{"id": "user signed up", "order": 0}, {"id": "$pageview", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2012-01-10",
+            "date_to": "2012-01-17",
+            "funnel_window_days": 7,
+            "breakdown_type": "session",
+            "breakdown": "$session_duration",
+            "breakdown_histogram_bin_count": 2,
+        }
+
+        filter = Filter(data=filters, team=self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        with self.settings(SHELL_PLUS_PRINT_SQL=False):
+            result = funnel.run()
+
+        result = sorted(result, key=lambda x: x[0]["breakdown"])
+
+        self.assertEqual(len(result), 2)
+        assert_funnel_breakdown_result_is_correct(
+            result[0],
+            [
+                FunnelStepResult(name="user signed up", breakdown="[10.0,30.0]", count=1),
+                FunnelStepResult(name="$pageview", breakdown="[10.0,30.0]", count=0),
+            ],
+        )
+
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "[10.0,30.0]"), [people["1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "[10.0,30.0]"), [])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[1],
+            [
+                FunnelStepResult(name="user signed up", breakdown="[30.0,35.01]", count=2),
+                FunnelStepResult(
+                    name="$pageview",
+                    breakdown="[30.0,35.01]",
+                    count=2,
+                    average_conversion_time=32.5,
+                    median_conversion_time=32.5,
+                ),
+            ],
+        )
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 1, "[30.0,35.01]"), [people["2"].uuid, people["3"].uuid]
+        )
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 2, "[30.0,35.01]"), [people["2"].uuid, people["3"].uuid]
+        )
 
 
 class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person)):  # type: ignore

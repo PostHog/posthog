@@ -28,6 +28,7 @@ from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
+    get_histogram_breakdown_values_query,
 )
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
@@ -303,7 +304,7 @@ class TrendsBreakdown:
         numeric_property_filter = ""
         if self.filter.using_histogram:
             numeric_property_filter = f"AND {breakdown_value} is not null"
-            breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
+            breakdown_value, values_arr = get_histogram_breakdown_values_query(breakdown_value, values_arr)
 
         return (
             {"values": values_arr},
@@ -342,35 +343,6 @@ class TrendsBreakdown:
         if self.filter.using_histogram:
             return f"toFloat64OrNull(toString({breakdown_value}))"
         return breakdown_value
-
-    def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
-
-        multi_if_conditionals = []
-        values_arr = []
-
-        if len(buckets) == 1:
-            # Only one value, so treat this as a single bucket
-            # starting at this value, ending at the same value.
-            buckets = [buckets[0], buckets[0]]
-
-        for i in range(len(buckets) - 1):
-            last_bucket = i == len(buckets) - 2
-
-            # Since we always `floor(x, 2)` the value, we add 0.01 to the last bucket
-            # to ensure it's always slightly greater than the maximum value
-            lower_bound = buckets[i]
-            upper_bound = buckets[i + 1] + 0.01 if last_bucket else buckets[i + 1]
-            multi_if_conditionals.append(
-                f"{raw_breakdown_value} >= {lower_bound} AND {raw_breakdown_value} < {upper_bound}"
-            )
-            bucket_value = f"[{lower_bound},{upper_bound}]"
-            multi_if_conditionals.append(f"'{bucket_value}'")
-            values_arr.append(bucket_value)
-
-        # else condition
-        multi_if_conditionals.append(f"""'["",""]'""")
-
-        return f"multiIf({','.join(multi_if_conditionals)})", values_arr
 
     def breakdown_sort_function(self, value):
         if self.filter.using_histogram:

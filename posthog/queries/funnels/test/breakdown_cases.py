@@ -51,7 +51,13 @@ def assert_funnel_breakdown_result_is_correct(result, steps: List[FunnelStepResu
 def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
     class TestFunnelBreakdown(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+            person_filter = filter.with_data(
+                {
+                    "funnel_step": funnel_step,
+                    "funnel_step_breakdown": breakdown_value,
+                    "breakdown_value": breakdown_value,
+                }
+            )
             _, serialized_result = FunnelPerson(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]

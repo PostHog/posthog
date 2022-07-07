@@ -30,6 +30,7 @@ from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
     get_breakdown_cohort_name,
     get_breakdown_prop_values,
+    get_histogram_breakdown_values_query,
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.funnels.sql import FUNNEL_INNER_EVENT_STEPS_QUERY
@@ -213,8 +214,12 @@ class ClickhouseFunnelBase(ABC):
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
+                converted_people_filter = converted_people_filter.with_data(
+                    {"funnel_step_breakdown": breakdown_value, "breakdown_value": breakdown_value}
+                )
+                dropped_people_filter = dropped_people_filter.with_data(
+                    {"funnel_step_breakdown": breakdown_value, "breakdown_value": breakdown_value}
+                )
 
             serialized_result.update(
                 {
@@ -417,9 +422,11 @@ class ClickhouseFunnelBase(ABC):
 
         steps = ", ".join(all_step_cols)
 
-        breakdown_select_prop = self._get_breakdown_select_prop()
+        breakdown_select_prop, values = self._get_breakdown_select_prop_and_values()
         if len(breakdown_select_prop) > 0:
             select_prop = f", {breakdown_select_prop}"
+            self.params.update({"breakdown_values": values})
+
         else:
             select_prop = ""
         extra_join = ""
@@ -427,9 +434,6 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
-            else:
-                values = self._get_breakdown_conditions()
-                self.params.update({"breakdown_values": values})
 
         inner_query = FUNNEL_INNER_EVENT_STEPS_QUERY.format(
             steps=steps,
@@ -566,6 +570,11 @@ class ClickhouseFunnelBase(ABC):
 
         if self._filter.funnel_step_breakdown is not None:
             breakdown_prop_value = self._filter.funnel_step_breakdown
+
+            if self._filter.using_histogram:
+                # breakdown value is supposed to be a string, but incorrectly loaded as json
+                # so use breakdown_value instead, which is free from these shenanigans
+                breakdown_prop_value = self._filter.breakdown_value
             if isinstance(breakdown_prop_value, int) and self._filter.breakdown_type != "cohort":
                 breakdown_prop_value = str(breakdown_prop_value)
 
@@ -675,10 +684,12 @@ class ClickhouseFunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> str:
         raise NotImplementedError()
 
-    def _get_breakdown_select_prop(self) -> str:
+    def _get_breakdown_select_prop_and_values(self) -> Tuple[str, list]:
         basic_prop_selector = ""
         if not self._filter.breakdown:
-            return basic_prop_selector
+            return basic_prop_selector, []
+
+        values_arr = self._get_breakdown_conditions() or []
 
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
@@ -720,6 +731,22 @@ class ClickhouseFunnelBase(ABC):
                     table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field,
                 )
             basic_prop_selector = f"{expression} AS prop_basic"
+        elif self._filter.breakdown_type == "session":
+            if self._filter.breakdown == "$session_duration":
+                basic_prop_selector = f"session_duration AS prop_basic"
+            else:
+                raise ValidationError(f'Invalid breakdown "{self._filter.breakdown}" for breakdown type "session"')
+
+        # Before checking attribution type, parse values if they are supposed to be grouped
+        basic_prop_selectors = [basic_prop_selector]
+        if self._filter.using_histogram:
+            breakdown_select_prop = f"toFloat64OrNull(toString(prop_basic))"
+            histogram_conditional, values_arr = get_histogram_breakdown_values_query(breakdown_select_prop, values_arr)
+            histogram_prop_selector = f"{histogram_conditional} AS prop_basic_grouped"
+        else:
+            histogram_prop_selector = "prop_basic as prop_basic_grouped"
+
+        basic_prop_selectors.append(histogram_prop_selector)
 
         # TODO: simplify once array and string breakdowns are sorted
         if self._filter.breakdown_attribution_type == BreakdownAttributionType.STEP:
@@ -729,13 +756,15 @@ class ClickhouseFunnelBase(ABC):
             # get prop value from each step
             for index, _ in enumerate(self._filter.entities):
                 prop_alias = f"prop_{index}"
-                select_columns.append(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as {prop_alias}")
+                select_columns.append(
+                    f"if(step_{index} = 1, prop_basic_grouped, {default_breakdown_selector}) as {prop_alias}"
+                )
                 prop_aliases.append(prop_alias)
             final_select = f"prop_{self._filter.breakdown_attribution_value} as prop"
 
             prop_window = "groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals"
 
-            return ",".join([basic_prop_selector, *select_columns, final_select, prop_window])
+            return ",".join([*basic_prop_selectors, *select_columns, final_select, prop_window]), values_arr
         elif self._filter.breakdown_attribution_type in [
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
@@ -755,10 +784,10 @@ class ClickhouseFunnelBase(ABC):
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
             prop_window = f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals"
-            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window])
+            return ",".join([*basic_prop_selectors, "prop_basic_grouped as prop", prop_window]), values_arr
         else:
             # ALL_EVENTS
-            return ",".join([basic_prop_selector, "prop_basic as prop"])
+            return ",".join([*basic_prop_selectors, "prop_basic_grouped as prop"]), values_arr
 
     def _get_cohort_breakdown_join(self) -> str:
         cohort_queries, ids, cohort_params = format_breakdown_cohort_join_query(self._team, self._filter)
@@ -771,7 +800,7 @@ class ClickhouseFunnelBase(ABC):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> Optional[str]:
+    def _get_breakdown_conditions(self) -> Optional[list]:
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.
@@ -781,7 +810,7 @@ class ClickhouseFunnelBase(ABC):
         e.g. [Chrome, Safari], [95, 15] doesn't make clear that Chrome 15 isn't valid but Safari 15 is
         so the generated list here must be [[Chrome, 95], [Safari, 15]]
         """
-        if self._filter.breakdown:
+        if self._filter.breakdown and self._filter.breakdown_type != "cohort":
             use_all_funnel_entities = (
                 self._filter.breakdown_attribution_type
                 in [BreakdownAttributionType.FIRST_TOUCH, BreakdownAttributionType.LAST_TOUCH,]
@@ -809,6 +838,8 @@ class ClickhouseFunnelBase(ABC):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
+            if self._filter.using_histogram:
+                pass
             other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
             if group_remaining and self._filter.breakdown_type in ["person", "event", "group"]:
                 return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
