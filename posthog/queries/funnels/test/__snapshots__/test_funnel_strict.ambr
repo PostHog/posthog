@@ -65,7 +65,8 @@
                               AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', ''))), 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS prop_basic,
-                           prop_basic as prop,
+                           prop_basic as prop_basic_grouped,
+                           prop_basic_grouped as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
                     FROM
                       (SELECT e.event as event,
@@ -163,8 +164,9 @@
                               AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', ''))), 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS prop_basic,
-                           if(step_0 = 1, prop_basic, []) as prop_0,
-                           if(step_1 = 1, prop_basic, []) as prop_1,
+                           prop_basic as prop_basic_grouped,
+                           if(step_0 = 1, prop_basic_grouped, []) as prop_0,
+                           if(step_1 = 1, prop_basic_grouped, []) as prop_1,
                            prop_1 as prop,
                            groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals
                     FROM
@@ -263,7 +265,8 @@
                            if(event = 'buy', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS prop_basic,
-                           prop_basic as prop,
+                           prop_basic as prop_basic_grouped,
+                           prop_basic_grouped as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
                     FROM
                       (SELECT e.event as event,
