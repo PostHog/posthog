@@ -2048,5 +2048,6 @@ export class DB {
             [event, processAt.toISO(), false],
             'addEventToBuffer'
         )
+        this.statsd?.increment('events_sent_to_buffer')
     }
 }

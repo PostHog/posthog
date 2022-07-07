@@ -76,7 +76,7 @@ describe('E2E with buffer enabled', () => {
     })
 
     describe('ClickHouse ingestion', () => {
-        test('event captured, processed, ingested', async () => {
+        test.skip('event captured, processed, ingested', async () => {
             expect((await hub.db.fetchEvents()).length).toBe(0)
 
             const uuid = new UUIDT().toString()
@@ -99,7 +99,7 @@ describe('E2E with buffer enabled', () => {
             expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event via buffer']])
         })
 
-        test('three events captured, processed, ingested', async () => {
+        test.skip('three events captured, processed, ingested', async () => {
             expect((await hub.db.fetchEvents()).length).toBe(0)
 
             const uuid1 = new UUIDT().toString()

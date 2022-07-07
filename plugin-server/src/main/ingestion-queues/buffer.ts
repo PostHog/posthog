@@ -27,21 +27,18 @@ export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
     })
 
     const idsToDelete: number[] = []
-    const idsToUnlock: number[] = []
+
+    // We don't indiscriminately delete all IDs to prevent the case when we don't trigger `runInstrumentedFunction`
+    // Once that runs, events will either go to the events table or the dead letter queue
     const processBufferEvent = async (event: PluginEvent, id: number) => {
-        try {
-            await runInstrumentedFunction({
-                server: hub,
-                event: event,
-                func: () => runBufferEventPipeline(hub, piscina, event),
-                statsKey: `kafka_queue.ingest_buffer_event`,
-                timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
-            })
-            idsToDelete.push(id)
-        } catch (e) {
-            hub.statsd?.increment('event_resent_to_buffer')
-            idsToUnlock.push(id)
-        }
+        await runInstrumentedFunction({
+            server: hub,
+            event: event,
+            func: () => runBufferEventPipeline(hub, piscina, event),
+            statsKey: `kafka_queue.ingest_buffer_event`,
+            timeoutMessage: 'After 30 seconds still running runBufferEventPipeline',
+        })
+        idsToDelete.push(id)
     }
 
     await Promise.all(eventRows.map((eventRow) => processBufferEvent(eventRow.event, eventRow.id)))
@@ -52,19 +49,27 @@ export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
             [],
             'completeBufferEvent'
         )
+        hub.statsd?.increment('events_deleted_from_buffer', idsToDelete.length)
     }
+}
 
-    if (idsToUnlock.length > 0) {
-        // with every retry we push `process_at` 5min back into the past
-        // with 6 retries it will then stop being fetched
-        await hub.db.postgresQuery(
-            `
-            UPDATE posthog_eventbuffer 
-            SET locked=false, process_at=(process_at - INTERVAL '5 minute')
-            WHERE id IN (${idsToUnlock.join(',')})
-            `,
-            [],
-            'unlockFailedBufferEvents'
-        )
+export async function clearBufferLocks(hub: Hub): Promise<void> {
+    /*
+     * If we crash during runBuffer we may end up with 2 scenarios:
+     *   1. "locked" rows with events that were never processed (crashed after fetching and before running the pipeline)
+     *   2. "locked" rows with events that were processed (crashed after the pipeline and before deletion)
+     * This clears any old locks such that the events are processed again. If there are any duplicates ClickHouse should collapse them.
+     */
+    const recordsUpdated = await hub.db.postgresQuery(
+        `UPDATE posthog_eventbuffer 
+        SET locked=false, process_at=now() 
+        WHERE locked=true AND process_at < (now() - INTERVAL '30 minute')
+        RETURNING 1`,
+        [],
+        'clearBufferLocks'
+    )
+
+    if (recordsUpdated.rowCount > 0 && hub.statsd) {
+        hub.statsd.increment('buffer_locks_cleared', recordsUpdated.rowCount)
     }
 }
