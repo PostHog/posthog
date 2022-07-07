@@ -30,7 +30,7 @@ describe('Exporting Insights', () => {
 
     it('Export an Insight to png', () => {
         cy.get('[data-attr=more-button]').click()
-        cy.get('[data-attr=export-button]').first().click()
+        cy.get('.Popup [data-attr=export-button]').click()
         cy.get('[data-attr=export-button-png]').click()
 
         const expecteFileName = 'export-pageview-count.png'
