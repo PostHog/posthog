@@ -149,6 +149,7 @@ export const personsLogic = kea<personsLogicType>({
                 },
             ],
         ],
+        urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
     }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {

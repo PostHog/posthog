@@ -905,7 +905,9 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
         self.assertEqual(response.status_code, 200)  # type: ignore
-        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
+        )
 
         response = self.client.generic(
             "OPTIONS",
@@ -915,4 +917,6 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
         self.assertEqual(response.status_code, 200)  # type: ignore
-        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
+        )

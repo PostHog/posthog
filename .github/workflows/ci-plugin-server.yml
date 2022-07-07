@@ -3,6 +3,7 @@ name: Plugin Server CI
 on:
     pull_request:
         paths:
+            - .github/workflows/ci-plugin-server.yml
             - 'plugin-server/**'
             - 'ee/clickhouse/migrations/**'
             - 'ee/migrations/**'
@@ -58,24 +59,6 @@ jobs:
             matrix:
                 shard: [1/3, 2/3, 3/3]
 
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: test_posthog
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-            redis:
-                image: redis:6.2.7-alpine
-                ports:
-                    - '6379:6379'
-                options: >-
-                    --health-cmd "redis-cli ping"
-                    --health-interval 10s
-                    --health-timeout 5s
-                    --health-retries 5
         env:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
@@ -86,16 +69,15 @@ jobs:
             - name: Code check out
               uses: actions/checkout@v2
 
-            - name: Fix Kafka Hostname
+            - name: Stop/Start stack with Docker Compose
               run: |
-                  sudo bash -c 'echo "127.0.0.1 kafka zookeeper" >> /etc/hosts'
-                  ping -c 1 kafka
-                  ping -c 1 zookeeper
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d
 
-            - name: Start Kafka, ClickHouse, Zookeeper, Object Storage
-              run: docker-compose -f docker-compose.dev.yml up -d zookeeper kafka clickhouse object_storage
+            - name: Add Kafka to /etc/hosts
+              run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
-            - name: Set up Python 3.8.12
+            - name: Set up Python
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8.12
@@ -138,19 +120,18 @@ jobs:
               run: cd plugin-server && yarn
 
             - name: Wait for Clickhouse & Kafka
-              shell: bash
               run: bin/check_kafka_clickhouse_up
 
             - name: Set up databases
               env:
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/posthog'
                   TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
               run: cd plugin-server && yarn setup:test
 
             - name: Test with Jest
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:5432/test_posthog'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
               run: cd plugin-server && yarn test --shard=${{matrix.shard}}

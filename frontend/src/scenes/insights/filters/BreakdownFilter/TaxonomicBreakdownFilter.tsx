@@ -1,12 +1,13 @@
-import { Tag } from 'antd'
 import { useValues } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
-import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { Breakdown, ChartDisplayType, FilterType } from '~/types'
+import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange } from './taxonomicBreakdownFilterUtils'
 
@@ -16,13 +17,13 @@ export interface TaxonomicBreakdownFilterProps {
     useMultiBreakdown?: boolean
 }
 
-const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
+export const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
 
-const isCohort = (t: number | string): t is number => typeof t === 'number'
+export const isCohort = (t: number | string): t is number => typeof t === 'number'
 
-const isCohortBreakdown = (t: number | string): t is number | string => isAllCohort(t) || isCohort(t)
+export const isCohortBreakdown = (t: number | string): t is number | string => isAllCohort(t) || isCohort(t)
 
-const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
+export const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
 
 export function BreakdownFilter({
     filters,
@@ -30,7 +31,8 @@ export function BreakdownFilter({
     useMultiBreakdown = false,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
-    const { cohortsById } = useValues(cohortsModel)
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -70,6 +72,7 @@ export function BreakdownFilter({
                           setFilters({
                               breakdown: undefined,
                               breakdown_type: undefined,
+                              breakdown_histogram_bin_count: undefined,
                               // Make sure we are no longer in map view after removing the Country Code breakdown
                               display: filters.display !== ChartDisplayType.WorldMap ? filters.display : undefined,
                           })
@@ -79,22 +82,28 @@ export function BreakdownFilter({
           }
         : undefined
 
+    const isHistogramable = featureFlags[FEATURE_FLAGS.HISTOGRAM_INSIGHTS]
+        ? !useMultiBreakdown && breakdownArray.every((t) => getPropertyDefinition(t)?.is_numerical)
+        : false
+
     const tags = !breakdown_type
         ? []
-        : breakdownArray.map((t, index) => (
-              <Tag
-                  className="taxonomic-breakdown-filter tag-pill"
-                  key={t}
-                  closable={!!setFilters}
-                  onClose={onCloseFor?.(t, index)}
-              >
-                  {isPersonEventOrGroup(t) && <PropertyKeyInfo value={t} />}
-                  {isAllCohort(t) && <PropertyKeyInfo value={'All Users'} />}
-                  {isCohort(t) && <PropertyKeyInfo value={cohortsById[t]?.name || `Cohort ${t}`} />}
-              </Tag>
-          ))
+        : breakdownArray.map((t, index) => {
+              return (
+                  <BreakdownTag
+                      key={t}
+                      isHistogramable={isHistogramable}
+                      breakdown={t}
+                      onClose={onCloseFor ? onCloseFor(t, index) : undefined}
+                      filters={filters}
+                      setFilters={setFilters}
+                  />
+              )
+          })
 
-    const onChange = setFilters ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }) : undefined
+    const onChange = setFilters
+        ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, isHistogramable })
+        : undefined
 
     return (
         <div className="flex flex-wrap gap-05 items-center">

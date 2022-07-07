@@ -10,9 +10,10 @@ interface FilterChange {
     useMultiBreakdown: string | boolean | undefined
     breakdownParts: (string | number)[]
     setFilters: (filters: Partial<FilterType>, mergeFilters?: boolean) => void
+    isHistogramable: boolean
 }
 
-export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }: FilterChange) {
+export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, isHistogramable }: FilterChange) {
     return (changedBreakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup): void => {
         const changedBreakdownType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type) as BreakdownType
 
@@ -20,6 +21,7 @@ export function onFilterChange({ useMultiBreakdown, breakdownParts, setFilters }
             const newFilters: Partial<FilterType> = {
                 breakdown_type: changedBreakdownType,
                 breakdown_group_type_index: taxonomicGroup.groupTypeIndex,
+                breakdown_histogram_bin_count: isHistogramable ? 10 : undefined,
             }
 
             if (useMultiBreakdown) {

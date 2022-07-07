@@ -1101,6 +1101,7 @@ export interface FilterType {
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 export interface RecordingEventsFilters {

@@ -23,6 +23,8 @@ interface LemonInputPropsBase
     sideIcon?: React.ReactElement | null
     /** Whether input field is disabled */
     disabled?: boolean
+    /** Whether input field is full width */
+    fullWidth?: boolean
 }
 
 interface LemonInputPropsText extends LemonInputPropsBase {
@@ -53,6 +55,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onPressEnter,
         embedded = false,
         allowClear = false,
+        fullWidth = true,
         icon,
         sideIcon,
         type,
@@ -81,7 +84,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             className
         ),
         disabled: textProps.disabled,
-        fullWidth: true,
+        fullWidth,
         icon,
         sideIcon: allowClear ? (
             <LemonButton
