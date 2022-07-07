@@ -16,7 +16,7 @@ import { resetTestDatabase } from './helpers/sql'
 const { console: testConsole } = writeToFile
 
 jest.mock('../src/utils/status')
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(600000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
