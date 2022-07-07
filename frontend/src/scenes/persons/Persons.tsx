@@ -14,6 +14,7 @@ import { IconExport } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -46,7 +47,7 @@ export function PersonsScene(): JSX.Element {
                 <div className="space-between-items" style={{ gap: '0.75rem' }}>
                     <PersonsSearch autoFocus={!cohortId} />
 
-                    {exportUrl && !newExportButtonActive && (
+                    {exportUrl && (
                         <Popconfirm
                             placement="topRight"
                             title={
@@ -58,7 +59,7 @@ export function PersonsScene(): JSX.Element {
                                     CSV?
                                 </>
                             }
-                            onConfirm={exportCsv}
+                            onConfirm={() => (newExportButtonActive ? triggerExport(exporterProps[0]) : exportCsv())}
                         >
                             <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
                                 {listFilters.properties && listFilters.properties.length > 0 ? (
@@ -70,13 +71,6 @@ export function PersonsScene(): JSX.Element {
                                 )}
                             </LemonButton>
                         </Popconfirm>
-                    )}
-                    {exportUrl && newExportButtonActive && (
-                        <ExportButton
-                            type="secondary"
-                            icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                            items={exporterProps}
-                        />
                     )}
                 </div>
                 <PropertyFilters
