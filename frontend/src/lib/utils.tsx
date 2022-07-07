@@ -708,7 +708,8 @@ export function determineDifferenceType(
     }
 }
 
-const DATE_FORMAT = 'D MMM YYYY'
+const DATE_FORMAT = 'MMMM D, YYYY'
+const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const dateMapping: dateMappingOption[] = [
     { key: 'Custom', values: [] },
@@ -794,91 +795,91 @@ export const dateMapping: dateMappingOption[] = [
     { key: 'All time', values: ['all'] },
 ]
 
+export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {
+    let formatFrom = format ?? DATE_FORMAT
+    const formatTo = format ?? DATE_FORMAT
+    if (!format && dateFrom.year === dateTo.year) {
+        formatFrom = DATE_FORMAT_WITHOUT_YEAR
+    }
+    return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
+}
+
 export const dateMappingExperiment: dateMappingOption[] = [
     { key: 'Custom', values: [] },
     {
         key: 'Today',
         values: ['dStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
+        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
     {
         key: 'Yesterday',
         values: ['-1d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
         defaultInterval: 'hour',
     },
     {
         key: 'Last 24 hours',
         values: ['-24h'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(24, 'h').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
         defaultInterval: 'hour',
     },
     {
         key: 'Last 48 hours',
         values: ['-48h'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(48, 'h'), date.endOf('d')),
         inactive: true,
         defaultInterval: 'hour',
     },
     {
         key: 'Last 7 days',
         values: ['-7d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(7, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
         defaultInterval: 'day',
     },
     {
         key: 'Last 14 days',
         values: ['-14d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(14, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(14, 'd'), date.endOf('d')),
         defaultInterval: 'day',
     },
     {
         key: 'Last 30 days',
         values: ['-30d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(30, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
         defaultInterval: 'day',
     },
     {
         key: 'Last 90 days',
         values: ['-90d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(90, 'd'), date.endOf('d')),
         defaultInterval: 'day',
     },
     {
         key: 'Last 180 days',
         values: ['-180d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(180, 'd').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(180, 'd'), date.endOf('d')),
         defaultInterval: 'month',
     },
     {
         key: 'This month',
         values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(1, 'm').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
         inactive: true,
         defaultInterval: 'day',
     },
     {
         key: 'Previous month',
         values: ['-1mStart', '-1mEnd'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(1, 'm').startOf('M').format(format)} - ${date.subtract(1, 'm').endOf('M').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string =>
+            formatDateRange(date.subtract(1, 'm').startOf('M'), date.subtract(1, 'm').endOf('M')),
         inactive: true,
         defaultInterval: 'day',
     },
     {
         key: 'Year to date',
         values: ['yStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.startOf('y').format(format)} - ${date.endOf('d').format(format)}`,
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
         defaultInterval: 'month',
     },
     {
@@ -891,7 +892,7 @@ export const dateMappingExperiment: dateMappingOption[] = [
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
-    return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
+    return formatDateRange(lastDay.subtract(7, 'week'), lastDay.endOf('d'))
 }
 
 const dateOptionsMap = {
@@ -917,7 +918,7 @@ export function dateFilterToText(
 
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
         return isDateFormatted
-            ? `${dayjs(dateFrom, 'YYYY-MM-DD').format(dateFormat)} - ${dayjs(dateTo, 'YYYY-MM-DD').format(dateFormat)}`
+            ? formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
             : `${dateFrom} - ${dateTo}`
     }
 
@@ -963,7 +964,7 @@ export function dateFilterToText(
                     break
             }
             if (isDateFormatted) {
-                return `${date.format('YYYY-MM-DD')} - ${dayjs().endOf('d').format('YYYY-MM-DD')}`
+                return formatDateRange(date, dayjs().endOf('d'))
             } else {
                 return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
             }
