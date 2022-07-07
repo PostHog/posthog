@@ -74,6 +74,7 @@ class TestCSVExporter(APIBaseTest):
         patched_request.return_value = mock_response
         print(f"DEFAULT_CHARSET: {settings.DEFAULT_CHARSET}")
         csv_exporter.export_csv(asset)
+        print(asset.content)
 
         assert (
             asset.content
