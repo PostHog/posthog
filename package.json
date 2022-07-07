@@ -166,6 +166,7 @@
         "eslint-plugin-eslint-comments": "^3.2.0",
         "eslint-plugin-prettier": "^3.1.4",
         "eslint-plugin-react": "^7.20.3",
+        "eslint-plugin-react-hooks": "^4.6.0",
         "eslint-plugin-storybook": "^0.5.7",
         "express": "^4.17.1",
         "file-loader": "^6.1.0",

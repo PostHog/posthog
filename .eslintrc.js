@@ -30,7 +30,7 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint'],
+    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'react-hooks'],
     rules: {
         'react/prop-types': [0],
         'react/no-unescaped-entities': [0],
@@ -49,6 +49,8 @@ module.exports = {
                 ignoreRestSiblings: true,
             },
         ],
+        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/exhaustive-deps': 'warn',
         '@typescript-eslint/prefer-ts-expect-error': 'error',
         '@typescript-eslint/explicit-function-return-type': 'off',
         '@typescript-eslint/explicit-module-boundary-types': 'off',
