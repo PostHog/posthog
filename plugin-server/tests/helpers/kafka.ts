@@ -67,7 +67,7 @@ export function spyOnKafka(
 
     beforeAll(async () => {
         const kafka = await resetKafka(serverConfig)
-        bufferConsumer = kafka.consumer({ groupId: 'e2e-buffer-test' })
+        bufferConsumer = kafka.consumer({ groupId: 'kafka-test' })
         await bufferConsumer.subscribe({ topic })
         await bufferConsumer.run({
             eachMessage: ({ message }) => {
