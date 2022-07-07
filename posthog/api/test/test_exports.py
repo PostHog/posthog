@@ -299,8 +299,7 @@ class TestExports(APIBaseTest):
 
         # pass the root in because django/celery refused to override it otherwise
         # limit the query to force it to page against the API
-        with self.settings(OBJECT_STORAGE_ENABLED=False):
-            exporter.export_asset(instance.id, limit=1)
+        exporter.export_asset(instance.id, TEST_ROOT_BUCKET, limit=1)
 
         response: Optional[HttpResponse] = None
         attempt_count = 0

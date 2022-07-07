@@ -1,11 +1,16 @@
 from typing import Optional
 
+from posthog import settings
 from posthog.celery import app
 from posthog.models import ExportedAsset
 
 
 @app.task(retries=3)
-def export_asset(exported_asset_id: int, limit: Optional[int] = None,) -> None:
+def export_asset(
+    exported_asset_id: int,
+    storage_root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+    limit: Optional[int] = None,
+) -> None:
     from statshog.defaults.django import statsd
 
     from posthog.tasks.exports import csv_exporter, image_exporter
@@ -14,7 +19,7 @@ def export_asset(exported_asset_id: int, limit: Optional[int] = None,) -> None:
 
     is_csv_export = exported_asset.export_format == ExportedAsset.ExportFormat.CSV
     if is_csv_export:
-        csv_exporter.export_csv(exported_asset, limit=limit)
+        csv_exporter.export_csv(exported_asset, storage_root_bucket, limit=limit)
         statsd.incr("csv_exporter.queued", tags={"team_id": str(exported_asset.team_id)})
     else:
         image_exporter.export_image(exported_asset)
