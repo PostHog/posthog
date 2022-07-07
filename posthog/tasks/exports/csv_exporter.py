@@ -146,11 +146,10 @@ def _export_to_csv(
         next_url = data.get("next")
 
     renderer = csvrenderers.CSVRenderer()
-    renderer.writer_opts = {
-        "quoting": csv.QUOTE_ALL,
-    }
 
-    exported_asset.content = renderer.render(all_csv_rows)
+    exported_asset.content = renderer.render(
+        all_csv_rows, renderer_context={"writer_opts": {"quoting": csv.QUOTE_ALL}, "encoding": "utf-8"}
+    )
     exported_asset.save(update_fields=["content"])
 
 

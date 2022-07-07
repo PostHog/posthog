@@ -119,7 +119,7 @@ class TestCSVExporter(APIBaseTest):
         ]
 
         renderer = csvrenderers.CSVRenderer()
-        renderer.writer_opts = {"quoting": csv.QUOTE_ALL, "encoding": "utf-8"}
+        renderer.writer_opts = {"quoting": csv.QUOTE_ALL}
 
         assert (
             renderer.render(csv_data_gathered_in_ci)
