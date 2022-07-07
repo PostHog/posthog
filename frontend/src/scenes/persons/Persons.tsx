@@ -3,7 +3,7 @@ import { useValues, useActions, BindLogic } from 'kea'
 import { PersonsTable } from './PersonsTable'
 import { Popconfirm } from 'antd'
 import { personsLogic } from './personsLogic'
-import { CohortType, ExporterFormat } from '~/types'
+import { CohortType } from '~/types'
 import { PersonsSearch } from './PersonsSearch'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PersonPageHeader } from './PersonPageHeader'
@@ -35,7 +35,7 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
 
 export function PersonsScene(): JSX.Element {
     const { loadPersons, setListFilters, exportCsv } = useActions(personsLogic)
-    const { cohortId, persons, listFilters, personsLoading, exportUrl } = useValues(personsLogic)
+    const { cohortId, persons, listFilters, personsLoading, exportUrl, exporterProps } = useValues(personsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const newExportButtonActive = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
 
@@ -75,15 +75,7 @@ export function PersonsScene(): JSX.Element {
                         <ExportButton
                             type="secondary"
                             icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                            items={[
-                                {
-                                    format: ExporterFormat.CSV,
-                                    resource: {
-                                        // TODO this URL is only `api/blah` and has always had `/person/.csv` as the path
-                                        path: exportUrl,
-                                    },
-                                },
-                            ]}
+                            items={exporterProps}
                         />
                     )}
                 </div>

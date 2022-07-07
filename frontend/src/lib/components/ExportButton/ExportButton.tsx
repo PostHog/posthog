@@ -2,19 +2,12 @@ import React from 'react'
 import { ExporterFormat } from '~/types'
 import { LemonButton, LemonButtonProps, LemonButtonWithPopup } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
-import { triggerExport } from './exporter'
-
-export interface ExportButtonItemResource {
-    method?: 'GET' | 'POST'
-    path: string
-    body?: any
-    filename?: string
-}
+import { triggerExport, TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
     title?: string
-    format: ExporterFormat
-    resource: ExportButtonItemResource
+    export_format: ExporterFormat
+    export_context?: TriggerExportProps['export_context']
     dashboard?: number
     insight?: number
 }
@@ -36,22 +29,15 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                     <>
                         <h5>File type</h5>
                         <LemonDivider />
-                        {items.map((item, i) => (
+                        {items.map(({ title, ...triggerExportProps }, i) => (
                             <LemonButton
-                                key={`${item.format}-${i}`}
+                                key={i}
                                 fullWidth
                                 type="stealth"
-                                onClick={() =>
-                                    triggerExport({
-                                        export_format: item.format,
-                                        export_context: item.resource,
-                                        dashboard: item.dashboard,
-                                        insight: item.insight,
-                                    })
-                                }
-                                data-attr={`export-button-${item.format.split('/').pop()}`}
+                                onClick={() => triggerExport(triggerExportProps)}
+                                data-attr={`export-button-${i}`}
                             >
-                                {item.title ? item.title : `.${item.format.split('/').pop()}`}
+                                {title ? title : `.${triggerExportProps.export_format.split('/').pop()}`}
                             </LemonButton>
                         ))}
                     </>

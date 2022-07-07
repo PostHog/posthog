@@ -39,7 +39,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
-import { ExportButtonItemResource } from 'lib/components/ExportButton/ExportButton'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -579,7 +579,7 @@ export const insightLogic = kea<insightLogicType>({
                 filters: Partial<FilterType>,
                 currentTeamId: number,
                 insight: Partial<InsightModel>
-            ): ExportButtonItemResource | null => {
+            ): TriggerExportProps['export_context'] | null => {
                 const insightType = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                 const params = { ...filters }
 

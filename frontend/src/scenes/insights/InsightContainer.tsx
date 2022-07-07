@@ -148,8 +148,8 @@ export function InsightContainer(
                                         type="secondary"
                                         items={[
                                             {
-                                                format: ExporterFormat.CSV,
-                                                resource: exporterResourceParams,
+                                                export_format: ExporterFormat.CSV,
+                                                export_context: exporterResourceParams,
                                             },
                                         ]}
                                     />

@@ -38,7 +38,8 @@ import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscription
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { ExportButton, ExportButtonItem, ExportButtonItemResource } from 'lib/components/ExportButton/ExportButton'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -88,18 +89,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         return <InsightSkeleton />
     }
 
-    const exportOptions = (exporterResourceParams: ExportButtonItemResource): ExportButtonItem[] => {
+    const exportOptions = (exporterResourceParams: TriggerExportProps['export_context']): ExportButtonItem[] => {
         const supportedExportOptions: ExportButtonItem[] = [
             {
-                format: ExporterFormat.PNG,
+                export_format: ExporterFormat.PNG,
                 insight: insight.id,
-                resource: exporterResourceParams,
             },
         ]
         if (supportsCsvExport || !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
             supportedExportOptions.push({
-                format: ExporterFormat.CSV,
-                resource: exporterResourceParams,
+                export_format: ExporterFormat.CSV,
+                export_context: exporterResourceParams,
             })
         }
         return supportedExportOptions

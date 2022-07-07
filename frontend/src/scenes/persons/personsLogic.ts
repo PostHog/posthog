@@ -10,7 +10,7 @@ import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { triggerExport, TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -138,6 +138,18 @@ export const personsLogic = kea<personsLogicType>({
             (s) => [s.listFilters, (_, { cohort }) => cohort],
             (listFilters, cohort): string =>
                 cohort ? `/api/cohort/${cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
+        ],
+
+        exporterProps: [
+            (s) => [s.listFilters, (_, { cohort }) => cohort],
+            (listFilters, cohort): TriggerExportProps[] => [
+                {
+                    export_format: ExporterFormat.CSV,
+                    export_context: {
+                        path: (cohort ? `/api/cohort/${cohort}/persons` : `api/person/`) + `?${toParams(listFilters)}`,
+                    },
+                },
+            ],
         ],
     }),
     listeners: ({ actions, values, props }) => ({
