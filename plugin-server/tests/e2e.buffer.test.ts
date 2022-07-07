@@ -1,27 +1,28 @@
 import IORedis from 'ioredis'
 
-// import { DateTime } from 'luxon'
 import { ONE_HOUR } from '../src/config/constants'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
-import { delay, UUIDT } from '../src/utils/utils'
+import { UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
+import { resetKafka } from './helpers/kafka'
 import { pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
 const { console: testConsole } = writeToFile
 
 jest.mock('../src/utils/status')
-jest.setTimeout(600000) // 60 sec timeout
+jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
     LOG_LEVEL: LogLevel.Log,
-    KAFKA_MAX_MESSAGE_BATCH_SIZE: 0,
+    KAFKA_PRODUCER_MAX_QUEUE_SIZE: 100, // The default in tests is 0 but here we specifically want to test batching
+    KAFKA_FLUSH_FREQUENCY_MS: 5000, // Same as above, but with time
     BUFFER_CONVERSION_SECONDS: 3, // We want to test the delay mechanism, but with a much lower delay than in prod
     CONVERSION_BUFFER_ENABLED: true,
 }
@@ -49,6 +50,8 @@ export function onEvent (event, { global }) {
 }`
 
 describe('E2E with buffer enabled', () => {
+    // const delayUntilBufferMessageProduced = spyOnKafka('events_plugin_ingestion_test', extraServerConfig)
+
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
@@ -58,6 +61,7 @@ describe('E2E with buffer enabled', () => {
         testConsole.reset()
         await resetTestDatabase(indexJs)
         await resetTestDatabaseClickhouse(extraServerConfig)
+        await resetKafka(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
@@ -77,11 +81,13 @@ describe('E2E with buffer enabled', () => {
             const uuid = new UUIDT().toString()
 
             await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
-            await delay(40000)
+            await hub.kafkaProducer.flush()
 
+            // const bufferTopicMessages = await delayUntilBufferMessageProduced()
             await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 500)
             const events = await hub.db.fetchEvents()
 
+            // expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid).length).toBe(1)
             expect(events.length).toBe(1)
 
             // processEvent ran and modified
@@ -108,6 +114,7 @@ describe('E2E with buffer enabled', () => {
         //     await posthog.capture('custom event via buffer', { name: 'hihi', uuid: uuid3 })
         //     await hub.kafkaProducer.flush()
 
+        //     const bufferTopicMessages = await delayUntilBufferMessageProduced(3)
         //     const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 3, undefined, 200)
 
         //     expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid1).length).toBe(1)

@@ -81,6 +81,7 @@ export class KafkaProducerWrapper {
         if (this.currentBatch.length === 0) {
             return Promise.resolve()
         }
+        console.log('FLUSHHHHH')
 
         return instrumentQuery(this.statsd, 'query.kafka_send', undefined, async () => {
             const messages = this.currentBatch
