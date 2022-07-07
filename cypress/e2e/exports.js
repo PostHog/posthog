@@ -26,7 +26,6 @@ describe('Exporting Insights', () => {
 
         // Save
         cy.get('[data-attr="insight-save-button"]').click()
-        cy.get('main .Spinner').should('not.be.visible')
     })
 
     it('Export an Insight to png', () => {
@@ -34,10 +33,10 @@ describe('Exporting Insights', () => {
         cy.get('.Popup [data-attr=export-button]').click()
         cy.get('.Popup [data-attr=export-button-png]').click()
 
-        const expecteFileName = 'export-pageview-count.png'
+        const expectedFileName = 'export-pageview-count.png'
         cy.task('compareToReferenceImage', {
-            source: expecteFileName,
-            reference: `../data/exports/${expecteFileName}`,
+            source: expectedFileName,
+            reference: `../data/exports/${expectedFileName}`,
             diffThreshold: 0.01,
         })
     })
