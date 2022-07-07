@@ -53,7 +53,7 @@ describe('emitToBufferStep()', () => {
     it('calls `addEventToBuffer` if event should be buffered, stops processing', async () => {
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.db.addEventToBuffer).toHaveBeenCalledWith(pluginEvent)
+        expect(runner.hub.db.addEventToBuffer).toHaveBeenCalledWith(pluginEvent, expect.any(DateTime))
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })
