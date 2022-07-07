@@ -45,17 +45,17 @@ export function DashboardHeader(): JSX.Element | null {
 
     const exportOptions: ExportButtonItem[] = [
         {
-            format: ExporterFormat.PNG,
+            export_format: ExporterFormat.PNG,
             dashboard: dashboard?.id,
-            resource: {
+            export_context: {
                 path: apiUrl(),
             },
         },
     ]
     if (!!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
         exportOptions.push({
-            format: ExporterFormat.CSV,
-            resource: {
+            export_format: ExporterFormat.CSV,
+            export_context: {
                 path: apiUrl(),
             },
         })
