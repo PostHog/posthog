@@ -156,8 +156,8 @@ def _ensure_web_feature_flags_in_properties(
             event["properties"][f"$feature/{k}"] = v
 
 
-@timed("posthog_cloud_event_endpoint")
 @csrf_exempt
+@timed("posthog_cloud_event_endpoint")
 def get_event(request):
     # handle cors request
     if request.method == "OPTIONS":
