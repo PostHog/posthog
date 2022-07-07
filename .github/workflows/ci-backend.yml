@@ -205,22 +205,36 @@ jobs:
                       foss: true
                       name: 'FOSS'
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 3
+                      concurrency: 5
                       group: 1
                     - python-version: '3.8.12'
                       ee: false
                       foss: true
                       name: 'FOSS'
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 3
+                      concurrency: 5
                       group: 2
                     - python-version: '3.8.12'
                       ee: false
                       foss: true
                       name: 'FOSS'
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 3
+                      concurrency: 5
                       group: 3
+                    - python-version: '3.8.12'
+                      ee: false
+                      foss: true
+                      name: 'FOSS'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 4
+                    - python-version: '3.8.12'
+                      ee: false
+                      foss: true
+                      name: 'FOSS'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 5
                     # :TRICKY: Run person-on-events tests only for one CH instance
                     # But still run in parallel
                     - python-version: '3.8.12'
