@@ -1,10 +1,12 @@
+import datetime
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
+from posthog.datetime import start_of_day
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
@@ -25,7 +27,6 @@ from posthog.models.filters.mixins.common import (
     OffsetMixin,
     SearchMixin,
     SelectorMixin,
-    SessionMixin,
     ShownAsMixin,
     SmoothingIntervalsMixin,
 )
@@ -65,7 +66,6 @@ class Filter(
     FilterTestAccountsMixin,
     CompareMixin,
     InsightMixin,
-    SessionMixin,
     OffsetMixin,
     LimitMixin,
     DateMixin,
@@ -126,3 +126,29 @@ class Filter(
         if "team" in kwargs and not self.is_simplified:
             simplified_filter = self.simplify(kwargs["team"])
             self._data = simplified_filter._data
+
+    def split_by_day(self) -> List["Filter"]:
+        # If requested date_from is "all" then cap at max of 1 year
+
+        if not self.date_from:
+            starting_date_from = start_of_day(datetime.datetime.now() - datetime.timedelta(weeks=52))
+        else:
+            starting_date_from = self.date_from
+
+        starting_date_to = self.date_to
+
+        day_steps: List["Filter"] = []
+
+        next_end = starting_date_to
+        while next_end > starting_date_from:
+            next_start = start_of_day(next_end)
+            if next_start < starting_date_from:
+                next_start = starting_date_from
+
+            next_filter = self.with_data({"date_from": next_start, "date_to": next_end})
+
+            day_steps.append(next_filter)
+
+            next_end = next_start - datetime.timedelta(microseconds=1)
+
+        return day_steps

@@ -1,7 +1,10 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 from unittest.mock import patch
 
 import celery
+from boto3 import resource
+from botocore.client import Config
+from django.http import HttpResponse
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -10,14 +13,34 @@ from posthog.models.exported_asset import ExportedAsset
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.team import Team
-from posthog.test.base import APIBaseTest
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+from posthog.tasks import exporter
+from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
+
+TEST_ROOT_BUCKET = "test_exports"
 
 
-@patch("posthog.api.exports.exporter")
 class TestExports(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
+
+    def teardown_method(self, method) -> None:
+        s3 = resource(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=TEST_ROOT_BUCKET).delete()
 
     insight_filter_dict = {
         "events": [{"id": "$pageview"}],
@@ -30,13 +53,17 @@ class TestExports(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(), team=cls.team, created_by=cls.user
+            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            team=cls.team,
+            created_by=cls.user,
+            name="example insight",
         )
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png"
         )
 
-    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task):
+    @patch("posthog.api.exports.exporter")
+    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "image/png", "dashboard": self.dashboard.id}
         )
@@ -49,15 +76,18 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "dashboard": self.dashboard.id,
                 "export_format": "image/png",
+                "filename": "export-example-dashboard.png",
                 "has_content": False,
                 "insight": None,
+                "export_context": None,
             },
         )
 
-        mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
+    @patch("posthog.api.exports.exporter")
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_can_create_new_valid_export_insight(self, mock_exporter_task):
+    def test_can_create_new_valid_export_insight(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
@@ -70,8 +100,10 @@ class TestExports(APIBaseTest):
                 "created_at": data["created_at"],
                 "insight": self.insight.id,
                 "export_format": "application/pdf",
+                "filename": "export-example-insight.pdf",
                 "has_content": False,
                 "dashboard": None,
+                "export_context": None,
             },
         )
 
@@ -102,9 +134,9 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_task.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
-    def test_errors_if_missing_related_instance(self, mock_tasks):
+    def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -117,7 +149,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_errors_if_bad_format(self, mock_tasks):
+    def test_errors_if_bad_format(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -130,15 +162,17 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_respond_even_if_task_timesout(self, mock_exporter_task):
-        mock_exporter_task.export_task.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
+    @patch("posthog.api.exports.exporter")
+    def test_will_respond_even_if_task_timesout(self, mock_exporter_task) -> None:
+        mock_exporter_task.export_asset.delay.return_value.get.side_effect = celery.exceptions.TimeoutError("timed out")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_will_error_if_export_unsupported(self, mock_exporter_task):
-        mock_exporter_task.export_task.delay.return_value.get.side_effect = NotImplementedError("not implemented")
+    @patch("posthog.api.exports.exporter")
+    def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
+        mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "insight": self.insight.id}
         )
@@ -153,7 +187,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_error_if_dashboard_missing(self, mock_exporter_task):
+    def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports", {"export_format": "application/pdf", "dashboard": 54321}
         )
@@ -168,7 +202,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_error_if_export_contains_other_team_dashboard(self, mock_exporter_task):
+    def test_will_error_if_export_contains_other_team_dashboard(self) -> None:
         other_team = Team.objects.create(
             organization=self.organization,
             api_token=self.CONFIG_API_TOKEN + "2",
@@ -195,7 +229,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_will_error_if_export_contains_other_team_insight(self, mock_exporter_task):
+    def test_will_error_if_export_contains_other_team_insight(self) -> None:
         other_team = Team.objects.create(
             organization=self.organization,
             api_token=self.CONFIG_API_TOKEN + "2",
@@ -220,6 +254,80 @@ class TestExports(APIBaseTest):
                 "type": "validation_error",
             },
         )
+
+    @patch("posthog.api.exports.exporter")
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_can_create_new_valid_export_csv(self, mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "text/csv",
+                "properties": [  # anything the list events end-point will accept
+                    {
+                        "key": "prop_that_is_a_unix_timestamp",
+                        "value": "2012-01-07 18:30:00",
+                        "operator": "is_date_after",
+                        "type": "event",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        exported_instance = response.json()
+
+        self.assertEqual(exported_instance["export_context"]["file_export_type"], "list_events")
+
+        mock_exporter_task.export_asset.delay.assert_called_once_with(exported_instance["id"])
+
+    def test_can_download_a_csv(self) -> None:
+        _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"},
+        )
+        expected_event_id = _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+        )
+        second_expected_event_id = _create_event(
+            event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Safari"},
+        )
+        flush_persons_and_events()
+
+        instance = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=None,
+            insight=None,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "file_export_type": "list_events",
+                "filter": {"properties": {"$browser": "Safari"}},
+                "request_get_query_dict": {},
+                "order_by": ["-timestamp"],
+                "action_id": None,
+            },
+        )
+        # pass the root in because django/celery refused to override it otherwise
+        exporter.export_asset(instance.id, TEST_ROOT_BUCKET)
+
+        response: Optional[HttpResponse] = None
+        attempt_count = 0
+        while attempt_count < 10 and (not response or response.status_code == status.HTTP_409_CONFLICT):
+            response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
+            attempt_count += 1
+
+        if not response:
+            self.fail("must have a response by this point")  # hi mypy
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.content)
+        file_content = response.content.decode("utf-8")
+        file_lines = file_content.split("\n")
+        # has a header row and at least two other rows
+        # don't care if the DB hasn't been reset before the test
+        self.assertTrue(len(file_lines) > 2)
+        self.assertIn(expected_event_id, file_content)
+        self.assertIn(second_expected_event_id, file_content)
+        for line in file_lines[1:]:  # every result has to match the filter though
+            if line != "":  # skip the final empty line of the file
+                self.assertIn('"{""$browser"": ""Safari""}"', line)
 
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"

@@ -38,4 +38,5 @@ export enum PluginTab {
     Installed = 'installed',
     Repository = 'repository',
     Advanced = 'advanced',
+    History = 'history',
 }

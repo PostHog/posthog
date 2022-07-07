@@ -481,9 +481,19 @@ code.code {
     margin-right: 0 !important;
 }
 
+.mx-05 {
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+}
+
 .my-0 {
     margin-top: 0 !important;
     margin-bottom: 0 !important;
+}
+
+.my-05 {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .pa {
@@ -1192,6 +1202,15 @@ body {
         &:last-child {
             margin-bottom: 0;
         }
+    }
+
+    // Tooltip styles
+    .ant-tooltip-inner {
+        background-color: var(--bg-charcoal);
+    }
+
+    .ant-tooltip {
+        max-width: 350px;
     }
 }
 

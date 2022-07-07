@@ -1,0 +1,11 @@
+.DurationPicker {
+    display: flex;
+    flex-direction: row;
+    .DurationPicker__time-input {
+        flex: 1;
+    }
+    .DurationPicker__unit-picker {
+        flex: 1;
+        margin-left: 0.5rem;
+    }
+}

@@ -79,6 +79,9 @@ def print_necessary_migrations(necessary_migrations):
 
 
 def handle_check(necessary_migrations):
+    if not get_instance_setting("ASYNC_MIGRATIONS_BLOCK_UPGRADE"):
+        return
+
     if len(necessary_migrations) > 0:
         print_necessary_migrations(necessary_migrations)
         print(
@@ -87,7 +90,7 @@ def handle_check(necessary_migrations):
         exit(1)
 
     running_migrations = get_async_migrations_by_status([MigrationStatus.Running, MigrationStatus.Starting])
-    if running_migrations.exists() and get_instance_setting("ASYNC_MIGRATIONS_RUNNING_BLOCK_UPGRADE"):
+    if running_migrations.exists():
         print(
             f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding."
         )

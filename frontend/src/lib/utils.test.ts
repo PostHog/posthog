@@ -210,13 +210,13 @@ describe('roundToDecimal()', () => {
 
 describe('pluralize()', () => {
     it('handles singular cases', () => {
-        expect(pluralize(1, 'member')).toEqual('1 member')
-        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
+        expect(pluralize(1, 'member')).toEqual('1 member')
+        expect(pluralize(1, 'bacterium', 'bacteria', true)).toEqual('1 bacterium')
         expect(pluralize(1, 'word', undefined, false)).toEqual('word')
     })
     it('handles plural cases', () => {
-        expect(pluralize(28321, 'member')).toEqual('28,321 members')
-        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
+        expect(pluralize(28321, 'member')).toEqual('28,321 members')
+        expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
         expect(pluralize(3, 'word', undefined, false)).toEqual('words')
     })
 })
@@ -260,11 +260,9 @@ describe('dateFilterToText()', () => {
         })
 
         it('can have overridden date options', () => {
-            expect(
-                dateFilterToText('-21d', null, 'default', {
-                    'Last 3 weeks': { values: ['-21d'] },
-                })
-            ).toEqual('Last 3 weeks')
+            expect(dateFilterToText('-21d', null, 'default', [{ key: 'Last 3 weeks', values: ['-21d'] }])).toEqual(
+                'Last 3 weeks'
+            )
         })
     })
 
@@ -301,9 +299,7 @@ describe('dateFilterToText()', () => {
                     '-21d',
                     null,
                     'default',
-                    {
-                        'Last 3 weeks': { values: ['-21d'], getFormattedDate: () => 'custom formatted date' },
-                    },
+                    [{ key: 'Last 3 weeks', values: ['-21d'], getFormattedDate: () => 'custom formatted date' }],
                     true
                 )
             ).toEqual('custom formatted date')

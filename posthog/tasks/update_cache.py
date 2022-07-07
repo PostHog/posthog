@@ -25,6 +25,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.logging.timing import timed
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -49,32 +50,28 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 }
 
 
+@timed("update_cache_item_timer")
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
-    timer = statsd.timer("update_cache_item_timer").start()
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
     team = Team.objects.get(pk=team_id)
     filter = get_filter(data=filter_dict, team=team)
 
-    try:
-        # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
-        insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
-        dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
+    # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
+    insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
+    dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
 
-        # at least one must return something, if they both return they will be identical
-        insight_result = _update_cache_for_queryset(cache_type, filter, key, team, insights_queryset)
-        tiles_result = _update_cache_for_queryset(cache_type, filter, key, team, dashboard_tiles_queryset)
+    # at least one must return something, if they both return they will be identical
+    insight_result = _update_cache_for_queryset(cache_type, filter, key, team, insights_queryset)
+    tiles_result = _update_cache_for_queryset(cache_type, filter, key, team, dashboard_tiles_queryset)
 
-        if tiles_result is not None:
-            result = tiles_result
-        elif insight_result is not None:
-            result = insight_result
-        else:
-            statsd.incr("update_cache_item_no_results", tags={"team": team_id, "cache_key": key})
-            return []
-
-    finally:
-        timer.stop()
+    if tiles_result is not None:
+        result = tiles_result
+    elif insight_result is not None:
+        result = insight_result
+    else:
+        statsd.incr("update_cache_item_no_results", tags={"team": team_id, "cache_key": key})
+        return []
 
     return result
 
@@ -107,6 +104,10 @@ def _update_cache_for_queryset(
 
 def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
     cache_key, cache_type, payload = insight_update_task_params(insight, dashboard)
+    # cache key changed, usually because of a new default filter
+    if not dashboard and insight.filters_hash and insight.filters_hash != cache_key:
+        insight.filters_hash = cache_key
+        insight.save()
     result = update_cache_item(cache_key, cache_type, payload)
     insight.refresh_from_db()
     return result
@@ -129,11 +130,16 @@ def get_cache_type(filter: FilterType) -> CacheType:
         return CacheType.TRENDS
 
 
-def update_cached_items() -> None:
+def update_cached_items() -> Tuple[int, int]:
     tasks = []
-    items = (
+
+    # TODO: According to the metrics, on Cloud this is a huge list and needs to be improved
+    dashboard_tiles = (
         DashboardTile.objects.filter(
-            Q(Q(dashboard__is_shared=True) | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7)))
+            Q(
+                Q(dashboard__sharingconfiguration__enabled=True)
+                | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
+            )
         )
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
@@ -144,7 +150,7 @@ def update_cached_items() -> None:
         .order_by(F("last_refresh").asc(nulls_first=True), F("insight__last_refresh").asc(nulls_first=True))
     )
 
-    for dashboard_tile in items[0:PARALLEL_INSIGHT_CACHE]:
+    for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
         insight = dashboard_tile.insight
         try:
             cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
@@ -158,10 +164,31 @@ def update_cached_items() -> None:
 
             capture_exception(e)
 
+    shared_insights = (
+        Insight.objects.filter(sharingconfiguration__enabled=True)
+        .exclude(deleted=True)
+        .exclude(filters={})
+        .exclude(refreshing=True)
+        .exclude(refresh_attempt__gt=2)
+        .order_by(F("last_refresh").asc(nulls_first=True))
+    )
+
+    for insight in shared_insights[0:PARALLEL_INSIGHT_CACHE]:
+        try:
+            cache_key, cache_type, payload = insight_update_task_params(insight)
+            tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
+        except Exception as e:
+            insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
+            insight.save(update_fields=["refresh_attempt"])
+            capture_exception(e)
+
     logger.info("Found {} items to refresh".format(len(tasks)))
     taskset = group(tasks)
     taskset.apply_async()
-    statsd.gauge("update_cache_queue_depth", items.count())
+    queue_depth = dashboard_tiles.count() + shared_insights.count()
+    statsd.gauge("update_cache_queue_depth", queue_depth)
+
+    return len(tasks), queue_depth
 
 
 def insight_update_task_params(insight: Insight, dashboard: Optional[Dashboard] = None) -> Tuple[str, CacheType, Dict]:

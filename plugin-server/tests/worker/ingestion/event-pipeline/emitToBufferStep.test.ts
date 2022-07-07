@@ -89,14 +89,14 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
-    it('returns true for recently created person', () => {
+    it('returns false for recently created person', () => {
         const person = {
             ...existingPerson,
             created_at: now.minus({ seconds: 5 }),
         }
 
         const result = shouldSendEventToBuffer(runner.hub, pluginEvent, person, 2)
-        expect(result).toEqual(true)
+        expect(result).toEqual(false)
     })
 
     it('returns false for anonymous person', () => {
@@ -153,6 +153,22 @@ describe('shouldSendEventToBuffer()', () => {
 
         const result = shouldSendEventToBuffer(runner.hub, event, person, 2)
         expect(result).toEqual(false)
+    })
+
+    it('returns false for events from mobile libraries', () => {
+        const eventIos = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-ios' },
+        }
+        const eventAndroid = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-android' },
+        }
+
+        expect(shouldSendEventToBuffer(runner.hub, eventIos, undefined, 2)).toEqual(false)
+        expect(shouldSendEventToBuffer(runner.hub, eventAndroid, undefined, 2)).toEqual(false)
     })
 
     it('handles CONVERSION_BUFFER_ENABLED and conversionBufferEnabledTeams', () => {

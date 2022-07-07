@@ -1,5 +1,4 @@
 import random
-import secrets
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
@@ -63,9 +62,7 @@ class RevenueDataGenerator(DataGenerator):
         free_trial_action = Action.objects.create(team=self.team, name="Entered Free Trial")
         ActionStep.objects.create(action=free_trial_action, event="entered_free_trial")
 
-        dashboard = Dashboard.objects.create(
-            name="Sales & Revenue", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
-        )
+        dashboard = Dashboard.objects.create(name="Sales & Revenue", pinned=True, team=self.team)
         insight = Insight.objects.create(
             team=self.team,
             name="Entered Free Trial -> Purchase (Premium)",

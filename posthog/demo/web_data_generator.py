@@ -1,6 +1,5 @@
 import json
 import random
-import secrets
 from datetime import timedelta
 from typing import Any, Dict, List
 
@@ -47,9 +46,7 @@ class WebDataGenerator(DataGenerator):
             selector="button",
         )
 
-        dashboard = Dashboard.objects.create(
-            name="Web Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
-        )
+        dashboard = Dashboard.objects.create(name="Web Analytics", pinned=True, team=self.team)
         insight = Insight.objects.create(
             team=self.team,
             name="Hogflix signup -> watching movie",

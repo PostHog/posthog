@@ -96,7 +96,7 @@ def test_get_internal_metrics_dashboards(db):
     info = get_internal_metrics_dashboards()
 
     team = Team.objects.get(pk=get_internal_metrics_team_id())
-    dashboard = Dashboard.objects.get(pk=info["clickhouse"]["id"])
+    dashboard = Dashboard.objects.get(pk=info["clickhouse"].id)
 
     assert Dashboard.objects.count() == 1
     assert dashboard.team_id == team.pk

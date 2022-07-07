@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import json
 import time
@@ -17,8 +16,6 @@ from typing import (
 )
 
 import sqlparse
-from aioch import Client
-from asgiref.sync import async_to_sync
 from celery.task.control import revoke
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
@@ -33,7 +30,6 @@ from posthog.celery import enqueue_clickhouse_execute_with_progress
 from posthog.errors import wrap_query_error
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
-    CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
     CLICKHOUSE_CONN_POOL_MAX,
     CLICKHOUSE_CONN_POOL_MIN,
@@ -107,43 +103,22 @@ def make_ch_pool(**overrides) -> ChPool:
     return ChPool(**kwargs)
 
 
-if not TEST and CLICKHOUSE_ASYNC:
-    ch_client = Client(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-    )
+ch_client = SyncClient(
+    host=CLICKHOUSE_HOST,
+    database=CLICKHOUSE_DATABASE,
+    secure=CLICKHOUSE_SECURE,
+    user=CLICKHOUSE_USER,
+    password=CLICKHOUSE_PASSWORD,
+    ca_certs=CLICKHOUSE_CA,
+    verify=CLICKHOUSE_VERIFY,
+    settings={"mutations_sync": "1"} if TEST else {},
+)
 
-    ch_pool = make_ch_pool()
-
-    @async_to_sync
-    async def async_execute(query, args=None, settings=None, with_column_types=False):
-        loop = asyncio.get_event_loop()
-        task = loop.create_task(ch_client.execute(query, args, settings=settings, with_column_types=with_column_types))
-        return task
+ch_pool = make_ch_pool()
 
 
-else:
-    # if this is a test use the sync client
-    ch_client = SyncClient(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        settings={"mutations_sync": "1"} if TEST else {},
-    )
-
-    ch_pool = make_ch_pool()
-
-    def async_execute(query, args=None, settings=None, with_column_types=False):  # type: ignore
-        return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
+def async_execute(query, args=None, settings=None, with_column_types=False):
+    return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
 
 
 def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None, with_column_types=False):

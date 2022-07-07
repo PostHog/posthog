@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Optional
 
 import structlog
 from sentry_sdk import capture_exception

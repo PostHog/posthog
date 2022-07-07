@@ -33,7 +33,7 @@ export function InternalMetricsTab(): JSX.Element {
                     <Collapse.Panel header="Dashboards" key="0">
                         <Dashboard
                             id={dashboard.id.toString()}
-                            shareToken={dashboard.share_token}
+                            dashboard={dashboard}
                             placement={DashboardPlacement.InternalMetrics}
                         />
                     </Collapse.Panel>

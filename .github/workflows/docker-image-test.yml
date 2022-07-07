@@ -117,10 +117,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v2
 
-            - name: Start stack with Docker Compose
+            - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis object_storage &
+                  docker-compose -f docker-compose.dev.yml up -d
 
             - name: Wait for ClickHouse
               run: ./bin/check_kafka_clickhouse_up

@@ -4,10 +4,11 @@ import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRegex, toString } from 'lib/utils'
 import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
-import { PropertyOperator } from '~/types'
+import { PropertyOperator, PropertyType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 
 type PropValue = {
     id?: number
@@ -70,9 +71,6 @@ export function PropertyValue({
     autoFocus = false,
     allowCustom = true,
 }: PropertyValueProps): JSX.Element {
-    const isMultiSelect = operator && isOperatorMulti(operator)
-    const isDateTimeProperty = operator && isOperatorDate(operator)
-
     // what the human has typed into the box
     const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
     // options from the server for search
@@ -81,7 +79,11 @@ export function PropertyValue({
     const [shouldBlur, setShouldBlur] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
-    const { formatForDisplay } = useValues(propertyDefinitionsModel)
+    const { formatForDisplay, describeProperty } = useValues(propertyDefinitionsModel)
+
+    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isDateTimeProperty = operator && isOperatorDate(operator)
+    const isDurationProperty = propertyKey && describeProperty(propertyKey) === PropertyType.Duration
 
     // update the input field if passed a new `value` prop
     useEffect(() => {
@@ -243,6 +245,13 @@ export function PropertyValue({
                     value={value}
                     setValue={setValue}
                     style={commonInputProps.style}
+                />
+            ) : isDurationProperty ? (
+                <DurationPicker
+                    style={commonInputProps.style}
+                    autoFocus={autoFocus}
+                    initialValue={value as number}
+                    onChange={setValue}
                 />
             ) : (
                 <AutoComplete

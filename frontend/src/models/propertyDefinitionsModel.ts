@@ -135,6 +135,13 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
                     return match?.property_type ?? null
                 },
         ],
+        getPropertyDefinition: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): ((s: TaxonomicFilterValue) => PropertyDefinition | null) =>
+                (propertyName: TaxonomicFilterValue) => {
+                    return propertyDefinitions.find((pd) => pd.name === propertyName) ?? null
+                },
+        ],
         formatForDisplay: [
             (s) => [s.propertyDefinitions],
             (propertyDefinitions: PropertyDefinition[]): FormatForDisplayFunction => {
