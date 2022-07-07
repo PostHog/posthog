@@ -126,7 +126,8 @@ class EventQuery(metaclass=ABCMeta):
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
     def _determine_should_join_sessions(self) -> None:
-        pass
+        if SessionQuery(self._filter, self._team).is_used:
+            self._should_join_sessions = True
 
     def _does_cohort_need_persons(self, prop: Property) -> bool:
         try:

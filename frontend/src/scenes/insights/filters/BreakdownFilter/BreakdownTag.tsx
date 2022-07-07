@@ -1,9 +1,10 @@
+import React from 'react'
 import { LemonButton, LemonDivider, LemonInput, LemonTag } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import React, { useState } from 'react'
 import { cohortsModel } from '~/models/cohortsModel'
 import { FilterType } from '~/types'
+import { breakdownTagLogic } from './breakdownTagLogic'
 import { isAllCohort, isCohort, isPersonEventOrGroup } from './TaxonomicBreakdownFilter'
 
 type BreakdownTagProps = {
@@ -12,6 +13,7 @@ type BreakdownTagProps = {
     filters: FilterType
     onClose?: () => void
     breakdown: string | number
+    logicKey: string
 }
 
 export function BreakdownTag({
@@ -20,10 +22,13 @@ export function BreakdownTag({
     filters,
     onClose,
     breakdown,
+    logicKey,
 }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
+    const breakdownTagLogicInstance = breakdownTagLogic({ logicKey, setFilters, filters })
 
-    const [histogramBinCount, setHistogramBinCount] = useState(filters.breakdown_histogram_bin_count || 10)
+    const { binCount, useHistogram } = useValues(breakdownTagLogicInstance)
+    const { setBinCount, setUseHistogram } = useActions(breakdownTagLogicInstance)
 
     return (
         <LemonTag
@@ -35,17 +40,19 @@ export function BreakdownTag({
                 overlay: isHistogramable ? (
                     <div>
                         <LemonButton
-                            onClick={() =>
-                                setFilters && setFilters({ breakdown_histogram_bin_count: histogramBinCount })
-                            }
-                            type={filters.breakdown_histogram_bin_count ? 'highlighted' : 'stealth'}
+                            onClick={() => {
+                                setUseHistogram(true)
+                            }}
+                            type={useHistogram ? 'highlighted' : 'stealth'}
                             fullWidth
                         >
                             Use{' '}
                             <LemonInput
                                 min={1}
-                                value={histogramBinCount}
-                                onChange={setHistogramBinCount}
+                                value={binCount}
+                                onChange={(newValue) => {
+                                    setBinCount(newValue)
+                                }}
                                 fullWidth={false}
                                 type="number"
                                 className="histogram-bin-input"
@@ -53,8 +60,10 @@ export function BreakdownTag({
                             bins
                         </LemonButton>
                         <LemonButton
-                            onClick={() => setFilters && setFilters({ breakdown_histogram_bin_count: undefined })}
-                            type={filters.breakdown_histogram_bin_count === undefined ? 'highlighted' : 'stealth'}
+                            onClick={() => {
+                                setUseHistogram(false)
+                            }}
+                            type={!useHistogram ? 'highlighted' : 'stealth'}
                             className="mt-05"
                             fullWidth
                         >
@@ -66,9 +75,6 @@ export function BreakdownTag({
                         </LemonButton>
                     </div>
                 ) : undefined,
-                onClickOutside: () => {
-                    setFilters && setFilters({ breakdown_histogram_bin_count: histogramBinCount })
-                },
                 closeOnClickInside: false,
             }}
         >

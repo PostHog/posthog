@@ -36,7 +36,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['[25.0,66.25]', '[66.25,98.37]', '[98.37,""]'] as breakdown_value
+                (SELECT ['[25.0,66.25]', '[66.25,98.37]', '[98.37,1000.01]'] as breakdown_value
                       ) ARRAY JOIN breakdown_value
                   ) as sec
               ORDER BY breakdown_value, day_start
@@ -45,7 +45,7 @@
   SELECT
       count(DISTINCT $session_id) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25,'[25.0,66.25]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37,'[66.25,98.37]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37,'[98.37,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25,'[25.0,66.25]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37,'[66.25,98.37]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01,'[98.37,1000.01]','["",""]') as breakdown_value
   FROM events e
   
   
@@ -100,7 +100,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['[25.0,66.25]', '[66.25,98.37]', '[98.37,""]'] as breakdown_value
+                (SELECT ['[25.0,66.25]', '[66.25,98.37]', '[98.37,1000.01]'] as breakdown_value
                       ) ARRAY JOIN breakdown_value
                   ) as sec
               ORDER BY breakdown_value, day_start
@@ -109,7 +109,7 @@
   SELECT
       count(*) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25,'[25.0,66.25]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37,'[66.25,98.37]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37,'[98.37,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 25.0 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 66.25,'[25.0,66.25]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 66.25 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 98.37,'[66.25,98.37]',toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) >= 98.37 AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) < 1000.01,'[98.37,1000.01]','["",""]') as breakdown_value
   FROM events e
   
   
@@ -238,7 +238,8 @@
   SELECT count(*) AS total,
          multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0
                  AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92, '[0.0,69.92]', toFloat64OrNull(toString(sessions.session_duration)) >= 69.92
-                 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72, '[110.72,""]', '["",""]') AS breakdown_value
+                 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72, '[69.92,110.72]', toFloat64OrNull(toString(sessions.session_duration)) >= 110.72
+                 AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01, '[110.72,180.01]', '["",""]') AS breakdown_value
   FROM events e
   INNER JOIN
     (SELECT $session_id,
@@ -305,7 +306,7 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT ['[0.0,69.92]', '[69.92,110.72]', '[110.72,""]'] as breakdown_value
+             (SELECT ['[0.0,69.92]', '[69.92,110.72]', '[110.72,180.01]'] as breakdown_value
                       ) ARRAY JOIN breakdown_value
                   ) as sec
               ORDER BY breakdown_value, day_start
@@ -314,7 +315,7 @@
   SELECT
       count(*) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92,'[0.0,69.92]',toFloat64OrNull(toString(sessions.session_duration)) >= 69.92 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72,'[69.92,110.72]',toFloat64OrNull(toString(sessions.session_duration)) >= 110.72,'[110.72,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92,'[0.0,69.92]',toFloat64OrNull(toString(sessions.session_duration)) >= 69.92 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72,'[69.92,110.72]',toFloat64OrNull(toString(sessions.session_duration)) >= 110.72 AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01,'[110.72,180.01]','["",""]') as breakdown_value
   FROM events e
   
   
@@ -476,7 +477,7 @@
         CROSS JOIN
           (SELECT breakdown_value
            FROM
-             (SELECT ['[0.0,69.92]', '[69.92,110.72]', '[110.72,""]'] as breakdown_value
+             (SELECT ['[0.0,69.92]', '[69.92,110.72]', '[110.72,180.01]'] as breakdown_value
                       ) ARRAY JOIN breakdown_value
                   ) as sec
               ORDER BY breakdown_value, day_start
@@ -485,7 +486,7 @@
   SELECT
       count(DISTINCT $session_id) as total,
       toStartOfDay(timestamp,  'UTC') as day_start,
-      multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92,'[0.0,69.92]',toFloat64OrNull(toString(sessions.session_duration)) >= 69.92 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72,'[69.92,110.72]',toFloat64OrNull(toString(sessions.session_duration)) >= 110.72,'[110.72,""]','["",""]') as breakdown_value
+      multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0 AND toFloat64OrNull(toString(sessions.session_duration)) < 69.92,'[0.0,69.92]',toFloat64OrNull(toString(sessions.session_duration)) >= 69.92 AND toFloat64OrNull(toString(sessions.session_duration)) < 110.72,'[69.92,110.72]',toFloat64OrNull(toString(sessions.session_duration)) >= 110.72 AND toFloat64OrNull(toString(sessions.session_duration)) < 180.01,'[110.72,180.01]','["",""]') as breakdown_value
   FROM events e
   
   

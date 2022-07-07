@@ -182,10 +182,10 @@ class BreakdownMixin(BaseParamMixin):
 
     @cached_property
     def using_histogram(self) -> bool:
-        return self.breakdown_historgam_bin_count is not None
+        return self.breakdown_histogram_bin_count is not None
 
     @cached_property
-    def breakdown_historgam_bin_count(self) -> Optional[int]:
+    def breakdown_histogram_bin_count(self) -> Optional[int]:
         if BREAKDOWN_HISTOGRAM_BIN_COUNT in self._data:
             try:
                 return int(self._data[BREAKDOWN_HISTOGRAM_BIN_COUNT])
@@ -206,8 +206,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_TYPE] = self.breakdown_attribution_type
         if self.breakdown_attribution_value is not None:
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
-        if self.breakdown_historgam_bin_count is not None:
-            result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_historgam_bin_count
+        if self.breakdown_histogram_bin_count is not None:
+            result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
         return result
 
     @cached_property
