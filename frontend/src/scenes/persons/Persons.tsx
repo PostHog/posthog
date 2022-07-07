@@ -13,7 +13,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 export const scene: SceneExport = {
