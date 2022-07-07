@@ -1,6 +1,6 @@
 import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonSelect, LemonSelectProps } from './LemonSelect'
+import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 
 export default {
     title: 'Lemon UI/Lemon Select',
@@ -16,7 +16,7 @@ export default {
     },
 } as ComponentMeta<typeof LemonSelect>
 
-const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<Record<string, { label: string }>>) => {
+const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<LemonSelectOptions>) => {
     return <LemonSelect {...props} />
 }
 
