@@ -27,6 +27,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
 from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.test_journeys import journeys_for
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -872,6 +873,92 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("offset=25", response.json()["next"])
+
+    def test_insight_trends_breakdown_persons_with_histogram(self):
+        people = journeys_for(
+            {
+                "1": [
+                    {"event": "$pageview", "properties": {"$session_id": "one"}, "timestamp": "2012-01-14 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "one"},
+                        "timestamp": "2012-01-14 00:16:10",
+                    },  # 10s session
+                    {"event": "$pageview", "properties": {"$session_id": "two"}, "timestamp": "2012-01-15 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "two"},
+                        "timestamp": "2012-01-15 00:16:50",
+                    },  # 50s session, day 2
+                ],
+                "2": [
+                    {"event": "$pageview", "properties": {"$session_id": "three"}, "timestamp": "2012-01-14 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "three"},
+                        "timestamp": "2012-01-14 00:16:30",
+                    },  # 30s session
+                    {"event": "$pageview", "properties": {"$session_id": "four"}, "timestamp": "2012-01-15 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "four"},
+                        "timestamp": "2012-01-15 00:16:20",
+                    },  # 20s session, day 2
+                ],
+                "3": [
+                    {"event": "$pageview", "properties": {"$session_id": "five"}, "timestamp": "2012-01-15 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "five"},
+                        "timestamp": "2012-01-15 00:16:35",
+                    },  # 35s session, day 2
+                ],
+            },
+            self.team,
+        )
+
+        with freeze_time("2012-01-16T04:01:34.000Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                {
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "breakdown": "$session_duration",
+                    "breakdown_type": "session",
+                    "breakdown_histogram_bin_count": 2,
+                    "date_from": "-3d",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result = response.json()["result"]
+
+            self.assertEqual([resp["breakdown_value"] for resp in result], ["[10.0,30.0]", "[30.0,50.01]"])
+            self.assertEqual(result[0]["labels"], ["13-Jan-2012", "14-Jan-2012", "15-Jan-2012", "16-Jan-2012"])
+            self.assertEqual(result[0]["data"], [0, 2, 2, 0])
+            self.assertEqual(result[1]["data"], [0, 2, 4, 0])
+
+            first_breakdown_persons = self.client.get("/" + result[0]["persons_urls"][1]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in first_breakdown_persons.json()["results"][0]["people"]],
+                [str(people["1"].uuid)],
+            )
+
+            first_breakdown_persons_day_two = self.client.get("/" + result[0]["persons_urls"][2]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in first_breakdown_persons_day_two.json()["results"][0]["people"]],
+                [str(people["2"].uuid)],
+            )
+
+            second_breakdown_persons = self.client.get("/" + result[1]["persons_urls"][1]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in second_breakdown_persons.json()["results"][0]["people"]],
+                [str(people["2"].uuid)],
+            )
+
+            second_breakdown_persons_day_two = self.client.get("/" + result[1]["persons_urls"][2]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in second_breakdown_persons_day_two.json()["results"][0]["people"]],
+                [str(people["1"].uuid), str(people["3"].uuid)],
+            )
 
     def test_insight_paths_basic(self):
         _create_person(team=self.team, distinct_ids=["person_1"])

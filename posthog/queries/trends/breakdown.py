@@ -44,8 +44,8 @@ from posthog.queries.trends.sql import (
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
-    SESSION_BREAKDOWN_INNER_SQL,
     SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL,
+    SESSION_MATH_BREAKDOWN_INNER_SQL,
 )
 from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
@@ -244,7 +244,7 @@ class TrendsBreakdown:
             elif self.entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                inner_sql = SESSION_BREAKDOWN_INNER_SQL.format(
+                inner_sql = SESSION_MATH_BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
@@ -356,21 +356,16 @@ class TrendsBreakdown:
         for i in range(len(buckets) - 1):
             last_bucket = i == len(buckets) - 2
 
-            if last_bucket:
-                # Don't have an upper bound on the last bucket,
-                # so we can easily distinguish when querying persons
-                # and don't miss any values in the last bucket due to rounding down.
-                multi_if_conditionals.append(f"{raw_breakdown_value} >= {buckets[i]}")
-                bucket_value = f'[{buckets[i]},""]'
-                multi_if_conditionals.append(f"'{bucket_value}'")
-                values_arr.append(bucket_value)
-            else:
-                multi_if_conditionals.append(
-                    f"{raw_breakdown_value} >= {buckets[i]} AND {raw_breakdown_value} < {buckets[i+1]}"
-                )
-                bucket_value = f"[{buckets[i]},{buckets[i+1]}]"
-                multi_if_conditionals.append(f"'{bucket_value}'")
-                values_arr.append(bucket_value)
+            # Since we always `floor(x, 2)` the value, we add 0.01 to the last bucket
+            # to ensure it's always slightly greater than the maximum value
+            lower_bound = buckets[i]
+            upper_bound = buckets[i + 1] + 0.01 if last_bucket else buckets[i + 1]
+            multi_if_conditionals.append(
+                f"{raw_breakdown_value} >= {lower_bound} AND {raw_breakdown_value} < {upper_bound}"
+            )
+            bucket_value = f"[{lower_bound},{upper_bound}]"
+            multi_if_conditionals.append(f"'{bucket_value}'")
+            values_arr.append(bucket_value)
 
         # else condition
         multi_if_conditionals.append(f"""'["",""]'""")
@@ -525,11 +520,12 @@ class TrendsBreakdown:
         ).get_join_query()
 
     def _sessions_join_condition(self) -> Tuple[str, Dict]:
-        if self.filter.breakdown_type == "session" or self.entity.math_property == "$session_duration":
-            session_query, session_params = SessionQuery(filter=self.filter, team=self.team).get_query()
+        session_query = SessionQuery(filter=self.filter, team=self.team)
+        if session_query.is_used:
+            query, session_params = session_query.get_query()
             return (
                 f"""
-                    INNER JOIN ({session_query}) {SessionQuery.SESSION_TABLE_ALIAS}
+                    INNER JOIN ({query}) {SessionQuery.SESSION_TABLE_ALIAS}
                     ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
                 """,
                 session_params,

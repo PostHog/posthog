@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -65,24 +66,44 @@ class TrendsActors(ActorBaseQuery):
             and isinstance(self._filter.breakdown, str)
             and isinstance(self._filter.breakdown_value, str)
         ):
-            # TODO: When using histograms, convert into two properties: greater than histogram lower bound
-            # and less than histogram upper bound
-            if self._filter.breakdown_type == "group":
-                breakdown_prop = Property(
-                    key=self._filter.breakdown,
-                    value=self._filter.breakdown_value,
-                    type=self._filter.breakdown_type,
-                    group_type_index=self._filter.breakdown_group_type_index,
-                )
+            if self._filter.using_histogram:
+                lower_bound, upper_bound = json.loads(self._filter.breakdown_value)
+                breakdown_props = [
+                    Property(
+                        key=self._filter.breakdown,
+                        value=lower_bound,
+                        operator="gte",
+                        type=self._filter.breakdown_type,
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
+                    ),
+                    Property(
+                        key=self._filter.breakdown,
+                        value=upper_bound,
+                        operator="lt",
+                        type=self._filter.breakdown_type,
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
+                    ),
+                ]
             else:
-                breakdown_prop = Property(
-                    key=self._filter.breakdown, value=self._filter.breakdown_value, type=self._filter.breakdown_type
-                )
+                breakdown_props = [
+                    Property(
+                        key=self._filter.breakdown,
+                        value=self._filter.breakdown_value,
+                        type=self._filter.breakdown_type,
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
+                    )
+                ]
 
             self._filter = self._filter.with_data(
                 {
                     "properties": self._filter.property_groups.combine_properties(
-                        PropertyOperatorType.AND, [breakdown_prop]
+                        PropertyOperatorType.AND, breakdown_props
                     ).to_dict()
                 }
             )
@@ -97,7 +118,6 @@ class TrendsActors(ActorBaseQuery):
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
             and not self._team.actor_on_events_querying_enabled,
-            # TODO: this fails on sessions because `$session_id` also comes from the event query, causing ambiguity :$
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
             using_person_on_events=self._team.actor_on_events_querying_enabled,

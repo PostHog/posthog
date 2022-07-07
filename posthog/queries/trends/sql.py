@@ -162,7 +162,7 @@ FROM events e
 GROUP BY day_start, breakdown_value
 """
 
-SESSION_BREAKDOWN_INNER_SQL = """
+SESSION_MATH_BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
