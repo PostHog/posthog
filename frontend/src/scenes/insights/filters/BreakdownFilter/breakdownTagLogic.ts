@@ -36,7 +36,7 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
             props.setFilters?.({ breakdown_histogram_bin_count: useHistogram ? values.binCount : undefined })
         },
         setBinCount: ({ binCount }, breakpoint) => {
-            breakpoint(500)
+            breakpoint(1000)
             props.setFilters?.({ breakdown_histogram_bin_count: values.useHistogram ? binCount : undefined })
         },
     })),
