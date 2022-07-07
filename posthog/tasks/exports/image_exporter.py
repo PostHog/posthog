@@ -15,7 +15,6 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.utils import ChromeType
 
 from posthog.internal_metrics import incr, timing
-from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
@@ -123,7 +122,6 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
-@timed("image_exporter")
 def export_image(exported_asset: ExportedAsset) -> None:
     if exported_asset.insight:
         # NOTE: Dashboards are regularly updated but insights are not

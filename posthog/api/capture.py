@@ -26,7 +26,6 @@ from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
-from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
@@ -156,13 +155,13 @@ def _ensure_web_feature_flags_in_properties(
             event["properties"][f"$feature/{k}"] = v
 
 
-@timed("posthog_cloud_event_endpoint")
 @csrf_exempt
 def get_event(request):
     # handle cors request
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
 
+    timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
 
     data, error_response = get_data(request)
@@ -258,6 +257,7 @@ def get_event(request):
         try:
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
         except Exception as e:
+            timer.stop()
             capture_exception(e, {"data": data})
             statsd.incr(
                 "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
@@ -273,6 +273,7 @@ def get_event(request):
                 ),
             )
 
+    timer.stop()
     statsd.incr(
         "posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
     )
