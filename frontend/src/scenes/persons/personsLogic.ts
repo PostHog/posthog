@@ -10,9 +10,7 @@ import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
-import { triggerExport, TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 export interface PersonPaginatedResponse {
     next: string | null
@@ -152,7 +150,7 @@ export const personsLogic = kea<personsLogicType>({
             ],
         ],
     }),
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
             // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
             // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
@@ -224,21 +222,8 @@ export const personsLogic = kea<personsLogicType>({
             router.actions.push(urls.cohort(cohort.id))
         },
         exportCsv: () => {
-            if (!!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-                const path = props.cohort
-                    ? `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
-                    : `api/person/?${toParams(values.listFilters)}`
-
-                triggerExport({
-                    export_format: ExporterFormat.CSV,
-                    export_context: {
-                        path,
-                    },
-                })
-            } else {
-                lemonToast.success('The export is starting. It should finish soon')
-                window.location.href = values.exportUrl
-            }
+            lemonToast.success('The export is starting. It should finish soon')
+            window.location.href = values.exportUrl
         },
     }),
     loaders: ({ values, actions, props }) => ({
