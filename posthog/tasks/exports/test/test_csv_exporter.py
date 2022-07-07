@@ -21,6 +21,7 @@ TEST_BUCKET = "Test-Exports"
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
     def patched_request(self):
+
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             mock_response = Mock()
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
