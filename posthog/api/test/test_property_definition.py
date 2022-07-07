@@ -169,3 +169,19 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")
+
+    def test_is_feature_flag_property_filter(self):
+        PropertyDefinition.objects.create(team=self.team, name="$feature/plan", property_type="String")
+        response = self.client.get("/api/projects/@current/property_definitions/?search=plan")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=plan&is_feature_flag=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "$feature/plan")
+
+        response = self.client.get("/api/projects/@current/property_definitions/?search=plan&is_feature_flag=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "plan")
