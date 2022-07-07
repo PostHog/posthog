@@ -6,6 +6,7 @@ from rest_framework_csv import renderers as csvrenderers
 from posthog.models import ExportedAsset
 from posthog.tasks.exports import csv_exporter
 from posthog.test.base import APIBaseTest
+from django.conf import settings
 
 
 class TestCSVExporter(APIBaseTest):
@@ -71,6 +72,7 @@ class TestCSVExporter(APIBaseTest):
             },
         ]
         patched_request.return_value = mock_response
+        print(f"DEFAULT_CHARSET: {settings.DEFAULT_CHARSET}")
         csv_exporter.export_csv(asset)
 
         assert (
