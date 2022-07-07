@@ -60,7 +60,7 @@ export function RetentionModal({
                                     triggerExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: {
-                                            path: results[selectedRow]?.values[0]?.people_url,
+                                            path: results[selectedRow]?.people_url,
                                         },
                                     })
                                 }

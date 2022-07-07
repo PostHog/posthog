@@ -1,4 +1,3 @@
-import csv
 import datetime
 from typing import Any, List, Optional
 
@@ -146,6 +145,14 @@ def _export_to_csv(
         next_url = data.get("next")
 
     renderer = csvrenderers.CSVRenderer()
+
+    # NOTE: This is not ideal as some rows _could_ have different keys
+    # Ideally we would extend the csvrenderer to supported keeping the order in place
+    if len(all_csv_rows):
+        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
+            # If values are serialised then keep the order of the keys, else allow it to be unordered
+            renderer.header = all_csv_rows[0].keys()
+
     exported_asset.content = renderer.render(all_csv_rows)
     exported_asset.save(update_fields=["content"])
 
