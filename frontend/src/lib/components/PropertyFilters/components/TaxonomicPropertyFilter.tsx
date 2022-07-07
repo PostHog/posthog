@@ -91,6 +91,8 @@ export function TaxonomicPropertyFilter({
         1280: 'large',
     })
 
+    // todo remove duplication here
+
     return (
         <div
             className={clsx('taxonomic-property-filter', {
