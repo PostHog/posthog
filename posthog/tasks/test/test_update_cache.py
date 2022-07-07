@@ -17,7 +17,12 @@ from posthog.models.filters.utils import get_filter
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
 from posthog.queries.util import get_earliest_timestamp
-from posthog.tasks.update_cache import PARALLEL_INSIGHT_CACHE, update_cache_item, update_cached_items
+from posthog.tasks.update_cache import (
+    PARALLEL_INSIGHT_CACHE,
+    update_cache_item,
+    update_cached_items,
+    update_insight_cache,
+)
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -89,7 +94,7 @@ class TestUpdateCache(APIBaseTest):
             insight=insight_not_cached_because_dashboard_has_filters, dashboard=another_shared_dashboard_to_cache
         )
         # filters changed after dashboard linked to insight but should still affect filters hash
-        another_shared_dashboard_to_cache.filters = {"date_from": "-7d"}
+        another_shared_dashboard_to_cache.filters = {"date_from": "-14d"}
         another_shared_dashboard_to_cache.save()
 
         dashboard_do_not_cache = create_shared_dashboard(
@@ -438,7 +443,7 @@ class TestUpdateCache(APIBaseTest):
         but does touch the tile
         """
         dashboard_to_cache = create_shared_dashboard(
-            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-7d"}
+            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-14d"}
         )
         item_to_cache = Insight.objects.create(
             filters=Filter(
@@ -647,3 +652,17 @@ class TestUpdateCache(APIBaseTest):
             assert Insight.objects.get(pk=insight.pk).last_refresh == now()
         for insight in other_insights_out_of_range:
             assert not Insight.objects.get(pk=insight.pk).last_refresh == datetime(2022, 1, 2).replace(tzinfo=pytz.utc)
+
+    def test_update_insight_filters_hash(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+        insight = Insight.objects.create(team=self.team, filters=filter_dict)
+        insight.filters_hash = test_hash
+        insight.save(update_fields=["filters_hash"])
+        insight.refresh_from_db()
+        assert insight.filters_hash == test_hash
+        update_insight_cache(insight, None)
+        assert insight.filters_hash != test_hash

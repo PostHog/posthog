@@ -1,3 +1,4 @@
+import json
 import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -39,11 +40,12 @@ from posthog.queries.trends.sql import (
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CUMULATIVE_INNER_SQL,
+    BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
-    SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL,
     SESSION_BREAKDOWN_INNER_SQL,
+    SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL,
 )
 from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
@@ -178,7 +180,7 @@ class TrendsBreakdown:
             if self.entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                content_sql = SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
@@ -298,23 +300,29 @@ class TrendsBreakdown:
         assert isinstance(self.filter.breakdown, str)
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
+        numeric_property_filter = ""
+        if self.filter.using_histogram:
+            numeric_property_filter = f"AND {breakdown_value} is not null"
+            breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
         return (
             {"values": values_arr},
-            BREAKDOWN_PROP_JOIN_SQL,
-            {"breakdown_value_expr": breakdown_value},
+            BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
+            {"breakdown_value_expr": breakdown_value, "numeric_property_filter": numeric_property_filter},
             breakdown_value,
         )
 
-    def _get_breakdown_value(self, breakdown: str):
+    def _get_breakdown_value(self, breakdown: str) -> str:
 
         if self.filter.breakdown_type == "session":
             if breakdown == "$session_duration":
-                return f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
+                # Return the session duration expression right away because it's already an number,
+                # so it doesn't need casting for the histogram case (like the other properties)
+                breakdown_value = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
             else:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
-        if self.using_person_on_events:
+        elif self.using_person_on_events:
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "person_properties")
             elif self.filter.breakdown_type == "group":
@@ -322,9 +330,6 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", properties_field)
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
-
-            return breakdown_value
-
         else:
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr("person", breakdown, "%(key)s", "person_props")
@@ -334,7 +339,48 @@ class TrendsBreakdown:
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
-            return breakdown_value
+        if self.filter.using_histogram:
+            return f"toFloat64OrNull(toString({breakdown_value}))"
+        return breakdown_value
+
+    def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
+
+        multi_if_conditionals = []
+        values_arr = []
+
+        if len(buckets) == 1:
+            # Only one value, so treat this as a single bucket
+            # starting at this value, ending at infinity.
+            buckets = [buckets[0], buckets[0]]
+
+        for i in range(len(buckets) - 1):
+            last_bucket = i == len(buckets) - 2
+
+            if last_bucket:
+                # Don't have an upper bound on the last bucket,
+                # so we can easily distinguish when querying persons
+                # and don't miss any values in the last bucket due to rounding down.
+                multi_if_conditionals.append(f"{raw_breakdown_value} >= {buckets[i]}")
+                bucket_value = f'[{buckets[i]},""]'
+                multi_if_conditionals.append(f"'{bucket_value}'")
+                values_arr.append(bucket_value)
+            else:
+                multi_if_conditionals.append(
+                    f"{raw_breakdown_value} >= {buckets[i]} AND {raw_breakdown_value} < {buckets[i+1]}"
+                )
+                bucket_value = f"[{buckets[i]},{buckets[i+1]}]"
+                multi_if_conditionals.append(f"'{bucket_value}'")
+                values_arr.append(bucket_value)
+
+        # else condition
+        multi_if_conditionals.append(f"""'["",""]'""")
+
+        return f"multiIf({','.join(multi_if_conditionals)})", values_arr
+
+    def breakdown_sort_function(self, value):
+        if self.filter.using_histogram:
+            return json.loads(value.get("breakdown_value"))[0]
+        return 0 if value.get("breakdown_value") != "all" else 1
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
@@ -362,8 +408,7 @@ class TrendsBreakdown:
                     **additional_values,
                 }
                 parsed_results.append(parsed_result)
-
-            return parsed_results
+            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
 
         return _parse
 
@@ -382,7 +427,7 @@ class TrendsBreakdown:
                 )
                 parsed_results.append(parsed_result)
                 parsed_result.update({"filter": filter.to_dict()})
-            return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
+            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
 
         return _parse
 

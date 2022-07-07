@@ -31,7 +31,7 @@ class TestIntegration(APILicensedTest):
 
         return {
             "HTTP_X_SLACK_SIGNATURE": signature,
-            "HTTP_X_SLACK_REQUEST_TIMESTAMP": slack_time,
+            "HTTP_X_SLACK_REQUEST_TIMESTAMP": str(slack_time),
         }
 
     def test_validates_payload(self):
@@ -46,6 +46,15 @@ class TestIntegration(APILicensedTest):
         headers = self._headers_for_payload(body)
 
         body["challenge"] = "intercepted!"
+        res = self.client.post(f"/api/integrations/slack/events", body, **headers)
+
+        assert res.status_code == 403
+
+    def test_ignores_bad_timing_headers(self):
+        body = {"type": "url_verification", "challenge": "to-a-duel!"}
+        headers = self._headers_for_payload(body)
+        headers["HTTP_X_SLACK_REQUEST_TIMESTAMP"] = "not-a-time"
+
         res = self.client.post(f"/api/integrations/slack/events", body, **headers)
 
         assert res.status_code == 403

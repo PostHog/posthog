@@ -117,7 +117,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v2
 
-            - name: Start stack with Docker Compose
+            - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
                   docker-compose -f docker-compose.dev.yml up -d

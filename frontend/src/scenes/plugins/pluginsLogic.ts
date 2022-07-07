@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
 import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
@@ -98,7 +98,9 @@ export const pluginsLogic = kea<pluginsLogicType>([
         savePluginOrders: (newOrders: Record<number, number>) => ({ newOrders }),
         cancelRearranging: true,
         showPluginLogs: (id: number) => ({ id }),
+        showPluginHistory: (id: number) => ({ id }),
         hidePluginLogs: true,
+        hidePluginHistory: true,
         processSearchInput: (term: string) => ({ term }),
         setSearchTerm: (term: string | null) => ({ term }),
         setPluginConfigPollTimeout: (timeout: number | null) => ({ timeout }),
@@ -420,6 +422,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 showPluginLogs: (_, { id }) => id,
             },
         ],
+        showingHistoryPluginId: [
+            null as number | null,
+            {
+                showPluginHistory: (_, { id }) => id,
+                hidePluginHistory: () => null,
+            },
+        ],
         searchTerm: [
             null as string | null,
             {
@@ -576,6 +585,11 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (s) => [s.lastShownLogsPluginId, s.installedPlugins],
             (lastShownLogsPluginId, installedPlugins) =>
                 lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
+        ],
+        showingHistoryPlugin: [
+            (s) => [s.showingHistoryPluginId, s.installedPlugins],
+            (showingHistoryPluginId, installedPlugins) =>
+                showingHistoryPluginId ? installedPlugins.find((plugin) => plugin.id === showingHistoryPluginId) : null,
         ],
         filteredUninstalledPlugins: [
             (s) => [s.searchTerm, s.uninstalledPlugins],
@@ -739,12 +753,30 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
         },
     })),
+    actionToUrl(({ values }) => ({
+        setPluginTab: () => {
+            const searchParams = {
+                ...router.values.searchParams,
+            }
 
-    urlToAction(({ actions }) => ({
+            let replace = false // set a page in history
+            if (!searchParams['tab'] && values.pluginTab === PluginTab.Installed) {
+                // we are on the Installed page, and have clicked the Installed tab, don't set history
+                replace = true
+            }
+            searchParams['tab'] = values.pluginTab
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace }]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
         [urls.projectApps()]: (_, { tab, name }) => {
-            if (tab && name) {
-                actions.setSearchTerm(name)
+            if (tab) {
                 actions.setPluginTab(tab as PluginTab)
+            }
+
+            if (name && [PluginTab.Repository, PluginTab.Installed].includes(values.pluginTab)) {
+                actions.setSearchTerm(name)
             }
         },
     })),

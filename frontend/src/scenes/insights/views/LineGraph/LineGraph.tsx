@@ -59,7 +59,7 @@ interface LineGraphProps {
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
-    timezone?: string
+    timezone?: string | null
 }
 
 const noop = (): void => {}

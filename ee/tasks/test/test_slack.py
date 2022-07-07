@@ -26,7 +26,7 @@ def create_mock_unfurl_event(team_id: str, links: List[str]):
             "user": "Uxxxxxxx",
             "message_ts": "123456789.9875",
             "unfurl_id": "C123456.123456789.987501.1b90fa1278528ce6e2f6c5c2bfa1abc9a41d57d02b29d173f40399c9ffdecf4b",
-            "thread_ts": "123456621.1855",
+            "event_ts": "123456621.1855",
             "source": "conversations_history",
             "links": [{"domain": "app.posthog.com", "url": link} for link in links],
         },
@@ -91,6 +91,8 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                     ]
                 }
             },
-            "channel": "Cxxxxxx",
-            "ts": "123456621.1855",
+            "unfurl_id": "C123456.123456789.987501.1b90fa1278528ce6e2f6c5c2bfa1abc9a41d57d02b29d173f40399c9ffdecf4b",
+            "source": "conversations_history",
+            "channel": "",
+            "ts": "",
         }

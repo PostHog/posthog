@@ -1,143 +1,35 @@
 import React from 'react'
-import { Table, Modal, Button, Dropdown, Menu } from 'antd'
+import { Modal, Input } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
-import {
-    DeleteOutlined,
-    ExclamationCircleOutlined,
-    LogoutOutlined,
-    UpOutlined,
-    DownOutlined,
-    SwapOutlined,
-    CrownFilled,
-} from '@ant-design/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { ExclamationCircleOutlined, SwapOutlined } from '@ant-design/icons'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { Tooltip } from 'lib/components/Tooltip'
 import {
     getReasonForAccessLevelChangeProhibition,
     organizationMembershipLevelIntegers,
     membershipLevelToName,
-} from '../../../lib/utils/permissioning'
+} from 'lib/utils/permissioning'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { TZLabel } from 'lib/components/TimezoneAware'
+import { LemonButton } from 'lib/components/LemonButton'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
-function LevelComponent(member: OrganizationMemberType): JSX.Element | null {
+function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { changeMemberAccessLevel } = useActions(membersLogic)
-
-    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
-
-    if (!user) {
-        return null
-    }
-
-    function generateHandleClick(listLevel: OrganizationMembershipLevel): (event: React.MouseEvent) => void {
-        return function handleClick(event: React.MouseEvent) {
-            event.preventDefault()
-            if (!user) {
-                throw Error
-            }
-            if (listLevel === OrganizationMembershipLevel.Owner) {
-                Modal.confirm({
-                    centered: true,
-                    title: `Transfer organization ownership to ${member.user.first_name}?`,
-                    content: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
-                    icon: <SwapOutlined />,
-                    okType: 'danger',
-                    okText: 'Transfer Ownership',
-                    onOk() {
-                        changeMemberAccessLevel(member, listLevel)
-                    },
-                })
-            } else {
-                changeMemberAccessLevel(member, listLevel)
-            }
-        }
-    }
-
-    const levelButton = (
-        <Button
-            data-attr="change-membership-level"
-            icon={member.level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
-        >
-            {membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}
-        </Button>
-    )
-
-    const allowedLevels = organizationMembershipLevelIntegers.filter(
-        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
-    )
-    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
-
-    return disallowedReason ? (
-        <Tooltip title={disallowedReason}>{levelButton}</Tooltip>
-    ) : (
-        <Dropdown
-            overlay={
-                <Menu>
-                    {allowedLevels.map((listLevel) => (
-                        <Menu.Item key={`${member.user.uuid}-level-${listLevel}`}>
-                            <a href="#" onClick={generateHandleClick(listLevel)} data-test-level={listLevel}>
-                                {listLevel === OrganizationMembershipLevel.Owner ? (
-                                    <>
-                                        <CrownFilled style={{ marginRight: '0.5rem' }} />
-                                        Transfer organization ownership
-                                    </>
-                                ) : listLevel > member.level ? (
-                                    <>
-                                        <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Upgrade to {membershipLevelToName.get(listLevel)}
-                                    </>
-                                ) : (
-                                    <>
-                                        <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Downgrade to {membershipLevelToName.get(listLevel)}
-                                    </>
-                                )}
-                            </a>
-                        </Menu.Item>
-                    ))}
-                </Menu>
-            }
-        >
-            {levelButton}
-        </Dropdown>
-    )
-}
-
-function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
-    const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember } = useActions(membersLogic)
+    const { removeMember, changeMemberAccessLevel } = useActions(membersLogic)
 
     if (!user) {
         return null
     }
 
     const currentMembershipLevel = currentOrganization?.membership_level ?? -1
-
-    function handleClick(): void {
-        if (!user) {
-            throw Error
-        }
-        Modal.confirm({
-            title: `${member.user.uuid == user.uuid ? 'Leave' : `Remove ${member.user.first_name} from`} organization ${
-                user.organization?.name
-            }?`,
-            icon: <ExclamationCircleOutlined />,
-            okText: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
-            okType: 'danger',
-            cancelText: 'Cancel',
-            onOk() {
-                removeMember(member)
-            },
-        })
-    }
 
     const allowDeletion =
         // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
@@ -146,18 +38,93 @@ function ActionsComponent(member: OrganizationMemberType): JSX.Element | null {
         // unless that user is the organization's owner, in which case they can't leave
         member.level !== OrganizationMembershipLevel.Owner
 
+    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+
+    const allowedLevels = organizationMembershipLevelIntegers.filter(
+        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
+    )
+    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
+
     return (
-        <div>
-            {allowDeletion && (
-                <a className="text-danger" onClick={handleClick} data-attr="delete-org-membership">
-                    {member.user.uuid !== user.uuid ? (
-                        <DeleteOutlined title="Remove from organization" />
+        <More
+            overlay={
+                <>
+                    {disallowedReason ? (
+                        <div>{disallowedReason}</div>
                     ) : (
-                        <LogoutOutlined title="Leave organization" />
+                        allowedLevels.map((listLevel) => (
+                            <LemonButton
+                                type="stealth"
+                                fullWidth
+                                key={`${member.user.uuid}-level-${listLevel}`}
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    if (!user) {
+                                        throw Error
+                                    }
+                                    if (listLevel === OrganizationMembershipLevel.Owner) {
+                                        Modal.confirm({
+                                            centered: true,
+                                            title: `Transfer organization ownership to ${member.user.first_name}?`,
+                                            content: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
+                                            icon: <SwapOutlined />,
+                                            okType: 'danger',
+                                            okText: 'Transfer Ownership',
+                                            onOk() {
+                                                changeMemberAccessLevel(member, listLevel)
+                                            },
+                                        })
+                                    } else {
+                                        changeMemberAccessLevel(member, listLevel)
+                                    }
+                                }}
+                                data-test-level={listLevel}
+                            >
+                                {listLevel === OrganizationMembershipLevel.Owner ? (
+                                    <>Transfer organization ownership</>
+                                ) : listLevel > member.level ? (
+                                    <>Upgrade to {membershipLevelToName.get(listLevel)}</>
+                                ) : (
+                                    <>Downgrade to {membershipLevelToName.get(listLevel)}</>
+                                )}
+                            </LemonButton>
+                        ))
                     )}
-                </a>
-            )}
-        </div>
+                    {allowDeletion ? (
+                        <>
+                            <LemonDivider />
+                            <LemonButton
+                                type="stealth"
+                                status="danger"
+                                data-attr="delete-org-membership"
+                                onClick={() => {
+                                    if (!user) {
+                                        throw Error
+                                    }
+                                    Modal.confirm({
+                                        title: `${
+                                            member.user.uuid == user.uuid
+                                                ? 'Leave'
+                                                : `Remove ${member.user.first_name} from`
+                                        } organization ${user.organization?.name}?`,
+                                        icon: <ExclamationCircleOutlined />,
+                                        okText: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
+                                        okType: 'danger',
+                                        cancelText: 'Cancel',
+                                        onOk() {
+                                            removeMember(member)
+                                        },
+                                    })
+                                }}
+                                fullWidth
+                            >
+                                {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
+                            </LemonButton>
+                        </>
+                    ) : null}
+                </>
+            }
+        />
     )
 }
 
@@ -167,9 +134,10 @@ export interface MembersProps {
 }
 
 export function Members({ user }: MembersProps): JSX.Element {
-    const { members, membersLoading } = useValues(membersLogic)
+    const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { setSearch } = useActions(membersLogic)
 
-    const columns: ColumnsType<OrganizationMemberType> = [
+    const columns: LemonTableColumns<OrganizationMemberType> = [
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
@@ -195,40 +163,58 @@ export function Members({ user }: MembersProps): JSX.Element {
             dataIndex: 'level',
             key: 'level',
             render: function LevelRender(_, member) {
-                return LevelComponent(member)
+                return (
+                    <LemonTag data-attr="membership-level">
+                        {member.level === OrganizationMembershipLevel.Owner
+                            ? 'Organization owner'
+                            : `Project ${membershipLevelToName.get(member.level) ?? `unknown (${member.level})`}`}
+                    </LemonTag>
+                )
             },
             sorter: (a, b) => a.level - b.level,
-            defaultSortOrder: 'descend',
         },
         {
-            title: 'Joined At',
+            title: 'Joined',
             dataIndex: 'joined_at',
             key: 'joined_at',
-            render: (joinedAt: string) => humanFriendlyDetailedTime(joinedAt),
+            render: function RenderJoinedAt(joinedAt) {
+                return (
+                    <div className="no-wrap">
+                        <TZLabel time={joinedAt as string} />
+                    </div>
+                )
+            },
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
-            defaultSortOrder: 'ascend',
         },
         {
-            dataIndex: 'actions',
             key: 'actions',
-            align: 'center',
-            render: function ActionsRender(_, member) {
-                return ActionsComponent(member)
-            },
+            width: 0,
+            render: ActionsComponent,
         },
     ]
 
     return (
         <>
             <h2 className="subtitle">Members</h2>
-            <Table
-                dataSource={members}
+            <Input.Search
+                placeholder="Search for members"
+                allowClear
+                enterButton
+                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
+                value={search}
+                onChange={(e) => {
+                    setSearch(e.target.value)
+                }}
+            />
+            <LemonTable
+                dataSource={filteredMembers}
                 columns={columns}
                 rowKey="id"
-                pagination={false}
                 style={{ marginTop: '1rem' }}
                 loading={membersLoading}
                 data-attr="org-members-table"
+                defaultSorting={{ columnKey: 'level', order: -1 }}
+                pagination={{ pageSize: 50 }}
             />
         </>
     )

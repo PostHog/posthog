@@ -50,7 +50,6 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
     "hour": datetime.timedelta(hours=1),
@@ -59,6 +58,8 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+DEFAULT_DATE_FROM_DAYS = 7
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -154,6 +155,9 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date -= relativedelta(day=1)
         if match.group("position") == "End":
             date -= relativedelta(day=31)
+    elif match.group("type") == "q":
+        if match.group("number"):
+            date -= relativedelta(weeks=13 * int(match.group("number")))
     elif match.group("type") == "y":
         if match.group("number"):
             date -= relativedelta(years=int(match.group("number")))
@@ -170,7 +174,7 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
         if filters["date_from"] == "all":
             date_from = None
     else:
-        date_from = datetime.datetime.today() - relativedelta(days=7)
+        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
         date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     date_to = None
@@ -418,7 +422,7 @@ def cors_response(request, response):
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
     allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
 
-    response["Access-Control-Allow-Headers"] = "X-Requested-With" + (
+    response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
     )
     return response
@@ -891,8 +895,8 @@ def format_query_params_absolute_url(
     offset_alias: Optional[str] = "offset",
     limit_alias: Optional[str] = "limit",
 ) -> Optional[str]:
-    OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
-    LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
+    OFFSET_REGEX = re.compile(rf"([&?]{offset_alias}=)(\d+)")
+    LIMIT_REGEX = re.compile(rf"([&?]{limit_alias}=)(\d+)")
 
     url_to_format = request.build_absolute_uri()
 
@@ -901,13 +905,13 @@ def format_query_params_absolute_url(
 
     if offset:
         if OFFSET_REGEX.search(url_to_format):
-            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+            url_to_format = OFFSET_REGEX.sub(rf"\g<1>{offset}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{offset_alias}={offset}"
 
     if limit:
         if LIMIT_REGEX.search(url_to_format):
-            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+            url_to_format = LIMIT_REGEX.sub(rf"\g<1>{limit}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
 

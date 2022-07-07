@@ -2,7 +2,7 @@ import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/huma
 import React from 'react'
 import { PersonType } from '~/types'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const personActionsMapping: Record<
     keyof PersonType,

@@ -69,7 +69,7 @@ defusedxml==0.6.0
     #   social-auth-core
 dj-database-url==0.5.0
     # via -r requirements.in
-django==3.2.13
+django==3.2.14
     # via
     #   -r requirements.in
     #   django-axes

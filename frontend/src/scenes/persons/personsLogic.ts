@@ -136,6 +136,7 @@ export const personsLogic = kea<personsLogicType>({
             (listFilters, cohort): string =>
                 cohort ? `/api/cohort/${cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
         ],
+        urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
     }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {

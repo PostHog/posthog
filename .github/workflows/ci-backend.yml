@@ -81,22 +81,17 @@ jobs:
         name: Python code quality checks
         runs-on: ubuntu-latest
 
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: posthog
-                    POSTGRES_PASSWORD: posthog
-                    POSTGRES_DB: posthog
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
         steps:
             - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.8.12
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d
+
+            - name: Set up Python
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8.12
@@ -148,12 +143,12 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d db &
+                  docker-compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8.5
+                  python-version: 3.8.12
 
             - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
@@ -333,15 +328,12 @@ jobs:
                   cat multi_tenancy_settings.py > master/posthog/settings/cloud.py
                   cat requirements.txt >> master/requirements.txt
 
-            - name: Add kafka host to /etc/hosts for kafka connectivity
-              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f master/docker-compose.dev.yml down
                   docker-compose -f master/docker-compose.dev.yml up -d
 
-            - name: Set up Python 3.8.12
+            - name: Set up Python
               uses: actions/setup-python@v2
               with:
                   python-version: 3.8.12

@@ -27,7 +27,7 @@ from posthog.helpers.session_recording import preprocess_session_recording_event
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
-from posthog.models.feature_flag import get_overridden_feature_flags
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
@@ -150,7 +150,7 @@ def _ensure_web_feature_flags_in_properties(
 ):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        flags = get_overridden_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        flags = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
         event["properties"]["$active_feature_flags"] = list(flags.keys())
         for k, v in flags.items():
             event["properties"][f"$feature/{k}"] = v
