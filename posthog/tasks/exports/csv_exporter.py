@@ -2,6 +2,7 @@ import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+import posthoganalytics
 import requests
 import structlog
 from django.conf import settings
@@ -164,7 +165,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             renderer.header = all_csv_rows[0].keys()
 
     rendered_csv_content = renderer.render(all_csv_rows)
-    if settings.OBJECT_STORAGE_ENABLED:
+    if settings.OBJECT_STORAGE_ENABLED and posthoganalytics.feature_enabled("ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS"):
         object_path = f"/{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
         object_storage.write(object_path, rendered_csv_content)
         exported_asset.content_location = object_path

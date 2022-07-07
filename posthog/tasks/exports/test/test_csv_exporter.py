@@ -107,8 +107,12 @@ class TestCSVExporter(APIBaseTest):
             )
             assert self.exported_asset.content_location is None
 
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled")
     @patch("posthog.tasks.exports.csv_exporter.UUIDT")
-    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt) -> None:
+    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled_and_flag_is_on(
+        self, mocked_uuidt, mocked_flag_check
+    ) -> None:
+        mocked_flag_check.return_value = True
         mocked_uuidt.return_value = "a-guid"
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_csv(self.exported_asset)
@@ -125,3 +129,20 @@ class TestCSVExporter(APIBaseTest):
             )
 
             assert self.exported_asset.content is None
+
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled")
+    @patch("posthog.tasks.exports.csv_exporter.UUIDT")
+    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled_and_flag_is_off(
+        self, mocked_uuidt, mocked_flag_check
+    ) -> None:
+        mocked_flag_check.return_value = False
+        mocked_uuidt.return_value = "a-guid"
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(self.exported_asset)
+
+            assert self.exported_asset.content_location is None
+
+            assert (
+                self.exported_asset.content
+                == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+            )
