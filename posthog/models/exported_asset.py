@@ -1,3 +1,4 @@
+import gzip
 import secrets
 from datetime import timedelta
 from typing import Optional
@@ -94,7 +95,8 @@ def asset_for_token(token: str) -> ExportedAsset:
 def get_content_response(asset: ExportedAsset, download: bool = False):
     content = asset.content
     if not content and asset.content_location:
-        content = object_storage.read(asset.content_location)
+        content_bytes = object_storage.read_bytes(asset.content_location)
+        content = gzip.decompress(content_bytes)
 
     res = HttpResponse(content, content_type=asset.export_format)
     if download:
