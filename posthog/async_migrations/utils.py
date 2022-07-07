@@ -144,9 +144,7 @@ def _sleep_until_finished(query_pattern: str) -> None:
         sleep(SLEEP_TIME_SECONDS)
 
 
-def run_optimize_table(
-    unique_name: str, query_id: str, table_name: str, on_cluster_clause="", deduplicate=False, final=False
-):
+def run_optimize_table(unique_name: str, query_id: str, table_name: str, deduplicate=False, final=False):
     """
     Runs the passed OPTIMIZE TABLE query.
 
@@ -158,6 +156,7 @@ def run_optimize_table(
     else:
         final_clause = "FINAL" if final else ""
         deduplicate_clause = "DEDUPLICATE" if deduplicate else ""
+        on_cluster_clause = "{on_cluster_clause}"
         sql = f"OPTIMIZE TABLE {table_name} {on_cluster_clause} {final_clause} {deduplicate_clause}"
         execute_op_clickhouse(
             sql,
