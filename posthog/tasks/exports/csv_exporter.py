@@ -147,6 +147,8 @@ def _export_to_csv(
 
     renderer = csvrenderers.CSVRenderer()
 
+    print("CSV_ITEMS", all_csv_rows)
+
     exported_asset.content = renderer.render(
         all_csv_rows, renderer_context={"writer_opts": {"quoting": csv.QUOTE_ALL}, "encoding": "utf-8"}
     )
