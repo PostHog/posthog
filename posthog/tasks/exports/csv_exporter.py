@@ -10,6 +10,7 @@ from statshog.defaults.django import statsd
 
 from posthog import settings
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset
 from posthog.utils import absolute_uri
 
@@ -165,14 +166,13 @@ def _export_to_csv(
     exported_asset.save(update_fields=["content"])
 
 
+@timed("csv_exporter")
 def export_csv(
     exported_asset: ExportedAsset,
     root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER,
     limit: Optional[int] = None,
     max_limit: int = 10_000,
 ) -> None:
-    timer = statsd.timer("csv_exporter").start()
-
     if not limit:
         limit = 1000
 
@@ -196,5 +196,3 @@ def export_csv(
         logger.error("csv_exporter.failed", exception=e)
         statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
         raise e
-    finally:
-        timer.stop()
