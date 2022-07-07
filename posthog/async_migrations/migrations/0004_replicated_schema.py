@@ -46,7 +46,7 @@ moving data without increasing disk usage between identical schemas.
 
     1. The new table should be named `sharded_TABLENAME`
     2. When re-enabling ingestion, we create `TABLENAME` and `writable_TABLENAME` tables
-       which are responsible for distributed reads and writes.
+       which are responsible for distributed reads and writes
     3. We re-create materialized views to write to `writable_TABLENAME`
 
 Constraints:

@@ -89,9 +89,11 @@ export function BreakdownFilter({
     const tags = !breakdown_type
         ? []
         : breakdownArray.map((t, index) => {
+              const key = `${t}-${index}`
               return (
                   <BreakdownTag
-                      key={t}
+                      key={key}
+                      logicKey={key}
                       isHistogramable={isHistogramable}
                       breakdown={t}
                       onClose={onCloseFor ? onCloseFor(t, index) : undefined}

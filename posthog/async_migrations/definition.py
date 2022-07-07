@@ -44,6 +44,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         rollback_settings: Optional[Dict] = None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+        per_shard: bool = False
     ):
         self.sql = sql
         self.sql_settings = sql_settings
@@ -51,6 +52,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         self.rollback_settings = rollback_settings
         self.database = database
         self.timeout_seconds = timeout_seconds
+        self.per_shard = per_shard
 
     def fn(self, query_id: str):
         self._execute_op(query_id, self.sql, self.sql_settings)
@@ -63,7 +65,13 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
         if self.database == AnalyticsDBMS.CLICKHOUSE:
-            execute_op_clickhouse(sql, query_id=query_id, timeout_seconds=self.timeout_seconds, settings=settings)
+            execute_op_clickhouse(
+                sql,
+                query_id=query_id,
+                timeout_seconds=self.timeout_seconds,
+                settings=settings,
+                per_shard=self.per_shard,
+            )
         else:
             execute_op_postgres(sql, query_id)
 
