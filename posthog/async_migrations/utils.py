@@ -19,6 +19,7 @@ from posthog.settings import (
     ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION,
     CLICKHOUSE_CLUSTER,
+    TEST,
 )
 from posthog.utils import get_machine_id
 
@@ -152,7 +153,7 @@ def run_optimize_table(
     Note that this handles process restarts gracefully: If the query is still running on the cluster,
     we'll wait for that to complete first.
     """
-    if _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
+    if not TEST and _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
         _sleep_until_finished(f"%%optimize:{unique_name}%%")
     else:
         final_clause = "FINAL" if final else ""

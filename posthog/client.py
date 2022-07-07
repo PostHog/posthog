@@ -100,7 +100,7 @@ def make_ch_pool(**overrides) -> ChPool:
         "connections_max": CLICKHOUSE_CONN_POOL_MAX,
         "settings": {"mutations_sync": "1"} if TEST else {},
         # Without this, OPTIMIZE table and other queries will regularly run into timeouts
-        "send_receive_timeout": 999_999_999,
+        "send_receive_timeout": 30 if TEST else 999_999_999,
         **overrides,
     }
 
