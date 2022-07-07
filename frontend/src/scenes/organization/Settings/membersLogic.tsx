@@ -58,17 +58,18 @@ export const membersLogic = kea<membersLogicType>({
                 return result
             },
         ],
+        membersFuse: [
+            (s) => [s.members],
+            (members) =>
+                new Fuse<OrganizationMemberType>(members, {
+                    keys: ['user.first_name', 'user.last_name', 'user.email'],
+                    threshold: 0.3,
+                }),
+        ],
         filteredMembers: [
-            (s) => [s.members, s.search],
-            (members, search) =>
-                search
-                    ? new Fuse<OrganizationMemberType>(members, {
-                          keys: ['user.first_name', 'user.last_name', 'user.email'],
-                          threshold: 0.3,
-                      })
-                          .search(search)
-                          .map((result) => result.item)
-                    : members,
+            (s) => [s.members, s.membersFuse, s.search],
+            (members, membersFuse, search) =>
+                search ? membersFuse.search(search).map((result) => result.item) : members,
         ],
     },
     listeners: ({ actions }) => ({
