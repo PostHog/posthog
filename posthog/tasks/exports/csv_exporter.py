@@ -1,6 +1,5 @@
 import csv
 import datetime
-from io import BytesIO
 from typing import Any, List, Optional
 
 import requests
@@ -13,7 +12,6 @@ from posthog import settings
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset
 from posthog.utils import absolute_uri
-import unicodecsv as csv
 
 logger = structlog.get_logger(__name__)
 
@@ -148,25 +146,7 @@ def _export_to_csv(
         next_url = data.get("next")
 
     renderer = csvrenderers.CSVRenderer()
-
-    print("CSV_ITEMS", all_csv_rows)
-
-    rows = []
-    rows.append(all_csv_rows[0].keys())
-
-    for item in all_csv_rows:
-        rows.append(item.values())
-
-    csv_buffer = BytesIO()
-    csv_writer = csv.writer(csv_buffer, encoding="utf-8")
-    for row in rows:
-        csv_writer.writerow(row)
-
-    exported_asset.content = csv_buffer.getvalue()
-
-    # exported_asset.content = renderer.render(
-    #     all_csv_rows, renderer_context={"writer_opts": {"quoting": csv.QUOTE_ALL}, "encoding": "utf-8"}
-    # )
+    exported_asset.content = renderer.render(all_csv_rows)
     exported_asset.save(update_fields=["content"])
 
 
