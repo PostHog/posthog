@@ -826,22 +826,22 @@ class TestFeatureFlag(APIBaseTest):
     def test_getting_flags_is_not_nplus1(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5,}]},},
             format="json",
         ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        for i in range(3):
+        for i in range(1, 5):
             self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
-                data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5,}]},},
                 format="json",
             ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 

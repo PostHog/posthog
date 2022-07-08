@@ -669,22 +669,26 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
-        # created_ff = FeatureFlag.objects.get(key=ff_key)
+        created_experiment = response.json()["id"]
+
+        # add another random feature flag
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            format="json",
+        ).json()
 
         with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result = response.json()
 
-        for i in range(3):
-            self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/",
-                data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
-                format="json",
-            ).json()
+            self.assertEqual(result["count"], 2)
 
-        with self.assertNumQueries(8):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertCountEqual(
+                [(res["key"], res["experiment_set"]) for res in result["results"]],
+                [("flag_0", []), (ff_key, [created_experiment]),],
+            )
 
 
 @flaky(max_runs=10, min_passes=1)

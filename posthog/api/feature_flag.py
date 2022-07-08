@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, Optional, cast
 
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -16,7 +16,6 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
-from posthog.models.experiment import Experiment
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -27,6 +26,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+
+    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -47,6 +49,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "is_simple_flag",
             "rollout_percentage",
             "ensure_experience_continuity",
+            "experiment_set",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -189,10 +192,9 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).annotate(
-                used_in_experiments=Exists(Experiment.objects.filter(feature_flag=OuterRef("pk")))
-            )
-        return queryset.order_by("-created_at")
+            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set")
+
+        return queryset.select_related("created_by").order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
