@@ -72,7 +72,6 @@ export async function startPluginsServer(
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
     let stopEventLoopMetrics: (() => void) | undefined
-    let bufferInterval: NodeJS.Timer | undefined
 
     let shutdownStatus = 0
 
@@ -88,7 +87,6 @@ export async function startPluginsServer(
             process.exit()
         }
         status.info('💤', ' Shutting down gracefully...')
-        bufferInterval && clearInterval(bufferInterval)
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
@@ -238,12 +236,12 @@ export async function startPluginsServer(
         })
 
         if (hub.capabilities.ingestion) {
-            bufferInterval = setInterval(async () => {
+            // every 5 seconds process buffer events
+            schedule.scheduleJob('*/5 * * * * *', async () => {
                 if (piscina) {
-                    status.info('⚙️', 'Processing buffer events')
                     await runBuffer(hub!, piscina)
                 }
-            }, 100)
+            })
         }
 
         // every 30 minutes clear any locks that may have lingered on the buffer table

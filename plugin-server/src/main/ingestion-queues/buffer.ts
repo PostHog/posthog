@@ -18,7 +18,7 @@ export async function runBuffer(hub: Hub, piscina: Piscina): Promise<void> {
                 SELECT id FROM posthog_eventbuffer 
                 WHERE process_at <= now() AND process_at > (now() - INTERVAL '30 minute') AND locked=false 
                 ORDER BY id 
-                LIMIT 40 
+                LIMIT 10 
                 FOR UPDATE SKIP LOCKED
             )
             RETURNING id, event
