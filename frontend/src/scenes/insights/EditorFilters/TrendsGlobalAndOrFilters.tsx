@@ -23,7 +23,8 @@ export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilter
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-    ].concat(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : [])
+        ...(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : []),
+    ]
 
     return (
         <PropertyGroupFilters
