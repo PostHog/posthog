@@ -10,9 +10,10 @@
     },
     "scripts": {
         "build": "tsc --project ./",
-        "start:ingester": "nodemon -w src/ src/ingester.ts",
-        "start:api": "nodemon -w src/ src/api.ts",
-        "start:prod": "node dist/api.js"
+        "start:ingester:dev": "nodemon -w src/ src/ingester.ts",
+        "start:ingester:prod": "nodemon dist/api.js",
+        "start:api:dev": "nodemon -w src/ src/api.ts",
+        "start:api:prod": "node dist/api.js"
     },
     "devDependencies": {
         "@types/express": "^4.17.13",
