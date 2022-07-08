@@ -332,3 +332,26 @@
               AND team_id = 2))
   '
 ---
+# name: TestEventQuery.test_unique_session_math_filtered_by_session_duration
+  '
+  
+  SELECT e.timestamp as timestamp,
+         e."$session_id" as "$session_id",
+         sessions.session_duration as session_duration
+  FROM events e
+  INNER JOIN
+    (SELECT $session_id,
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE $session_id != ''
+       AND team_id = 2
+       AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-03 00:00:00') + INTERVAL 24 HOUR
+     GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND timestamp >= toDateTime('2021-05-02 00:00:00')
+    AND timestamp <= toDateTime('2021-05-03 00:00:00')
+    AND (sessions.session_duration > 30.0)
+  '
+---
