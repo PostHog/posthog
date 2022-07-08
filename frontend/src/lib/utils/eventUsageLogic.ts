@@ -213,7 +213,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             isFirstLoad: boolean,
             fromDashboard: boolean,
             delay?: number,
-            changedFilters?: Record<string, any>
+            changedFilters?: Record<string, any>,
+            isUsingSessionAnalysis?: boolean
         ) => ({
             insightModel,
             filters,
@@ -222,6 +223,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             fromDashboard,
             delay,
             changedFilters,
+            isUsingSessionAnalysis,
         }),
         reportPersonsModalViewed: (params: PersonsModalParams, count: number, hasNext: boolean) => ({
             params,
@@ -516,6 +518,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             fromDashboard,
             delay,
             changedFilters,
+            isUsingSessionAnalysis,
         }) => {
             const { insight } = filters
 
@@ -528,13 +531,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
 
-            let totalEventActionFilters = 0
-            const entities = (filters.events || []).concat(filters.actions || [])
-            entities.forEach((entity) => {
-                if (entity.properties?.length) {
-                    totalEventActionFilters += entity.properties.length
-                }
-            })
+            const totalEventActionFilters = 0
 
             // The total # of filters applied on events and actions.
             properties.total_event_action_filters_count = totalEventActionFilters
@@ -543,6 +540,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             if (insight === 'TRENDS') {
                 properties.breakdown_type = filters.breakdown_type
                 properties.breakdown = filters.breakdown
+                properties.using_session_analysis = isUsingSessionAnalysis
             } else if (insight === 'RETENTION') {
                 properties.period = filters.period
                 properties.date_to = filters.date_to

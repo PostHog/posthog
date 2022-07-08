@@ -34,6 +34,7 @@ import { AnimationType } from 'lib/animations/animations'
 import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -68,6 +69,7 @@ export function InsightContainer(
         showErrorMessage,
         csvExportUrl,
         exporterResourceParams,
+        isUsingSessionAnalysis,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -183,6 +185,14 @@ export function InsightContainer(
 
     return (
         <>
+            {isUsingSessionAnalysis ? (
+                <div className="mb">
+                    <AlertMessage type="info">
+                        When using sessions and session properties, events without session IDs will be excluded from the
+                        set of results.
+                    </AlertMessage>
+                </div>
+            ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={
