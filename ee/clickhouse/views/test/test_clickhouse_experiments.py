@@ -638,6 +638,54 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["groups"][0]["properties"][0]["key"], "$geoip_country_name")
         self.assertEqual(created_ff.filters["aggregation_group_type_index"], None)
 
+    def test_used_in_experiment_is_populated_correctly_for_feature_flag_list(self) -> None:
+
+        ff_key = "a-b-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        # created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(3):
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(8):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
 
 @flaky(max_runs=10, min_passes=1)
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):

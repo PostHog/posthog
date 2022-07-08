@@ -823,6 +823,28 @@ class TestFeatureFlag(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_getting_flags_is_not_nplus1(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(8):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(3):
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(8):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
         self.client.post(

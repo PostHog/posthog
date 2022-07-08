@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, Optional, cast
 
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -27,7 +27,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
-    used_in_experiments = serializers.SerializerMethodField()
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -48,7 +47,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "is_simple_flag",
             "rollout_percentage",
             "ensure_experience_continuity",
-            "used_in_experiments",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -60,9 +58,6 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             and no_properties_used
             and feature_flag.aggregation_group_type_index is None
         )
-
-    def get_used_in_experiments(self, feature_flag: FeatureFlag) -> bool:
-        return Experiment.objects.filter(feature_flag=feature_flag).exists()
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
         if self.get_is_simple_flag(feature_flag):
@@ -194,7 +189,9 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False).annotate(
+                used_in_experiments=Exists(Experiment.objects.filter(feature_flag=OuterRef("pk")))
+            )
         return queryset.order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
