@@ -10,6 +10,7 @@
     },
     "scripts": {
         "build": "tsc --project ./",
+        "test": "vitest",
         "start:ingester:dev": "nodemon -w src/ src/ingester.ts",
         "start:ingester:prod": "nodemon dist/api.js",
         "start:api:dev": "nodemon -w src/ src/api.ts",
