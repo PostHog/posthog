@@ -316,7 +316,7 @@ function CollaboratorBubbles({
 
     const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
     const tooltipParts: string[] = []
-    if (effectiveRestrictionLevelOption?.label) {
+    if (typeof effectiveRestrictionLevelOption?.label === 'string') {
         tooltipParts.push(effectiveRestrictionLevelOption.label)
     }
     if (dashboard.is_shared) {

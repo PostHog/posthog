@@ -65,7 +65,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             },
         ],
         value: [
-            dateFilterToText(props.dateFrom, props.dateTo, props.defaultValue, props.dateOptions, false),
+            dateFilterToText(props.dateFrom, props.dateTo, props.defaultValue, props.dateOptions, true),
             {
                 setValue: (_, { value }) => value,
             },
