@@ -55,7 +55,7 @@ describe.concurrent('ingester', () => {
         })
 
         const sessionRecording = await waitForSessionRecording(teamId, sessionId, events.slice(-1)[0].uuid)
-        expect(sessionRecording.events.length).toBe(30)
+        expect(sessionRecording.events.map((event) => event.uuid)).toStrictEqual(events.map((event) => event.uuid))
     })
 
     it('ignores non $snapshot events', () => {
