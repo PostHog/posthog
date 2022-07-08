@@ -4,16 +4,14 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
-from django.conf import settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
+from posthog import settings
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.utils import UUIDT
-from posthog.storage import object_storage
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -119,7 +117,9 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 10_000,) -> None:
+def _export_to_csv(
+    exported_asset: ExportedAsset, root_bucket: str, limit: int = 1000, max_limit: int = 10_000,
+) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
@@ -144,7 +144,6 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         # Figure out how to handle funnel polling....
 
         data = response.json()
-
         csv_rows = _convert_response_to_csv_data(data)
 
         all_csv_rows = all_csv_rows + csv_rows
@@ -163,25 +162,23 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
-    rendered_csv_content = renderer.render(all_csv_rows)
-    if settings.OBJECT_STORAGE_ENABLED:
-        object_path = f"/{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
-        object_storage.write(object_path, rendered_csv_content)
-        exported_asset.content_location = object_path
-        exported_asset.save(update_fields=["content_location"])
-    else:
-        exported_asset.content = rendered_csv_content
-        exported_asset.save(update_fields=["content"])
+    exported_asset.content = renderer.render(all_csv_rows)
+    exported_asset.save(update_fields=["content"])
 
 
 @timed("csv_exporter")
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 10_000,) -> None:
+def export_csv(
+    exported_asset: ExportedAsset,
+    root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+    limit: Optional[int] = None,
+    max_limit: int = 10_000,
+) -> None:
     if not limit:
         limit = 1000
 
     try:
         if exported_asset.export_format == "text/csv":
-            _export_to_csv(exported_asset, limit, max_limit)
+            _export_to_csv(exported_asset, root_bucket, limit, max_limit)
             statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
         else:
             statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})
