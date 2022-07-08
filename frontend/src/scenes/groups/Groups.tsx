@@ -13,6 +13,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {
     component: Groups,
@@ -20,7 +22,12 @@ export const scene: SceneExport = {
 }
 
 export function Groups(): JSX.Element {
-    const { currentTabName, groups, groupsLoading } = useValues(groupsListLogic)
+    const {
+        currentTabName,
+        groupName: { singular, plural },
+        groups,
+        groupsLoading,
+    } = useValues(groupsListLogic)
     const { loadGroups } = useActions(groupsListLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -88,6 +95,20 @@ export function Groups(): JSX.Element {
                           }
                         : undefined,
                 }}
+                emptyState={
+                    <>
+                        <AlertMessage type="info">
+                            No {plural} found. Make sure to send properties with your {singular} for them to show up in
+                            the list.
+                        </AlertMessage>
+                        <CodeSnippet language={Language.JavaScript} wrap>
+                            {`posthog.group('${singular}', 'id:5', {\n` +
+                                `    name: 'Awesome ${currentTabName}',\n` +
+                                '    value: 11\n' +
+                                '});'}
+                        </CodeSnippet>
+                    </>
+                }
             />
         </>
     )
