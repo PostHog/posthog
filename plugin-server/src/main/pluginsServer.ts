@@ -23,6 +23,7 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { clearBufferLocks, runBuffer } from './ingestion-queues/buffer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
@@ -232,6 +233,18 @@ export async function startPluginsServer(
                     }
                 }
             }
+        })
+
+        // every 5 seconds process buffer events
+        schedule.scheduleJob('*/5 * * * * *', async () => {
+            if (piscina) {
+                await runBuffer(hub!, piscina)
+            }
+        })
+
+        // every 30 minutes clear any locks that may have lingered on the buffer table
+        schedule.scheduleJob('*/30 * * * *', async () => {
+            await clearBufferLocks(hub!)
         })
 
         // every minute log information on kafka consumer
