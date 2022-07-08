@@ -252,7 +252,7 @@ export function InsightsTable({
                     />
                 ),
                 render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return item.action.math_property
+                    return item.action?.math_property
                         ? formatPropertyValueForDisplay(item.action.math_property, item.data[index])
                         : humanFriendlyNumber(item.data[index] ?? NaN)
                 },
@@ -286,8 +286,8 @@ export function InsightsTable({
                 } else if (calcColumnState === 'median') {
                     value = median(item.data)
                 }
-                return item.action.math_property
-                    ? formatPropertyValueForDisplay(item.action.math_property, value)
+                return item.action?.math_property
+                    ? formatPropertyValueForDisplay(item.action?.math_property, value)
                     : (value ?? 'Unknown').toLocaleString()
             },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
