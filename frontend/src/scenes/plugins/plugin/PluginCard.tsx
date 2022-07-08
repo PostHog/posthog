@@ -132,7 +132,7 @@ export function PluginCard({
                                 placement="topLeft"
                                 title={`Are you sure you wish to ${
                                     pluginConfig.enabled ? 'disable' : 'enable'
-                                } this plugin?`}
+                                } this app?`}
                                 onConfirm={() =>
                                     pluginConfig.id
                                         ? toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
