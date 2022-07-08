@@ -21,12 +21,12 @@ export interface PropertyFilterButtonProps {
 
 export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
-    const { formatForDisplay } = useValues(propertyDefinitionsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     return (
         <>
             {formatPropertyLabel(item, cohortsById, keyMapping, (s) =>
-                midEllipsis(formatForDisplay(item.key, s)?.toString() || '', 32)
+                midEllipsis(formatPropertyValueForDisplay(item.key, s)?.toString() || '', 32)
             )}
         </>
     )
