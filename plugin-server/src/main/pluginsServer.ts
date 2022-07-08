@@ -239,8 +239,10 @@ export async function startPluginsServer(
 
         if (hub.capabilities.ingestion) {
             bufferInterval = setInterval(async () => {
-                status.info('⚙️', 'Processing buffer events')
-                await runBuffer(hub!, piscina)
+                if (piscina) {
+                    status.info('⚙️', 'Processing buffer events')
+                    await runBuffer(hub!, piscina)
+                }
             }, 100)
         }
 
