@@ -189,7 +189,8 @@ export function InsightContainer(
                 <div className="mb">
                     <AlertMessage type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
-                        set of results.
+                        set of results.{' '}
+                        <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
                     </AlertMessage>
                 </div>
             ) : null}
