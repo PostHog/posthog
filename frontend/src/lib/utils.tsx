@@ -798,7 +798,7 @@ export const dateMapping: dateMappingOption[] = [
 export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {
     let formatFrom = format ?? DATE_FORMAT
     const formatTo = format ?? DATE_FORMAT
-    if ((!format || format === DATE_FORMAT) && dateFrom.year === dateTo.year) {
+    if ((!format || format === DATE_FORMAT) && dateFrom.year() === dateTo.year()) {
         formatFrom = DATE_FORMAT_WITHOUT_YEAR
     }
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`

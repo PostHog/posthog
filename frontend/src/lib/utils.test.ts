@@ -289,6 +289,9 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
                 'March 1 - March 31, 2012'
             )
+            expect(dateFilterToText('-180d', null, 'default', dateMapping, true)).toEqual(
+                'September 4, 2011 - March 2, 2012'
+            )
             tk.reset()
         })
 
