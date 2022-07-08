@@ -518,6 +518,8 @@ export const keyMapping: KeyMappingInterface = {
                 <span>
                     The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
                     <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <br /> <br />
+                    Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
                 </span>
             ),
             examples: ['01:04:12'],
