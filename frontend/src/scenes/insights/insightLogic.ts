@@ -39,6 +39,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -569,6 +570,50 @@ export const insightLogic = kea<insightLogicType>({
                         export_name: name || derived_name,
                         export_insight_id: short_id,
                     })}`
+                }
+            },
+        ],
+        exporterResourceParams: [
+            (s) => [s.filters, s.currentTeamId, s.insight],
+            (
+                filters: Partial<FilterType>,
+                currentTeamId: number,
+                insight: Partial<InsightModel>
+            ): TriggerExportProps['export_context'] | null => {
+                const insightType = (filters.insight as InsightType | undefined) || InsightType.TRENDS
+                const params = { ...filters }
+
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+
+                if (
+                    insightType === InsightType.TRENDS ||
+                    insightType === InsightType.STICKINESS ||
+                    insightType === InsightType.LIFECYCLE
+                ) {
+                    return {
+                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                            filterTrendsClientSideParams(params)
+                        )}`,
+                        filename,
+                    }
+                } else if (insightType === InsightType.RETENTION) {
+                    return { filename, path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}` }
+                } else if (insightType === InsightType.FUNNELS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/funnel`,
+                        body: params,
+                    }
+                } else if (insightType === InsightType.PATHS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/path`,
+                        body: params,
+                    }
+                } else {
+                    return null
                 }
             },
         ],

@@ -43,3 +43,22 @@ class SessionQuery:
             """,
             params,
         )
+
+    @property
+    def is_used(self):
+        "Returns whether any columns from session are actually being queried"
+        if (
+            not isinstance(self._filter, StickinessFilter) and self._filter.breakdown_type == "session"
+        ):  # stickiness doesn't have breakdown_type
+            return True
+
+        if any(prop.type == "session" for prop in self._filter.property_groups.flat):
+            return True
+        if any(prop.type == "session" for entity in self._filter.entities for prop in entity.property_groups.flat):
+            return True
+
+        if any(entity.math_property == "$session_duration" for entity in self._filter.entities):
+            # TODO: generalise this to work for math_property_type, not just sessions, when we add more properties
+            return True
+
+        return False

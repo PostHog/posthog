@@ -125,6 +125,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
     authentication_classes = []  # type: ignore
     permission_classes = []  # type: ignore
+    include_in_docs = False
 
     def get_object(self) -> Tuple[Optional[SharingConfiguration], Optional[ExportedAsset]]:
         # JWT based access (ExportedAsset)

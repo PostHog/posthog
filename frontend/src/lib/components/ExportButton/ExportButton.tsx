@@ -1,50 +1,25 @@
 import React from 'react'
+import { ExporterFormat } from '~/types'
 import { LemonButton, LemonButtonProps, LemonButtonWithPopup } from '../LemonButton'
-import { useActions, useValues } from 'kea'
-import { ExporterFormat, exporterLogic } from './exporterLogic'
 import { LemonDivider } from '../LemonDivider'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { triggerExport, TriggerExportProps } from './exporter'
 
-interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'fullWidth'> {
-    dashboardId?: number
-    insightShortId?: InsightShortId
+export interface ExportButtonItem {
+    title?: string
+    export_format: ExporterFormat
+    export_context?: TriggerExportProps['export_context']
+    dashboard?: number
+    insight?: number
 }
 
-export function ExportButton({ dashboardId, insightShortId, ...buttonProps }: ExportButtonProps): JSX.Element {
-    const insightLogicProps: InsightLogicProps = {
-        dashboardItemId: insightShortId,
-        doNotLoad: true,
-    }
+export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'fullWidth'> {
+    items: ExportButtonItem[]
+}
 
-    const { supportsCsvExport, csvExportUrl, insight } = useValues(insightLogic(insightLogicProps))
-
-    const { exportItem } = useActions(exporterLogic({ dashboardId, insightId: insight?.id }))
-    const { exportInProgress } = useValues(exporterLogic({ dashboardId, insightId: insight?.id }))
-
-    const supportedFormats: ExporterFormat[] = []
-
-    if (dashboardId || insightShortId) {
-        supportedFormats.push(ExporterFormat.PNG)
-    }
-    if (supportsCsvExport) {
-        supportedFormats.push(ExporterFormat.CSV)
-    }
-
-    const onExportItemClick = (exportFormat: ExporterFormat): void => {
-        // NOTE: Once we standardise the exporting code in the backend this can be removed
-        if (exportFormat === ExporterFormat.CSV) {
-            window.open(csvExportUrl, '_blank')
-            return
-        }
-
-        exportItem(exportFormat)
-    }
-
+export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
     return (
         <LemonButtonWithPopup
             type="stealth"
-            loading={exportInProgress}
             data-attr="export-button"
             {...buttonProps}
             popup={{
@@ -54,17 +29,21 @@ export function ExportButton({ dashboardId, insightShortId, ...buttonProps }: Ex
                     <>
                         <h5>File type</h5>
                         <LemonDivider />
-                        {supportedFormats.map((format) => (
-                            <LemonButton
-                                key={format}
-                                fullWidth
-                                type="stealth"
-                                onClick={() => onExportItemClick(format)}
-                                data-attr={`export-button-${format.split('/').pop()}`}
-                            >
-                                .{format.split('/').pop()}
-                            </LemonButton>
-                        ))}
+                        {items.map(({ title, ...triggerExportProps }, i) => {
+                            const exportFormatExtension = triggerExportProps.export_format.split('/').pop()
+
+                            return (
+                                <LemonButton
+                                    key={i}
+                                    fullWidth
+                                    type="stealth"
+                                    onClick={() => triggerExport(triggerExportProps)}
+                                    data-attr={`export-button-${exportFormatExtension}`}
+                                >
+                                    {title ? title : `.${exportFormatExtension}`}
+                                </LemonButton>
+                            )
+                        })}
                     </>
                 ),
             }}

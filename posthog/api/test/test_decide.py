@@ -17,7 +17,8 @@ class TestDecide(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.client = Client()
+        # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
+        self.client = Client(enforce_csrf_checks=True)
         self.client.force_login(self.user)
 
     def _dict_to_b64(self, data: dict) -> str:

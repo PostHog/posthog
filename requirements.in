@@ -14,7 +14,7 @@ clickhouse-pool==0.5.3
 dataclasses_json==0.5.7
 defusedxml==0.6.0
 dj-database-url==0.5.0
-Django==3.2.13
+Django==3.2.14
 django-axes==5.9.0
 django-cors-headers==3.5.0
 django-deprecate-fields==0.1.1
@@ -26,7 +26,7 @@ django-redis==4.12.1
 django-statsd==2.5.2
 django-structlog==2.1.3
 djangorestframework==3.12.2
-djangorestframework-csv==2.1.0
+djangorestframework-csv==2.1.1
 djangorestframework-dataclasses==1.1.1
 dnspython==2.2.1
 drf-exceptions-hog==0.2.0

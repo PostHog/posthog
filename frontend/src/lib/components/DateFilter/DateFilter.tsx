@@ -7,7 +7,6 @@ import { DateFilterRangeExperiment } from 'lib/components/DateFilter/DateFilterR
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import './DateFilter.scss'
 import { Tooltip } from 'lib/components/Tooltip'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
@@ -232,7 +231,7 @@ function DateFilterExperiment({
             disableBeforeYear={2015}
         />
     ) : (
-        <div ref={optionsRef} className="DateFilter" onClick={(e) => e.stopPropagation()}>
+        <div ref={optionsRef} onClick={(e) => e.stopPropagation()}>
             {dateOptions.map(({ key, values, inactive }) => {
                 if (key === 'Custom' && !showCustom) {
                     return null
@@ -290,7 +289,8 @@ function DateFilterExperiment({
             value={value}
             disabled={disabled}
             className={className}
-            style={{ ...style, border: '1px solid var(--border)' }} //TODO this is a css hack, so that this button aligns with others on the page which are still on antd
+            style={style}
+            bordered
             size={'small'}
             type={'stealth'}
             popup={{

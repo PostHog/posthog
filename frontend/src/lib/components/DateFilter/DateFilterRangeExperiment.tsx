@@ -5,6 +5,8 @@ import { dayjs } from 'lib/dayjs'
 import { DatePicker } from '../DatePicker'
 import clsx from 'clsx'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { RightOutlined, LeftOutlined, DoubleRightOutlined, DoubleLeftOutlined } from '@ant-design/icons'
+import { Tooltip } from '../Tooltip'
 
 export function DateFilterRangeExperiment(props: {
     onClickOutside: () => void
@@ -94,6 +96,26 @@ export function DateFilterRangeExperiment(props: {
                             </div>
                         )
                     }}
+                    nextIcon={
+                        <Tooltip title="Next month">
+                            <RightOutlined />
+                        </Tooltip>
+                    }
+                    superNextIcon={
+                        <Tooltip title="Next year">
+                            <DoubleRightOutlined />
+                        </Tooltip>
+                    }
+                    prevIcon={
+                        <Tooltip title="Previous month">
+                            <LeftOutlined />
+                        </Tooltip>
+                    }
+                    superPrevIcon={
+                        <Tooltip title="Previous year">
+                            <DoubleLeftOutlined />
+                        </Tooltip>
+                    }
                 />
                 <br />
                 <Button

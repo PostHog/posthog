@@ -4,7 +4,7 @@ import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { ItemMode, AvailableFeature, InsightShortId, InsightModel, InsightType } from '~/types'
+import { ItemMode, AvailableFeature, InsightShortId, InsightModel, InsightType, ExporterFormat } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -27,7 +27,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EditorFilters } from './EditorFilters/EditorFilters'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { deleteWithUndo } from 'lib/utils'
@@ -39,6 +38,8 @@ import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscription
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -58,6 +59,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightChanged,
         tagLoading,
         insightSaving,
+        exporterResourceParams,
+        supportsCsvExport,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
@@ -84,6 +87,22 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     // This helps with the UX flickering and showing placeholder "name" text.
     if (insightId !== 'new' && insightLoading && !filtersKnown) {
         return <InsightSkeleton />
+    }
+
+    const exportOptions = (exporterResourceParams: TriggerExportProps['export_context']): ExportButtonItem[] => {
+        const supportedExportOptions: ExportButtonItem[] = [
+            {
+                export_format: ExporterFormat.PNG,
+                insight: insight.id,
+            },
+        ]
+        if (supportsCsvExport || !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
+            supportedExportOptions.push({
+                export_format: ExporterFormat.CSV,
+                export_context: exporterResourceParams,
+            })
+        }
+        return supportedExportOptions
     }
 
     const insightScene = (
@@ -172,7 +191,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                                     {usingSubscriptionFeature && (
                                                         <SubscribeButton insightShortId={insight.short_id} />
                                                     )}
-                                                    <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={exportOptions(exporterResourceParams)}
+                                                        />
+                                                    ) : null}
                                                     <LemonDivider />
                                                 </>
                                             )}

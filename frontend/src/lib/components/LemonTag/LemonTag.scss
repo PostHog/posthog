@@ -1,4 +1,4 @@
-.lemon-tag {
+.LemonTag {
     font-size: 0.75rem;
     font-weight: var(--font-medium);
     background: var(--border);
@@ -25,9 +25,14 @@
         color: var(--text-light);
     }
 
-    .lemon-tag__icon {
+    .LemonTag__icon {
         font-size: 0.875rem;
         margin-right: 0.125rem;
         display: flex;
+    }
+    .LemonTag__right-button {
+        margin-left: 0.25rem;
+        min-height: 1.5rem;
+        padding: 0.125rem 0.125rem;
     }
 }
