@@ -527,6 +527,7 @@ def get_single_or_multi_property_string_expr(
     query_alias: Literal["prop", "value", "prop_basic", None],
     column: str,
     allow_denormalized_props=True,
+    cast_as_float: bool = False,
 ):
     """
     When querying for breakdown properties:
@@ -550,6 +551,9 @@ def get_single_or_multi_property_string_expr(
         expressions = []
         for b in breakdown:
             expr, _ = get_property_string_expr(table, b, escape_param(b), column, allow_denormalized_props)
+
+            if cast_as_float:
+                expr = f"toFloat64OrNull(toString({expr}))"
             expressions.append(expr)
 
         expression = f"array({','.join(expressions)})"

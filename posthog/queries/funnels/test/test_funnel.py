@@ -42,6 +42,7 @@ class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(Cli
     maxDiff = None
 
     # TODO: adapt these tests for other funnel order types as well
+    @snapshot_clickhouse_queries
     def test_funnel_histogram_with_sessions(self):
         people = journeys_for(
             {
@@ -99,8 +100,7 @@ class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(Cli
         filter = Filter(data=filters, team=self.team)
         funnel = ClickhouseFunnel(filter, self.team)
 
-        with self.settings(SHELL_PLUS_PRINT_SQL=False):
-            result = funnel.run()
+        result = funnel.run()
 
         result = sorted(result, key=lambda x: x[0]["breakdown"])
 
@@ -112,7 +112,6 @@ class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(Cli
                 FunnelStepResult(name="$pageview", breakdown="[10.0,30.0]", count=0),
             ],
         )
-
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "[10.0,30.0]"), [people["1"].uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "[10.0,30.0]"), [])
 
@@ -135,6 +134,134 @@ class TestFunnelBreakdown(ClickhouseTestMixin, funnel_breakdown_test_factory(Cli
         self.assertCountEqual(
             self._get_actor_ids_at_step(filter, 2, "[30.0,35.01]"), [people["2"].uuid, people["3"].uuid]
         )
+
+        # if new sessions come in, people result shouldn't change for above query
+        _create_event(
+            **{
+                "event": "user signed up",
+                "properties": {"$session_id": "six"},
+                "timestamp": "2012-01-16 00:16:00",
+                "distinct_id": "1",
+            },
+            team=self.team,
+        )
+        _create_event(
+            **{
+                "event": "$pageview",
+                "properties": {"$session_id": "six"},
+                "timestamp": "2012-01-16 00:18:00",
+                "distinct_id": "1",
+            },
+            team=self.team,
+        )
+        # 120s session!
+
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2, "[30.0,35.01]"), [people["2"].uuid, people["3"].uuid]
+            )
+
+    def test_funnel_histogram_with_event_property(self):
+        people = journeys_for(
+            {
+                "1": [
+                    {
+                        "event": "user signed up",
+                        "properties": {"$browser_version": 23},
+                        "timestamp": "2012-01-14 00:16:00",
+                    },
+                    {
+                        "event": "$pageviewX",
+                        "properties": {"$browser_version": 23},
+                        "timestamp": "2012-01-14 00:16:10",
+                    },  # did not convert
+                ],
+                "2": [
+                    {
+                        "event": "user signed up",
+                        "properties": {"$browser_version": 46},
+                        "timestamp": "2012-01-14 00:16:00",
+                    },
+                    {"event": "$pageview", "properties": {"$browser_version": 46}, "timestamp": "2012-01-14 00:16:30",},
+                ],
+                "3": [
+                    {
+                        "event": "user signed up",
+                        "properties": {"$browser_version": 74},
+                        "timestamp": "2012-01-15 00:16:00",
+                    },
+                    {"event": "$pageview", "timestamp": "2012-01-15 00:16:35",},  # converted
+                ],
+            },
+            self.team,
+        )
+
+        filters = {
+            "events": [{"id": "user signed up", "order": 0}, {"id": "$pageview", "order": 1}],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2012-01-10",
+            "date_to": "2012-01-17",
+            "funnel_window_days": 7,
+            "breakdown_type": "event",
+            "breakdown": "$browser_version",
+            "breakdown_histogram_bin_count": 2,
+        }
+
+        filter = Filter(data=filters, team=self.team)
+        funnel = ClickhouseFunnel(filter, self.team)
+
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            result = funnel.run()
+
+        result = sorted(result, key=lambda x: x[0]["breakdown"])
+
+        self.assertEqual(len(result), 2)
+        assert_funnel_breakdown_result_is_correct(
+            result[0],
+            [
+                FunnelStepResult(name="user signed up", breakdown="[10.0,30.0]", count=1),
+                FunnelStepResult(name="$pageview", breakdown="[10.0,30.0]", count=0),
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "[10.0,30.0]"), [people["1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "[10.0,30.0]"), [])
+
+        assert_funnel_breakdown_result_is_correct(
+            result[1],
+            [
+                FunnelStepResult(name="user signed up", breakdown="[30.0,35.01]", count=2),
+                FunnelStepResult(
+                    name="$pageview",
+                    breakdown="[30.0,35.01]",
+                    count=2,
+                    average_conversion_time=32.5,
+                    median_conversion_time=32.5,
+                ),
+            ],
+        )
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 1, "[30.0,35.01]"), [people["2"].uuid, people["3"].uuid]
+        )
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filter, 2, "[30.0,35.01]"), [people["2"].uuid, people["3"].uuid]
+        )
+
+        # if new browser version come in, people result shouldn't change for above query
+        _create_event(
+            **{
+                "event": "user signed up",
+                "properties": {"$browser_version": 95},
+                "timestamp": "2012-01-16 00:16:00",
+                "distinct_id": "1",
+            },
+            team=self.team,
+        )
+        _create_event(**{"event": "$pageview", "timestamp": "2012-01-16 00:18:00", "distinct_id": "1"}, team=self.team)
+
+        with self.settings(SHELL_PLUS_PRINT_SQL=True):
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filter, 2, "[30.0,35.01]"), [people["2"].uuid, people["3"].uuid]
+            )
 
 
 class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_factory(ClickhouseFunnel, ClickhouseFunnelActors, _create_event, _create_person)):  # type: ignore

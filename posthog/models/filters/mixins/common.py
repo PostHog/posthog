@@ -186,7 +186,7 @@ class BreakdownMixin(BaseParamMixin):
 
     @cached_property
     def breakdown_histogram_bin_count(self) -> Optional[int]:
-        if BREAKDOWN_HISTOGRAM_BIN_COUNT in self._data:
+        if self._data.get(BREAKDOWN_HISTOGRAM_BIN_COUNT) is not None:
             try:
                 return int(self._data[BREAKDOWN_HISTOGRAM_BIN_COUNT])
             except ValueError:

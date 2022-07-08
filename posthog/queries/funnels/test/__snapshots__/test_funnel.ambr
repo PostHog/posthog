@@ -984,6 +984,829 @@
   GROUP BY prop SETTINGS allow_experimental_window_functions = 1
   '
 ---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions
+  '
+  
+  SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.50, 1.00)(value)))
+  FROM
+    (SELECT toFloat64OrNull(toString(sessions.session_duration)) AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event IN ['$pageview', 'user signed up']
+       AND timestamp >= toDateTime('2012-01-10 00:00:00')
+       AND timestamp <= toDateTime('2012-01-17 23:59:59')
+     GROUP BY value)
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.1
+  '
+  
+  SELECT countIf(steps = 1) step_1,
+         countIf(steps = 2) step_2,
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time,
+         prop
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        prop
+              FROM
+                (SELECT *,
+                        prop_vals as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageview', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           session_duration AS prop_basic,
+                           multiIf(toFloat64OrNull(toString(prop_basic)) >= 10.0
+                                   AND toFloat64OrNull(toString(prop_basic)) < 30.0, '[10.0,30.0]', toFloat64OrNull(toString(prop_basic)) >= 30.0
+                                   AND toFloat64OrNull(toString(prop_basic)) < 35.01, '[30.0,35.01]', '["",""]') AS prop_basic_grouped,
+                           prop_basic_grouped as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              sessions.$session_id as "$session_id",
+                              sessions.session_duration as session_duration
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT $session_id,
+                                 dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                          FROM events
+                          WHERE $session_id != ''
+                            AND team_id = 2
+                            AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+                            AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+                          GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND timestamp >= toDateTime('2012-01-10 00:00:00')
+                         AND timestamp <= toDateTime('2012-01-17 23:59:59') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.10
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT sessions.session_duration AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event IN ['$pageview', 'user signed up']
+       AND timestamp >= toDateTime('2012-01-10 00:00:00')
+       AND timestamp <= toDateTime('2012-01-17 23:59:59')
+       AND (sessions.session_duration >= 30.0
+            AND sessions.session_duration < 35.01)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.11
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        prop
+              FROM
+                (SELECT *,
+                        prop_vals as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageview', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           session_duration AS prop_basic,
+                           prop_basic as prop_basic_grouped,
+                           prop_basic_grouped as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              sessions.$session_id as "$session_id",
+                              sessions.session_duration as session_duration
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT $session_id,
+                                 dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                          FROM events
+                          WHERE $session_id != ''
+                            AND team_id = 2
+                            AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+                            AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+                          GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND timestamp >= toDateTime('2012-01-10 00:00:00')
+                         AND timestamp <= toDateTime('2012-01-17 23:59:59')
+                         AND (sessions.session_duration >= 30.0
+                              AND sessions.session_duration < 35.01) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.12
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        prop
+              FROM
+                (SELECT *,
+                        prop_vals as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageview', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           session_duration AS prop_basic,
+                           multiIf(toFloat64OrNull(toString(prop_basic)) >= 30.0
+                                   AND toFloat64OrNull(toString(prop_basic)) < 32.5, '[30.0,32.5]', toFloat64OrNull(toString(prop_basic)) >= 32.5
+                                   AND toFloat64OrNull(toString(prop_basic)) < 35.01, '[32.5,35.01]', '["",""]') AS prop_basic_grouped,
+                           prop_basic_grouped as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              sessions.$session_id as "$session_id",
+                              sessions.session_duration as session_duration
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT $session_id,
+                                 dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                          FROM events
+                          WHERE $session_id != ''
+                            AND team_id = 2
+                            AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+                            AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+                          GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND timestamp >= toDateTime('2012-01-10 00:00:00')
+                         AND timestamp <= toDateTime('2012-01-17 23:59:59')
+                         AND (sessions.session_duration >= 30.0
+                              AND sessions.session_duration < 35.01) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.2
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT sessions.session_duration AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event IN ['$pageview', 'user signed up']
+       AND timestamp >= toDateTime('2012-01-10 00:00:00')
+       AND timestamp <= toDateTime('2012-01-17 23:59:59')
+       AND (sessions.session_duration >= 10.0
+            AND sessions.session_duration < 30.0)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.3
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        prop
+              FROM
+                (SELECT *,
+                        prop_vals as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageview', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           session_duration AS prop_basic,
+                           prop_basic as prop_basic_grouped,
+                           prop_basic_grouped as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              sessions.$session_id as "$session_id",
+                              sessions.session_duration as session_duration
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT $session_id,
+                                 dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                          FROM events
+                          WHERE $session_id != ''
+                            AND team_id = 2
+                            AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+                            AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+                          GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND timestamp >= toDateTime('2012-01-10 00:00:00')
+                         AND timestamp <= toDateTime('2012-01-17 23:59:59')
+                         AND (sessions.session_duration >= 10.0
+                              AND sessions.session_duration < 30.0) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [1, 2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.4
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT sessions.session_duration AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event IN ['$pageview', 'user signed up']
+       AND timestamp >= toDateTime('2012-01-10 00:00:00')
+       AND timestamp <= toDateTime('2012-01-17 23:59:59')
+       AND (sessions.session_duration >= 10.0
+            AND sessions.session_duration < 30.0)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.5
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        prop
+              FROM
+                (SELECT *,
+                        prop_vals as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageview', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           session_duration AS prop_basic,
+                           prop_basic as prop_basic_grouped,
+                           prop_basic_grouped as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              sessions.$session_id as "$session_id",
+                              sessions.session_duration as session_duration
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT $session_id,
+                                 dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                          FROM events
+                          WHERE $session_id != ''
+                            AND team_id = 2
+                            AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+                            AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+                          GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND timestamp >= toDateTime('2012-01-10 00:00:00')
+                         AND timestamp <= toDateTime('2012-01-17 23:59:59')
+                         AND (sessions.session_duration >= 10.0
+                              AND sessions.session_duration < 30.0) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.6
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT sessions.session_duration AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event IN ['$pageview', 'user signed up']
+       AND timestamp >= toDateTime('2012-01-10 00:00:00')
+       AND timestamp <= toDateTime('2012-01-17 23:59:59')
+       AND (sessions.session_duration >= 30.0
+            AND sessions.session_duration < 35.01)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.7
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        prop
+              FROM
+                (SELECT *,
+                        prop_vals as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageview', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           session_duration AS prop_basic,
+                           prop_basic as prop_basic_grouped,
+                           prop_basic_grouped as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              sessions.$session_id as "$session_id",
+                              sessions.session_duration as session_duration
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT $session_id,
+                                 dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                          FROM events
+                          WHERE $session_id != ''
+                            AND team_id = 2
+                            AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+                            AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+                          GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND timestamp >= toDateTime('2012-01-10 00:00:00')
+                         AND timestamp <= toDateTime('2012-01-17 23:59:59')
+                         AND (sessions.session_duration >= 30.0
+                              AND sessions.session_duration < 35.01) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [1, 2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.8
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT sessions.session_duration AS value,
+            count(*) as count
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+          AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+        GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event IN ['$pageview', 'user signed up']
+       AND timestamp >= toDateTime('2012-01-10 00:00:00')
+       AND timestamp <= toDateTime('2012-01-17 23:59:59')
+       AND (sessions.session_duration >= 30.0
+            AND sessions.session_duration < 35.01)
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFunnelBreakdown.test_funnel_histogram_with_sessions.9
+  '
+  
+  SELECT aggregation_target AS actor_id
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 < latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        prop
+              FROM
+                (SELECT *,
+                        prop_vals as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = 'user signed up', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageview', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           session_duration AS prop_basic,
+                           prop_basic as prop_basic_grouped,
+                           prop_basic_grouped as prop,
+                           argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id,
+                              sessions.$session_id as "$session_id",
+                              sessions.session_duration as session_duration
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT $session_id,
+                                 dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+                          FROM events
+                          WHERE $session_id != ''
+                            AND team_id = 2
+                            AND timestamp >= toDateTime('2012-01-10 00:00:00') - INTERVAL 24 HOUR
+                            AND timestamp <= toDateTime('2012-01-17 23:59:59') + INTERVAL 24 HOUR
+                          GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageview', 'user signed up']
+                         AND timestamp >= toDateTime('2012-01-10 00:00:00')
+                         AND timestamp <= toDateTime('2012-01-17 23:59:59')
+                         AND (sessions.session_duration >= 30.0
+                              AND sessions.session_duration < 35.01) ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+  WHERE steps IN [2]
+  ORDER BY aggregation_target
+  LIMIT 100
+  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  '
+---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
   '
   

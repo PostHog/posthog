@@ -193,6 +193,7 @@ def _to_value_expression(
             query_alias=None,
             table="events" if direct_on_events else "person",
             column="person_properties" if direct_on_events else "person_props",
+            cast_as_float=cast_as_float,
         )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
@@ -205,10 +206,10 @@ def _to_value_expression(
         )
     else:
         value_expression = get_single_or_multi_property_string_expr(
-            breakdown, table="events", query_alias=None, column="properties"
+            breakdown, table="events", query_alias=None, column="properties", cast_as_float=cast_as_float
         )
 
-    if cast_as_float:
+    if cast_as_float and not isinstance(breakdown, list):
         value_expression = f"toFloat64OrNull(toString({value_expression}))"
     return f"{value_expression} AS value"
 

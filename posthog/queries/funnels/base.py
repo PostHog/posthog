@@ -15,10 +15,12 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     BreakdownAttributionType,
     FunnelOrderType,
+    PropertyOperatorType,
 )
 from posthog.models import Entity, Filter, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
+from posthog.models.property.property import Property
 from posthog.models.property.util import (
     box_value,
     get_property_string_expr,
@@ -168,6 +170,41 @@ class ClickhouseFunnelBase(ABC):
                 if entity.equals(exclusion) or exclusion.is_superset(entity):
                     raise ValidationError("Exclusion event can't be the same as funnel step")
 
+        # When querying persons with a histogram, we convert the breakdown value into properties
+        if self._filter.using_histogram and self._filter.funnel_step_breakdown:
+            if len(self._filter.funnel_step_breakdown) != 2:
+                raise ValidationError("Histogram breakdowns only support a single property with start and end")
+            lower_bound, upper_bound = self._filter.funnel_step_breakdown
+            breakdown_props = [
+                Property(
+                    key=self._filter.breakdown,
+                    value=lower_bound,
+                    operator="gte",
+                    type=self._filter.breakdown_type,
+                    group_type_index=self._filter.breakdown_group_type_index
+                    if self._filter.breakdown_type == "group"
+                    else None,
+                ),
+                Property(
+                    key=self._filter.breakdown,
+                    value=upper_bound,
+                    operator="lt",
+                    type=self._filter.breakdown_type,
+                    group_type_index=self._filter.breakdown_group_type_index
+                    if self._filter.breakdown_type == "group"
+                    else None,
+                ),
+            ]
+
+            data.update(
+                {
+                    "properties": self._filter.property_groups.combine_properties(
+                        PropertyOperatorType.AND, breakdown_props
+                    ).to_dict(),
+                    "breakdown_histogram_bin_count": None,
+                    "funnel_step_breakdown": None,
+                }
+            )
         self._filter = self._filter.with_data(data)
 
     def _format_single_funnel(self, results, with_breakdown=False):
@@ -571,10 +608,6 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.funnel_step_breakdown is not None:
             breakdown_prop_value = self._filter.funnel_step_breakdown
 
-            if self._filter.using_histogram:
-                # breakdown value is supposed to be a string, but incorrectly loaded as json
-                # so use breakdown_value instead, which is free from these shenanigans
-                breakdown_prop_value = self._filter.breakdown_value
             if isinstance(breakdown_prop_value, int) and self._filter.breakdown_type != "cohort":
                 breakdown_prop_value = str(breakdown_prop_value)
 
@@ -838,8 +871,6 @@ class ClickhouseFunnelBase(ABC):
 
     def _get_breakdown_prop(self, group_remaining=False) -> str:
         if self._filter.breakdown:
-            if self._filter.using_histogram:
-                pass
             other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
             if group_remaining and self._filter.breakdown_type in ["person", "event", "group"]:
                 return f", if(has(%(breakdown_values)s, prop), prop, {other_aggregation}) as prop"
