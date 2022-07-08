@@ -45,7 +45,7 @@ const normaliseToArray = (
 export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue
-) => string | string[]
+) => string | string[] | null
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
     path: ['models', 'propertyDefinitionsModel'],
@@ -150,7 +150,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
             (propertyDefinitions: PropertyDefinition[]): FormatPropertyValueForDisplayFunction => {
                 return (propertyName?: BreakdownKeyType, valueToFormat?: PropertyFilterValue | undefined) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
-                        return ''
+                        return null
                     }
 
                     const propertyDefinition = propertyName

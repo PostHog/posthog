@@ -330,7 +330,7 @@ export function formatBreakdownLabel(
             return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? breakdown_value.toString()
         }
         return formatPropertyValueForDisplay
-            ? formatPropertyValueForDisplay(breakdown, breakdown_value).toString()
+            ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
         return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value

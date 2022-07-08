@@ -145,11 +145,11 @@ describe('the property definitions model', () => {
 
     describe('formatting duration properties', () => {
         it('can format a number to duration', () => {
-            expect(logic.values.formatPropertyValueForDisplay('$session_duration', 60)).toEqual('1m')
+            expect(logic.values.formatPropertyValueForDisplay('$session_duration', 60)).toEqual('00:01:00')
         })
 
         it('can format a string to duration', () => {
-            expect(logic.values.formatPropertyValueForDisplay('$session_duration', '60')).toEqual('1m')
+            expect(logic.values.formatPropertyValueForDisplay('$session_duration', '60')).toEqual('00:01:00')
         })
 
         it('handles non numbers', () => {
