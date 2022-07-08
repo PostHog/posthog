@@ -194,7 +194,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if self.action == "list":
             queryset = queryset.filter(deleted=False).prefetch_related("experiment_set")
 
-        return queryset.select_related("created_at").order_by("-created_at")
+        return queryset.select_related("created_by").order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
