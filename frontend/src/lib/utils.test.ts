@@ -21,7 +21,7 @@ import {
     eventToDescription,
     ceilMsToClosestSecond,
     floorMsToClosestSecond,
-    dateMappingExperiment as dateMapping,
+    dateMapping,
     getFormattedLastWeekDate,
     genericOperatorMap,
     dateTimeOperatorMap,
