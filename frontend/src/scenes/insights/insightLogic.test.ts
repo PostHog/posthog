@@ -222,7 +222,8 @@ describe('insightLogic', () => {
                     0,
                     {
                         changed_insight: InsightType.TRENDS,
-                    }
+                    },
+                    false
                 ),
             ])
         })
