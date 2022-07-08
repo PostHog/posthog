@@ -236,12 +236,10 @@ export async function startPluginsServer(
         })
 
         if (hub.capabilities.ingestion) {
-            // every 5 seconds process buffer events
-            schedule.scheduleJob('*/5 * * * * *', async () => {
-                if (piscina) {
-                    await runBuffer(hub!, piscina)
-                }
-            })
+            setInterval(async () => {
+                status.info('⚙️', 'Processing buffer events')
+                await runBuffer(hub!, piscina)
+            }, 100)
         }
 
         // every 30 minutes clear any locks that may have lingered on the buffer table
