@@ -150,9 +150,7 @@ describe('Insights', () => {
             cy.get('[data-attr=rolling-date-range-input]').type('{selectall}5{enter}')
             cy.get('[data-attr=rolling-date-range-date-options-selector]').click()
             cy.get('.RollingDateRangeFilter__popup > div').contains('days').should('exist').click()
-            cy.get('[data-attr=rolling-date-range-filter] > .RollingDateRangeFilter__label')
-                .should('contain', 'In the last')
-                .click()
+            cy.get('.RollingDateRangeFilter__label').should('contain', 'In the last').click()
 
             // Test that the button shows the correct formatted range
             cy.get('[data-attr=date-filter]').get('span').contains('Last 5 days').should('exist')
