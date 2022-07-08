@@ -203,6 +203,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            .prefetch_related("experiment_set")
             .select_related("created_by")
             .order_by("-created_at")
         )

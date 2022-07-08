@@ -809,15 +809,22 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     def test_my_flags_is_not_nplus1(self) -> None:
-        with self.assertNumQueries(7):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
             format="json",
         ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 4):
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                format="json",
+            ).json()
 
         with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
