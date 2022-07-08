@@ -46,7 +46,9 @@ class TrendsEventQuery(EventQuery):
             )
             + (
                 f", {self.SESSION_TABLE_ALIAS}.$session_id as $session_id"
-                if self._should_join_sessions and "$session_id" not in self._extra_event_properties
+                if self._should_join_sessions
+                and "$session_id" not in self._extra_event_properties
+                and "$session_id" not in self._column_optimizer.event_columns_to_query
                 else ""
             )
             + (f", {self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id" if self._aggregate_users_by_distinct_id else "")
