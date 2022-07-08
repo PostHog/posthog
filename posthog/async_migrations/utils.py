@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 from typing import Optional
 
@@ -90,6 +91,20 @@ def execute_on_each_shard(sql, args, settings=None) -> None:
 
     for _, _, connection in _get_all_shard_connections():
         connection.execute(sql, args, settings=settings)
+
+
+def execute_on_all_shards_in_parallel(sql: str, args=None, settings=None) -> None:
+    loop = asyncio.get_event_loop()
+
+    async def run_on_all_shards():
+        tasks = []
+        for _, _, connection in _get_all_shard_connections():
+            tasks.append(asyncio.create_task(connection.execute(sql, args, settings=settings)))
+
+        await asyncio.wait(tasks)
+
+    loop.run_until_complete(run_on_all_shards())
+    loop.close()
 
 
 def _get_all_shard_connections():
