@@ -23,6 +23,7 @@ import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { clearBufferLocks, runBuffer } from './ingestion-queues/buffer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
@@ -71,6 +72,7 @@ export async function startPluginsServer(
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
     let stopEventLoopMetrics: (() => void) | undefined
+    let bufferInterval: NodeJS.Timer | undefined
 
     let shutdownStatus = 0
 
@@ -86,6 +88,7 @@ export async function startPluginsServer(
             process.exit()
         }
         status.info('💤', ' Shutting down gracefully...')
+        bufferInterval && clearInterval(bufferInterval)
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
@@ -232,6 +235,20 @@ export async function startPluginsServer(
                     }
                 }
             }
+        })
+
+        if (hub.capabilities.ingestion) {
+            bufferInterval = setInterval(async () => {
+                if (piscina) {
+                    status.info('⚙️', 'Processing buffer events')
+                    await runBuffer(hub!, piscina)
+                }
+            }, 100)
+        }
+
+        // every 30 minutes clear any locks that may have lingered on the buffer table
+        schedule.scheduleJob('*/30 * * * *', async () => {
+            await clearBufferLocks(hub!)
         })
 
         // every minute log information on kafka consumer

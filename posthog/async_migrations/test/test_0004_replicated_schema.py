@@ -101,7 +101,7 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(migration.operations), 57)
         migration.operations[31].sql = "THIS WILL FAIL!"  # type: ignore
 
-        migration_successful = start_async_migration(MIGRATION_NAME)
+        migration_successful = start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
         self.assertFalse(migration_successful)
         self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
 

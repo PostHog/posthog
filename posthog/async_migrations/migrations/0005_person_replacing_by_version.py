@@ -13,7 +13,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
     AsyncMigrationType,
 )
-from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.client import sync_execute
@@ -63,22 +63,6 @@ FAILED_PERSON_TABLE_NAME = f"{PERSON_TABLE_NAME}_failed_0005_person_replacing_by
 
 PG_COPY_BATCH_SIZE = 1000
 PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00"
-
-
-def optimize_table_fn(query_id):
-    default_timeout = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
-    try:
-        execute_op_clickhouse(
-            f"OPTIMIZE TABLE {PERSON_TABLE} FINAL",
-            query_id=query_id,
-            settings={
-                "max_execution_time": default_timeout,
-                "send_timeout": default_timeout,
-                "receive_timeout": default_timeout,
-            },
-        )
-    except:  # TODO: we should only pass the timeout one here
-        pass
 
 
 class Migration(AsyncMigrationDefinition):
@@ -213,7 +197,9 @@ class Migration(AsyncMigrationDefinition):
             while should_continue:
                 should_continue = self._copy_batch_from_postgres(query_id)
             self.unset_highwatermark()
-            optimize_table_fn(query_id)
+            run_optimize_table(
+                unique_name="0005_person_replacing_by_version", query_id=query_id, table_name=PERSON_TABLE, final=True
+            )
         except Exception as err:
             logger.warn("Re-copying persons from postgres failed. Marking async migration as complete.", error=err)
             capture_exception(err)

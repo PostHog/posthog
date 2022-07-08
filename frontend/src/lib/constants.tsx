@@ -122,7 +122,6 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
     EMBED_INSIGHTS: 'embed-insights', // owner: @mariusandra
     ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: 'ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS', // owner: @pauldambra
-    DATE_FILTER_EXPERIMENT: 'date-filter-experiment', // owner: @kappa90
     HISTOGRAM_INSIGHTS: 'histogram-insights', // owner: @rcmarron
 }
 

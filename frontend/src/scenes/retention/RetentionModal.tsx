@@ -13,6 +13,12 @@ import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { asDisplay } from 'scenes/persons/PersonHeader'
+import { LemonButton } from '@posthog/lemon-ui'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { ExporterFormat } from '~/types'
+import { useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function RetentionModal({
     results,
@@ -35,12 +41,39 @@ export function RetentionModal({
     actors: RetentionTablePeoplePayload
     aggregationTargetLabel: { singular: string; plural: string }
 }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const supportsCSVExports = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
+
     return (
         <Modal
             visible={visible}
             closable={true}
             onCancel={dismissModal}
-            footer={<Button onClick={dismissModal}>Close</Button>}
+            footer={
+                <div className="flex space-between-items">
+                    <div />
+                    <div className="flex gap-05">
+                        {supportsCSVExports && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() =>
+                                    triggerExport({
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: {
+                                            path: results[selectedRow]?.people_url,
+                                        },
+                                    })
+                                }
+                            >
+                                Export to CSV
+                            </LemonButton>
+                        )}
+                        <LemonButton type="secondary" onClick={dismissModal}>
+                            Close
+                        </LemonButton>
+                    </div>
+                </div>
+            }
             style={{
                 top: 20,
                 minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',

@@ -5,7 +5,7 @@ import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './
 import { PopupProps } from './Popup/Popup'
 
 export interface LemonSelectOption {
-    label: string
+    label: string | JSX.Element
     icon?: React.ReactElement
     disabled?: boolean
     'data-attr'?: string

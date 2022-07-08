@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
-import { dateMappingExperiment } from 'lib/utils'
+import { dateMapping } from 'lib/utils'
 import { dateFilterLogic, DateFilterLogicPropsType } from './dateFilterLogic'
 
 describe('dateFilterLogic', () => {
@@ -15,7 +15,7 @@ describe('dateFilterLogic', () => {
             onChange,
             dateFrom: null,
             dateTo: null,
-            dateOptions: dateMappingExperiment,
+            dateOptions: dateMapping,
             isDateFormatted: false,
         }
 
