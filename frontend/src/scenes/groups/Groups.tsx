@@ -99,7 +99,14 @@ export function Groups(): JSX.Element {
                     <>
                         <AlertMessage type="info">
                             No {plural} found. Make sure to send properties with your {singular} for them to show up in
-                            the list.
+                            the list.{' '}
+                            <a
+                                href="https://posthog.com/docs/user-guides/group-analytics"
+                                rel="noopener"
+                                target="_blank"
+                            >
+                                Read more here.
+                            </a>
                         </AlertMessage>
                         <CodeSnippet language={Language.JavaScript} wrap>
                             {`posthog.group('${singular}', 'id:5', {\n` +
