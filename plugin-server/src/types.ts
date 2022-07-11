@@ -8,6 +8,7 @@ import {
     Properties,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
+import { TaskList } from 'graphile-worker'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
@@ -205,7 +206,6 @@ export interface PluginServerCapabilities {
     http?: boolean
 }
 
-export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
 export interface EnqueuedJob {
     type: string
     payload: Record<string, any>
@@ -214,15 +214,19 @@ export interface EnqueuedJob {
     pluginConfigTeam: number
 }
 
+export enum JobName {
+    PLUGIN_JOB = 'pluginJob',
+}
+
 export interface JobQueue {
-    startConsumer: (onJob: OnJobCallback) => Promise<void> | void
+    startConsumer: (jobHandlers: TaskList) => Promise<void> | void
     stopConsumer: () => Promise<void> | void
     pauseConsumer: () => Promise<void> | void
     resumeConsumer: () => Promise<void> | void
     isConsumerPaused: () => boolean
 
     connectProducer: () => Promise<void> | void
-    enqueue: (job: EnqueuedJob) => Promise<void> | void
+    enqueue: (jobName: string, job: EnqueuedJob) => Promise<void> | void
     disconnectProducer: () => Promise<void> | void
 }
 
