@@ -73,7 +73,7 @@ class Migration(AsyncMigrationDefinition):
     def run_backfill(self, _):
         execute_on_all_shards_in_parallel(
             sql=f"""
-                ALTER TABLE {EVENTS_DATA_TABLE()}
+                ALTER TABLE {EVENTS_DATA_TABLE()} {{on_cluster_clause}}
                 UPDATE
                     person_id=toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
                     person_properties=dictGetString('person_dict', 'properties', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
@@ -98,55 +98,32 @@ class Migration(AsyncMigrationDefinition):
         return [
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME}
-                    (
-                        `id` UUID,
-                        `created_at` DateTime,
-                        `team_id` Int64,
-                        `properties` String,
-                        `is_deleted` Int8 DEFAULT 0,
-                        `version` UInt64
-                    )
+                    CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}} AS person
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, id)
                     SETTINGS index_granularity = 128
                 """,
-                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME}",
+                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_PDI2_TABLE_NAME}
-                    (
-                        `team_id` Int64,
-                        `distinct_id` String,
-                        `person_id` UUID,
-                        `is_deleted` Int8,
-                        `version` Int64 DEFAULT 1
-                    )
+                    CREATE TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}} AS person_distinct_id2
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, distinct_id)
                     SETTINGS index_granularity = 128
                 """,
-                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PDI2_TABLE_NAME}",
+                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_GROUPS_TABLE_NAME}
-                    (
-                        `group_type_index` UInt8,
-                        `group_key` String,
-                        `created_at` DateTime64(3),
-                        `team_id` Int64,
-                        `group_properties` String,
-                        `_timestamp` DateTime
-                    )
+                    CREATE TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}} AS groups
                     ENGINE = ReplacingMergeTree(_timestamp)
                     ORDER BY (team_id, group_type_index, group_key)
                     SETTINGS index_granularity = 128
                 """,
-                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME}",
+                rollback=f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
@@ -203,7 +180,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE DICTIONARY IF NOT EXISTS person_dict
+                    CREATE DICTIONARY IF NOT EXISTS person_dict {{on_cluster_clause}}
                     (
                         team_id Int64,
                         id UUID,
@@ -215,12 +192,12 @@ class Migration(AsyncMigrationDefinition):
                     LAYOUT(complex_key_cache(size_in_cells 5000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
-                rollback="DROP DICTIONARY IF EXISTS person_dict",
+                rollback="DROP DICTIONARY IF EXISTS person_dict {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE DICTIONARY IF NOT EXISTS person_distinct_id2_dict
+                    CREATE DICTIONARY IF NOT EXISTS person_distinct_id2_dict {{on_cluster_clause}}
                     (
                         team_id Int64,
                         distinct_id String,
@@ -231,12 +208,12 @@ class Migration(AsyncMigrationDefinition):
                     LAYOUT(complex_key_cache(size_in_cells 50000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
-                rollback="DROP DICTIONARY IF EXISTS person_distinct_id2_dict",
+                rollback="DROP DICTIONARY IF EXISTS person_distinct_id2_dict {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE DICTIONARY IF NOT EXISTS groups_dict
+                    CREATE DICTIONARY IF NOT EXISTS groups_dict {{on_cluster_clause}}
                     (
                         team_id Int64,
                         group_type_index UInt8,
@@ -249,7 +226,7 @@ class Migration(AsyncMigrationDefinition):
                     LAYOUT(complex_key_cache(size_in_cells 1000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
-                rollback="DROP DICTIONARY IF EXISTS groups_dict",
+                rollback="DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperation(fn=self.run_backfill,),
