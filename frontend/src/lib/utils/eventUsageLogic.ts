@@ -531,7 +531,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
 
-            const totalEventActionFilters = 0
+            let totalEventActionFilters = 0
+            const entities = (filters.events || []).concat(filters.actions || [])
+            entities.forEach((entity) => {
+                if (entity.properties?.length) {
+                    totalEventActionFilters += entity.properties.length
+                }
+            })
 
             // The total # of filters applied on events and actions.
             properties.total_event_action_filters_count = totalEventActionFilters
