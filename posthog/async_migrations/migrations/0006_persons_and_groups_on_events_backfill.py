@@ -70,29 +70,6 @@ class Migration(AsyncMigrationDefinition):
         comments = [row[0] for row in rows]
         return "skip_0006_persons_and_groups_on_events_backfill" not in comments
 
-    def run_backfill(self, _):
-        execute_on_all_shards_in_parallel(
-            sql=f"""
-                ALTER TABLE {EVENTS_DATA_TABLE()} {{on_cluster_clause}}
-                UPDATE
-                    person_id=toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
-                    person_properties=dictGetString('person_dict', 'properties', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
-                    person_created_at=dictGetDateTime('person_dict', 'created_at', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
-                    group0_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
-                    group1_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
-                    group2_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
-                    group3_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
-                    group4_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
-                    group0_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
-                    group1_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
-                    group2_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
-                    group3_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
-                    group4_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 4, $group_4))
-                WHERE person_id = ''
-            """,
-            settings={"mutations_sync": 1, "max_execution_time": 0},
-        )
-
     @cached_property
     def operations(self):
         return [
@@ -231,6 +208,29 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperation(fn=self.run_backfill,),
         ]
+
+    def run_backfill(self, _):
+        execute_on_all_shards_in_parallel(
+            sql=f"""
+                ALTER TABLE {EVENTS_DATA_TABLE()} {{on_cluster_clause}}
+                UPDATE
+                    person_id=toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
+                    person_properties=dictGetString('person_dict', 'properties', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
+                    person_created_at=dictGetDateTime('person_dict', 'created_at', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
+                    group0_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
+                    group1_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
+                    group2_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
+                    group3_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
+                    group4_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
+                    group0_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
+                    group1_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
+                    group2_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
+                    group3_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
+                    group4_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+                WHERE person_id = ''
+            """,
+            settings={"mutations_sync": 1, "max_execution_time": 0},
+        )
 
     def progress(self, migration_instance: AsyncMigrationType) -> int:
         # Use parts_to_do when running the backfill as a proxy
