@@ -196,6 +196,8 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
                         ? null
                         : editUrlIndex,
                 newUrl: () => -1,
+                updateUrl: () => null,
+                addUrl: () => null,
                 cancelProposingUrl: () => null,
             },
         ],
@@ -221,7 +223,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             },
         ],
         removeUrl: sharedListeners.saveAppUrls,
-        updateUrl: [sharedListeners.saveAppUrls, () => actions.setEditUrlIndex(null)],
+        updateUrl: sharedListeners.saveAppUrls,
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
             if (currentTeam) {
                 actions.setAppUrls(currentTeam.app_urls)
