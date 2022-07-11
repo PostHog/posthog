@@ -148,8 +148,38 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_duplicated_data_persons(self):
-        # Assert count in temporary tables.
-        pass
+        create_event(
+            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
+        )
+        create_person_distinct_id(self.team.pk, "1", str(uuid1))
+        create_person(
+            team_id=self.team.pk,
+            version=1,
+            uuid=str(uuid1),
+            properties={"personprop": 2},
+            timestamp="2022-01-02T00:00:00Z",
+        )
+        create_person(
+            team_id=self.team.pk,
+            version=0,
+            uuid=str(uuid1),
+            properties={"personprop": 1},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+
+        self.assertTrue(run_migration())
+
+        events = query_events()
+        self.assertEqual(len(events), 1)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "1",
+                "person_id": uuid1,
+                "person_properties": json.dumps({"personprop": 2}),
+                "person_created_at": "2022-01-02T00:00:00Z",
+            },
+            events[0],
+        )
 
     def test_deleted_data_persons(self):
         create_event(
