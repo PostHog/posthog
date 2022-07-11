@@ -138,7 +138,6 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                     onClick={() => addUrl(keyedAppURL.url)}
                                                     icon={<IconPlus />}
                                                     outlined={false}
-                                                    style={{ paddingRight: 0, paddingLeft: 0 }}
                                                 >
                                                     Apply suggestion
                                                 </LemonButton>
