@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Input } from 'antd'
+import { Input, Popconfirm } from 'antd'
 import { authorizedUrlsLogic } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
@@ -158,13 +158,20 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         center
                                                         className="ActionButton"
                                                     />
-                                                    <LemonButton
-                                                        icon={<IconDelete />}
-                                                        onClick={() => removeUrl(index)}
-                                                        tooltip={'Remove URL'}
-                                                        center
-                                                        className="ActionButton"
-                                                    />
+                                                    <Popconfirm
+                                                        placement="topRight"
+                                                        title={
+                                                            <>Are you sure you want to remove this authorized url?</>
+                                                        }
+                                                        onConfirm={() => removeUrl(index)}
+                                                    >
+                                                        <LemonButton
+                                                            icon={<IconDelete />}
+                                                            tooltip={'Remove URL'}
+                                                            center
+                                                            className="ActionButton"
+                                                        />
+                                                    </Popconfirm>
                                                 </>
                                             )}
                                         </div>
