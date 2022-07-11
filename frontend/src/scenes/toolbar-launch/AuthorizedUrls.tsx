@@ -116,7 +116,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                             <LemonRow
                                 outlined
                                 fullWidth
-                                size="large"
+                                size="tall"
                                 key={index}
                                 className={clsx('AuthorizedUrlRow', keyedAppURL.type)}
                             >
@@ -144,7 +144,6 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                             ) : (
                                                 <>
                                                     <LemonButton
-                                                        fullWidth
                                                         icon={<IconOpenInApp />}
                                                         href={launchUrl(keyedAppURL.url)}
                                                         tooltip={'Launch toolbar'}
@@ -153,7 +152,6 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                     />
 
                                                     <LemonButton
-                                                        fullWidth
                                                         icon={<IconEdit />}
                                                         onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
                                                         tooltip={'Edit'}
@@ -161,7 +159,6 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         className="ActionButton"
                                                     />
                                                     <LemonButton
-                                                        fullWidth
                                                         icon={<IconDelete />}
                                                         onClick={() => removeUrl(index)}
                                                         tooltip={'Remove URL'}

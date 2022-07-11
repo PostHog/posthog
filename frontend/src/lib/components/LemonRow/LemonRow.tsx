@@ -31,8 +31,12 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     center?: boolean
     /** Whether the element should be outlined with a standard border. */
     outlined?: any
-    /** Variation on sizes - default is medium. Small looks better inline with text. Large is a chunkier row.  */
-    size?: 'small' | 'medium' | 'large'
+    /** Variation on sizes - default is medium.
+     * Small looks better inline with text.
+     * Large is a chunkier row.
+     * Tall is a chunkier row without changing font size
+     * */
+    size?: 'small' | 'medium' | 'tall' | 'large'
     'data-attr'?: string
 }
 
@@ -82,6 +86,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
                 outlined && 'LemonRow--outlined',
                 center && 'LemonRow--center',
                 size === 'large' && 'LemonRow--large',
+                size === 'tall' && 'LemonRow--tall',
                 size === 'small' && 'LemonRow--small'
             ),
             disabled,
