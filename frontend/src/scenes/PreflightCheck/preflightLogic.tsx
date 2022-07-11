@@ -48,6 +48,7 @@ export const preflightLogic = kea<preflightLogicType>([
         setPreflightMode: (mode: PreflightMode | null, noReload?: boolean) => ({ mode, noReload }),
         handlePreflightFinished: true,
         setChecksManuallyExpanded: (expanded: boolean | null) => ({ expanded }),
+        acknowledgeEventBuffer: true,
     }),
     reducers({
         preflightMode: [
@@ -60,6 +61,13 @@ export const preflightLogic = kea<preflightLogicType>([
             null as boolean | null,
             {
                 setChecksManuallyExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+        eventBufferAcknowledged: [
+            false,
+            { persist: true },
+            {
+                acknowledgeEventBuffer: () => true,
             },
         ],
     }),

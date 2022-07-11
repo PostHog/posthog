@@ -61,7 +61,7 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.utils import get_safe_cache, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -127,7 +127,13 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
+        filters = instance.dashboard_filters()
+
+        if not filters.get("date_from"):
+            filters.update(
+                {"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d",}
+            )
+        representation["filters"] = filters
         return representation
 
 

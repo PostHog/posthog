@@ -5,7 +5,7 @@ import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './
 import { PopupProps } from './Popup/Popup'
 
 export interface LemonSelectOption {
-    label: string
+    label: string | JSX.Element
     icon?: React.ReactElement
     disabled?: boolean
     'data-attr'?: string
@@ -30,6 +30,11 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopupProps['placement']
     allowClear?: boolean
+    className?: string
+    popup?: {
+        className?: string
+        ref?: React.MutableRefObject<HTMLDivElement | null>
+    }
 }
 
 export function LemonSelect<O extends LemonSelectOptions>({
@@ -41,6 +46,8 @@ export function LemonSelect<O extends LemonSelectOptions>({
     dropdownMaxContentWidth = false,
     dropdownPlacement,
     allowClear = false,
+    className,
+    popup,
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
@@ -82,9 +89,11 @@ export function LemonSelect<O extends LemonSelectOptions>({
             onMouseLeave={() => setHover(false)}
         >
             <LemonButtonWithPopup
+                className={className}
                 popup={{
+                    ref: popup?.ref,
                     overlay: sections.map((section, i) => (
-                        <>
+                        <React.Fragment key={i}>
                             {section.label ? (
                                 typeof section.label === 'string' ? (
                                     <h5>{section.label}</h5>
@@ -116,11 +125,12 @@ export function LemonSelect<O extends LemonSelectOptions>({
                                 </LemonButton>
                             ))}
                             {i < sections.length - 1 ? <LemonDivider /> : null}
-                        </>
+                        </React.Fragment>
                     )),
                     sameWidth: dropdownMatchSelectWidth,
                     placement: dropdownPlacement,
                     actionable: true,
+                    className: popup?.className,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
                 icon={localValue && allOptions[localValue]?.icon}

@@ -33,7 +33,8 @@ class TestCapture(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.client = Client()
+        # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
+        self.client = Client(enforce_csrf_checks=True)
 
     def _to_json(self, data: Union[Dict, List]) -> str:
         return json.dumps(data)
@@ -905,7 +906,9 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
         self.assertEqual(response.status_code, 200)  # type: ignore
-        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
+        )
 
         response = self.client.generic(
             "OPTIONS",
@@ -915,4 +918,6 @@ class TestCapture(BaseTest):
             HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
         )
         self.assertEqual(response.status_code, 200)  # type: ignore
-        self.assertEqual(response.headers["Access-Control-Allow-Headers"], "X-Requested-With,traceparent,request-id")
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
+        )

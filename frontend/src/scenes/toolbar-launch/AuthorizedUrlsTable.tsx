@@ -147,7 +147,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                     />
                 </div>
                 <LemonButton type="primary" onClick={newUrl}>
-                    Add{pageKey === 'toolbar-launch' && ' authorized domain'}
+                    Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>
             </div>
             <LemonTable

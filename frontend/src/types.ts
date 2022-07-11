@@ -23,7 +23,6 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
-import { ExporterFormat } from 'lib/components/ExportButton/exporterLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -797,7 +796,7 @@ export interface InsightModel extends DashboardTile {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    derived_name?: string
+    derived_name?: string | null
     description?: string
     favorited?: boolean
     order: number | null
@@ -814,7 +813,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    timezone?: string
+    timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -1102,6 +1101,7 @@ export interface FilterType {
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 export interface RecordingEventsFilters {
@@ -1433,6 +1433,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    buffer_conversion_seconds?: number
     object_storage: boolean
 }
 
@@ -1733,9 +1734,11 @@ export interface VersionType {
 }
 
 export interface dateMappingOption {
+    key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
-    getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    getFormattedDate?: (date: dayjs.Dayjs, format?: string) => string
+    defaultInterval?: IntervalType
 }
 
 export interface Breadcrumb {
@@ -1960,12 +1963,24 @@ export interface SharingConfigurationType {
     created_at: string
 }
 
+export enum ExporterFormat {
+    PNG = 'image/png',
+    CSV = 'text/csv',
+    PDF = 'application/pdf',
+}
+
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    exportContext?: any
+    export_context?: {
+        method?: string
+        path: string
+        query?: any
+        body?: any
+        filename?: string
+    }
     has_content: boolean
     filename: string
 }

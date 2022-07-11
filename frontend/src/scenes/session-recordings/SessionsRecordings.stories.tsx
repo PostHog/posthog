@@ -8,7 +8,7 @@ import { App } from 'scenes/App'
 
 export default {
     title: 'Scenes-App/Recordings',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
     decorators: [
         mswDecorator({
             get: {

@@ -15,6 +15,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.utils import ChromeType
 
 from posthog.internal_metrics import incr, timing
+from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token
 from posthog.tasks.update_cache import update_insight_cache
 from posthog.utils import absolute_uri
@@ -34,9 +35,9 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
 
     if os.environ.get("CHROMEDRIVER_BIN"):
-
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
 
     return webdriver.Chrome(
@@ -77,7 +78,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         access_token = get_public_access_token(exported_asset, timedelta(minutes=15))
 
         if exported_asset.insight is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}")
+            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:
@@ -122,7 +123,8 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             driver.close()
 
 
-def export_insight(exported_asset: ExportedAsset) -> None:
+@timed("image_exporter")
+def export_image(exported_asset: ExportedAsset) -> None:
     if exported_asset.insight:
         # NOTE: Dashboards are regularly updated but insights are not
         # so, we need to trigger a manual update to ensure the results are good

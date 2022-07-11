@@ -29,7 +29,6 @@ export default defineConfig({
     projectId: 'twojfp',
     viewportWidth: 1200,
     viewportHeight: 1080,
-    retries: 2,
     trashAssetsBeforeRuns: true,
     e2e: {
         // We've imported your old cypress plugins here.

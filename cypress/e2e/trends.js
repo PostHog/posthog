@@ -109,14 +109,14 @@ describe('Trends', () => {
 
     it('Apply pie filter', () => {
         cy.get('[data-attr=chart-filter]').click()
-        cy.get('.ant-select-dropdown').find('.ant-select-item-option-content').contains('Pie').click({ force: true })
+        cy.get('.Popup').find('.LemonButton').contains('Pie').click({ force: true })
 
         cy.get('[data-attr=trend-pie-graph]').should('exist')
     })
 
     it('Apply table filter', () => {
         cy.get('[data-attr=chart-filter]').click()
-        cy.get('.ant-select-dropdown').find('.ant-select-item-option-content').contains('Table').click({ force: true })
+        cy.get('.Popup').find('.LemonButton').contains('Table').click({ force: true })
 
         cy.get('[data-attr=insights-table-graph]').should('exist')
 
@@ -130,9 +130,7 @@ describe('Trends', () => {
 
     it('Apply date filter', () => {
         cy.get('[data-attr=date-filter]').click()
-        cy.contains('Last 30 days').click()
-
-        cy.get('.ant-select-item').contains('Last 30 days')
+        cy.get('div').contains('Yesterday').should('exist').click()
         cy.get('[data-attr=trend-line-graph]', { timeout: 10000 }).should('exist')
     })
 

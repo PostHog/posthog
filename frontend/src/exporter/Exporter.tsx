@@ -1,30 +1,15 @@
 import '~/styles'
 import './Exporter.scss'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import { loadPostHogJS } from '~/loadPostHogJS'
-import { initKea } from '~/initKea'
 import { ExportedData, ExportType } from '~/exporter/types'
 import { DashboardPlacement } from '~/types'
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 
-const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
-
-// Disable tracking for all exports and embeds.
-// This is explicitly set as to not track our customers' customers data.
-// Without it, embeds of self-hosted iframes will log metrics to app.posthog.com.
-window.JS_POSTHOG_API_KEY = null
-
-loadPostHogJS()
-initKea()
-
-function Exporter(): JSX.Element {
-    const { type, dashboard, insight, team, ...exportOptions } = exportedData
+export function Exporter(props: ExportedData): JSX.Element {
+    const { type, dashboard, insight, team, ...exportOptions } = props
     const { whitelabel } = exportOptions
-
-    exportOptions.fitScreen = exportOptions.fitScreen ?? type == ExportType.Embed
 
     return (
         <div className="Exporter">
@@ -60,10 +45,11 @@ function Exporter(): JSX.Element {
             ) : null}
 
             {insight ? (
-                <ExportedInsight insight={insight} exportOptions={exportOptions} />
+                <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
+                    dashboard={dashboard}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : (
@@ -88,5 +74,3 @@ function Exporter(): JSX.Element {
         </div>
     )
 }
-
-ReactDOM.render(<Exporter />, document.getElementById('root'))

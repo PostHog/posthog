@@ -120,9 +120,9 @@ export const FEATURE_FLAGS = {
     SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
     FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
-    PLUGINS_HISTORY: 'plugins-history', // owner: @yakkomajuri,
     EMBED_INSIGHTS: 'embed-insights', // owner: @mariusandra
     ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: 'ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS', // owner: @pauldambra
+    HISTOGRAM_INSIGHTS: 'histogram-insights', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

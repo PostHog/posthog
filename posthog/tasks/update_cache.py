@@ -25,6 +25,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.logging.timing import timed
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -49,32 +50,28 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 }
 
 
+@timed("update_cache_item_timer")
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
-    timer = statsd.timer("update_cache_item_timer").start()
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
     team = Team.objects.get(pk=team_id)
     filter = get_filter(data=filter_dict, team=team)
 
-    try:
-        # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
-        insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
-        dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
+    # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
+    insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
+    dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
 
-        # at least one must return something, if they both return they will be identical
-        insight_result = _update_cache_for_queryset(cache_type, filter, key, team, insights_queryset)
-        tiles_result = _update_cache_for_queryset(cache_type, filter, key, team, dashboard_tiles_queryset)
+    # at least one must return something, if they both return they will be identical
+    insight_result = _update_cache_for_queryset(cache_type, filter, key, team, insights_queryset)
+    tiles_result = _update_cache_for_queryset(cache_type, filter, key, team, dashboard_tiles_queryset)
 
-        if tiles_result is not None:
-            result = tiles_result
-        elif insight_result is not None:
-            result = insight_result
-        else:
-            statsd.incr("update_cache_item_no_results", tags={"team": team_id, "cache_key": key})
-            return []
-
-    finally:
-        timer.stop()
+    if tiles_result is not None:
+        result = tiles_result
+    elif insight_result is not None:
+        result = insight_result
+    else:
+        statsd.incr("update_cache_item_no_results", tags={"team": team_id, "cache_key": key})
+        return []
 
     return result
 
@@ -107,6 +104,10 @@ def _update_cache_for_queryset(
 
 def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
     cache_key, cache_type, payload = insight_update_task_params(insight, dashboard)
+    # cache key changed, usually because of a new default filter
+    if not dashboard and insight.filters_hash and insight.filters_hash != cache_key:
+        insight.filters_hash = cache_key
+        insight.save()
     result = update_cache_item(cache_key, cache_type, payload)
     insight.refresh_from_db()
     return result

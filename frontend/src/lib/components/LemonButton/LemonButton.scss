@@ -111,6 +111,10 @@
     background: transparent;
 }
 
+.LemonButton--bordered {
+    border: 1px solid var(--border);
+}
+
 .LemonButton--highlighted {
     background: var(--primary-bg-hover);
     color: var(--text-default);

@@ -708,128 +708,184 @@ export function determineDifferenceType(
     }
 }
 
-const DATE_FORMAT = 'D MMM YYYY'
+const DATE_FORMAT = 'MMMM D, YYYY'
+const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
-export const dateMapping: Record<string, dateMappingOption> = {
-    Custom: { values: [] },
-    Today: {
-        values: ['dStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.startOf('d').format(format),
-    },
-    Yesterday: {
-        values: ['-1d', '-1d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string => date.subtract(1, 'd').format(format),
-    },
-    'Last 24 hours': {
-        values: ['-24h'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(24, 'h').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 48 hours': {
-        values: ['-48h'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(48, 'h').format(format)} - ${date.endOf('d').format(format)}`,
-        inactive: true,
-    },
-    'Last 3 days': {
-        values: ['-3d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(3, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 7 days': {
-        values: ['-7d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(7, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 14 days': {
-        values: ['-14d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(14, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 30 days': {
-        values: ['-30d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(30, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 90 days': {
-        values: ['-90d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(90, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'Last 180 days': {
-        values: ['-180d'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(180, 'd').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'This month': {
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(1, 'm').format(format)} - ${date.endOf('d').format(format)}`,
-        inactive: true,
-    },
-    'Previous month': {
-        values: ['-1mStart', '-1mEnd'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.subtract(1, 'm').startOf('M').format(format)} - ${date.subtract(1, 'm').endOf('M').format(format)}`,
-        inactive: true,
-    },
-    'Year to date': {
-        values: ['yStart'],
-        getFormattedDate: (date: dayjs.Dayjs, format: string): string =>
-            `${date.startOf('y').format(format)} - ${date.endOf('d').format(format)}`,
-    },
-    'All time': { values: ['all'] },
+export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, format?: string): string => {
+    let formatFrom = format ?? DATE_FORMAT
+    const formatTo = format ?? DATE_FORMAT
+    if ((!format || format === DATE_FORMAT) && dateFrom.year() === dateTo.year()) {
+        formatFrom = DATE_FORMAT_WITHOUT_YEAR
+    }
+    return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
 }
+
+export const dateMapping: dateMappingOption[] = [
+    { key: 'Custom', values: [] },
+    {
+        key: 'Today',
+        values: ['dStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.startOf('d').format(DATE_FORMAT),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Yesterday',
+        values: ['-1d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => date.subtract(1, 'd').format(DATE_FORMAT),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 24 hours',
+        values: ['-24h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 48 hours',
+        values: ['-48h'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(48, 'h'), date.endOf('d')),
+        inactive: true,
+        defaultInterval: 'hour',
+    },
+    {
+        key: 'Last 7 days',
+        values: ['-7d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 14 days',
+        values: ['-14d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(14, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 30 days',
+        values: ['-30d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 90 days',
+        values: ['-90d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(90, 'd'), date.endOf('d')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Last 180 days',
+        values: ['-180d'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(180, 'd'), date.endOf('d')),
+        defaultInterval: 'month',
+    },
+    {
+        key: 'This month',
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('m'), date.endOf('d')),
+        inactive: true,
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Previous month',
+        values: ['-1mStart', '-1mEnd'],
+        getFormattedDate: (date: dayjs.Dayjs): string =>
+            formatDateRange(date.subtract(1, 'm').startOf('M'), date.subtract(1, 'm').endOf('M')),
+        inactive: true,
+        defaultInterval: 'day',
+    },
+    {
+        key: 'Year to date',
+        values: ['yStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
+        defaultInterval: 'month',
+    },
+    {
+        key: 'All time',
+        values: ['all'],
+        defaultInterval: 'month',
+    },
+]
 
 export const isDate = /([0-9]{4}-[0-9]{2}-[0-9]{2})/
 
 export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string {
-    return `${lastDay.subtract(7, 'week').format(DATE_FORMAT)} - ${lastDay.endOf('d').format(DATE_FORMAT)}`
+    return formatDateRange(lastDay.subtract(7, 'week'), lastDay.endOf('d'))
+}
+
+const dateOptionsMap = {
+    q: 'quarter',
+    m: 'month',
+    w: 'week',
+    d: 'day',
 }
 
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string,
-    dateOptions: Record<string, dateMappingOption> = dateMapping,
+    dateOptions: dateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT
 ): string {
     if (dayjs.isDayjs(dateFrom) && dayjs.isDayjs(dateTo)) {
-        return `${dateFrom.format(dateFormat)} - ${dateTo.format(dateFormat)}`
+        return formatDateRange(dateFrom, dateTo, dateFormat)
     }
     dateFrom = (dateFrom || undefined) as string | undefined
     dateTo = (dateTo || undefined) as string | undefined
 
     if (isDate.test(dateFrom || '') && isDate.test(dateTo || '')) {
         return isDateFormatted
-            ? `${dayjs(dateFrom, 'YYYY-MM-DD').format(dateFormat)} - ${dayjs(dateTo, 'YYYY-MM-DD').format(dateFormat)}`
+            ? formatDateRange(dayjs(dateFrom, 'YYYY-MM-DD'), dayjs(dateTo, 'YYYY-MM-DD'))
             : `${dateFrom} - ${dateTo}`
     }
 
     // From date to today
     if (isDate.test(dateFrom || '') && !isDate.test(dateTo || '')) {
         const days = dayjs().diff(dayjs(dateFrom), 'days')
-        const formattedDateFrom = dayjs(dateFrom).format(dateFormat)
-        const formattedToday = dayjs().format(dateFormat)
         if (days > 366) {
-            return isDateFormatted ? `${dateFrom} - Today` : `${formattedDateFrom} - ${formattedToday}}`
+            return isDateFormatted ? `${dateFrom} - Today` : formatDateRange(dayjs(dateFrom), dayjs())
         } else if (days > 0) {
-            return isDateFormatted ? `${formattedDateFrom} - ${formattedToday}` : `Last ${days} days`
+            return isDateFormatted ? formatDateRange(dayjs(dateFrom), dayjs()) : `Last ${days} days`
         } else if (days === 0) {
-            return isDateFormatted ? formattedToday : `Today`
+            return isDateFormatted ? dayjs(dateFrom).format(dateFormat) : `Today`
         } else {
-            return isDateFormatted ? `${formattedDateFrom} - ` : `Starting from ${dateFrom}`
+            return isDateFormatted ? `${dayjs(dateFrom).format(dateFormat)} - ` : `Starting from ${dateFrom}`
         }
     }
 
-    let name = defaultValue
-    Object.entries(dateOptions).map(([key, { values, getFormattedDate }]) => {
+    for (const { key, values, getFormattedDate } of dateOptions) {
         if (values[0] === dateFrom && values[1] === dateTo && key !== 'Custom') {
-            name = isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
+            return isDateFormatted && getFormattedDate ? getFormattedDate(dayjs(), dateFormat) : key
         }
-    })[0]
-    return name
+    }
+
+    if (dateFrom) {
+        const dateOption = dateOptionsMap[dateFrom.slice(-1)]
+        const counter = parseInt(dateFrom.slice(1, -1))
+        if (dateOption && counter) {
+            let date = null
+            switch (dateOption) {
+                case 'quarter':
+                    date = dayjs().subtract(counter * 3, 'M')
+                    break
+                case 'months':
+                    date = dayjs().subtract(counter, 'M')
+                    break
+                case 'weeks':
+                    date = dayjs().subtract(counter * 7, 'd')
+                    break
+                default:
+                    date = dayjs().subtract(counter, 'd')
+                    break
+            }
+            if (isDateFormatted) {
+                return formatDateRange(date, dayjs().endOf('d'))
+            } else {
+                return `Last ${counter} ${dateOption}${counter > 1 ? 's' : ''}`
+            }
+        }
+    }
+
+    return defaultValue
 }
 
 export function copyToClipboard(value: string, description: string = 'text'): boolean {
@@ -1040,7 +1096,7 @@ export function pluralize(count: number, singular: string, plural?: string, incl
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1088,7 +1144,7 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
+export function shortTimeZone(timeZone?: string | null, atDate?: Date): string | null {
     /**
      * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
      * @param timeZone E.g. 'America/New_York'

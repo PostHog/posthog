@@ -1,87 +1,184 @@
 import datetime
-import gzip
-import tempfile
-import uuid
-from typing import IO
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+import requests
 import structlog
+from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog import settings
-from posthog.models import Filter
-from posthog.models.event.query_event_list import query_events_list
+from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset
-from posthog.models.utils import UUIDT
-from posthog.storage import object_storage
+from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
 
 
-def encode(obj: object) -> str:
-    if isinstance(obj, uuid.UUID):
-        return str(obj)
+# SUPPORTED CSV TYPES
 
-    if isinstance(obj, datetime.datetime):
-        return obj.isoformat()
+# - Insights - Trends (Series Linear, Series Cumulative, Totals)
+# Funnels - steps as data
+# Retention
+# Paths
+# Lifecycle
+# Via dashboard e.g. all of the above
 
-    return str(obj)
+# - People
+# Cohorts
+# Retention
+# Funnel
+
+# - Events
+# Filtered
+
+# HOW DOES THIS WORK
+# 1. We receive an export task with a given resource uri (identical to the API)
+# 2. We call the actual API to load the data with the given params so that we receive a paginateable response
+# 3. We save the response to a chunk in object storage and then load the `next` page of results
+# 4. Repeat until exhausted or limit reached
+# 5. We save the final blob output and update the ExportedAsset
 
 
-def stage_results_to_object_storage(
-    day_filter: Filter, exported_asset: ExportedAsset, temporary_file: IO, write_headers: bool
+def _modifiy_query(url: str, params: Dict[str, List[str]]) -> str:
+    parsed = urlparse(url)
+    query_params = parse_qs(parsed.query)
+    query_params.update(params)
+    parsed._replace(query=urlencode(query_params))
+    return urlunparse(parsed)
+
+
+def _convert_response_to_csv_data(data: Any) -> List[Any]:
+    if isinstance(data.get("results"), list):
+        # Pagination object
+        return data.get("results")
+    elif data.get("result") and isinstance(data.get("result"), list):
+        items = data["result"]
+        first_result = items[0]
+
+        if first_result.get("appearances") and first_result.get("person"):
+            # RETENTION PERSONS LIKE
+            csv_rows = []
+            for item in items:
+                line = {
+                    "person": item["person"].get("properties").get("email")
+                    or item["person"].get("properties").get("id")
+                }
+                for index, data in enumerate(item["appearances"]):
+                    line[f"Day {index}"] = data
+
+                csv_rows.append(line)
+            return csv_rows
+        elif first_result.get("values") and first_result.get("label"):
+            csv_rows = []
+            # RETENTION LIKE
+            for item in items:
+                line = {"cohort": item["date"], "cohort size": item["values"][0]["count"]}
+                for index, data in enumerate(item["values"]):
+                    line[items[index]["label"]] = data["count"]
+
+                csv_rows.append(line)
+            return csv_rows
+        elif isinstance(first_result.get("data"), list):
+            csv_rows = []
+            # TRENDS LIKE
+            for item in items:
+                line = {"series": item["label"]}
+                if item.get("action").get("custom_name"):
+                    line["custom name"] = item.get("action").get("custom_name")
+                if item.get("aggregated_value"):
+                    line["total count"] = item.get("aggregated_value")
+                else:
+                    for index, data in enumerate(item["data"]):
+                        line[item["labels"][index]] = data
+
+                csv_rows.append(line)
+
+            return csv_rows
+        elif first_result.get("action_id"):
+            # FUNNELS LIKE
+            csv_rows = [
+                {
+                    "name": x["custom_name"] or x["action_id"],
+                    "action_id": x["action_id"],
+                    "count": x["count"],
+                    "median_conversion_time (seconds)": x["median_conversion_time"],
+                    "average_conversion_time (seconds)": x["average_conversion_time"],
+                }
+                for x in items
+            ]
+
+            return csv_rows
+        else:
+            return items
+
+    return []
+
+
+def _export_to_csv(
+    exported_asset: ExportedAsset, root_bucket: str, limit: int = 1000, max_limit: int = 10_000,
 ) -> None:
-    # load results
-    result = query_events_list(
-        filter=day_filter,
-        team=exported_asset.team,
-        request_get_query_dict=exported_asset.export_context.get("request_get_query_dict"),
-        order_by=exported_asset.export_context.get("order_by"),
-        action_id=exported_asset.export_context.get("action_id"),
-        limit=exported_asset.export_context.get("limit", 10_000),
+    resource = exported_asset.export_context
+
+    path: str = resource["path"]
+
+    method: str = resource.get("method", "GET")
+    body = resource.get("body", None)
+
+    access_token = encode_jwt(
+        {"id": exported_asset.created_by_id}, datetime.timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
     )
-    logger.info("csv_exporter.read_from_clickhouse", number_of_results=len(result))
 
-    if write_headers:
-        temporary_file.write(f"{','.join(result[0].keys())}\n".encode("utf-8"))
+    next_url = None
+    all_csv_rows: List[Any] = []
 
-    for values in [row.values() for row in result]:
-        line = [encode(v) for v in values]
-        temporary_file.write(",".join(line).encode("utf-8"))
+    while len(all_csv_rows) < max_limit:
+        url = _modifiy_query(next_url or absolute_uri(path), {"limit": [str(limit)]})
 
-    logger.info("csv_exporter.wrote_day_to_temp_file", day=day_filter.date_from)
+        response = requests.request(
+            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+        # Figure out how to handle funnel polling....
+
+        data = response.json()
+        csv_rows = _convert_response_to_csv_data(data)
+
+        all_csv_rows = all_csv_rows + csv_rows
+
+        if not data.get("next") or not csv_rows:
+            break
+
+        next_url = data.get("next")
+
+    renderer = csvrenderers.CSVRenderer()
+
+    # NOTE: This is not ideal as some rows _could_ have different keys
+    # Ideally we would extend the csvrenderer to supported keeping the order in place
+    if len(all_csv_rows):
+        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
+            # If values are serialised then keep the order of the keys, else allow it to be unordered
+            renderer.header = all_csv_rows[0].keys()
+
+    exported_asset.content = renderer.render(all_csv_rows)
+    exported_asset.save(update_fields=["content"])
 
 
-def concat_results_in_object_storage(temporary_file: IO, exported_asset: ExportedAsset, root_bucket: str) -> str:
-    object_path = f"/{root_bucket}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
-    temporary_file.seek(0)
-    object_storage.write(object_path, gzip.compress(temporary_file.read()))
-    logger.info("csv_exporter.wrote_to_object_storage", object_path=object_path)
-    return object_path
-
-
-def _export_to_csv(exported_asset: ExportedAsset, root_bucket: str) -> None:
-    if exported_asset.export_context.get("file_export_type", None) == "list_events":
-        filter = Filter(data=exported_asset.export_context.get("filter"))
-        logger.info("csv_exporter.built_filter_from_context", filter=filter.to_dict())
-
-        write_headers = True
-        with tempfile.TemporaryFile() as temporary_file:
-            for day_filter in filter.split_by_day():
-                stage_results_to_object_storage(day_filter, exported_asset, temporary_file, write_headers)
-                write_headers = False
-
-            object_path = concat_results_in_object_storage(temporary_file, exported_asset, root_bucket)
-            exported_asset.content_location = object_path
-            exported_asset.save(update_fields=["content_location"])
-
-
-def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER) -> None:
-    timer = statsd.timer("csv_exporter").start()
+@timed("csv_exporter")
+def export_csv(
+    exported_asset: ExportedAsset,
+    root_bucket: str = settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+    limit: Optional[int] = None,
+    max_limit: int = 10_000,
+) -> None:
+    if not limit:
+        limit = 1000
 
     try:
         if exported_asset.export_format == "text/csv":
-            _export_to_csv(exported_asset, root_bucket)
+            _export_to_csv(exported_asset, root_bucket, limit, max_limit)
             statsd.incr("csv_exporter.succeeded", tags={"team_id": exported_asset.team.id})
         else:
             statsd.incr("csv_exporter.unknown_asset", tags={"team_id": exported_asset.team.id})
@@ -99,5 +196,3 @@ def export_csv(exported_asset: ExportedAsset, root_bucket: str = settings.OBJECT
         logger.error("csv_exporter.failed", exception=e)
         statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
         raise e
-    finally:
-        timer.stop()

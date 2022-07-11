@@ -35,6 +35,7 @@ class ExportedAsset(models.Model):
     export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context: models.JSONField = models.JSONField(null=True, blank=True)
     # path in object storage or some other location identifier for the asset
@@ -53,12 +54,13 @@ class ExportedAsset(models.Model):
     @property
     def filename(self):
         ext = self.export_format.split("/")[1]
-
         filename = "export"
 
-        if self.dashboard and self.dashboard.name is not None:
+        if self.export_context and self.export_context.get("filename"):
+            filename = slugify(self.export_context.get("filename"))
+        elif self.dashboard and self.dashboard.name is not None:
             filename = f"{filename}-{slugify(self.dashboard.name)}"
-        if self.insight:
+        elif self.insight:
             filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
 
         filename = f"{filename}.{ext}"

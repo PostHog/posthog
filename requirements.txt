@@ -69,7 +69,7 @@ defusedxml==0.6.0
     #   social-auth-core
 dj-database-url==0.5.0
     # via -r requirements.in
-django==3.2.13
+django==3.2.14
     # via
     #   -r requirements.in
     #   django-axes
@@ -118,7 +118,7 @@ djangorestframework==3.12.2
     #   drf-exceptions-hog
     #   drf-extensions
     #   drf-spectacular
-djangorestframework-csv==2.1.0
+djangorestframework-csv==2.1.1
     # via -r requirements.in
 djangorestframework-dataclasses==1.1.1
     # via -r requirements.in
@@ -249,8 +249,6 @@ pytz==2021.1
     #   tzlocal
 pyyaml==6.0
     # via drf-spectacular
-ratelimit==2.2.1
-    # via -r requirements.in
 redis==3.4.1
     # via
     #   -r requirements.in

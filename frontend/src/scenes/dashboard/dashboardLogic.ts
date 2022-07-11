@@ -101,7 +101,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
     },
 
-    loaders: ({ actions, props }) => ({
+    loaders: ({ actions, props, values }) => ({
         // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
@@ -115,11 +115,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
 
                     try {
-                        const apiUrl = `api/projects/${teamLogic.values.currentTeamId}/dashboards/${
-                            props.id
-                        }/?${toParams({
-                            refresh,
-                        })}`
+                        const apiUrl = values.apiUrl(refresh)
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         return dashboard
@@ -352,6 +348,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
     }),
     selectors: () => ({
         placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
+        apiUrl: [
+            () => [(_, props) => props.id],
+            (id) => {
+                return (refresh?: boolean) =>
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
+                        refresh,
+                    })}`
+            },
+        ],
         items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
             (s) => [s.allItemsLoading, s.refreshStatus],
@@ -541,11 +546,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.id) {
-                const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
-                if (exportedDashboard && exportedDashboard.id === props.id && exportedDashboard.items) {
-                    actions.loadExportedDashboard(exportedDashboard as DashboardType)
-                } else if (props.dashboard) {
-                    // When the scene is initially loaded, the dashboard ID is undefined
+                if (props.dashboard) {
                     actions.loadExportedDashboard(props.dashboard)
                 } else {
                     actions.loadDashboardItems({

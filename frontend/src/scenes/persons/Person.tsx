@@ -29,7 +29,10 @@ const { TabPane } = Tabs
 export const scene: SceneExport = {
     component: Person,
     logic: personsLogic,
-    paramsToProps: ({ params }): typeof personsLogic['props'] => ({ syncWithUrl: true, urlId: params._ }), // wildcard is stored in _
+    paramsToProps: ({ params: { _: rawUrlId } }): typeof personsLogic['props'] => ({
+        syncWithUrl: true,
+        urlId: decodeURIComponent(rawUrlId),
+    }),
 }
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
@@ -77,9 +80,16 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     )
 }
 
-export function Person({ _: urlId }: { _?: string } = {}): JSX.Element | null {
-    const { person, personLoading, deletedPersonLoading, currentTab, showSessionRecordings, splitMergeModalShown } =
-        useValues(personsLogic)
+export function Person(): JSX.Element | null {
+    const {
+        person,
+        personLoading,
+        deletedPersonLoading,
+        currentTab,
+        showSessionRecordings,
+        splitMergeModalShown,
+        urlId,
+    } = useValues(personsLogic)
     const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
