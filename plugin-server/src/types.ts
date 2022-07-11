@@ -214,6 +214,10 @@ export interface EnqueuedJob {
     pluginConfigTeam: number
 }
 
+export enum JobName {
+    PLUGIN_JOB = 'pluginJob',
+}
+
 export interface JobQueue {
     startConsumer: (jobHandlers: TaskList) => Promise<void> | void
     stopConsumer: () => Promise<void> | void
