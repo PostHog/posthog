@@ -14,6 +14,7 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
+    PropertyFilter,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -40,6 +41,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -617,6 +619,31 @@ export const insightLogic = kea<insightLogicType>({
                 }
             },
         ],
+        isUsingSessionAnalysis: [
+            (s) => [s.filters],
+            (filters: Partial<FilterType>): boolean => {
+                const entities = (filters.events || []).concat(filters.actions ?? [])
+                const using_session_breakdown = filters.breakdown_type === 'session'
+                const using_session_math = entities.some((entity) => entity.math === 'unique_session')
+                const using_session_property_math = entities.some((entity) => {
+                    // Should be made more generic is we ever add more session properties
+                    return entity.math_property === '$session_duration'
+                })
+                const using_entity_session_property_filter = entities.some((entity) => {
+                    return entity.properties?.some((property: PropertyFilter) => property.type === 'session')
+                })
+                const using_global_session_property_filter = parseProperties(filters.properties).some(
+                    (property) => property.type === 'session'
+                )
+                return (
+                    using_session_breakdown ||
+                    using_session_math ||
+                    using_session_property_math ||
+                    using_entity_session_property_filter ||
+                    using_global_session_property_filter
+                )
+            },
+        ],
     },
     listeners: ({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
@@ -687,7 +714,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     0,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
 
                 actions.setNotFirstLoad()
@@ -700,7 +728,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     10,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
             }
         },
