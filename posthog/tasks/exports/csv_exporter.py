@@ -182,7 +182,14 @@ def _write_to_exported_asset(exported_asset: ExportedAsset, rendered_csv_content
 
 
 def _write_to_object_storage(exported_asset: ExportedAsset, rendered_csv_content: bytes) -> None:
-    object_path = f"/{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
+    path_parts: List[str] = [
+        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+        "csvs",
+        f"team-{exported_asset.team.id}",
+        f"task-{exported_asset.id}",
+        str(UUIDT()),
+    ]
+    object_path = f'/{"/".join(path_parts)}'
     object_storage.write(object_path, rendered_csv_content)
     exported_asset.content_location = object_path
     exported_asset.save(update_fields=["content_location"])
