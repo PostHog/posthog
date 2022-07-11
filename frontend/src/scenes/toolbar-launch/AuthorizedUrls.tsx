@@ -44,7 +44,7 @@ function EmptyState({
 
 function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { isProposedUrlSubmitting, proposedUrlHasErrors } = useValues(logic)
+    const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
     return (
         <Form
@@ -62,7 +62,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                     htmlType="submit"
                     type="primary"
                     className="form-submit"
-                    disabled={isProposedUrlSubmitting || proposedUrlHasErrors}
+                    disabled={isProposedUrlSubmitting}
                 >
                     Save
                 </LemonButton>
