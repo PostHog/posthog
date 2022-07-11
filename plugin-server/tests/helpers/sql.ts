@@ -56,7 +56,8 @@ TRUNCATE TABLE
     posthog_team,
     posthog_organizationmembership,
     posthog_organization,
-    posthog_user
+    posthog_user,
+    posthog_eventbuffer
 CASCADE
 `
 

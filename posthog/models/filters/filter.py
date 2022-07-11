@@ -25,7 +25,6 @@ from posthog.models.filters.mixins.common import (
     OffsetMixin,
     SearchMixin,
     SelectorMixin,
-    SessionMixin,
     ShownAsMixin,
     SmoothingIntervalsMixin,
 )
@@ -65,7 +64,6 @@ class Filter(
     FilterTestAccountsMixin,
     CompareMixin,
     InsightMixin,
-    SessionMixin,
     OffsetMixin,
     LimitMixin,
     DateMixin,

@@ -6,10 +6,15 @@ export enum ExportType {
     Scene = 'scene',
 }
 
-export interface ExportedData {
-    type: ExportType
+export interface ExportOptions {
     whitelabel?: boolean
-    dashboard?: Partial<DashboardType>
+    noHeader?: boolean
+    legend?: boolean
+}
+
+export interface ExportedData extends ExportOptions {
+    type: ExportType
+    dashboard?: DashboardType
     insight?: InsightModel
     team?: Partial<TeamType>
 }

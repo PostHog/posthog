@@ -51,6 +51,11 @@ CONSTANCE_CONFIG = {
         "Whether to resume the migration, when celery worker crashed.",
         bool,
     ),
+    "ASYNC_MIGRATIONS_BLOCK_UPGRADE": (
+        get_from_env("ASYNC_MIGRATIONS_BLOCK_UPGRADE", True, type_cast=str_to_bool),
+        "(Advanced) Whether having an async migration running, errored or required should prevent upgrades.",
+        bool,
+    ),
     "STRICT_CACHING_TEAMS": (
         get_from_env("STRICT_CACHING_TEAMS", ""),
         "Whether to always try to find cached data for historical intervals on trends",
@@ -119,6 +124,11 @@ CONSTANCE_CONFIG = {
         "Used to enable the 'Add to Slack' button across all projects",
         str,
     ),
+    "SLACK_APP_SIGNING_SECRET": (
+        get_from_env("SLACK_APP_SIGNING_SECRET", default=""),
+        "Used to validate Slack events for example when unfurling links",
+        str,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -128,6 +138,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
+    "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
@@ -142,8 +153,9 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
+    "SLACK_APP_SIGNING_SECRET",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET"]
+SECRET_SETTINGS = ["EMAIL_HOST_PASSWORD", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"]

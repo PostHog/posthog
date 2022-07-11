@@ -1,6 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import crypto from 'crypto'
 import { DateTime } from 'luxon'
 
 import { Event as EventProto, IEvent } from '../../config/idl/protos'
@@ -21,7 +20,6 @@ import { elementsToString, extractElements } from '../../utils/db/elements-chain
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
-import { KAFKA_BUFFER } from './../../config/kafka-topics'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
@@ -210,7 +208,9 @@ export class EventsProcessor {
 
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
-        const groupProperties = await this.db.getGroupProperties(teamId, this.getGroupIdentifiers(properties))
+        const groupIdentifiers = this.getGroupIdentifiers(properties)
+        const groupsProperties = await this.db.getPropertiesForGroups(teamId, groupIdentifiers)
+        const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
         let personInfo = preIngestionEvent.person
@@ -248,7 +248,11 @@ export class EventsProcessor {
                       ...eventPayload,
                       person_id: personInfo?.uuid,
                       person_properties: eventPersonProperties,
-                      ...groupProperties,
+                      person_created_at: personInfo
+                          ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
+                          : null,
+                      ...groupsProperties,
+                      ...groupsCreatedAt,
                   })
               )
 
@@ -263,14 +267,6 @@ export class EventsProcessor {
         })
 
         return { ...preIngestionEvent, person: personInfo }
-    }
-
-    async produceEventToBuffer(bufferEvent: PluginEvent): Promise<void> {
-        const partitionKeyHash = crypto.createHash('sha256')
-        partitionKeyHash.update(`${bufferEvent.team_id}:${bufferEvent.distinct_id}`)
-        const partitionKey = partitionKeyHash.digest('hex')
-
-        await this.kafkaProducer.queueSingleJsonMessage(KAFKA_BUFFER, partitionKey, bufferEvent)
     }
 
     private async createSessionRecordingEvent(

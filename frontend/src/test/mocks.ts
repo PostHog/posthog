@@ -214,22 +214,37 @@ export const mockSlackChannel: SlackChannelType = {
     id: 'C1234',
     name: '#general',
     is_private: false,
+    is_ext_shared: false,
+    is_member: false,
 }
 
 export const mockSlackChannels: SlackChannelType[] = [
     {
-        id: 'C1234',
+        id: 'C1',
         name: 'general',
         is_private: false,
+        is_ext_shared: false,
+        is_member: false,
     },
     {
-        id: 'C1234',
+        id: 'C2',
         name: 'dev',
         is_private: false,
+        is_ext_shared: false,
+        is_member: true,
     },
     {
-        id: 'C1234',
+        id: 'C3',
         name: 'pineapple-conspiracies',
         is_private: true,
+        is_ext_shared: false,
+        is_member: true,
+    },
+    {
+        id: 'C4',
+        name: 'external-community',
+        is_private: false,
+        is_ext_shared: true,
+        is_member: false,
     },
 ]

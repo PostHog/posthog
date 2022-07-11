@@ -15,6 +15,7 @@ export interface LemonCheckboxProps {
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
     rowProps?: LemonRowProps<'div'>
+    bordered?: boolean
 }
 
 export interface BoxCSSProperties extends React.CSSProperties {
@@ -40,6 +41,7 @@ export function LemonCheckbox({
     color,
     rowProps,
     style,
+    bordered,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
 
@@ -65,6 +67,7 @@ export function LemonCheckbox({
                 'LemonCheckbox',
                 localChecked && 'LemonCheckbox--checked',
                 wasIndeterminateLast && 'LemonCheckbox--indeterminate',
+                bordered && 'LemonCheckbox--bordered',
                 className
             )}
             disabled={disabled}

@@ -32,22 +32,16 @@ from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
 from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, TRENDS_TABLE, FunnelVizType
 from posthog.decorators import cached_function
+from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import (
-    ActivityPage,
-    Change,
-    Detail,
-    Merge,
-    load_activity,
-    log_activity,
-)
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.person.util import delete_person
+from posthog.models.person.util import delete_ch_distinct_ids, delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -209,8 +203,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             person = Person.objects.get(team=self.team, pk=pk)
             person_id = person.id
 
-            delete_person(
-                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
+            delete_person(person=person)
+            delete_ch_distinct_ids(
+                person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
             )
             person.delete()
 
@@ -346,20 +341,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         value = request.GET.get("value")
         flattened = []
         if key:
-            timer = statsd.timer("get_person_property_values_for_key_timer").start()
-            try:
-                result = get_person_property_values_for_key(key, self.team, value)
-                statsd.incr(
-                    "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
-                )
-            except Exception as e:
-                statsd.incr(
-                    "get_person_property_values_for_key_error",
-                    tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
-                )
-                raise e
-            finally:
-                timer.stop()
+            result = self._get_person_property_values_for_key(key, value)
 
             for (value, count) in result:
                 try:
@@ -368,6 +350,22 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 except json.decoder.JSONDecodeError:
                     flattened.append({"name": convert_property_value(value), "count": count})
         return response.Response(flattened)
+
+    @timed("get_person_property_values_for_key_timer")
+    def _get_person_property_values_for_key(self, key, value):
+        try:
+            result = get_person_property_values_for_key(key, self.team, value)
+            statsd.incr(
+                "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
+            )
+        except Exception as e:
+            statsd.incr(
+                "get_person_property_values_for_key_error",
+                tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+            )
+            raise e
+
+        return result
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
@@ -560,7 +558,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         page = int(request.query_params.get("page", "1"))
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -571,23 +569,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
-
-    @staticmethod
-    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
-        return Response(
-            {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
-                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
-                if activity_page.has_next
-                else None,
-                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
-                if activity_page.has_previous
-                else None,
-                "total_count": activity_page.total_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
         instance = self.get_queryset().get(pk=kwargs["pk"])

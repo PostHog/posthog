@@ -5,18 +5,14 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
-export interface LemonInputProps
+interface LemonInputPropsBase
     extends Omit<
         React.InputHTMLAttributes<HTMLInputElement>,
         'value' | 'defaultValue' | 'onChange' | 'prefix' | 'suffix'
     > {
     ref?: React.Ref<HTMLInputElement>
     id?: string
-    value?: string | number
-    defaultValue?: string
     placeholder?: string
-    onChange?: (newValue: string) => void
-    onPressEnter?: (newValue: string) => void
     /** An embedded input has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
@@ -27,7 +23,27 @@ export interface LemonInputProps
     sideIcon?: React.ReactElement | null
     /** Whether input field is disabled */
     disabled?: boolean
+    /** Whether input field is full width */
+    fullWidth?: boolean
 }
+
+interface LemonInputPropsText extends LemonInputPropsBase {
+    type?: 'text' | 'email'
+    value?: string
+    defaultValue?: string
+    onChange?: (newValue: string) => void
+    onPressEnter?: (newValue: string) => void
+}
+
+interface LemonInputPropsNumber extends LemonInputPropsBase {
+    type: 'number'
+    value?: number
+    defaultValue?: number
+    onChange?: (newValue: number) => void
+    onPressEnter?: (newValue: number) => void
+}
+
+export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
 
 /** A `LemonRow`-based `input` component for single-line text. */
 export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(function _LemonInput(
@@ -39,15 +55,25 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onPressEnter,
         embedded = false,
         allowClear = false,
+        fullWidth = true,
         icon,
         sideIcon,
+        type,
+        value,
         ...textProps
     },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLInputElement | null>(null)
-    const textRef = ref || _ref
+    const inputRef = ref || _ref
     const [focused, setFocused] = useState<boolean>(Boolean(textProps.autoFocus))
+
+    const focus = (): void => {
+        if (inputRef && 'current' in inputRef) {
+            inputRef.current?.focus()
+        }
+        setFocused(true)
+    }
 
     const rowProps: LemonRowProps<'span'> = {
         tag: 'span',
@@ -58,7 +84,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             className
         ),
         disabled: textProps.disabled,
-        fullWidth: true,
+        fullWidth,
         icon,
         sideIcon: allowClear ? (
             <LemonButton
@@ -67,7 +93,12 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()
-                    onChange?.('')
+                    if (type === 'number') {
+                        onChange?.(0)
+                    } else {
+                        onChange?.('')
+                    }
+                    focus()
                 }}
             />
         ) : (
@@ -75,22 +106,27 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         ),
         onKeyDown: (event) => {
             if (onPressEnter && event.key === 'Enter') {
-                onPressEnter(textProps.value?.toString() ?? '')
+                if (type === 'number') {
+                    onPressEnter(value ?? 0)
+                } else {
+                    onPressEnter(value?.toString() ?? '')
+                }
             }
         },
         onClick: () => {
-            if (textRef && 'current' in textRef) {
-                textRef.current?.focus()
-            }
-            setFocused(true)
+            focus()
         },
         outlined: !embedded,
     }
     const props: React.InputHTMLAttributes<HTMLInputElement> = {
+        ...textProps,
         className: 'LemonInput__input',
-        type: 'text',
         onChange: (event) => {
-            onChange?.(event.currentTarget.value ?? '')
+            if (type === 'number') {
+                onChange?.(event.currentTarget.valueAsNumber)
+            } else {
+                onChange?.(event.currentTarget.value ?? '')
+            }
         },
         onFocus: (event) => {
             setFocused(true)
@@ -100,12 +136,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             setFocused(false)
             onBlur?.(event)
         },
-        ...textProps,
+        value,
+        type: type || 'text',
     }
 
     return (
         <LemonRow {...rowProps}>
-            <input {...props} ref={textRef} />
+            <input {...props} ref={inputRef} />
         </LemonRow>
     )
 })

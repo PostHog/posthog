@@ -1,4 +1,5 @@
-import { Select } from 'antd'
+import { Select, Skeleton } from 'antd'
+import { range } from 'lib/utils'
 import React from 'react'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
 import './LemonSelectMultiple.scss'
@@ -67,7 +68,18 @@ export function LemonSelectMultiple({
                 dropdownRender={(menu) => <div className="LemonSelectMultipleDropdown">{menu}</div>}
                 options={antOptions}
                 placeholder={placeholder}
-                notFoundContent={<></>}
+                notFoundContent={
+                    loading ? (
+                        <div>
+                            {range(5).map((x) => (
+                                <div key={x} className="LemonSelectMultipleDropdown__skeleton">
+                                    <Skeleton.Avatar shape="circle" size="small" active />
+                                    <Skeleton paragraph={false} active />
+                                </div>
+                            ))}
+                        </div>
+                    ) : null
+                }
                 filterOption={filterOption}
                 tagRender={({ label, onClose }) => <LemonSnack onClose={onClose}>{label}</LemonSnack>}
             />

@@ -39,7 +39,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
-        loadSharedDashboard: (shareToken: string) => ({ shareToken }),
         duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
             id: id,
             name: name || `#${id}`,
@@ -70,14 +69,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 },
             },
         ],
-        sharedDashboard: [
-            null as DashboardType | null,
-            {
-                loadSharedDashboard: async ({ shareToken }) => {
-                    return await api.get(`api/shared_dashboards/${shareToken}`)
-                },
-            },
-        ],
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
@@ -101,10 +92,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 }
                 return response
             },
-            setIsSharedDashboard: async ({ id, isShared }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    is_shared: isShared,
-                })) as DashboardType,
             deleteDashboard: async ({ id }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,
@@ -156,7 +143,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             updateDashboardSuccess: (state, { dashboard }) =>
                 dashboard ? { ...state, [dashboard.id]: dashboard } : state,
-            setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,
                 [dashboard.id]: { ...state[dashboard.id], deleted: true },
@@ -202,10 +188,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 )
             },
         ],
-        dashboardsLoading: [
-            () => [selectors.rawDashboardsLoading, selectors.sharedDashboardLoading],
-            (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
-        ],
+        dashboardsLoading: [() => [selectors.rawDashboardsLoading], (dashesLoading) => dashesLoading],
         pinnedDashboards: [
             () => [selectors.nameSortedDashboards],
             (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),

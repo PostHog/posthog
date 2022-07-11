@@ -1,8 +1,8 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { Checkbox } from 'antd'
 import { compareFilterLogic } from './compareFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 
 export function CompareFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -15,15 +15,18 @@ export function CompareFilter(): JSX.Element | null {
     }
 
     return (
-        <Checkbox
+        <LemonCheckbox
             onChange={(e) => {
                 setCompare(e.target.checked)
             }}
             checked={compare}
             style={{ marginLeft: 8, marginRight: 6 }}
             disabled={disabled}
-        >
-            Compare<span className="hide-lte-md"> to previous</span>
-        </Checkbox>
+            label={'Compare to previous time period'}
+            bordered
+            rowProps={{
+                size: 'small',
+            }}
+        />
     )
 }

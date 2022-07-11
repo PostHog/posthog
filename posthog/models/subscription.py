@@ -73,6 +73,10 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._rrule = self.rrule
+
     # Relations - i.e. WHAT are we exporting?
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, null=True)
@@ -120,7 +124,9 @@ class Subscription(models.Model):
         self.next_delivery_date = self.rrule.after(dt=from_dt or timezone.now(), inc=False)
 
     def save(self, *args, **kwargs) -> None:
-        self.set_next_delivery_date()
+        # Only if the schedule has changed do we update the next delivery date
+        if not self.id or str(self._rrule) != str(self.rrule):
+            self.set_next_delivery_date()
         super(Subscription, self).save(*args, **kwargs)
 
     @property
@@ -180,8 +186,8 @@ class Subscription(models.Model):
 def subscription_saved(sender, instance, created, raw, using, **kwargs):
     from posthog.event_usage import report_user_action
 
-    if instance.created_by:
-        event_name: str = "subscription created" if created else "subscription updated"
+    if instance.created_by and instance.resource_info:
+        event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
 
 

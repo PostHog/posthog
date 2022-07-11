@@ -2,6 +2,7 @@ import { Kafka, logLevel } from 'kafkajs'
 
 import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
+    KAFKA_BUFFER,
     KAFKA_EVENTS,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_GROUPS,
@@ -15,8 +16,8 @@ import { PluginsServerConfig } from '../../src/types'
 import { UUIDT } from '../../src/utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
 
-/** Clear the kafka queue */
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
+/** Clear the Kafka queue and return Kafka object */
+export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<Kafka> {
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
     const kafka = new Kafka({
         clientId: `plugin-server-test-${new UUIDT()}`,
@@ -27,6 +28,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     await createTopics(kafka, [
         KAFKA_EVENTS,
         KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_BUFFER,
         KAFKA_GROUPS,
         KAFKA_SESSION_RECORDING_EVENTS,
         KAFKA_PERSON,
@@ -35,6 +37,8 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_PLUGIN_LOG_ENTRIES,
         KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     ])
+
+    return kafka
 }
 
 async function createTopics(kafka: Kafka, topics: string[]) {

@@ -12,7 +12,7 @@ import { PerfBlock } from 'scenes/performance/WebPerformanceWaterfallChart'
 
 export default {
     title: 'Scenes-App/Web Performance',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
     decorators: [
         mswDecorator({
             get: {

@@ -54,13 +54,10 @@
             .highlighted-activity {
                 background-color: var(--yellow-lightest);
                 display: inline;
-            }
 
-            .sentence-list {
-                display: inline;
-
-                .sentence-part {
-                    display: inline;
+                & > .person-header {
+                    display: inline-block;
+                    min-width: 5.5rem;
                 }
             }
         }

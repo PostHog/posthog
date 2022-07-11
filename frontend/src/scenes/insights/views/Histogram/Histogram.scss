@@ -1,0 +1,66 @@
+@import '../../../../styles/breakpoints';
+
+.dashboard-wrapper {
+    width: 95%;
+    height: 90%;
+    margin: auto;
+}
+
+.histogram-container {
+    display: flex;
+    width: 100%;
+
+    svg {
+        margin: auto;
+
+        g#bars {
+            fill: var(--funnel-alt);
+        }
+
+        g#y-gridlines {
+            g.tick:not(:first-child) {
+                color: var(--funnel-axis);
+            }
+
+            .domain,
+            g.tick:nth-of-type(1) {
+                display: none; // hide axis line
+            }
+        }
+
+        g#y-axis {
+            .domain {
+                stroke: var(--funnel-axis);
+            }
+        }
+
+        g#x-axis {
+            .domain {
+                stroke: var(--funnel-axis-zero);
+            }
+        }
+
+        g#x-axis,
+        g#y-axis {
+            text {
+                font-size: 13px;
+                fill: var(--funnel-axis-zero);
+
+                @media (max-width: $md) {
+                    font-size: 11px;
+                }
+            }
+        }
+
+        g#labels {
+            text.bar-label {
+                font-size: 14px;
+                font-weight: bold;
+                fill: var(--text-light);
+                &.outside {
+                    fill: var(--funnel-alt);
+                }
+            }
+        }
+    }
+}

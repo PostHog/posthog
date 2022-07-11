@@ -71,6 +71,7 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
+import { PromiseManager } from './../../worker/vm/promise-manager'
 import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
@@ -136,6 +137,11 @@ type GroupProperties = {
     properties: Properties | null
 }
 
+type GroupCreatedAt = {
+    identifier: GroupIdentifier
+    createdAt: DateTime | null
+}
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection pool for primary database access. */
@@ -163,12 +169,16 @@ export class DB {
     /** Which teams is person info caching enabled on */
     personAndGroupsCachingEnabledTeams: Set<number>
 
+    /** PromiseManager instance to keep track of voided promises */
+    promiseManager: PromiseManager
+
     constructor(
         postgres: Pool,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
         statsd: StatsD | undefined,
+        promiseManager: PromiseManager,
         personAndGroupsCacheTtl = 1,
         personAndGroupsCachingEnabledTeams: Set<number> = new Set<number>()
     ) {
@@ -179,6 +189,7 @@ export class DB {
         this.statsd = statsd
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
         this.personAndGroupsCachingEnabledTeams = personAndGroupsCachingEnabledTeams
+        this.promiseManager = promiseManager
     }
 
     // Postgres
@@ -477,6 +488,7 @@ export class DB {
     REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
     REDIS_GROUP_PROPERTIES_PREFIX = 'group_props'
+    REDIS_GROUP_CREATED_AT_PREFIX = 'group_created_at'
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
@@ -492,6 +504,10 @@ export class DB {
 
     private getPersonPropertiesCacheKey(teamId: number, personId: number): string {
         return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
+    }
+
+    private getGroupCreatedAtCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
+        return `${this.REDIS_GROUP_CREATED_AT_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
     }
 
     private getGroupPropertiesCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
@@ -536,6 +552,30 @@ export class DB {
                 this.PERSONS_AND_GROUPS_CACHE_TTL
             )
         }
+    }
+
+    private async updateGroupCreatedAtIsoCache(
+        teamId: number,
+        groupTypeIndex: number,
+        groupKey: string,
+        createdAtIso: string
+    ): Promise<void> {
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
+            await this.redisSet(
+                this.getGroupCreatedAtCacheKey(teamId, groupTypeIndex, groupKey),
+                createdAtIso,
+                this.PERSONS_AND_GROUPS_CACHE_TTL
+            )
+        }
+    }
+
+    private async updateGroupCreatedAtCache(
+        teamId: number,
+        groupTypeIndex: number,
+        groupKey: string,
+        createdAt: DateTime
+    ): Promise<void> {
+        await this.updateGroupCreatedAtIsoCache(teamId, groupTypeIndex, groupKey, createdAt.toISO())
     }
 
     private async updateGroupPropertiesCache(
@@ -608,9 +648,9 @@ export class DB {
             const personUuid = String(result.rows[0].uuid)
             const personCreatedAtIso = String(result.rows[0].created_at)
             const personProperties: Properties = result.rows[0].properties
-            void this.updatePersonUuidCache(teamId, personId, personUuid)
-            void this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso)
-            void this.updatePersonPropertiesCache(teamId, personId, personProperties)
+            this.promiseManager.trackPromise(this.updatePersonUuidCache(teamId, personId, personUuid))
+            this.promiseManager.trackPromise(this.updatePersonCreatedAtIsoCache(teamId, personId, personCreatedAtIso))
+            this.promiseManager.trackPromise(this.updatePersonPropertiesCache(teamId, personId, personProperties))
             return {
                 team_id: teamId,
                 uuid: personUuid,
@@ -630,7 +670,15 @@ export class DB {
         return undefined
     }
 
-    private async getGroupProperty(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {
+    private async getGroupCreatedAt(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupCreatedAt> {
+        const createdAt = await this.redisGet(
+            this.getGroupCreatedAtCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
+            null
+        )
+        return { identifier: groupIdentifier, createdAt: createdAt ? DateTime.fromISO(createdAt as string) : null }
+    }
+
+    private async getGroupProperties(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {
         const props = await this.redisGet(
             this.getGroupPropertiesCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
             null
@@ -648,14 +696,14 @@ export class DB {
         const queryOptions: string[] = []
         const args: any[] = [teamId]
         let index = args.length + 1
-        for (const gi of groupIdentifiers) {
+        for (const groupIdentifier of groupIdentifiers) {
             this.statsd?.increment(`group_properties_cache.miss`, {
                 team_id: teamId.toString(),
-                group_type_index: gi.index.toString(),
+                group_type_index: groupIdentifier.index.toString(),
             })
             queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
             index += 2
-            args.push(gi.index, gi.key)
+            args.push(groupIdentifier.index, groupIdentifier.key)
         }
         const result = await this.postgresQuery(
             'SELECT group_type_index, group_key, group_properties FROM posthog_group WHERE team_id=$1 AND '.concat(
@@ -674,23 +722,96 @@ export class DB {
             const key = String(row.group_key)
             const properties = row.group_properties as Properties
             notHandledIdentifiers = notHandledIdentifiers.filter((gi) => !(gi.index === index && gi.key === key))
-            void this.updateGroupPropertiesCache(teamId, index, key, properties)
+            this.promiseManager.trackPromise(this.updateGroupPropertiesCache(teamId, index, key, properties))
             res[`group${index}_properties`] = JSON.stringify(properties)
         }
 
-        for (const gi of notHandledIdentifiers) {
-            void this.updateGroupPropertiesCache(teamId, gi.index, gi.key, {})
-            res[`group${gi.index}_properties`] = JSON.stringify({}) // also adding to event for consistency
+        for (const groupIdentifier of notHandledIdentifiers) {
+            this.promiseManager.trackPromise(
+                this.updateGroupPropertiesCache(teamId, groupIdentifier.index, groupIdentifier.key, {})
+            )
+            res[`group${groupIdentifier.index}_properties`] = JSON.stringify({}) // also adding to event for consistency
         }
         return res
     }
 
-    public async getGroupProperties(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
+    public async getGroupsCreatedAtFromDbAndUpdateCache(
+        teamId: number,
+        groupIdentifiers: GroupIdentifier[]
+    ): Promise<Record<string, string>> {
+        if (groupIdentifiers.length === 0) {
+            return {}
+        }
+        const queryOptions: string[] = []
+        const args: any[] = [teamId]
+        let index = args.length + 1
+        for (const groupIdentifier of groupIdentifiers) {
+            this.statsd?.increment(`group_created_at_cache.miss`, {
+                team_id: teamId.toString(),
+                group_type_index: groupIdentifier.index.toString(),
+            })
+            queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
+            index += 2
+            args.push(groupIdentifier.index, groupIdentifier.key)
+        }
+        const result = await this.postgresQuery(
+            'SELECT group_type_index, group_key, created_at FROM posthog_group WHERE team_id=$1 AND '.concat(
+                queryOptions.join(' OR ')
+            ),
+            args,
+            'fetchGroupProperties'
+        )
+
+        const res: Record<string, string> = {}
+        for (const row of result.rows) {
+            const index = Number(row.group_type_index)
+            const key = String(row.group_key)
+            const createdAt = DateTime.fromISO(row.created_at)
+            this.promiseManager.trackPromise(this.updateGroupCreatedAtCache(teamId, index, key, createdAt))
+            res[`group${index}_created_at`] = castTimestampOrNow(createdAt, TimestampFormat.ClickHouse)
+        }
+
+        return res
+    }
+
+    public async getCreatedAtForGroups(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
         if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
             return {}
         }
         const promises = groups.map((groupIdentifier) => {
-            return this.getGroupProperty(teamId, groupIdentifier)
+            return this.getGroupCreatedAt(teamId, groupIdentifier)
+        })
+        const cachedRes = await Promise.all(promises)
+        let res: Record<string, string> = {}
+        const groupsToLookupFromDb = []
+        for (const group of cachedRes) {
+            if (group.createdAt) {
+                res[`group${group.identifier.index}_created_at`] = castTimestampOrNow(
+                    group.createdAt,
+                    TimestampFormat.ClickHouse
+                )
+                this.statsd?.increment(`group_created_at_cache.hit`, {
+                    team_id: teamId.toString(),
+                    group_type_index: group.identifier.index.toString(),
+                })
+            } else {
+                groupsToLookupFromDb.push(group.identifier)
+            }
+        }
+
+        if (groupsToLookupFromDb.length > 0) {
+            const fromDb = await this.getGroupsCreatedAtFromDbAndUpdateCache(teamId, groupsToLookupFromDb)
+            res = { ...res, ...fromDb }
+        }
+        return res
+    }
+
+    public async getPropertiesForGroups(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
+        if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
+            return {}
+        }
+        const promises = groups.map((groupIdentifier) => {
+            return this.getGroupProperties(teamId, groupIdentifier)
         })
         const cachedRes = await Promise.all(promises)
         let res: Record<string, string> = {}
@@ -937,7 +1058,7 @@ export class DB {
                     person.team_id,
                     person.is_identified,
                     person.uuid,
-                    Number(result.rows[0].version || 0) + 100,
+                    Number(result.rows[0].version || 0) + 100, // keep in sync with delete_person in posthog/models/person/util.py
                     1
                 ),
             ]
@@ -1219,7 +1340,7 @@ export class DB {
 
     // Event
 
-    public async fetchEvents(): Promise<Event[] | ClickHouseEvent[]> {
+    public async fetchEvents(): Promise<ClickHouseEvent[]> {
         const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
             .data as ClickHouseEvent[]
         return (
@@ -1727,7 +1848,8 @@ export class DB {
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
         version: number,
-        client?: PoolClient
+        client?: PoolClient,
+        options: { cache?: boolean } = { cache: true }
     ): Promise<void> {
         const result = await this.postgresQuery(
             `
@@ -1753,8 +1875,16 @@ export class DB {
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
-        // group identify event doesn't need groups properties attached so we don't need to await
-        void this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+
+        if (options?.cache) {
+            // group identify event doesn't need groups properties attached so we don't need to await
+            this.promiseManager.trackPromise(
+                this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+            )
+            this.promiseManager.trackPromise(
+                this.updateGroupCreatedAtCache(teamId, groupTypeIndex, groupKey, createdAt)
+            )
+        }
     }
 
     public async updateGroup(
@@ -1910,5 +2040,14 @@ export class DB {
             'getPluginTranspilationLock'
         )
         return response.rowCount > 0
+    }
+
+    public async addEventToBuffer(event: Record<string, any>, processAt: DateTime): Promise<void> {
+        await this.postgresQuery(
+            `INSERT INTO posthog_eventbuffer (event, process_at, locked) VALUES ($1, $2, $3)`,
+            [event, processAt.toISO(), false],
+            'addEventToBuffer'
+        )
+        this.statsd?.increment('events_sent_to_buffer')
     }
 }

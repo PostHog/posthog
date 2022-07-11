@@ -56,3 +56,17 @@ Disabled.args = {
     placeholder: 'Disabled...',
     disabled: true,
 }
+
+export const Loading = Template.bind({})
+Loading.args = {
+    placeholder: 'Loading...',
+    options: [],
+    loading: true,
+}
+
+export const NoOptions = Template.bind({})
+NoOptions.args = {
+    mode: 'multiple-custom',
+    placeholder: 'No options...',
+    options: [],
+}

@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pytz
 from dateutil.parser import isoparse
@@ -75,6 +75,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
     params: Dict[str, Any] = {}
     for index, event in enumerate(events):
         timestamp = event.get("timestamp")
+        datetime64_default_timestamp = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
         if not timestamp:
             timestamp = timezone.now()
         # clickhouse specific formatting
@@ -90,7 +91,31 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             elements_chain = elements_to_string(elements=event.get("elements"))  # type: ignore
 
         inserts.append(
-            "(%(uuid_{i})s, %(event_{i})s, %(properties_{i})s, %(timestamp_{i})s, %(team_id_{i})s, %(distinct_id_{i})s, %(elements_chain_{i})s, %(person_id_{i})s, %(person_properties_{i})s, %(group0_properties_{i})s, %(group1_properties_{i})s, %(group2_properties_{i})s, %(group3_properties_{i})s, %(group4_properties_{i})s, %(created_at_{i})s, now(), 0)".format(
+            """(
+                %(uuid_{i})s,
+                %(event_{i})s,
+                %(properties_{i})s,
+                %(timestamp_{i})s,
+                %(team_id_{i})s,
+                %(distinct_id_{i})s,
+                %(elements_chain_{i})s,
+                %(person_id_{i})s,
+                %(person_properties_{i})s,
+                %(person_created_at_{i})s,
+                %(group0_properties_{i})s,
+                %(group1_properties_{i})s,
+                %(group2_properties_{i})s,
+                %(group3_properties_{i})s,
+                %(group4_properties_{i})s,
+                %(group0_created_at_{i})s,
+                %(group1_created_at_{i})s,
+                %(group2_created_at_{i})s,
+                %(group3_created_at_{i})s,
+                %(group4_created_at_{i})s,
+                %(created_at_{i})s,
+                now(),
+                0
+            )""".format(
                 i=index
             )
         )
@@ -101,6 +126,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
             person_id = person.uuid
+            person_created_at = person.created_at
         else:
             try:
                 person = Person.objects.get(
@@ -108,14 +134,17 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 )
                 person_properties = person.properties
                 person_id = person.uuid
+                person_created_at = person.created_at
             except Person.DoesNotExist:
                 person_properties = {}
                 person_id = uuid.uuid4()
+                person_created_at = datetime64_default_timestamp
 
         event = {
             **event,
             "person_properties": {**person_properties, **event.get("person_properties", {})},
             "person_id": person_id,
+            "person_created_at": person_created_at,
         }
 
         # Populate group properties as well
@@ -125,9 +154,12 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 try:
                     group = Group.objects.get(team_id=team_id, group_type_index=group_type_index, group_key=value)
                     group_property_key = f"group{group_type_index}_properties"
+                    group_created_at_key = f"group{group_type_index}_created_at"
+
                     event = {
                         **event,
                         group_property_key: {**group.group_properties, **event.get(group_property_key, {})},
+                        group_created_at_key: event.get(group_created_at_key, datetime64_default_timestamp),
                     }
 
                 except Group.DoesNotExist:
@@ -144,11 +176,29 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
             "created_at": timestamp,
             "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
             "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
+            "person_created_at": event["person_created_at"]
+            if event.get("person_created_at")
+            else datetime64_default_timestamp,
             "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
             "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
             "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
             "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
             "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
+            "group0_created_at": event["group0_created_at"]
+            if event.get("group0_created_at")
+            else datetime64_default_timestamp,
+            "group1_created_at": event["group1_created_at"]
+            if event.get("group1_created_at")
+            else datetime64_default_timestamp,
+            "group2_created_at": event["group2_created_at"]
+            if event.get("group2_created_at")
+            else datetime64_default_timestamp,
+            "group3_created_at": event["group3_created_at"]
+            if event.get("group3_created_at")
+            else datetime64_default_timestamp,
+            "group4_created_at": event["group4_created_at"]
+            if event.get("group4_created_at")
+            else datetime64_default_timestamp,
         }
 
         params = {**params, **{"{}_{}".format(key, index): value for key, value in event.items()}}
@@ -231,36 +281,6 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     def get_elements_chain(self, event):
         return event["elements_chain"]
-
-
-def determine_event_conditions(
-    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
-) -> Tuple[str, Dict]:
-    result = ""
-    params: Dict[str, Union[str, List[str]]] = {}
-    for idx, (k, v) in enumerate(conditions.items()):
-        if not isinstance(v, str):
-            continue
-        if k == "after" and not long_date_from:
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp > %(after)s"
-            params.update({"after": timestamp})
-        elif k == "before":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp < %(before)s"
-            params.update({"before": timestamp})
-        elif k == "person_id":
-            result += """AND distinct_id IN (%(distinct_ids)s)"""
-            person = Person.objects.filter(pk=v, team_id=team.pk).first()
-            distinct_ids = person.distinct_ids if person is not None else []
-            params.update({"distinct_ids": list(map(str, distinct_ids))})
-        elif k == "distinct_id":
-            result += "AND distinct_id = %(distinct_id)s"
-            params.update({"distinct_id": v})
-        elif k == "event":
-            result += "AND event = %(event)s"
-            params.update({"event": v})
-    return result, params
 
 
 def get_event_count_for_team_and_period(

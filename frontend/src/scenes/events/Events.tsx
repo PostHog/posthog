@@ -14,7 +14,7 @@ export const scene: SceneExport = {
 export function Events(): JSX.Element {
     return (
         <>
-            <PageHeader title="Live events" caption="Event history is limited to the last twelve months." />
+            <PageHeader title="Live events" caption="Event history limited to the last twelve months." />
             <EventsTable pageKey={'EventsTable'} />
         </>
     )

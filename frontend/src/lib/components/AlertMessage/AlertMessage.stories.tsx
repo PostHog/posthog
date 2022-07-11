@@ -5,6 +5,8 @@ import { AlertMessage, AlertMessageProps } from './AlertMessage'
 export default {
     title: 'Lemon UI/Alert Message',
     component: AlertMessage,
+    // See https://github.com/storybookjs/addon-smart-knobs/issues/63#issuecomment-995798227
+    parameters: { actions: { argTypesRegex: null } },
 } as ComponentMeta<typeof AlertMessage>
 
 const Template: ComponentStory<typeof AlertMessage> = (props: AlertMessageProps) => {
@@ -16,3 +18,10 @@ Info.args = { type: 'info', children: 'PSA: Every dish can be improved by adding
 
 export const Warning = Template.bind({})
 Warning.args = { type: 'warning', children: 'This spacecraft is about to explode. Please evacuate immediately.' }
+
+export const Closable = Template.bind({})
+Closable.args = {
+    type: 'info',
+    children: 'This is a one-time message. Acknowledge it and move on with your life.',
+    onClose: () => alert('👋'),
+}

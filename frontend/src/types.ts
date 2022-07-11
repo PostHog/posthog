@@ -796,7 +796,7 @@ export interface InsightModel extends DashboardTile {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    derived_name?: string
+    derived_name?: string | null
     description?: string
     favorited?: boolean
     order: number | null
@@ -813,7 +813,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    timezone?: string
+    timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -827,7 +827,6 @@ export interface DashboardType {
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
-    share_token: string
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
@@ -1102,6 +1101,7 @@ export interface FilterType {
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 export interface RecordingEventsFilters {
@@ -1126,6 +1126,7 @@ export interface InsightEditorFilter {
     key: string
     label?: string
     tooltip?: JSX.Element
+    position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
 }
@@ -1146,10 +1147,7 @@ export interface SystemStatusRow {
 export interface SystemStatus {
     overview: SystemStatusRow[]
     internal_metrics: {
-        clickhouse?: {
-            id: number
-            share_token: string
-        }
+        clickhouse?: DashboardType
     }
 }
 
@@ -1389,17 +1387,9 @@ export interface FeatureFlagType {
     ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagOverrideType {
-    id: number
-    feature_flag: number
-    user: number
-    override_value: boolean | string
-}
-
-export interface CombinedFeatureFlagAndOverrideType {
+export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
-    value_for_user_without_override: boolean | string
-    override: FeatureFlagOverrideType | null
+    value: boolean | string
 }
 
 export interface PrevalidatedInvite {
@@ -1443,6 +1433,7 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    buffer_conversion_seconds?: number
     object_storage: boolean
 }
 
@@ -1450,13 +1441,14 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
     Subscriptions = 'subscriptions',
+    Sharing = 'sharing',
 }
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
@@ -1742,9 +1734,11 @@ export interface VersionType {
 }
 
 export interface dateMappingOption {
+    key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
-    getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    getFormattedDate?: (date: dayjs.Dayjs, format?: string) => string
+    defaultInterval?: IntervalType
 }
 
 export interface Breadcrumb {
@@ -1938,6 +1932,13 @@ export interface ChangeDescriptions {
     bareName: boolean
 }
 
+export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
+
+export type Duration = {
+    timeValue: number
+    unit: SmallTimeUnit
+}
+
 export type CombinedEvent = EventDefinition | ActionType
 
 export interface IntegrationType {
@@ -1952,4 +1953,34 @@ export interface SlackChannelType {
     id: string
     name: string
     is_private: boolean
+    is_ext_shared: boolean
+    is_member: boolean
+}
+
+export interface SharingConfigurationType {
+    enabled: boolean
+    access_token: string
+    created_at: string
+}
+
+export enum ExporterFormat {
+    PNG = 'image/png',
+    CSV = 'text/csv',
+    PDF = 'application/pdf',
+}
+
+export interface ExportedAssetType {
+    id: number
+    export_format: ExporterFormat
+    dashboard?: number
+    insight?: number
+    export_context?: {
+        method?: string
+        path: string
+        query?: any
+        body?: any
+        filename?: string
+    }
+    has_content: boolean
+    filename: string
 }

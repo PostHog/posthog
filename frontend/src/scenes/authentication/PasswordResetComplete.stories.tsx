@@ -9,7 +9,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 // some metadata and optional parameters
 export default {
     title: 'Scenes-Other/Password Reset Complete',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
 // export more stories with different state

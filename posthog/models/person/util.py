@@ -2,7 +2,6 @@ import datetime
 import json
 from contextlib import ExitStack
 from typing import Dict, List, Optional, Union
-from uuid import UUID
 
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
@@ -17,7 +16,6 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     DELETE_PERSON_BY_ID,
-    DELETE_PERSON_EVENTS_BY_ID,
     INSERT_PERSON_BULK_SQL,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_DISTINCT_ID2,
@@ -48,7 +46,7 @@ if TEST:
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
-        delete_person(instance.uuid, instance.properties, instance.is_identified, team_id=instance.team_id)
+        delete_person(person=instance)
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
@@ -148,27 +146,36 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
 
 
-def delete_person(
-    person_id: UUID, properties: Dict, is_identified: bool, delete_events: bool = False, team_id: int = False
-) -> None:
+# TODO: implement a safe mechanism for deleting this person's events
+def delete_person(person: Person, delete_distinct_ids=False) -> None:
     timestamp = now()
 
     data = {
-        "id": person_id,
-        "team_id": team_id,
-        "properties": json.dumps(properties),
-        "is_identified": int(is_identified),
+        "id": person.uuid,
+        "team_id": person.team.id,
+        "properties": "{}",
+        "is_identified": int(person.is_identified),
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+        "version": int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
     }
 
-    try:
-        if delete_events:
-            sync_execute(DELETE_PERSON_EVENTS_BY_ID, {"id": person_id, "team_id": team_id})
-    except:
-        pass  # cannot delete if the table is distributed
-
     sync_execute(DELETE_PERSON_BY_ID, data)
+
+
+def delete_ch_distinct_ids(distinct_ids: List[str], person_uuid: str, team_id: int):
+    distinct_id_inserts = []
+    distinct_id_map: Dict[str, str] = {}
+    for i, distinct_id in enumerate(distinct_ids):
+        is_deleted = 1
+        version = 0
+        distinct_id_key = f"distinct_id_{i}"
+        distinct_id_map[distinct_id_key] = distinct_id
+        distinct_id_inserts.append(
+            f"(%({distinct_id_key})s, '{person_uuid}', {team_id}, {is_deleted}, {version}, now(), 0, 0)"
+        )
+
+    sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), distinct_id_map)
 
 
 def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:

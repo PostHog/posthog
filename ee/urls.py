@@ -3,6 +3,7 @@ from typing import Any, List
 from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
+from ee.api import integration
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
@@ -24,6 +25,8 @@ def extend_api_router(
 ) -> None:
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+    root_router.register(r"integrations", integration.PublicIntegrationViewSet)
+
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
     projects_router.register(
         r"explicit_members", explicit_team_member.ExplicitTeamMemberViewSet, "project_explicit_members", ["team_id"]

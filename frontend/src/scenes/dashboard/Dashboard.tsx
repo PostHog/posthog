@@ -6,7 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { DashboardPlacement, DashboardMode } from '~/types'
+import { DashboardPlacement, DashboardMode, DashboardType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -21,23 +21,22 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Props {
     id?: string
-    shareToken?: string
+    dashboard?: DashboardType
     placement?: DashboardPlacement
 }
 
 export const scene: SceneExport = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, shareToken, placement } }: { params: Props }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }: { params: Props }): DashboardLogicProps => ({
         id: id ? parseInt(id) : undefined,
-        shareToken,
         placement,
     }),
 }
 
-export function Dashboard({ id, shareToken, placement }: Props = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, shareToken, placement }}>
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
             <DashboardScene />
         </BindLogic>
     )
@@ -109,7 +108,11 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
-                    {![DashboardPlacement.Public, DashboardPlacement.Export].includes(placement) && (
+                    {![
+                        DashboardPlacement.Public,
+                        DashboardPlacement.Export,
+                        DashboardPlacement.InternalMetrics,
+                    ].includes(placement) && (
                         <div className="flex pb border-bottom space-x">
                             <div className="flex-grow flex" style={{ height: 30 }}>
                                 <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
@@ -145,7 +148,7 @@ function DashboardScene(): JSX.Element {
                                 className="left-item"
                                 style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
                             >
-                                {placement === DashboardPlacement.Public ? (
+                                {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement) ? (
                                     <LastRefreshText />
                                 ) : (
                                     <DashboardReloadAction />

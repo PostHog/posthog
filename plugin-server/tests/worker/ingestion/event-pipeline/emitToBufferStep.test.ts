@@ -43,19 +43,17 @@ beforeEach(() => {
         hub: {
             CONVERSION_BUFFER_ENABLED: true,
             BUFFER_CONVERSION_SECONDS: 60,
-            db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
-            eventsProcessor: {
-                produceEventToBuffer: jest.fn(),
-            },
+            db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson), addEventToBuffer: jest.fn() },
+            eventsProcessor: {},
         },
     }
 })
 
 describe('emitToBufferStep()', () => {
-    it('calls `produceEventToBuffer` if event should be buffered, stops processing', async () => {
+    it('calls `addEventToBuffer` if event should be buffered, stops processing', async () => {
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.eventsProcessor.produceEventToBuffer).toHaveBeenCalledWith(pluginEvent)
+        expect(runner.hub.db.addEventToBuffer).toHaveBeenCalledWith(pluginEvent, expect.any(DateTime))
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })
@@ -65,7 +63,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, existingPerson])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
-        expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+        expect(runner.hub.db.addEventToBuffer).not.toHaveBeenCalled()
     })
 
     it('calls `processPersonsStep` for $snapshot events', async () => {
@@ -75,7 +73,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['processPersonsStep', event, undefined])
         expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
-        expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+        expect(runner.hub.db.addEventToBuffer).not.toHaveBeenCalled()
     })
 })
 
@@ -89,14 +87,14 @@ describe('shouldSendEventToBuffer()', () => {
         expect(result).toEqual(false)
     })
 
-    it('returns true for recently created person', () => {
+    it('returns false for recently created person', () => {
         const person = {
             ...existingPerson,
             created_at: now.minus({ seconds: 5 }),
         }
 
         const result = shouldSendEventToBuffer(runner.hub, pluginEvent, person, 2)
-        expect(result).toEqual(true)
+        expect(result).toEqual(false)
     })
 
     it('returns false for anonymous person', () => {
@@ -153,6 +151,22 @@ describe('shouldSendEventToBuffer()', () => {
 
         const result = shouldSendEventToBuffer(runner.hub, event, person, 2)
         expect(result).toEqual(false)
+    })
+
+    it('returns false for events from mobile libraries', () => {
+        const eventIos = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-ios' },
+        }
+        const eventAndroid = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-android' },
+        }
+
+        expect(shouldSendEventToBuffer(runner.hub, eventIos, undefined, 2)).toEqual(false)
+        expect(shouldSendEventToBuffer(runner.hub, eventAndroid, undefined, 2)).toEqual(false)
     })
 
     it('handles CONVERSION_BUFFER_ENABLED and conversionBufferEnabledTeams', () => {
