@@ -157,7 +157,7 @@ describe.skip('job queues', () => {
                     pluginConfigTeam: 3,
                 }
 
-                server.hub.jobQueueManager.enqueue(job)
+                server.hub.jobQueueManager.enqueue('pluginJob', job)
                 const consumedJob: EnqueuedJob = await new Promise((resolve) => {
                     server.hub.jobQueueManager.startConsumer((consumedJob) => {
                         resolve(consumedJob[0])
@@ -266,7 +266,7 @@ describe.skip('job queues', () => {
                 pluginConfigId: 2,
                 pluginConfigTeam: 3,
             }
-            await hub.jobQueueManager.enqueue(job)
+            await hub.jobQueueManager.enqueue('pluginJob', job)
 
             expect(mS3WrapperInstance.upload).toBeCalledWith({
                 Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),

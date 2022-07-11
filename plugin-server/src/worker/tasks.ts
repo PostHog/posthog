@@ -62,7 +62,7 @@ export const workerTasks: Record<string, TaskRunner> = {
         await hub.kafkaProducer.flush()
     },
     enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
-        await hub.jobQueueManager.enqueue(job)
+        await hub.jobQueueManager.enqueue('pluginJob', job)
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {
