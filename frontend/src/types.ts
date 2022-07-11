@@ -981,7 +981,7 @@ export enum ChartDisplayType {
     WorldMap = 'WorldMap',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
