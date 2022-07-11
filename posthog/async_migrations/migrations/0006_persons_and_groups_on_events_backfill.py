@@ -229,7 +229,7 @@ class Migration(AsyncMigrationDefinition):
                     group2_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
                     group3_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
                     group4_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 4, $group_4))
-                WHERE person_id <> toUUIDOrZero('')
+                WHERE person_id = toUUIDOrZero('')
             """,
             settings={"mutations_sync": 1, "max_execution_time": 0},
         )
