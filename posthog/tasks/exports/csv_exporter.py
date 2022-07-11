@@ -61,7 +61,28 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
         items = data["result"]
         first_result = items[0]
 
-        if first_result.get("appearances") and first_result.get("person"):
+        if isinstance(first_result, list) or first_result.get("action_id"):
+            csv_rows = []
+            multiple_items = items if isinstance(first_result, list) else [items]
+            # FUNNELS LIKE
+
+            for items in multiple_items:
+                csv_rows.extend(
+                    [
+                        {
+                            "name": x["custom_name"] or x["action_id"],
+                            "breakdown_value": "::".join(x.get("breakdown_value", [])),
+                            "action_id": x["action_id"],
+                            "count": x["count"],
+                            "median_conversion_time (seconds)": x["median_conversion_time"],
+                            "average_conversion_time (seconds)": x["average_conversion_time"],
+                        }
+                        for x in items
+                    ]
+                )
+
+            return csv_rows
+        elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
             csv_rows = []
             for item in items:
@@ -78,9 +99,16 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             csv_rows = []
             # RETENTION LIKE
             for item in items:
-                line = {"cohort": item["date"], "cohort size": item["values"][0]["count"]}
-                for index, data in enumerate(item["values"]):
-                    line[items[index]["label"]] = data["count"]
+                if item.get("date"):
+                    # Dated means we create a grid
+                    line = {"cohort": item["date"], "cohort size": item["values"][0]["count"]}
+                    for index, data in enumerate(item["values"]):
+                        line[items[index]["label"]] = data["count"]
+                else:
+                    # Otherwise we just specify "Period" for titles
+                    line = {"cohort": item["label"], "cohort size": item["values"][0]["count"]}
+                    for index, data in enumerate(item["values"]):
+                        line[f"Period {index}"] = data["count"]
 
                 csv_rows.append(line)
             return csv_rows
@@ -89,7 +117,7 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             # TRENDS LIKE
             for item in items:
                 line = {"series": item["label"]}
-                if item.get("action").get("custom_name"):
+                if item.get("action", {}).get("custom_name"):
                     line["custom name"] = item.get("action").get("custom_name")
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
@@ -98,20 +126,6 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
                         line[item["labels"][index]] = data
 
                 csv_rows.append(line)
-
-            return csv_rows
-        elif first_result.get("action_id"):
-            # FUNNELS LIKE
-            csv_rows = [
-                {
-                    "name": x["custom_name"] or x["action_id"],
-                    "action_id": x["action_id"],
-                    "count": x["count"],
-                    "median_conversion_time (seconds)": x["median_conversion_time"],
-                    "average_conversion_time (seconds)": x["average_conversion_time"],
-                }
-                for x in items
-            ]
 
             return csv_rows
         else:
@@ -141,11 +155,8 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
-
         # Figure out how to handle funnel polling....
-
         data = response.json()
-
         csv_rows = _convert_response_to_csv_data(data)
 
         all_csv_rows = all_csv_rows + csv_rows
@@ -220,6 +231,6 @@ def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_l
             scope.set_tag("celery_task", "csv_export")
             capture_exception(e)
 
-        logger.error("csv_exporter.failed", exception=e)
+        logger.error("csv_exporter.failed", exception=e, exc_info=True)
         statsd.incr("csv_exporter.failed", tags={"team_id": team_id})
         raise e
