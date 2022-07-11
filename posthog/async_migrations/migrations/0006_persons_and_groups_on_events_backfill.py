@@ -157,6 +157,26 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
+                    ALTER TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
+                    DELETE WHERE is_deleted = 1 OR person_id IN (
+                        SELECT id FROM {TEMPORARY_PERSONS_TABLE_NAME} WHERE is_deleted=1
+                    )
+                """,
+                sql_settings={"mutations_sync": 2},
+                rollback=None,
+                per_shard=True,
+            ),
+            AsyncMigrationOperationSQL(
+                sql=f"""
+                    ALTER TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
+                    DELETE WHERE is_deleted = 1
+                """,
+                sql_settings={"mutations_sync": 2},
+                rollback=None,
+                per_shard=True,
+            ),
+            AsyncMigrationOperationSQL(
+                sql=f"""
                     CREATE DICTIONARY IF NOT EXISTS person_dict {{on_cluster_clause}}
                     (
                         team_id Int64,

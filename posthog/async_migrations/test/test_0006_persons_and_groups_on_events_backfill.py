@@ -7,15 +7,17 @@ from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import query_with_columns
+from posthog.models import Person
 from posthog.models.event.util import create_event
-from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
 MIGRATION_NAME = "0006_persons_and_groups_on_events_backfill"
 
-
 uuid1, uuid2, uuid3 = [UUIDT() for _ in range(3)]
+zero_uuid = UUIDT(uuid_str="00000000-0000-0000-0000-000000000000")
+zero_date = "1970-01-01T00:00:00Z"
 
 
 def run_migration():
@@ -148,6 +150,27 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
     def test_duplicated_data_persons(self):
         # Assert count in temporary tables.
         pass
+
+    def test_deleted_data_persons(self):
+        create_event(
+            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
+        )
+        person = Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+        create_person_distinct_id(self.team.pk, "1", str(person.uuid))
+        delete_person(person)
+
+        self.assertTrue(run_migration())
+
+        events = query_events()
+        self.assertEqual(len(events), 1)
+        self.assertDictContainsSubset(
+            {"distinct_id": "1", "person_id": zero_uuid, "person_properties": "", "person_created_at": zero_date,},
+            events[0],
+        )
 
     def test_data_copy_groups(self):
         pass
