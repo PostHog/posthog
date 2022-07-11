@@ -9,7 +9,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---
@@ -24,7 +25,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---
@@ -89,28 +91,19 @@
     AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 00:00:00')
     AND (pdi.person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
-               WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))
+           (SELECT id
+            FROM person
+            WHERE team_id = 2
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
   '
 ---
 # name: TestEventQuery.test_denormalised_props
   '
   
   SELECT e.timestamp as timestamp,
-         e.mat_test_prop as mat_test_prop
+         e."mat_test_prop" as "mat_test_prop"
   FROM events e
   WHERE team_id = 2
     AND event = 'user signed up'
@@ -168,28 +161,66 @@
     AND timestamp >= toStartOfDay(toDateTime('2021-05-01 00:00:00'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 00:00:00')
     AND (pdi.person_id IN
-           (select id
-            from
-              (SELECT *
-               FROM person
-               JOIN
-                 (SELECT id,
-                         max(_timestamp) as _timestamp,
-                         max(is_deleted) as is_deleted
-                  FROM person
-                  WHERE team_id = 2
-                  GROUP BY id) as person_max ON person.id = person_max.id
-               AND person._timestamp = person_max._timestamp
-               WHERE team_id = 2
-                 AND person_max.is_deleted = 0
-                 AND (has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', ''))) )))
+           (SELECT id
+            FROM person
+            WHERE team_id = 2
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
+  '
+---
+# name: TestEventQuery.test_entity_filtered_by_multiple_session_duration_filters
+  '
+  
+  SELECT e.timestamp as timestamp,
+         sessions.session_duration as session_duration,
+         sessions.$session_id as $session_id
+  FROM events e
+  INNER JOIN
+    (SELECT $session_id,
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE $session_id != ''
+       AND team_id = 2
+       AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-03 00:00:00') + INTERVAL 24 HOUR
+     GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND timestamp >= toDateTime('2021-05-02 00:00:00')
+    AND timestamp <= toDateTime('2021-05-03 00:00:00')
+    AND (sessions.session_duration > 90.0
+         AND sessions.session_duration < 150.0)
+  '
+---
+# name: TestEventQuery.test_entity_filtered_by_session_duration
+  '
+  
+  SELECT e.timestamp as timestamp,
+         sessions.session_duration as session_duration,
+         sessions.$session_id as $session_id
+  FROM events e
+  INNER JOIN
+    (SELECT $session_id,
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE $session_id != ''
+       AND team_id = 2
+       AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-03 00:00:00') + INTERVAL 24 HOUR
+     GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND timestamp >= toDateTime('2021-05-02 00:00:00')
+    AND timestamp <= toDateTime('2021-05-03 00:00:00')
+    AND (sessions.session_duration > 90.0)
   '
 ---
 # name: TestEventQuery.test_event_properties_filter
   '
   
   SELECT e.timestamp as timestamp,
-         e.properties as properties
+         e."properties" as "properties"
   FROM events e
   WHERE team_id = 2
     AND event = 'viewed'
@@ -299,5 +330,28 @@
             FROM person_static_cohort
             WHERE cohort_id = 2
               AND team_id = 2))
+  '
+---
+# name: TestEventQuery.test_unique_session_math_filtered_by_session_duration
+  '
+  
+  SELECT e.timestamp as timestamp,
+         e."$session_id" as "$session_id",
+         sessions.session_duration as session_duration
+  FROM events e
+  INNER JOIN
+    (SELECT $session_id,
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE $session_id != ''
+       AND team_id = 2
+       AND timestamp >= toDateTime('2021-05-02 00:00:00') - INTERVAL 24 HOUR
+       AND timestamp <= toDateTime('2021-05-03 00:00:00') + INTERVAL 24 HOUR
+     GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND timestamp >= toDateTime('2021-05-02 00:00:00')
+    AND timestamp <= toDateTime('2021-05-03 00:00:00')
+    AND (sessions.session_duration > 30.0)
   '
 ---

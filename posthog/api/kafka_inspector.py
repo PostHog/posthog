@@ -5,7 +5,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from ee.kafka_client.client import build_kafka_consumer
+from posthog.kafka_client.client import build_kafka_consumer
 from posthog.permissions import IsStaffUser
 
 KAFKA_CONSUMER_TIMEOUT = 1000

@@ -2,6 +2,7 @@ import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnCon
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 describe('the column configurator lets the user change which columns should be visible', () => {
     let logic: ReturnType<typeof columnConfiguratorLogic.build>
@@ -10,7 +11,7 @@ describe('the column configurator lets the user change which columns should be v
 
     beforeEach(() => {
         initKeaTests()
-        logic = columnConfiguratorLogic({ selectedColumns })
+        logic = columnConfiguratorLogic({ selectedColumns, onSaveAsDefault: () => {} })
         logic.mount()
     })
 
@@ -36,12 +37,31 @@ describe('the column configurator lets the user change which columns should be v
         })
     })
 
-    it('can not duplicate columns', async () => {
+    it('cannot duplicate columns', async () => {
         await expectLogic(logic, () => {
             logic.actions.selectColumn('added')
             logic.actions.selectColumn('added')
         }).toMatchValues({
             selectedColumns: ['a', 'b', 'ant', 'aardvark', 'added'],
         })
+    })
+
+    it('sets toggle to save columns as default', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.toggleSaveAsDefault()
+        }).toMatchValues({
+            saveAsDefault: true,
+        })
+    })
+
+    it.only('saves columns as default', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.selectColumn('added')
+            logic.actions.toggleSaveAsDefault()
+            logic.actions.save()
+        }).toDispatchActions([
+            teamLogic.actionCreators.updateCurrentTeam({ live_events_columns: ['a', 'b', 'ant', 'aardvark', 'added'] }),
+            logic.actionCreators.toggleSaveAsDefault(),
+        ])
     })
 })

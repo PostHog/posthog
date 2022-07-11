@@ -82,8 +82,10 @@ export default {
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
-        '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/test/mocks/styleMock.js',
+        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/test/mocks/styleMock.js',
         '^~/(.*)$': '<rootDir>/$1',
+        '^@posthog/lemon-ui(|/.*)$': '<rootDir>/../@posthog/lemon-ui/src/$1',
+        '^@posthog/apps-common(|/.*)$': '<rootDir>/../@posthog/apps-common/src/$1',
         '^lib/(.*)$': '<rootDir>/lib/$1',
         '^scenes/(.*)$': '<rootDir>/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',

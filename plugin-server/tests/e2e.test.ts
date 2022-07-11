@@ -2,7 +2,6 @@ import Piscina from '@posthog/piscina'
 import IORedis from 'ioredis'
 
 import { ONE_HOUR } from '../src/config/constants'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
@@ -22,8 +21,8 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
-    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
+    CONVERSION_BUFFER_ENABLED: false,
 }
 
 const indexJs = `
@@ -61,15 +60,11 @@ export async function exportEvents(events) {
     }
 }
 
-export async function onAction(action, event) {
-    testConsole.log('onAction', action, event)
-}
-
 
 export async function runEveryMinute() {}
 `
 
-describe('e2e', () => {
+describe('E2E', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
@@ -97,7 +92,7 @@ describe('e2e', () => {
         await stopServer()
     })
 
-    describe('e2e clickhouse ingestion', () => {
+    describe('ClickHouse ingestion', () => {
         test('event captured, processed, ingested', async () => {
             expect((await hub.db.fetchEvents()).length).toBe(0)
 
@@ -109,7 +104,6 @@ describe('e2e', () => {
 
             await hub.kafkaProducer.flush()
             const events = await hub.db.fetchEvents()
-            await delay(1000)
 
             expect(events.length).toBe(1)
 
@@ -130,7 +124,6 @@ describe('e2e', () => {
 
             await hub.kafkaProducer.flush()
             const events = await hub.db.fetchSessionRecordingEvents()
-            await delay(1000)
 
             expect(events.length).toBe(1)
 
@@ -153,9 +146,8 @@ describe('e2e', () => {
             await delayUntilEventIngested(() => hub.db.fetchEvents())
             // :KLUDGE: Force workers to emit their logs, otherwise they might never get cpu time.
             await piscina.broadcastTask({ task: 'flushKafkaMessages' })
-            await delayUntilEventIngested(fetchLogs)
 
-            const pluginLogEntries = await fetchLogs()
+            const pluginLogEntries = await delayUntilEventIngested(fetchLogs)
             expect(pluginLogEntries).toContainEqual(
                 expect.objectContaining({
                     type: 'INFO',
@@ -165,41 +157,9 @@ describe('e2e', () => {
         })
     })
 
-    describe('onAction', () => {
-        const getLogs = (): any[] => testConsole.read().filter((log) => log[1] === 'onAction event')
-
-        test('onAction receives the action and event', async () => {
-            await posthog.capture('onAction event', { foo: 'bar' })
-
-            await delayUntilEventIngested(() => Promise.resolve(getLogs()), 1)
-
-            const log = testConsole.read().filter((log) => log[0] === 'onAction')[0]
-
-            const [logName, action, event] = log
-
-            expect(logName).toEqual('onAction')
-            expect(action).toEqual(
-                expect.objectContaining({
-                    id: 69,
-                    name: 'Test Action',
-                    team_id: 2,
-                    deleted: false,
-                    post_to_slack: true,
-                })
-            )
-            expect(event).toEqual(
-                expect.objectContaining({
-                    distinct_id: 'plugin-id-60',
-                    team_id: 2,
-                    event: 'onAction event',
-                })
-            )
-        })
-    })
-
     // TODO: we should enable this test again - they are enabled on self-hosted
     // historical exports are currently disabled
-    describe.skip('e2e export historical events', () => {
+    describe.skip('export historical events', () => {
         const awaitHistoricalEventLogs = async () =>
             await new Promise((resolve) => {
                 resolve(testConsole.read().filter((log) => log[0] === 'exported historical event'))

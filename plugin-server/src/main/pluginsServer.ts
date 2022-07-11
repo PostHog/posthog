@@ -2,7 +2,7 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer } from 'kafkajs'
+import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -18,10 +18,12 @@ import {
 import { createHub } from '../utils/db/hub'
 import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
+import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay, getPiscinaStats, stalenessCheck } from '../utils/utils'
+import { clearBufferLocks, runBuffer } from './ingestion-queues/buffer'
 import { KafkaQueue } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
@@ -69,6 +71,7 @@ export async function startPluginsServer(
     let mmdbServer: net.Server | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let httpServer: Server | undefined
+    let stopEventLoopMetrics: (() => void) | undefined
 
     let shutdownStatus = 0
 
@@ -86,6 +89,7 @@ export async function startPluginsServer(
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
+        stopEventLoopMetrics?.()
         await queue?.stop()
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
@@ -125,9 +129,23 @@ export async function startPluginsServer(
     })
 
     process.on('unhandledRejection', (error: Error) => {
-        Sentry.captureException(error)
         status.error('🤮', 'Unhandled Promise Rejection!')
         status.error('🤮', error)
+
+        // Don't send some Kafka normal operation "errors" to Sentry - kafkajs handles these correctly
+        if (error instanceof KafkaJSProtocolError) {
+            if (error.message.includes('The group is rebalancing, so a rejoin is needed')) {
+                hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
+                return
+            }
+
+            if (error.message.includes('Specified group generation id is not valid')) {
+                hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
+                return
+            }
+        }
+
+        Sentry.captureException(error)
     })
 
     try {
@@ -210,16 +228,43 @@ export async function startPluginsServer(
         schedule.scheduleJob('*/10 * * * * *', () => {
             if (piscina) {
                 for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
-                    hub!.statsd?.gauge(`piscina.${key}`, value)
+                    if (value !== undefined) {
+                        hub!.statsd?.gauge(`piscina.${key}`, value)
+                    }
                 }
             }
         })
+
+        if (hub.capabilities.ingestion) {
+            // every 5 seconds process buffer events
+            schedule.scheduleJob('*/5 * * * * *', async () => {
+                if (piscina) {
+                    await runBuffer(hub!, piscina)
+                }
+            })
+        }
+
+        // every 30 minutes clear any locks that may have lingered on the buffer table
+        schedule.scheduleJob('*/30 * * * *', async () => {
+            await clearBufferLocks(hub!)
+        })
+
+        // every minute log information on kafka consumer
+        if (queue) {
+            schedule.scheduleJob('0 * * * * *', async () => {
+                await queue?.emitConsumerGroupMetrics()
+            })
+        }
 
         // every minute flush internal metrics
         if (hub.internalMetrics) {
             schedule.scheduleJob('0 * * * * *', async () => {
                 await hub!.internalMetrics?.flush(piscina!)
             })
+        }
+
+        if (hub.statsd) {
+            stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
         }
 
         if (serverConfig.STALENESS_RESTART_SECONDS > 0) {
@@ -260,18 +305,16 @@ export async function startPluginsServer(
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
-        if (hub.KAFKA_ENABLED) {
-            healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
-            serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
+        healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
+        serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
 
-            await healthCheckConsumer.connect()
+        await healthCheckConsumer.connect()
 
-            try {
-                healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
-            } catch (err) {
-                // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
-                status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
-            }
+        try {
+            healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
+        } catch (err) {
+            // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
+            status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
         }
 
         if (hub.capabilities.http) {

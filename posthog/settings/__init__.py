@@ -25,6 +25,7 @@ from posthog.settings.celery import *
 from posthog.settings.data_stores import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
+from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.logs import *
 from posthog.settings.sentry import *
@@ -56,7 +57,7 @@ SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
 else:
-    JS_URL = os.getenv("JS_URL", "")
+    JS_URL = os.getenv("JS_URL", "").rstrip("/")
 
 DISABLE_MMDB = get_from_env(
     "DISABLE_MMDB", TEST, type_cast=str_to_bool
@@ -66,7 +67,6 @@ PLUGINS_PREINSTALLED_URLS: List[str] = (
     if not DISABLE_MMDB
     else []
 )
-PLUGINS_CELERY_QUEUE = os.getenv("PLUGINS_CELERY_QUEUE", "posthog-plugins")
 PLUGINS_RELOAD_PUBSUB_CHANNEL = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
@@ -100,13 +100,22 @@ MULTI_ORG_ENABLED = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bo
 MULTI_TENANCY = False
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
-TEMP_CACHE_RESULTS_TTL = 24 * 60 * 60  # how long to keep non dashboard cached results for
 SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
 
 AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 # Keep in sync with plugin-server
 EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
+
+
+# Topic to write events to between clickhouse
+KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
+    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
+)
+
+# Schedule to run column materialization on. Follows crontab syntax.
+# Use empty string to prevent this
+CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env("CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON", optional=True)
 
 
 # Extend and override these settings with EE's ones

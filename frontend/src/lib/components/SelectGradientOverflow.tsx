@@ -53,7 +53,7 @@ export function SelectGradientOverflow({
     const containerRef: React.RefObject<HTMLDivElement> = useRef(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
     const [isOpen, setOpen] = useState(false)
-    const { formatForDisplay } = useValues(propertyDefinitionsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     /**
      * Ant Design Tag with custom styling in .scss to match default style
@@ -61,7 +61,7 @@ export function SelectGradientOverflow({
     function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
         // if this component is displaying a list of PropertyFilterValues it needs to format them for display
         if (typeof label === 'string' && propertyKey) {
-            label = formatForDisplay(propertyKey, label)
+            label = formatPropertyValueForDisplay(propertyKey, label)
         }
         return (
             <Tooltip title={toString(value)}>

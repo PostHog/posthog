@@ -1,9 +1,8 @@
-from ee.clickhouse.materialized_columns import materialize
+from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 PROPERTIES_OF_ALL_TYPES = [
     {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
@@ -136,6 +135,11 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             properties_used_in_filter(filter), {("$group_1", "event", None): 1,},
         )
 
+        filter = Filter(data={"events": [{"id": "$pageview", "type": "events", "order": 0, "math": "unique_session",}]})
+        self.assertEqual(
+            properties_used_in_filter(filter), {("$session_id", "event", None): 1,},
+        )
+
     def test_properties_used_in_filter_with_actions(self):
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(
@@ -194,7 +198,7 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
 
     def test_should_query_element_chain_column_with_actions(self):
         action = Action.objects.create(team=self.team)
-        step1 = ActionStep.objects.create(
+        ActionStep.objects.create(
             event="$autocapture", action=action, url="https://example.com/donate", url_matching=ActionStep.EXACT,
         )
 

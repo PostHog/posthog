@@ -3,6 +3,10 @@ name: Frontend CI
 on:
     - pull_request
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
 jobs:
     frontend-code-quality:
         name: Code quality checks
@@ -34,9 +38,8 @@ jobs:
             - name: Lint with ESLint
               run: yarn eslint
 
-            - name: Run typescript with strict
-              run: |
-                  ./bin/check-typescript-strict
+            - name: Generate logic types and run typescript with strict
+              run: yarn typegen:write && yarn typescript:check
 
     jest-setup:
         # Split the tests into multiple chunks

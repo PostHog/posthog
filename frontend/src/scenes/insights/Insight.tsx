@@ -1,12 +1,10 @@
 import './Insight.scss'
 import React, { useEffect } from 'react'
 import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Card } from 'antd'
-import { FunnelTab, PathTab, RetentionTab, TrendTab } from './InsightTabs'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { ItemMode, InsightType, AvailableFeature, InsightShortId } from '~/types'
+import { ItemMode, AvailableFeature, InsightShortId, InsightModel, InsightType, ExporterFormat } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
@@ -19,7 +17,6 @@ import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
 import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LastModified } from 'lib/components/InsightCard/LastModified'
 import { IconLock } from 'lib/components/icons'
 import { summarizeInsightFilters } from './utils'
 import { groupsModel } from '~/models/groupsModel'
@@ -27,17 +24,29 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/components/LemonButton'
-import { useUnloadConfirmation } from 'lib/hooks/useUnloadConfirmation'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import useBreakpoint from 'antd/lib/grid/hooks/useBreakpoint'
-import { CSSTransition } from 'react-transition-group'
 import { EditorFilters } from './EditorFilters/EditorFilters'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonDivider } from 'lib/components/LemonDivider'
+import { deleteWithUndo } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
+import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import clsx from 'clsx'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
-    const { insightMode } = useValues(insightSceneLogic)
-    const { setInsightMode, syncInsightChanged } = useActions(insightSceneLogic)
+    const { insightMode, subscriptionId } = useValues(insightSceneLogic)
+    const { setInsightMode } = useActions(insightSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { push } = useActions(router)
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
@@ -46,15 +55,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         filtersKnown,
         filters,
         canEditInsight,
-        activeView,
         insight,
         insightChanged,
         tagLoading,
         insightSaving,
+        exporterResourceParams,
+        supportsCsvExport,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, cancelChanges, reportInsightViewedForRecentInsights } =
-        useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
+    const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
+
     const { hasAvailableFeature } = useValues(userLogic)
     const { cohortModalVisible } = useValues(personsModalLogic)
     const { saveCohortWithUrl, setCohortModalVisible } = useActions(personsModalLogic)
@@ -66,14 +77,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
-    const screens = useBreakpoint()
+    // const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
-
-    useUnloadConfirmation(insightMode === ItemMode.Edit && insightChanged)
-
-    useEffect(() => {
-        syncInsightChanged(insightChanged)
-    }, [insightChanged])
+    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
+    const usingEmbedFeature = featureFlags[FEATURE_FLAGS.EMBED_INSIGHTS]
+    const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -81,23 +89,41 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         return <InsightSkeleton />
     }
 
-    /* These are insight specific filters. They each have insight specific logics */
-    const insightTabFilters = {
-        [`${InsightType.TRENDS}`]: <TrendTab view={InsightType.TRENDS} />,
-        [`${InsightType.STICKINESS}`]: <TrendTab view={InsightType.STICKINESS} />,
-        [`${InsightType.LIFECYCLE}`]: <TrendTab view={InsightType.LIFECYCLE} />,
-        [`${InsightType.FUNNELS}`]: <FunnelTab />,
-        [`${InsightType.RETENTION}`]: <RetentionTab />,
-        [`${InsightType.PATHS}`]: <PathTab />,
-    }[activeView]
-
-    const isSmallScreen = !screens.xl
-    const verticalLayout = !isSmallScreen && activeView === InsightType.FUNNELS
-
-    const insightTab = usingEditorPanels ? <EditorFilters insightProps={insightProps} /> : insightTabFilters
+    const exportOptions = (exporterResourceParams: TriggerExportProps['export_context']): ExportButtonItem[] => {
+        const supportedExportOptions: ExportButtonItem[] = [
+            {
+                export_format: ExporterFormat.PNG,
+                insight: insight.id,
+            },
+        ]
+        if (supportsCsvExport || !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
+            supportedExportOptions.push({
+                export_format: ExporterFormat.CSV,
+                export_context: exporterResourceParams,
+            })
+        }
+        return supportedExportOptions
+    }
 
     const insightScene = (
-        <div className="insights-page">
+        <div className={'insights-page'}>
+            {insightId !== 'new' && (
+                <>
+                    <SubscriptionsModal
+                        visible={insightMode === ItemMode.Subscriptions}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insightId}
+                        subscriptionId={subscriptionId}
+                    />
+
+                    <SharingModal
+                        visible={insightMode === ItemMode.Sharing}
+                        closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
+                        insightShortId={insightId}
+                        insight={insight}
+                    />
+                </>
+            )}
             <PageHeader
                 title={
                     <EditableField
@@ -121,20 +147,95 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     />
                 }
                 buttons={
-                    <div className="insights-tab-actions">
+                    <div className="space-between-items items-center gap-05">
+                        {insightMode !== ItemMode.Edit && (
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() => duplicateInsight(insight as InsightModel, true)}
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() =>
+                                                    setInsightMetadata({
+                                                        favorited: !insight.favorited,
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                            </LemonButton>
+                                            <LemonDivider />
+
+                                            {usingEmbedFeature && (
+                                                <LemonButton
+                                                    type="stealth"
+                                                    onClick={() =>
+                                                        insight.short_id
+                                                            ? push(urls.insightSharing(insight.short_id))
+                                                            : null
+                                                    }
+                                                    fullWidth
+                                                >
+                                                    Share or embed
+                                                </LemonButton>
+                                            )}
+                                            {usingExportFeature && insight.short_id && (
+                                                <>
+                                                    {usingSubscriptionFeature && (
+                                                        <SubscribeButton insightShortId={insight.short_id} />
+                                                    )}
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={exportOptions(exporterResourceParams)}
+                                                        />
+                                                    ) : null}
+                                                    <LemonDivider />
+                                                </>
+                                            )}
+
+                                            <LemonButton
+                                                type="stealth"
+                                                status="danger"
+                                                onClick={() =>
+                                                    deleteWithUndo({
+                                                        object: insight,
+                                                        endpoint: `projects/${currentTeamId}/insights`,
+                                                        callback: () => {
+                                                            loadInsights()
+                                                            push(urls.savedInsights())
+                                                        },
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                Delete insight
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                                <LemonDivider vertical />
+                            </>
+                        )}
                         {insightMode === ItemMode.Edit && insight.saved && (
-                            <LemonButton type="secondary" onClick={() => cancelChanges(true)}>
+                            <LemonButton type="secondary" onClick={() => setInsightMode(ItemMode.View, null)}>
                                 Cancel
                             </LemonButton>
                         )}
-                        {insightMode === ItemMode.View && insight.short_id && (
+                        {insightMode !== ItemMode.Edit && insight.short_id && (
                             <SaveToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
-                        {insightMode === ItemMode.View ? (
+                        {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <LemonButton
                                     type="primary"
-                                    style={{ marginLeft: 8 }}
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
                                     data-attr="insight-edit-button"
                                 >
@@ -187,68 +288,26 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 staticOnly
                             />
                         ) : null}
-                        <LastModified at={insight.last_modified_at} by={insight.last_modified_by} />
+                        <UserActivityIndicator
+                            at={insight.last_modified_at}
+                            by={insight.last_modified_by}
+                            className="mt-05"
+                        />
                     </>
                 }
             />
 
-            {usingEditorPanels ? (
-                <div className="insights-wrapper">
-                    <CSSTransition
-                        in={insightMode === ItemMode.Edit}
-                        timeout={250}
-                        classNames="anim-"
-                        mountOnEnter
-                        unmountOnExit
-                    >
-                        <div className="insight-editor-area">{insightTab}</div>
-                    </CSSTransition>
-                    <div className="insights-container">
-                        <InsightContainer />
-                    </div>
-                </div>
-            ) : (
-                // Old View mode
-                <>
-                    {insightMode === ItemMode.View ? (
-                        <InsightContainer />
-                    ) : (
-                        <>
-                            <InsightsNav />
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    flexDirection: verticalLayout ? 'row' : 'column',
-                                    marginBottom: verticalLayout ? 64 : 0,
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        width: verticalLayout ? 'min(28rem, 50%)' : 'unset',
-                                        marginRight: verticalLayout ? '1rem' : 0,
-                                    }}
-                                >
-                                    {verticalLayout ? (
-                                        insightTab
-                                    ) : (
-                                        <Card className="insight-controls">
-                                            <div className="tabs-inner">{insightTab}</div>
-                                        </Card>
-                                    )}
-                                </div>
-                                <div
-                                    style={{
-                                        flexGrow: 1,
-                                        width: verticalLayout ? 'calc(100% - min(28rem, 50%) - 1rem)' : 'unset',
-                                    }}
-                                >
-                                    <InsightContainer />
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </>
-            )}
+            {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
+
+            <div
+                className={clsx('insight-wrapper', {
+                    'insight-wrapper--editorpanels': usingEditorPanels,
+                    'insight-wrapper--singlecolumn': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                })}
+            >
+                <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                <div className="insights-container">{<InsightContainer />}</div>
+            </div>
 
             {insightMode !== ItemMode.View ? (
                 <>

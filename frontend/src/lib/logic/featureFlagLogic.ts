@@ -1,8 +1,3 @@
-/*
-    This module allows us to **use** feature flags in PostHog.
-
-    Use this instead of `window.posthog.isFeatureEnabled('feature')`
-*/
 import { kea } from 'kea'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
@@ -32,7 +27,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
     const persistedFlags = getPersistedFeatureFlags(appContext)
     const availableFlags =
-        appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process?.env.NODE_ENV === 'test'
+        appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 

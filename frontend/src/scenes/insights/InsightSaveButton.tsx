@@ -21,7 +21,6 @@ export function InsightSaveButton({
 
     return (
         <LemonButtonWithSideAction
-            style={{ marginLeft: 8 }}
             type="primary"
             onClick={() => saveInsight(true)}
             data-attr="insight-save-button"
@@ -29,6 +28,7 @@ export function InsightSaveButton({
             loading={!disabled && insightSaving}
             sideAction={{
                 popup: {
+                    placement: 'bottom-end',
                     overlay: (
                         <>
                             {!disabled && (

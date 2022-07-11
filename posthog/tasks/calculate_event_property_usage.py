@@ -1,8 +1,9 @@
-from datetime import timedelta
-from typing import List, Tuple
+from collections import defaultdict
+from dataclasses import asdict, dataclass, field
+from typing import DefaultDict, Dict, Tuple
 
 from celery.app import shared_task
-from django.utils.timezone import now
+from django.utils import timezone
 
 from posthog.models import Team
 from posthog.models.event_definition import EventDefinition
@@ -15,43 +16,51 @@ def calculate_event_property_usage() -> None:
         calculate_event_property_usage_for_team(team_id=team.pk)
 
 
+@dataclass
+class EventDefinitionPayload:
+    volume_30_day: int = field(default_factory=int)
+    query_usage_30_day: int = field(default_factory=int)
+    last_seen_at: timezone.datetime = field(default_factory=timezone.now)
+
+
 @shared_task(ignore_result=True, max_retries=1)
 def calculate_event_property_usage_for_team(team_id: int) -> None:
     team = Team.objects.get(pk=team_id)
-    event_names = {event.name: 0 for event in EventDefinition.objects.filter(team_id=team_id)}
+    event_definition_payloads: DefaultDict[str, EventDefinitionPayload] = defaultdict(
+        EventDefinitionPayload,
+        {event.name: EventDefinitionPayload() for event in EventDefinition.objects.filter(team_id=team_id)},
+    )
+    property_insight_usage: DefaultDict[str, int] = defaultdict(
+        int, {key.name: 0 for key in PropertyDefinition.objects.filter(team_id=team_id)}
+    )
 
-    event_properties = {key.name: 0 for key in PropertyDefinition.objects.filter(team_id=team_id)}
+    since = timezone.now() - timezone.timedelta(days=30)
 
-    for item in Insight.objects.filter(team=team, created_at__gt=now() - timedelta(days=30)):
+    for item in Insight.objects.filter(team=team, created_at__gt=since):
         for event in item.filters.get("events", []):
-            if event["id"] in event_names:
-                event_names[event["id"]] += 1
-
+            event_definition_payloads[event["id"]].query_usage_30_day += 1
         for prop in item.filters.get("properties", []):
-            if isinstance(prop, dict) and prop.get("key") in event_properties:
-                event_properties[prop["key"]] += 1
+            if isinstance(prop, dict) and prop.get("key"):
+                property_insight_usage[prop["key"]] += 1
 
-    events_volume = _get_events_volume(team)
-    for event, value in event_names.items():
-        volume = _extract_count(events_volume, event)
-        EventDefinition.objects.filter(name=event, team_id=team_id).update(
-            volume_30_day=volume, query_usage_30_day=value
+    for event, (volume, last_seen_at) in _get_events_volume(team, since).items():
+        event_definition_payloads[event].volume_30_day = volume
+        event_definition_payloads[event].last_seen_at = last_seen_at
+
+    for event, event_definition_payload in event_definition_payloads.items():
+        EventDefinition.objects.update_or_create(name=event, team_id=team_id, defaults=asdict(event_definition_payload))
+
+    for property_name, usage in property_insight_usage.items():
+        PropertyDefinition.objects.update_or_create(
+            name=property_name, team_id=team_id, defaults={"query_usage_30_day": usage or 0}
         )
 
-    for key, value in event_properties.items():
-        PropertyDefinition.objects.filter(name=key, team_id=team_id).update(query_usage_30_day=value)
 
-
-def _get_events_volume(team: Team) -> List[Tuple[str, int]]:
-    timestamp = now() - timedelta(days=30)
-    from ee.clickhouse.sql.events import GET_EVENTS_VOLUME
+def _get_events_volume(team: Team, since: timezone.datetime) -> Dict[str, Tuple[int, timezone.datetime]]:
     from posthog.client import sync_execute
+    from posthog.models.event.sql import GET_EVENTS_VOLUME
 
-    return sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": timestamp},)
-
-
-def _extract_count(events_volume: List[Tuple[str, int]], event: str) -> int:
-    try:
-        return [count[1] for count in events_volume if count[0] == event][0]
-    except IndexError:
-        return 0
+    return {
+        event: (volume, last_seen_at)
+        for event, volume, last_seen_at in sync_execute(GET_EVENTS_VOLUME, {"team_id": team.pk, "timestamp": since})
+    }

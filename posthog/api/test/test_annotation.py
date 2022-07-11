@@ -120,42 +120,14 @@ class TestAnnotation(APIBaseTest):
             self.user, "annotation updated", {"scope": "organization", "date_marker": None},
         )
 
-    def test_deleting_annotation_of_other_team_prevented(self):
-        other_organization, other_team, _ = User.objects.bootstrap("Other Corp", "Juan", None)
-        other_annotation = Annotation.objects.create(
-            organization=other_organization,
-            team=other_team,
-            created_by=self.user,
-            created_at="2020-01-04T12:00:00Z",
-            content="hello world!",
-        )
-        response_via_other_team = self.client.delete(
-            f"/api/projects/{other_team.pk}/annotations/{other_annotation.pk}/"
-        )
-
-        self.assertEqual(response_via_other_team.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            self.permission_denied_response("You don't have access to the project."), response_via_other_team.json()
-        )
-
-        response_via_self_team = self.client.delete(f"/api/projects/{self.team.pk}/annotations/{other_annotation.pk}/")
-
-        self.assertEqual(response_via_self_team.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(self.not_found_response(), response_via_self_team.json())
-
     def test_deleting_annotation(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = Annotation.objects.create(team=self.team, created_by=self.user)
         self.client.force_login(new_user)
 
-        with patch("posthog.mixins.report_user_action") as mock_capture:
+        with patch("posthog.mixins.report_user_action"):
             response = self.client.delete(f"/api/projects/{self.team.id}/annotations/{instance.pk}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Annotation.objects.filter(pk=instance.pk).exists())
-
-        # Assert analytics are sent (notice the event is sent on the user that executed the deletion, not the creator)
-        mock_capture.assert_called_once_with(
-            new_user, "annotation deleted", {"scope": "dashboard_item", "date_marker": None},
-        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(Annotation.objects.filter(pk=instance.pk).exists())

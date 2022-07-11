@@ -15,7 +15,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
@@ -31,8 +31,11 @@ import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
-import { IconRefresh } from 'lib/components/icons'
+import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
+import { Tooltip } from 'lib/components/Tooltip'
+import { SlackIntegration } from './SlackIntegration'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -83,6 +86,7 @@ export function ProjectSettings(): JSX.Element {
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -131,11 +135,16 @@ export function ProjectSettings(): JSX.Element {
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
                 <Divider />
-                <h2 id="project-api-key" className="subtitle">
-                    Project API key
+                <h2 id="project-variables" className="subtitle mb">
+                    Project Variables
                 </h2>
-                You can use this write-only key in any one of{' '}
-                <a href="https://posthog.com/docs/integrations">our libraries</a>.
+                <h3 id="project-api-key" className="l3">
+                    Project API Key
+                </h3>
+                <p>
+                    You can use this write-only key in any one of{' '}
+                    <a href="https://posthog.com/docs/integrations">our libraries</a>.
+                </p>
                 <CodeSnippet
                     actions={[
                         {
@@ -159,8 +168,17 @@ export function ProjectSettings(): JSX.Element {
                 >
                     {currentTeam?.api_token || ''}
                 </CodeSnippet>
-                Write-only means it can only create new events. It can't read events or any of your other data stored
-                with PostHog, so it's safe to use in public apps.
+                <p>
+                    Write-only means it can only create new events. It can't read events or any of your other data
+                    stored with PostHog, so it's safe to use in public apps.
+                </p>
+                <h3 id="project-id" className="l3 mt">
+                    Project ID
+                </h3>
+                <p>
+                    You can use this ID to reference your project in our <a href="https://posthog.com/docs/api">API</a>.
+                </p>
+                <CodeSnippet copyDescription="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
                 <Divider />
                 <h2 className="subtitle" id="timezone">
                     Timezone
@@ -172,26 +190,30 @@ export function ProjectSettings(): JSX.Element {
                 <TimezoneConfig />
                 <Divider />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filter out internal and test users
+                    Filter out internal and test users{' '}
+                    <Tooltip title='Events will still be ingested and saved, but they will be excluded from any queries where the "Filter out internal and test users" toggle is set.'>
+                        <IconInfo style={{ fontSize: '1em', color: 'var(--muted-alt)', marginTop: 4, marginLeft: 5 }} />
+                    </Tooltip>
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
-                    as team members, test accounts, or development environments.
+                    as team members, test accounts, or development environments.{' '}
+                    <strong>
+                        The filters you apply here are added as extra filters when the toggle is switched on.
+                    </strong>{' '}
+                    So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
-                <p>
-                    <b>Events will still be ingested and saved</b> (and will count towards any totals), they will
-                    however be excluded from consideration on any queries where the "Filter out internal and test users"
-                    toggle is set.
-                </p>
-                <p>
-                    Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
-                    company's team members, or <i>Host ∌ localhost</i> to exclude all events from local development
-                    environments.
-                </p>
-                <p>
-                    <b>The filters you apply here are added as extra filters when the toggle is switched on.</b> So, if
-                    you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
-                </p>
+                <strong>Example filters</strong>
+                <ul>
+                    <li>
+                        "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
+                        from your company's team members.
+                    </li>
+                    <li>
+                        "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events from
+                        local development environments.
+                    </li>
+                </ul>
                 <TestAccountFiltersConfig />
                 <Divider />
                 <CorrelationConfig />
@@ -261,6 +283,15 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <WebhookIntegration />
                 <Divider />
+                {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
+                    <>
+                        <h2 className="subtitle" id="slack">
+                            Slack integration
+                        </h2>
+                        <SlackIntegration />
+                        <Divider />
+                    </>
+                )}
                 <h2 className="subtitle" id="datacapture">
                     Data capture configuration
                 </h2>

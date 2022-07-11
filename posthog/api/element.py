@@ -2,13 +2,13 @@ from rest_framework import authentication, request, response, serializers, views
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
-from ee.clickhouse.models.element import chain_to_elements
-from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.sql.element import GET_ELEMENTS, GET_VALUES
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
 from posthog.models import Element, Filter
+from posthog.models.element.element import chain_to_elements
+from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
+from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.util import date_from_clause, parse_timestamps
 

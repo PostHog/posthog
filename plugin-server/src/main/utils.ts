@@ -3,27 +3,34 @@ import { StatsD } from 'hot-shots'
 import { Consumer, Kafka } from 'kafkajs'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
-import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
+import { KAFKA_HEALTHCHECK, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
 import { Hub } from '../types'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 
-class KafkaConsumerError extends Error {}
+class KafkaConsumerError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'KafkaConsumerError'
+    }
+}
 
-export async function runInstrumentedFunction<T, EventType>({
+interface FunctionInstrumentation<T, E> {
+    server: Hub
+    event: E
+    timeoutMessage: string
+    statsKey: string
+    func: (event: E) => Promise<T>
+}
+
+export async function runInstrumentedFunction<T, E>({
     server,
     timeoutMessage,
     event,
     func,
     statsKey,
-}: {
-    server: Hub
-    event: EventType
-    timeoutMessage: string
-    statsKey: string
-    func: (event: EventType) => Promise<T>
-}): Promise<T> {
+}: FunctionInstrumentation<T, E>): Promise<T> {
     const timeout = timeoutGuard(timeoutMessage, {
         event: JSON.stringify(event),
     })
@@ -63,11 +70,12 @@ export async function kafkaHealthcheck(
         let kafkaConsumerWorking = false
         let timer: Date | null = new Date()
         const waitForConsumerConnected = new Promise<void>((resolve) => {
-            consumer.on(consumer.events.FETCH_START, () => {
+            const removeListener = consumer.on(consumer.events.FETCH_START, () => {
                 if (timer) {
                     statsd?.timing('kafka_healthcheck_consumer_latency', timer)
                     timer = null
                 }
+                removeListener()
                 kafkaConsumerWorking = true
                 resolve()
             })
@@ -91,7 +99,7 @@ export async function kafkaHealthcheck(
 
 export async function setupKafkaHealthcheckConsumer(kafka: Kafka): Promise<Consumer> {
     const consumer = kafka.consumer({
-        groupId: 'healthcheck-group',
+        groupId: `${KAFKA_PREFIX}healthcheck-group`,
         maxWaitTimeInMs: 100,
     })
 

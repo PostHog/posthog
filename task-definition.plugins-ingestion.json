@@ -17,6 +17,10 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "PLUGIN_SERVER_MODE",
+                    "value": "ingestion"
+                },
+                {
                     "name": "CLICKHOUSE_DATABASE",
                     "value": "posthog"
                 },
@@ -26,10 +30,6 @@
                 },
                 {
                     "name": "CLICKHOUSE_VERIFY",
-                    "value": "True"
-                },
-                {
-                    "name": "KAFKA_ENABLED",
                     "value": "True"
                 },
                 {
@@ -62,7 +62,7 @@
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
-                    "value": "True"
+                    "value": "False"
                 },
                 {
                     "name": "PISCINA_ATOMICS_TIMEOUT",
@@ -90,19 +90,11 @@
                 },
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "1"
+                    "value": "5"
                 },
                 {
                     "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
                     "value": "True"
-                },
-                {
-                    "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
-                    "value": "3"
-                },
-                {
-                    "name": "HISTORICAL_EXPORTS_ENABLED",
-                    "value": "False"
                 },
                 {
                     "name": "PERSON_INFO_TO_REDIS_TEAMS",
@@ -111,6 +103,14 @@
                 {
                     "name": "OBJECT_STORAGE_ENABLED",
                     "value": "True"
+                },
+                {
+                    "name": "KAFKA_SECURITY_PROTOCOL",
+                    "value": "SSL"
+                },
+                {
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
                 }
             ],
             "secrets": [
@@ -131,20 +131,8 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
                 },
                 {
-                    "name": "KAFKA_CLIENT_CERT_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_B64::"
-                },
-                {
-                    "name": "KAFKA_CLIENT_CERT_KEY_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_KEY_B64::"
-                },
-                {
-                    "name": "KAFKA_TRUSTED_CERT_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_TRUSTED_CERT_B64::"
-                },
-                {
                     "name": "KAFKA_HOSTS",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_HOSTS::"
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:MSKProduction-ZnkrjC:KAFKA_HOSTS::"
                 },
                 {
                     "name": "POSTHOG_PERSONAL_API_KEY",
@@ -197,5 +185,5 @@
     ],
     "requiresCompatibilities": ["FARGATE"],
     "cpu": "4096",
-    "memory": "16384"
+    "memory": "8192"
 }

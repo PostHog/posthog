@@ -1,31 +1,23 @@
 import json
 from typing import Any, Dict, Optional, cast
 
-from django.db.models import Prefetch, QuerySet
-from rest_framework import authentication, exceptions, request, response, serializers, status, viewsets
+from django.db.models import QuerySet
+from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.mixins import AnalyticsDestroyModelMixin, log_deletion_metadata_to_posthog
 from posthog.models import FeatureFlag
-from posthog.models.activity_logging.activity_log import (
-    ActivityPage,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import format_query_params_absolute_url
 
 
 class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
@@ -53,6 +45,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "is_simple_flag",
             "rollout_percentage",
+            "ensure_experience_continuity",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -175,7 +168,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["filters"] = validated_data.pop("get_filters")
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 
@@ -205,32 +198,17 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
-            .prefetch_related(
-                Prefetch(
-                    "featureflagoverride_set",
-                    queryset=FeatureFlagOverride.objects.filter(user=request.user),
-                    to_attr="my_overrides",
-                )
-            )
+            .select_related("created_by")
             .order_by("-created_at")
         )
         groups = json.loads(request.GET.get("groups", "{}"))
         flags = []
         for feature_flag in feature_flags:
-            my_overrides = feature_flag.my_overrides  # type: ignore
-            override = None
-            if len(my_overrides) > 0:
-                override = my_overrides[0]
-
             match = feature_flag.matches(request.user.distinct_id, groups)
-            value_for_user_without_override = (match.variant or True) if match else False
+            value = (match.variant or True) if match else False
 
             flags.append(
-                {
-                    "feature_flag": FeatureFlagSerializer(feature_flag).data,
-                    "value_for_user_without_override": value_for_user_without_override,
-                    "override": FeatureFlagOverrideSerializer(override).data if override else None,
-                }
+                {"feature_flag": FeatureFlagSerializer(feature_flag).data, "value": value,}
             )
         return Response(flags)
 
@@ -241,7 +219,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         activity_page = load_activity(scope="FeatureFlag", team_id=self.team_id, limit=limit, page=page)
 
-        return self._return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -255,23 +233,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         activity_page = load_activity(
             scope="FeatureFlag", team_id=self.team_id, item_id=item_id, limit=limit, page=page
         )
-        return self._return_activity_page(activity_page, limit, page, request)
-
-    @staticmethod
-    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
-        return Response(
-            {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
-                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
-                if activity_page.has_next
-                else None,
-                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
-                if activity_page.has_previous
-                else None,
-                "total_count": activity_page.total_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return activity_page_response(activity_page, limit, page, request)
 
     def perform_create(self, serializer):
         serializer.save()
@@ -306,103 +268,6 @@ class FeatureFlagViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             activity="updated",
             detail=Detail(changes=changes, name=serializer.instance.key),
         )
-
-    @log_deletion_metadata_to_posthog
-    def destroy(self, request, *args, **kwargs):
-        instance: FeatureFlag = self.get_object()
-        instance_id = instance.id
-
-        instance.delete()
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-            item_id=instance_id,
-            scope="FeatureFlag",
-            activity="deleted",
-            detail=Detail(name=instance.key),
-        )
-
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class FeatureFlagOverrideSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FeatureFlagOverride
-        fields = [
-            "id",
-            "feature_flag",
-            "user",
-            "override_value",
-        ]
-
-    _analytics_updated_event_name = "feature flag override updated"
-    _analytics_created_event_name = "feature flag override created"
-
-    def validate_override_value(self, value):
-        if not isinstance(value, str) and not isinstance(value, bool):
-            raise serializers.ValidationError(
-                f"Overridden feature flag value ('{value}') must be a string or a boolean.", code="invalid_feature_flag"
-            )
-        return value
-
-    def create(self, validated_data: Dict) -> FeatureFlagOverride:
-        self._ensure_team_and_feature_flag_match(validated_data)
-        feature_flag_override, created = FeatureFlagOverride.objects.update_or_create(
-            feature_flag=validated_data["feature_flag"],
-            user=validated_data["user"],
-            team_id=self.context["team_id"],
-            defaults={"override_value": validated_data["override_value"]},
-        )
-        request = self.context["request"]
-        if created:
-            report_user_action(
-                request.user, self._analytics_created_event_name, feature_flag_override.get_analytics_metadata(),
-            )
-        else:
-            report_user_action(
-                request.user, self._analytics_updated_event_name, feature_flag_override.get_analytics_metadata(),
-            )
-        return feature_flag_override
-
-    def update(self, instance: FeatureFlagOverride, validated_data: Dict) -> FeatureFlagOverride:
-        self._ensure_team_and_feature_flag_match(validated_data)
-        request = self.context["request"]
-        instance = super().update(instance, validated_data)
-        report_user_action(request.user, self._analytics_updated_event_name, instance.get_analytics_metadata())
-        return instance
-
-    def _ensure_team_and_feature_flag_match(self, validated_data: Dict):
-        if validated_data["feature_flag"].team_id != self.context["team_id"]:
-            raise exceptions.PermissionDenied()
-
-
-class FeatureFlagOverrideViewset(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.GenericViewSet):
-    queryset = FeatureFlagOverride.objects.all()
-    serializer_class = FeatureFlagOverrideSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        TemporaryTokenAuthentication,
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]
-    include_in_docs = False
-
-    def get_queryset(self) -> QuerySet:
-        return super().get_queryset().filter(user=self.request.user)
-
-    @action(methods=["POST"], detail=False)
-    def my_overrides(self, request: request.Request, **kwargs):
-        if request.method == "POST":
-            user = request.user
-            serializer = FeatureFlagOverrideSerializer(
-                data={**request.data, "user": user.id}, context={**self.get_serializer_context()},
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

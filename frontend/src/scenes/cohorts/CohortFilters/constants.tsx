@@ -887,7 +887,10 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         )
     },
     [FilterType.PersonPropertyValues]: function _renderField(p) {
-        return (
+        return p.criteria['operator'] &&
+            [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(p.criteria['operator']) ? (
+            <></>
+        ) : (
             <CohortPersonPropertiesValuesField
                 {...(p as CohortPersonPropertiesValuesFieldProps)}
                 propertyKey={p.criteria.key}
@@ -985,4 +988,6 @@ export const BEHAVIORAL_TYPE_TO_LABEL = {
     ...FIELD_VALUES[FieldOptionsType.PersonPropertyBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.CohortBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
+    ...SCALE_FIELD_VALUES[FieldOptionsType.EventBehavioral].values,
+    ...SCALE_FIELD_VALUES[FieldOptionsType.LifecycleBehavioral].values,
 }

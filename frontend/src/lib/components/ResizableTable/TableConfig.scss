@@ -1,32 +1,29 @@
-@import '~/vars';
-
 .column-configurator-modal {
     .text-blue {
-        color: $primary;
+        color: var(--primary);
     }
 
     .column-display-item {
-        cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        padding: $default_spacing / 2;
+        padding: 0.5rem;
         overflow: hidden;
-        border-radius: $radius;
-        margin: $radius/2 0;
+        border-radius: var(--radius);
+        margin: calc(var(--radius) / 2) 0;
 
         &:hover {
-            background-color: $bg_mid;
+            background-color: var(--bg-mid);
         }
 
         &.disabled {
             cursor: not-allowed;
-            color: $text_muted;
-            background-color: $bg_mid;
+            color: var(--text-muted);
+            background-color: var(--bg-mid);
         }
 
         &.selected {
-            background-color: $primary_hover;
+            background-color: var(--primary-bg-hover);
         }
 
         .property-key-info {
@@ -34,5 +31,53 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
+    }
+
+    .main-content {
+        margin-bottom: 0.5rem;
+
+        .lists {
+            background-color: var(--bg-side);
+            border-radius: 0.25rem;
+            padding: 0.5rem;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+        }
+    }
+
+    .selected-column-col {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .drag-handle {
+        cursor: move;
+        color: var(--text-default);
+        font-size: 1.2em;
+        padding-right: 0.25rem;
+
+        svg {
+            transform: rotate(90deg) translateX(2px);
+        }
+    }
+
+    .save-as-default-button {
+        border: 1px solid var(--dark-grey);
+        border-radius: 0.25rem;
+    }
+}
+
+.column-configurator-modal-sortable-container {
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0.5rem;
+
+    .drag-handle {
+        color: var(--text-default);
+        font-size: 1.2em;
+        padding-right: 0.25rem;
+        transform: rotate(90deg) translateX(2px);
     }
 }

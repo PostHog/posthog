@@ -1,6 +1,6 @@
 import './InsightLegend.scss'
 import React from 'react'
-import { Button, Row } from 'antd'
+import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { IconLegend } from 'lib/components/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -8,10 +8,16 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
-import { formatCompareLabel } from 'scenes/insights/InsightsTable/InsightsTable'
+import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { ChartDisplayType, InsightType } from '~/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import clsx from 'clsx'
+
+export interface InsightLegendProps {
+    readOnly?: boolean
+    horizontal?: boolean
+}
 
 export function InsightLegendButton(): JSX.Element | null {
     const { filters, activeView } = useValues(insightLogic)
@@ -31,28 +37,33 @@ export function InsightLegendButton(): JSX.Element | null {
     }
 
     return (
-        <Button className="insight-legend-button" onClick={toggleInsightLegend}>
+        <Button className="InsightLegendButton" onClick={toggleInsightLegend}>
             <IconLegend />
-            <span className="insight-legend-button-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
+            <span className="InsightLegendButton-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
         </Button>
     )
 }
 
-export function InsightLegend(): JSX.Element {
+export function InsightLegend({ horizontal, readOnly = false }: InsightLegendProps): JSX.Element {
     const { insightProps, filters } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
 
     return (
-        <div className="insight-legend-menu">
-            <div className="insight-legend-menu-scroll">
+        <div
+            className={clsx('InsightLegendMenu', {
+                'InsightLegendMenu--horizontal': horizontal,
+                'InsightLegendMenu--readonly': readOnly,
+            })}
+        >
+            <div className="InsightLegendMenu-scroll">
                 {indexedResults &&
                     indexedResults.map((item) => {
                         return (
-                            <Row key={item.id} className="insight-legend-menu-item" wrap={false}>
+                            <div key={item.id} className="InsightLegendMenu-item">
                                 <LemonCheckbox
-                                    className="insight-legend-menu-item-inner"
+                                    className="InsightLegendMenu-item-inner"
                                     color={getSeriesColor(item.id, !!filters.compare)}
                                     checked={!hiddenLegendKeys[item.id]}
                                     onChange={() => toggleVisibility(item.id)}
@@ -73,7 +84,7 @@ export function InsightLegend(): JSX.Element {
                                         />
                                     }
                                 />
-                            </Row>
+                            </div>
                         )
                     })}
             </div>

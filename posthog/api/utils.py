@@ -4,18 +4,21 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
 
+import structlog
 from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.exceptions import RequestParsingError, generate_exception_response
-from posthog.models import Entity
+from posthog.models import Action, Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import cors_response, load_data_from_request
+
+logger = structlog.get_logger(__name__)
 
 
 class PaginationMode(Enum):
@@ -28,6 +31,10 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         raise ValueError("An entity id and the entity type must be provided to determine an entity")
 
     entity_math = filter.target_entity_math or "total"  # make math explicit
+    possible_entity = entity_from_order(filter.target_entity_order, filter.entities)
+
+    if possible_entity:
+        return possible_entity
 
     possible_entity = retrieve_entity_from(
         filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
@@ -38,6 +45,16 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
     else:
         raise ValueError("An entity must be provided for target entity to be determined")
+
+
+def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:
+    if not order:
+        return None
+
+    for entity in entities:
+        if entity.index == int(order):
+            return entity
+    return None
 
 
 def retrieve_entity_from(
@@ -131,7 +148,8 @@ def get_data(request):
     try:
         data = load_data_from_request(request)
     except RequestParsingError as error:
-        capture_exception(error)  # We still capture this on Sentry to identify actual potential bugs
+        statsd.incr("capture_endpoint_invalid_payload")
+        logger.exception(f"Invalid payload", error=error)
         return (
             None,
             cors_response(
@@ -288,12 +306,11 @@ def get_event_ingestion_context_for_personal_api_key(
 def check_definition_ids_inclusion_field_sql(
     raw_included_definition_ids: Optional[str], is_property: bool, named_key: str
 ):
-
     # Create conditional field based on whether id exists in included_properties
     if is_property:
-        included_definitions_sql = f"(posthog_propertydefinition.id = ANY (%({named_key})s::uuid[]))"
+        included_definitions_sql = f"(id = ANY (%({named_key})s::uuid[]))"
     else:
-        included_definitions_sql = f"(posthog_eventdefinition.id = ANY (%({named_key})s::uuid[]))"
+        included_definitions_sql = f"(id = ANY (%({named_key})s::uuid[]))"
 
     if not raw_included_definition_ids:
         return included_definitions_sql, []
@@ -308,3 +325,89 @@ def safe_clickhouse_string(s: str) -> str:
     for match in matches:
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
+
+
+def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False, conditions: str = "") -> str:
+    # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+    if is_enterprise:
+        from ee.models import EnterpriseEventDefinition
+
+        ee_model = EnterpriseEventDefinition
+    else:
+        ee_model = EventDefinition  # type: ignore
+
+    event_definition_fields = {
+        f'"{f.column}"'  # type: ignore
+        for f in ee_model._meta.get_fields()
+        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+    }
+    shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
+
+    if include_actions:
+        event_definition_fields.discard('"id"')
+        action_fields = {
+            f'"{f.column}"'  # type: ignore
+            for f in Action._meta.get_fields()
+            if hasattr(f, "column") and f.column not in ["events", "id"]  # type: ignore
+        }
+        combined_fields = event_definition_fields.union(action_fields)
+
+        raw_event_definition_fields = ",".join(
+            [f"NULL AS {col}" if col in action_fields - event_definition_fields else col for col in combined_fields]
+            + ["id", "NULL AS action_id", "last_seen_at AS last_updated_at"]
+        )
+        raw_action_fields = ",".join(
+            [f"NULL AS {col}" if col in event_definition_fields - action_fields else col for col in combined_fields]
+            + ["NULL AS id", "id AS action_id", "last_calculated_at AS last_updated_at"]
+        )
+        ordering = (
+            "ORDER BY last_updated_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+            if is_enterprise
+            else "ORDER BY name ASC"
+        )
+
+        event_definition_table = (
+            f"""
+                SELECT {raw_event_definition_fields}
+                FROM ee_enterpriseeventdefinition
+                FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+            """
+            if is_enterprise
+            else f"""
+                SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
+            """
+        )
+
+        return f"""
+        SELECT * FROM (
+            {event_definition_table}
+            {shared_conditions}
+            UNION
+            SELECT {raw_action_fields} FROM posthog_action
+            {shared_conditions} AND posthog_action.deleted = false
+        ) as T
+        {ordering}
+        """
+
+    raw_event_definition_fields = ",".join(event_definition_fields)
+    ordering = (
+        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+        if is_enterprise
+        else "ORDER BY name ASC"
+    )
+
+    return (
+        f"""
+        SELECT {raw_event_definition_fields}
+        FROM ee_enterpriseeventdefinition
+        FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+        {shared_conditions}
+        {ordering}
+    """
+        if is_enterprise
+        else f"""
+        SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
+        {shared_conditions}
+        {ordering}
+    """
+    )

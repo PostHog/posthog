@@ -30,6 +30,7 @@ from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
+from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
@@ -40,6 +41,7 @@ from django.template.loader import get_template
 from django.utils import timezone
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
+from sentry_sdk.api import capture_exception
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
@@ -47,7 +49,6 @@ from posthog.redis import get_client
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
-
 
 DATERANGE_MAP = {
     "minute": datetime.timedelta(minutes=1),
@@ -57,6 +58,8 @@ DATERANGE_MAP = {
     "month": datetime.timedelta(days=31),
 }
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
+
+DEFAULT_DATE_FROM_DAYS = 7
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -152,6 +155,9 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date -= relativedelta(day=1)
         if match.group("position") == "End":
             date -= relativedelta(day=31)
+    elif match.group("type") == "q":
+        if match.group("number"):
+            date -= relativedelta(weeks=13 * int(match.group("number")))
     elif match.group("type") == "y":
         if match.group("number"):
             date -= relativedelta(years=int(match.group("number")))
@@ -168,7 +174,7 @@ def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dic
         if filters["date_from"] == "all":
             date_from = None
     else:
-        date_from = datetime.datetime.today() - relativedelta(days=7)
+        date_from = datetime.datetime.today() - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
         date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
     date_to = None
@@ -214,6 +220,16 @@ def get_git_commit() -> Optional[str]:
         return None
 
 
+def get_js_url(request: HttpRequest) -> str:
+    """
+    As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
+    it is necessary to set the JS_URL host based on the calling origin
+    """
+    if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
+        return f"http://{request.get_host().split(':')[0]}:8234"
+    return settings.JS_URL
+
+
 def render_template(template_name: str, request: HttpRequest, context: Dict = {}) -> HttpResponse:
     from loginas.utils import is_impersonated_session
 
@@ -244,7 +260,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_internal_metrics"] = settings.CAPTURE_INTERNAL_METRICS
-    context["js_url"] = settings.JS_URL
+    context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
@@ -361,6 +377,11 @@ def get_ip_address(request: HttpRequest) -> str:
         ip = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+
+    # Strip port from ip address as Azure gateway handles x-forwarded-for incorrectly
+    if ip and len(ip.split(":")) == 2:
+        ip = ip.split(":")[0]
+
     return ip
 
 
@@ -401,7 +422,7 @@ def cors_response(request, response):
     allow_headers = request.META.get("HTTP_ACCESS_CONTROL_REQUEST_HEADERS", "").split(",")
     allow_headers = [header for header in allow_headers if header in ["traceparent", "request-id"]]
 
-    response["Access-Control-Allow-Headers"] = "X-Requested-With" + (
+    response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
     )
     return response
@@ -840,6 +861,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 def should_refresh(request: Request) -> bool:
     query_param = request.query_params.get("refresh")
     data_value = request.data.get("refresh")
+
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
 
@@ -873,23 +895,23 @@ def format_query_params_absolute_url(
     offset_alias: Optional[str] = "offset",
     limit_alias: Optional[str] = "limit",
 ) -> Optional[str]:
-    OFFSET_REGEX = re.compile(fr"([&?]{offset_alias}=)(\d+)")
-    LIMIT_REGEX = re.compile(fr"([&?]{limit_alias}=)(\d+)")
+    OFFSET_REGEX = re.compile(rf"([&?]{offset_alias}=)(\d+)")
+    LIMIT_REGEX = re.compile(rf"([&?]{limit_alias}=)(\d+)")
 
-    url_to_format = request.get_raw_uri()
+    url_to_format = request.build_absolute_uri()
 
     if not url_to_format:
         return None
 
     if offset:
         if OFFSET_REGEX.search(url_to_format):
-            url_to_format = OFFSET_REGEX.sub(fr"\g<1>{offset}", url_to_format)
+            url_to_format = OFFSET_REGEX.sub(rf"\g<1>{offset}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{offset_alias}={offset}"
 
     if limit:
         if LIMIT_REGEX.search(url_to_format):
-            url_to_format = LIMIT_REGEX.sub(fr"\g<1>{limit}", url_to_format)
+            url_to_format = LIMIT_REGEX.sub(rf"\g<1>{limit}", url_to_format)
         else:
             url_to_format = url_to_format + ("&" if "?" in url_to_format else "?") + f"{limit_alias}={limit}"
 
@@ -925,3 +947,46 @@ def encode_value_as_param(value: Union[str, list, dict, datetime.datetime]) -> s
         return value.isoformat()
     else:
         return value
+
+
+def is_json(val):
+    if isinstance(val, int):
+        return False
+
+    try:
+        int(val)
+        return False
+    except:
+        pass
+    try:
+        json.loads(val)
+    except (ValueError, TypeError):
+        return False
+    return True
+
+
+def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+    if not timestamp:
+        timestamp = timezone.now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = parser.isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
+
+    return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
+    if schedule is None or schedule == "":
+        return None
+
+    try:
+        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+        return crontab(
+            minute=minute, hour=hour, day_of_month=day_of_month, month_of_year=month_of_year, day_of_week=day_of_week,
+        )
+    except Exception as err:
+        capture_exception(err)
+        return None

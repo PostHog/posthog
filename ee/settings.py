@@ -4,8 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from ee.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION as DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
-from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, TEST, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, get_from_env
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -44,9 +43,6 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
 
-# ClickHouse and Kafka
-KAFKA_ENABLED = not TEST
-
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing
 MATERIALIZE_COLUMNS_SCHEDULE_CRON = get_from_env("MATERIALIZE_COLUMNS_SCHEDULE_CRON", "0 5 * * SAT")
@@ -60,8 +56,3 @@ MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS = get_from_env(
 MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS", 90, type_cast=int)
 # Maximum number of columns to materialize at once. Avoids running into resource bottlenecks (storage + ingest + backfilling).
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 10, type_cast=int)
-
-# Topic to write events to between clickhouse
-KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
-    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", DEFAULT_KAFKA_EVENTS_PLUGIN_INGESTION
-)

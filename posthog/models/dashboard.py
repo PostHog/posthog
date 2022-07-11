@@ -2,9 +2,9 @@ from typing import Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django_deprecate_fields import deprecate_field
 
 from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
 
 
 class Dashboard(models.Model):
@@ -32,8 +32,6 @@ class Dashboard(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    is_shared: models.BooleanField = models.BooleanField(default=False)
     last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
@@ -43,12 +41,24 @@ class Dashboard(models.Model):
     insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
-    deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
+    deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
+    deprecated_tags_v2: ArrayField = ArrayField(
+        models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
     )
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
-    )
+
+    # DEPRECATED: using the new "sharing" relation instead
+    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    # DEPRECATED: using the new "is_sharing_enabled" relation instead
+    is_shared: models.BooleanField = models.BooleanField(default=False)
+
+    @property
+    def is_sharing_enabled(self):
+        sharing = self.sharingconfiguration_set.first()
+        return sharing.enabled if sharing else False
+
+    @property
+    def url(self):
+        return absolute_uri(f"/dashboard/{self.id}")
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:
@@ -67,13 +77,19 @@ class Dashboard(models.Model):
         ):
             # Returning the highest access level if no checks needed
             return self.PrivilegeLevel.CAN_EDIT
-        from ee.models import DashboardPrivilege
 
         try:
-            return cast(Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id))
-        except DashboardPrivilege.DoesNotExist:
-            # Returning the lowest access level if there's no explicit privilege for this user
+            from ee.models import DashboardPrivilege
+        except ImportError:
             return self.PrivilegeLevel.CAN_VIEW
+        else:
+            try:
+                return cast(
+                    Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id)
+                )
+            except DashboardPrivilege.DoesNotExist:
+                # Returning the lowest access level if there's no explicit privilege for this user
+                return self.PrivilegeLevel.CAN_VIEW
 
     def can_user_edit(self, user_id: int) -> bool:
         if self.effective_restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
@@ -100,7 +116,7 @@ class Dashboard(models.Model):
         return {
             "pinned": self.pinned,
             "item_count": self.insights.count(),
-            "is_shared": self.is_shared,
+            "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,
             "has_description": self.description != "",
             "tags_count": self.tagged_items.count(),

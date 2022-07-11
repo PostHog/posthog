@@ -1,10 +1,9 @@
 // Keep this in sync with ee/kafka_client/topics.py
 
-import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
+import { isTestEnv } from '../utils/env-utils'
 
-const isTestEnv = determineNodeEnv() === NodeEnv.Test
-const suffix = isTestEnv ? '_test' : ''
-const prefix = process.env.KAFKA_PREFIX || ''
+const suffix = isTestEnv() ? '_test' : ''
+export const prefix = process.env.KAFKA_PREFIX || ''
 
 export const KAFKA_EVENTS = `${prefix}clickhouse_events_proto${suffix}`
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`

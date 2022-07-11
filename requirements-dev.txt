@@ -23,6 +23,11 @@ certifi==2019.11.28
     # via
     #   -c requirements.txt
     #   requests
+    #   urllib3
+cffi==1.14.5
+    # via
+    #   -c requirements.txt
+    #   cryptography
 chardet==3.0.4
     # via
     #   -c requirements.txt
@@ -31,6 +36,8 @@ click==8.0.3
     # via
     #   black
     #   pip-tools
+colorama==0.4.4
+    # via pytest-watch
 colored==1.4.2
     # via syrupy
 coreapi==2.3.3
@@ -39,7 +46,12 @@ coreschema==0.0.4
     # via coreapi
 coverage==5.5
     # via pytest-cov
-django==3.2.12
+cryptography==37.0.2
+    # via
+    #   -c requirements.txt
+    #   pyopenssl
+    #   urllib3
+django==3.2.14
     # via
     #   -c requirements.txt
     #   django-stubs
@@ -52,6 +64,8 @@ django-stubs-ext==0.2.0
     # via django-stubs
 djangorestframework-stubs==1.4.0
     # via -r requirements-dev.in
+docopt==0.6.2
+    # via pytest-watch
 fakeredis==1.4.5
     # via -r requirements-dev.in
 flake8==3.9.2
@@ -81,6 +95,7 @@ idna==2.8
     # via
     #   -c requirements.txt
     #   requests
+    #   urllib3
 iniconfig==1.1.1
     # via pytest
 isort==5.2.2
@@ -116,7 +131,7 @@ pathspec==0.9.0
     # via black
 pep517==0.12.0
     # via pip-tools
-pip-tools==6.6.1
+pip-tools==6.6.2
     # via -r requirements-dev.in
 pluggy==0.13.1
     # via pytest
@@ -127,12 +142,24 @@ pycodestyle==2.7.0
     #   flake8
     #   flake8-import-order
     #   flake8-print
+pycparser==2.20
+    # via
+    #   -c requirements.txt
+    #   cffi
 pyflakes==2.3.1
     # via flake8
+pyopenssl==22.0.0
+    # via
+    #   -c requirements.txt
+    #   urllib3
 pyparsing==3.0.7
     # via
     #   -c requirements.txt
     #   packaging
+pysocks==1.7.1
+    # via
+    #   -c requirements.txt
+    #   urllib3
 pytest==6.2.2
     # via
     #   -r requirements-dev.in
@@ -141,6 +168,7 @@ pytest==6.2.2
     #   pytest-env
     #   pytest-mock
     #   pytest-split
+    #   pytest-watch
     #   syrupy
 pytest-cov==2.12.1
     # via -r requirements-dev.in
@@ -151,6 +179,8 @@ pytest-env==0.6.2
 pytest-mock==3.5.1
     # via -r requirements-dev.in
 pytest-split==0.6.0
+    # via -r requirements-dev.in
+pytest-watch==4.2.0
     # via -r requirements-dev.in
 python-dateutil==2.8.1
     # via
@@ -178,8 +208,10 @@ six==1.14.0
     #   flake8-print
     #   freezegun
     #   python-dateutil
-sortedcontainers==2.3.0
-    # via fakeredis
+sortedcontainers==2.4.0
+    # via
+    #   -c requirements.txt
+    #   fakeredis
 sqlparse==0.3.0
     # via
     #   -c requirements.txt
@@ -225,10 +257,12 @@ uritemplate==4.1.1
     # via
     #   -c requirements.txt
     #   coreapi
-urllib3==1.26.5
+urllib3[secure,socks]==1.26.5
     # via
     #   -c requirements.txt
     #   requests
+watchdog==2.1.8
+    # via pytest-watch
 wheel==0.37.1
     # via pip-tools
 

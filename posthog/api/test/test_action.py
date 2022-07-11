@@ -3,9 +3,8 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.models import Action, ActionStep, Organization, Tag
-from posthog.test.base import APIBaseTest, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest):
@@ -315,3 +314,18 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], [])
         self.assertEqual(Tag.objects.all().count(), 1)
+
+    def test_hard_deletion_is_forbidden(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
+                "description": "Test description",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
+        self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)

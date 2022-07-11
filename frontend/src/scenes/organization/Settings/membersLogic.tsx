@@ -1,13 +1,17 @@
 import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { membersLogicType } from './membersLogicType'
+import type { membersLogicType } from './membersLogicType'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
-import { membershipLevelToName } from '../../../lib/utils/permissioning'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { lemonToast } from 'lib/components/lemonToast'
+import Fuse from 'fuse.js'
+
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface MembersFuse extends Fuse<OrganizationMemberType> {}
 
 export const membersLogic = kea<membersLogicType>({
     path: ['scenes', 'organization', 'Settings', 'membersLogic'],
@@ -15,11 +19,15 @@ export const membersLogic = kea<membersLogicType>({
         values: [userLogic, ['user']],
     },
     actions: {
+        setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
             level,
         }),
         postRemoveMember: (userUuid: string) => ({ userUuid }),
+    },
+    reducers: {
+        search: ['', { setSearch: (_, { search }) => search }],
     },
     loaders: ({ values, actions }) => ({
         members: {
@@ -52,6 +60,19 @@ export const membersLogic = kea<membersLogicType>({
                 }
                 return result
             },
+        ],
+        membersFuse: [
+            (s) => [s.members],
+            (members): MembersFuse =>
+                new Fuse<OrganizationMemberType>(members, {
+                    keys: ['user.first_name', 'user.last_name', 'user.email'],
+                    threshold: 0.3,
+                }),
+        ],
+        filteredMembers: [
+            (s) => [s.members, s.membersFuse, s.search],
+            (members, membersFuse, search) =>
+                search ? membersFuse.search(search).map((result) => result.item) : members,
         ],
     },
     listeners: ({ actions }) => ({

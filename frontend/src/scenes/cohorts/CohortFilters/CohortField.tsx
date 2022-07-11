@@ -55,6 +55,7 @@ export function CohortSelectorField({
             type="secondary"
             className="CohortField"
             sideIcon={undefined}
+            data-attr={`cohort-selector-field-${fieldKey}`}
             popup={{
                 className: 'Popup__CohortField',
                 placement: 'bottom-start',
@@ -122,6 +123,7 @@ export function CohortTaxonomicField({
             }}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
+            data-attr={`cohort-taxonomic-field-${fieldKey}`}
         />
     )
 }
@@ -180,11 +182,12 @@ export function CohortNumberField({
     return (
         <LemonInput
             type="number"
-            value={(value as string | number) ?? undefined}
+            value={(value as number) ?? undefined}
             onChange={(nextNumber) => {
-                onChange({ [fieldKey]: parseInt(nextNumber) })
+                onChange({ [fieldKey]: nextNumber })
             }}
             min={1}
+            step={1}
             className={clsx('CohortField', 'CohortField__CohortNumberField')}
         />
     )

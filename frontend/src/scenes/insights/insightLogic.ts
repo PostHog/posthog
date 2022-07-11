@@ -3,7 +3,7 @@ import { prompt } from 'lib/logic/prompt'
 import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
-import { insightLogicType } from './insightLogicType'
+import type { insightLogicType } from './insightLogicType'
 import {
     ActionType,
     FilterType,
@@ -39,6 +39,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -247,6 +248,7 @@ export const insightLogic = kea<insightLogicType>({
                     cache.abortController = new AbortController()
 
                     const { filters } = values
+
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                     const params = { ...filters, ...(refresh ? { refresh: true } : {}) }
 
@@ -263,6 +265,16 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     try {
                         if (
+                            values.savedInsight?.id &&
+                            objectsEqual(cleanFilters(filters), cleanFilters(values.savedInsight.filters ?? {}))
+                        ) {
+                            // Instead of making a search for filters, reload the insight via its id if possible.
+                            // This makes sure we update the insight's cache key if we get new default filters.
+                            response = await api.get(
+                                `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
+                                cache.abortController.signal
+                            )
+                        } else if (
                             insight === InsightType.TRENDS ||
                             insight === InsightType.STICKINESS ||
                             insight === InsightType.LIFECYCLE
@@ -283,7 +295,7 @@ export const insightLogic = kea<insightLogicType>({
                         } else if (insight === InsightType.PATHS) {
                             response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
                         } else {
-                            throw new Error(`Can not load insight of type ${insight}`)
+                            throw new Error(`Cannot load insight of type ${insight}`)
                         }
                     } catch (e: any) {
                         if (e.name === 'AbortError') {
@@ -354,8 +366,7 @@ export const insightLogic = kea<insightLogicType>({
                           result: null,
                           filters: {},
                       },
-            setInsight: (state, { insight, options: { shouldMergeWithExisting } }) => ({
-                ...(shouldMergeWithExisting ? state : {}),
+            setInsight: (_state, { insight }) => ({
                 ...insight,
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
@@ -543,11 +554,17 @@ export const insightLogic = kea<insightLogicType>({
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
+        supportsCsvExport: [
+            (s) => [s.insight],
+            ({ filters }): boolean => {
+                return filters?.insight === InsightType.TRENDS
+            },
+        ],
         csvExportUrl: [
-            (s) => [s.insight, s.currentTeamId],
-            (insight: Partial<InsightModel>, currentTeamId: number) => {
+            (s) => [s.insight, s.currentTeamId, s.supportsCsvExport],
+            (insight: Partial<InsightModel>, currentTeamId: number, supportsCsvExport: boolean) => {
                 const { filters, name, short_id, derived_name } = insight
-                if (filters?.insight === InsightType.TRENDS) {
+                if (filters && supportsCsvExport) {
                     return `/api/projects/${currentTeamId}/insights/trend.csv/?${toParams({
                         ...filterTrendsClientSideParams(filters),
                         export_name: name || derived_name,
@@ -556,11 +573,63 @@ export const insightLogic = kea<insightLogicType>({
                 }
             },
         ],
+        exporterResourceParams: [
+            (s) => [s.filters, s.currentTeamId, s.insight],
+            (
+                filters: Partial<FilterType>,
+                currentTeamId: number,
+                insight: Partial<InsightModel>
+            ): TriggerExportProps['export_context'] | null => {
+                const insightType = (filters.insight as InsightType | undefined) || InsightType.TRENDS
+                const params = { ...filters }
+
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+
+                if (
+                    insightType === InsightType.TRENDS ||
+                    insightType === InsightType.STICKINESS ||
+                    insightType === InsightType.LIFECYCLE
+                ) {
+                    return {
+                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                            filterTrendsClientSideParams(params)
+                        )}`,
+                        filename,
+                    }
+                } else if (insightType === InsightType.RETENTION) {
+                    return { filename, path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}` }
+                } else if (insightType === InsightType.FUNNELS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/funnel`,
+                        body: params,
+                    }
+                } else if (insightType === InsightType.PATHS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/path`,
+                        body: params,
+                    }
+                } else {
+                    return null
+                }
+            },
+        ],
     },
     listeners: ({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
+                return
+            }
+            const dupeFilters = { ...filters }
+            const dupePrevFilters = { ...selectors.filters(previousState) }
+            delete dupeFilters.new_entity
+            delete dupePrevFilters.new_entity
+
+            if (objectsEqual(dupePrevFilters, dupeFilters)) {
                 return
             }
 
@@ -746,7 +815,7 @@ export const insightLogic = kea<insightLogicType>({
 
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
-                { fromPersistentApi: true }
+                { fromPersistentApi: true, overrideFilter: true }
             )
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
@@ -759,7 +828,6 @@ export const insightLogic = kea<insightLogicType>({
 
             if (redirectToViewMode) {
                 const mountedInsightSceneLogic = insightSceneLogic.findMounted()
-                mountedInsightSceneLogic?.actions.syncInsightChanged(false)
                 if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
@@ -786,7 +854,7 @@ export const insightLogic = kea<insightLogicType>({
                 saved: true,
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)
-            actions.setInsight(insight, { fromPersistentApi: true })
+            actions.setInsight(insight, { fromPersistentApi: true, overrideFilter: true })
             savedInsightsLogic.findMounted()?.actions.loadInsights()
             router.actions.push(urls.insightEdit(insight.short_id))
         },

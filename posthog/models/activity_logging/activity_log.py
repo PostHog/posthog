@@ -8,16 +8,20 @@ from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.dashboard import Dashboard
 from posthog.models.user import User
 from posthog.models.utils import UUIDT, UUIDModel
 
 logger = structlog.get_logger(__name__)
 
+ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig"]
+ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: Literal["FeatureFlag", "Person", "Insight"]
-    action: Literal["changed", "created", "deleted", "merged", "split"]
+    type: ActivityScope
+    action: ChangeAction
     field: Optional[str] = None
     before: Optional[Any] = None
     after: Optional[Any] = None
@@ -82,8 +86,23 @@ class ActivityLog(UUIDModel):
 
 
 field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] = {
-    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag",],
-    "Person": ["id", "uuid", "distinct_ids", "name", "created_at", "is_identified",],
+    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
+    "Person": [
+        "id",
+        "uuid",
+        "distinct_ids",
+        "name",
+        "created_at",
+        "is_identified",
+        "persondistinctid",
+        "cohort",
+        "cohortpeople",
+        "properties_last_updated_at",
+        "properties_last_operation",
+        "team",
+        "version",
+        "is_user",
+    ],
     "Insight": [
         "id",
         "filters_hash",
@@ -93,7 +112,6 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "updated_at",
         "type",
         "funnel",
-        "deprecated_tags",
         "last_modified_at",
         "layouts",
         "color",
@@ -103,8 +121,31 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "last_refresh",
         "saved",
         "is_sample",
+        "refresh_attempt",
+        "last_modified_by",
+        "short_id",
+        "created_by",
+        "insightviewed",
+        "dashboardtile",
     ],
 }
+
+
+def _description(m: List[Any]) -> Union[str, Dict]:
+    if isinstance(m, Dashboard):
+        return {"id": m.id, "name": m.name}
+    else:
+        return str(m)
+
+
+def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
+    described_models = [_description(r) for r in relation.all()]
+
+    if all(isinstance(elem, str) for elem in described_models):
+        # definitely a list of strings now but mypy doesn't know that
+        described_models = sorted(described_models)  # type: ignore
+
+    return described_models
 
 
 def changes_between(
@@ -122,13 +163,20 @@ def changes_between(
         return changes
 
     if previous is not None:
-        fields = current._meta.fields if current is not None else []
+        fields = current._meta.get_fields() if current is not None else []
 
-        # TODO how to include tags in the fields assessed
         filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
         for field in filtered_fields:
             left = getattr(previous, field, None)
+            if isinstance(left, models.Manager):
+                left = _read_through_relation(left)
+
             right = getattr(current, field, None)
+            if isinstance(right, models.Manager):
+                right = _read_through_relation(right)
+
+            if field == "tagged_items":
+                field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
             if left is None and right is not None:
                 changes.append(Change(type=model_type, field=field, action="created", after=right,))
@@ -136,6 +184,36 @@ def changes_between(
                 changes.append(Change(type=model_type, field=field, action="deleted", before=left,))
             elif left != right:
                 changes.append(Change(type=model_type, field=field, action="changed", before=left, after=right,))
+
+    return changes
+
+
+def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], new: Dict[Any, Any],) -> List[Change]:
+    """
+    Identifies changes between two dictionaries by comparing fields
+    """
+    changes: List[Change] = []
+
+    if previous == new:
+        return changes
+
+    previous = previous or {}
+    new = new or {}
+
+    fields = set(list(previous.keys()) + list(new.keys()))
+
+    for field in fields:
+        previous_value = previous.get(field, None)
+        new_value = new.get(field, None)
+
+        if previous_value is None and new_value is not None:
+            changes.append(Change(type=model_type, field=field, action="created", after=new_value,))
+        elif new_value is None and previous_value is not None:
+            changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value,))
+        elif previous_value != new_value:
+            changes.append(
+                Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value,)
+            )
 
     return changes
 
@@ -153,7 +231,7 @@ def log_activity(
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
-                "ignore_update_activity_no_changes",
+                "activity_log.ignore_update_activity_no_changes",
                 team_id=team_id,
                 organization_id=organization_id,
                 user_id=user.id,
@@ -172,7 +250,7 @@ def log_activity(
         )
     except Exception as e:
         logger.warn(
-            "failed to write activity log",
+            "activity_log.failed_to_write_to_activity_log",
             team=team_id,
             organization_id=organization_id,
             scope=scope,
@@ -190,22 +268,7 @@ class ActivityPage:
     results: List[ActivityLog]
 
 
-def load_activity(
-    scope: Literal["FeatureFlag", "Person", "Insight"],
-    team_id: int,
-    item_id: Optional[int] = None,
-    limit: int = 10,
-    page: int = 1,
-) -> ActivityPage:
-    # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
-
-    activity_query = (
-        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
-    )
-
-    if item_id is not None:
-        activity_query = activity_query.filter(item_id=item_id)
-
+def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: int = 1,) -> ActivityPage:
     paginator = Paginator(activity_query, limit)
     activity_page = paginator.page(page)
 
@@ -216,3 +279,26 @@ def load_activity(
         has_next=activity_page.has_next(),
         has_previous=activity_page.has_previous(),
     )
+
+
+def load_activity(
+    scope: ActivityScope, team_id: int, item_id: Optional[int] = None, limit: int = 10, page: int = 1,
+) -> ActivityPage:
+    # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
+
+    activity_query = (
+        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
+    )
+
+    if item_id is not None:
+        activity_query = activity_query.filter(item_id=item_id)
+
+    return get_activity_page(activity_query, limit, page)
+
+
+def load_all_activity(scope_list: List[ActivityScope], team_id: int, limit: int = 10, page: int = 1):
+    activity_query = (
+        ActivityLog.objects.select_related("user").filter(team_id=team_id, scope__in=scope_list).order_by("-created_at")
+    )
+
+    return get_activity_page(activity_query, limit, page)

@@ -2,7 +2,6 @@
 application-import-names = posthog
 import-order-style = pycharm
 
-max-line-length = 127
 max-complexity = 10
 
 # Error / Violation code details are available at:
@@ -28,18 +27,17 @@ ignore=
     C414, # Unnecessary list call within sorted().
     C416, # Unnecessary list comprehension - rewrite using list().
     C901, # function complexity
-    E203, # whitespace before ‘:’. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
+    E203, # whitespace before ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E231, # missing whitespace after ‘,’, ‘;’, or ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E302, # expected 2 blank lines, found 0. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
     E402, # module level import not at top of file
-    E501, # line too long
+    E501, # line too long. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E722, # do not use bare except, specify exception instead
     E731, # do not assign a lambda expression, use a def
     F403, # ‘from module import *’ used; unable to detect undefined names
     F405, # name may be undefined, or defined from star imports: module
     F541, # f-string without any placeholders
     F601, # dictionary key name repeated with different values
-    F841, # local variable name is assigned to but never used
     I100, # Import statements are in the wrong order.
     I101, # Imported names are in the wrong order
     I201, # Missing newline between import groups.
@@ -53,14 +51,17 @@ exclude =
     ./env
 
 per-file-ignores =
+    __init__.py:F401
+    ./posthog/queries/column_optimizer/column_optimizer.py:F401
+    ./posthog/queries/cohort_query.py:F401
     ./cypress/wait.py: T001
     ./docker-compose-config.py: T001
     ./posthog/client.py: T001
     ./ee/clickhouse/generate_local.py: T001
-    ./ee/management/commands/dry_run_matrix.py: T001
-    ./ee/management/commands/migrate_clickhouse.py: T001
-    ./ee/management/commands/run_async_migrations.py: T001
-    ./ee/management/commands/backfill_persons_and_groups_on_events.py: T001
+    ./posthog/management/commands/dry_run_matrix.py: T001
+    ./posthog/management/commands/migrate_clickhouse.py: T001
+    ./posthog/management/commands/run_async_migrations.py: T001
+    ./posthog/management/commands/backfill_persons_and_groups_on_events.py: T001
     ./gunicorn.config.py: T001
     ./posthog/api/capture.py: T001
     ./posthog/apps.py: T001

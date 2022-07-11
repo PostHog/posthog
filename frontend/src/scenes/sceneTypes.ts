@@ -14,7 +14,9 @@ export enum Scene {
     Events = 'Events',
     DataManagement = 'DataManagement',
     EventDefinitions = 'EventDefinitionsTable',
+    EventDefinition = 'EventDefinition',
     EventPropertyDefinitions = 'EventPropertyDefinitionsTable',
+    EventPropertyDefinition = 'EventPropertyDefinition',
     SessionRecordings = 'SessionsRecordings',
     Person = 'Person',
     Persons = 'Persons',
@@ -44,6 +46,7 @@ export enum Scene {
     SavedInsights = 'SavedInsights',
     ToolbarLaunch = 'ToolbarLaunch',
     WebPerformance = 'WebPerformance',
+    IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
     Login = 'Login',
     Signup = 'Signup',
@@ -53,6 +56,7 @@ export enum Scene {
     PreflightCheck = 'PreflightCheck',
     Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
+    Unsubscribe = 'Unsubscribe',
 }
 
 export type SceneProps = Record<string, any>

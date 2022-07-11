@@ -1,35 +1,38 @@
-@import '~/vars';
-
-.lemon-tag {
+.LemonTag {
     font-size: 0.75rem;
-    font-weight: $medium;
-    background: $border;
+    font-weight: var(--font-medium);
+    background: var(--border);
     padding: 0.125rem 0.25rem;
-    border-radius: $radius;
+    border-radius: var(--radius);
     text-transform: uppercase;
     display: inline-flex;
     align-items: center;
-    color: $text_default;
+    color: var(--text-default);
     line-height: 1rem;
     white-space: nowrap;
 
     &.warning {
-        background-color: $warning;
+        background-color: var(--warning);
     }
 
     &.danger {
-        background-color: $danger;
-        color: $text_light;
+        background-color: var(--danger);
+        color: var(--text-light);
     }
 
     &.success {
-        background-color: $success;
-        color: $text_light;
+        background-color: var(--success);
+        color: var(--text-light);
     }
 
-    .lemon-tag__icon {
+    .LemonTag__icon {
         font-size: 0.875rem;
         margin-right: 0.125rem;
         display: flex;
+    }
+    .LemonTag__right-button {
+        margin-left: 0.25rem;
+        min-height: 1.5rem;
+        padding: 0.125rem 0.125rem;
     }
 }

@@ -1,4 +1,4 @@
-@import '~/vars';
+@import '../../styles/breakpoints';
 
 .saved-insights {
     height: 100%;
@@ -17,9 +17,9 @@
     .new-insight-dropdown-btn {
         cursor: pointer;
         height: 40px;
-        background-color: $primary;
+        background-color: var(--primary);
         padding: 8px 12px 8px 16px;
-        border: 1px solid $border;
+        border: 1px solid var(--border);
         border-radius: 4px;
         color: white;
     }
@@ -31,13 +31,13 @@
     }
 
     .star-outlined {
-        color: $border_dark;
+        color: var(--border-dark);
     }
 
     .list-or-card-layout {
-        color: $text_muted_alt;
+        color: var(--text-muted-alt);
         padding: 1rem 0;
-        border-top: 1px solid $border;
+        border-top: 1px solid var(--border);
         justify-content: space-between;
         align-items: center;
     }
@@ -58,7 +58,7 @@
                 line-height: 1em;
                 text-align: center;
                 margin-bottom: 1rem;
-                color: $border;
+                color: var(--border);
             }
 
             .empty-state__title {
@@ -71,7 +71,7 @@
                 font-weight: 500;
                 font-size: 1rem;
                 line-height: 1.7rem;
-                color: $text_muted;
+                color: var(--text-muted);
             }
 
             button.add-insight-button {

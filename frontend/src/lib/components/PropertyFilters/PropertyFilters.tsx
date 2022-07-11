@@ -3,10 +3,8 @@ import { useValues, BindLogic, useActions } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import { FilterRow } from './components/FilterRow'
 import '../../../scenes/actions/Actions.scss'
-import { TooltipPlacement } from 'antd/lib/tooltip'
 import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Placement } from '@popperjs/core'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import './PropertyFilters.scss'
 
@@ -17,8 +15,6 @@ interface PropertyFiltersProps {
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
-    popoverPlacement?: TooltipPlacement | null
-    taxonomicPopoverPlacement?: Placement
     style?: CSSProperties
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
@@ -34,8 +30,6 @@ export function PropertyFilters({
     pageKey,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
-    popoverPlacement = null,
-    taxonomicPopoverPlacement = undefined,
     taxonomicGroupTypes,
     style = {},
     showNestedArrow = false,
@@ -69,8 +63,6 @@ export function PropertyFilters({
                                 pageKey={pageKey}
                                 showConditionBadge={showConditionBadge}
                                 disablePopover={disablePopover || orFiltering}
-                                popoverPlacement={popoverPlacement}
-                                taxonomicPopoverPlacement={taxonomicPopoverPlacement}
                                 label={'Add filter'}
                                 onRemove={remove}
                                 useLemonButton={useLemonButton}
@@ -88,7 +80,7 @@ export function PropertyFilters({
                                         disablePopover={disablePopover || orFiltering}
                                         selectProps={{
                                             delayBeforeAutoOpen: 150,
-                                            placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
+                                            placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
                                         }}
                                     />
                                 )}

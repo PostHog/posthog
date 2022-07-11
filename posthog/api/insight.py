@@ -18,13 +18,8 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 
-from ee.clickhouse.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
-from ee.clickhouse.queries.funnels.utils import get_funnel_order_class
-from ee.clickhouse.queries.paths.paths import ClickhousePaths
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
 from posthog.api.documentation import extend_schema
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
     FunnelSerializer,
     FunnelStepsResultsSerializer,
@@ -48,15 +43,8 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import DashboardTile, Filter, Insight, Team, User
-from posthog.models.activity_logging.activity_log import (
-    ActivityPage,
-    Change,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -64,16 +52,16 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.insight import InsightViewed, generate_insight_cache_key
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
+from posthog.queries.funnels.utils import get_funnel_order_class
+from posthog.queries.paths.paths import Paths
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
+from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.utils import (
-    format_query_params_absolute_url,
-    get_safe_cache,
-    relative_date_parse,
-    should_refresh,
-    str_to_bool,
-)
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -139,7 +127,13 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
+        filters = instance.dashboard_filters()
+
+        if not filters.get("date_from"):
+            filters.update(
+                {"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d",}
+            )
+        representation["filters"] = filters
         return representation
 
 
@@ -259,7 +253,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         try:
-            before_update = Insight.objects.get(pk=instance.id)
+            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
         except Insight.DoesNotExist:
             before_update = None
 
@@ -268,21 +262,28 @@ class InsightSerializer(InsightBasicSerializer):
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
-        dashboards = validated_data.pop("dashboards", None)
-        if dashboards is not None:
-            old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
-            new_dashboard_ids = [d.id for d in dashboards]
 
-            ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-            ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+        if validated_data.get("deleted", False):
+            DashboardTile.objects.filter(insight__id=instance.id).delete()
+        else:
+            dashboards = validated_data.pop("dashboards", None)
+            if dashboards is not None:
+                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
+                new_dashboard_ids = [d.id for d in dashboards]
 
-            for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
-                if dashboard.team != instance.team:
-                    raise serializers.ValidationError("Dashboard not found")
-                DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+                ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
+                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
 
-            if ids_to_remove:
-                DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                    if dashboard.team != instance.team:
+                        raise serializers.ValidationError("Dashboard not found")
+                    DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+
+                if ids_to_remove:
+                    DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
+
+                # also update in-model dashboards set so activity log can detect the change
+                instance.dashboards.set(dashboards)
 
         updated_insight = super().update(instance, validated_data)
 
@@ -377,7 +378,7 @@ class InsightSerializer(InsightBasicSerializer):
         return representation
 
 
-class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.ModelViewSet):
+class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Insight.objects.all()
     serializer_class = InsightSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
@@ -385,6 +386,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
+
+    retention_query_class = Retention
+    stickiness_query_class = Stickiness
+    paths_query_class = Paths
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
@@ -396,6 +401,11 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
+
+        if not self.action.endswith("update"):
+            # Soft-deleted insights can be brought back with a PATCH request
+            queryset = queryset.filter(deleted=False)
+
         queryset = queryset.prefetch_related(
             "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
         )
@@ -565,9 +575,9 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             stickiness_filter = StickinessFilter(
                 request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
             )
-            result = ClickhouseStickiness().run(stickiness_filter, team)
+            result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
-            trends_query = ClickhouseTrends()
+            trends_query = Trends()
             result = trends_query.run(filter, team)
 
         return {"result": result, "timezone": team.timezone}
@@ -644,7 +654,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             data.update({"date_from": "-11d"})
         filter = RetentionFilter(data=data, request=request, team=self.team)
         base_uri = request.build_absolute_uri("/")
-        result = ClickhouseRetention(base_uri=base_uri).run(filter, team)
+        result = self.retention_query_class(base_uri=base_uri).run(filter, team)
         return {"result": result, "timezone": team.timezone}
 
     # ******************************************
@@ -674,7 +684,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         #  backwards compatibility
         if filter.path_type:
             filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
-        resp = ClickhousePaths(filter=filter, team=team, funnel_filter=funnel_filter).run()
+        resp = self.paths_query_class(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp, "timezone": team.timezone}
 
@@ -689,31 +699,13 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
         )
         return Response(status=status.HTTP_201_CREATED)
 
-    def destroy(self, request, *args, **kwargs):
-        instance: Insight = self.get_object()
-        instance_id = instance.id
-        instance_short_id = instance.short_id
-
-        instance.delete()
-
-        log_insight_activity(
-            activity="deleted",
-            insight=instance,
-            insight_id=instance_id,
-            insight_short_id=instance_short_id,
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-        )
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
-        activity_page = load_activity(scope="Insight", team_id=self.team_id)
-        return self._return_activity_page(activity_page, limit, page, request)
+
+        activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -725,23 +717,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, viewsets.Mo
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
-
-    @staticmethod
-    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
-        return Response(
-            {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
-                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
-                if activity_page.has_next
-                else None,
-                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
-                if activity_page.has_previous
-                else None,
-                "total_count": activity_page.total_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return activity_page_response(activity_page, limit, page, request)
 
 
 class LegacyInsightViewSet(InsightViewSet):

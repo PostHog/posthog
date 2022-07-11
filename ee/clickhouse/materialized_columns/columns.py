@@ -4,9 +4,9 @@ from typing import Dict, List, Literal, Union
 
 from django.utils.timezone import now
 
-from ee.clickhouse.materialized_columns.util import cache_for
-from ee.clickhouse.replication.utils import clickhouse_is_replicated
-from ee.clickhouse.sql.clickhouse import trim_quotes_expr
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns.util import cache_for
+from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property import PropertyName, TableWithProperties
@@ -33,7 +33,7 @@ def get_materialized_columns(table: TablesWithMaterializedColumns) -> Dict[Prope
         {"database": CLICKHOUSE_DATABASE, "table": table},
     )
     if rows and get_instance_setting("MATERIALIZED_COLUMNS_ENABLED"):
-        return {extract_property(comment): column_name for comment, column_name in rows}
+        return {_extract_property(comment): column_name for comment, column_name in rows}
     else:
         return {}
 
@@ -45,7 +45,7 @@ def materialize(table: TableWithProperties, property: PropertyName, column_name=
 
         raise ValueError(f"Property already materialized. table={table}, property={property}")
 
-    column_name = column_name or materialized_column_name(table, property)
+    column_name = column_name or _materialized_column_name(table, property)
     # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
     execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
 
@@ -134,7 +134,7 @@ def backfill_materialized_columns(
     )
 
 
-def materialized_column_name(table: TableWithProperties, property: PropertyName) -> str:
+def _materialized_column_name(table: TableWithProperties, property: PropertyName) -> str:
     "Returns a sanitized and unique column name to use for materialized column"
 
     prefix = "mat_" if table == "events" else "pmat_"
@@ -149,5 +149,5 @@ def materialized_column_name(table: TableWithProperties, property: PropertyName)
     return f"{prefix}{property_str}{suffix}"
 
 
-def extract_property(comment: str) -> PropertyName:
+def _extract_property(comment: str) -> PropertyName:
     return comment.split("::", 1)[1]

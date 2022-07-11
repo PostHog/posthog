@@ -11,6 +11,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import type { activityLogLogicType } from './activityLogLogicType'
 import { PaginationManual } from 'lib/components/PaginationControl'
 import { urls } from 'scenes/urls'
+import { router } from 'kea-router'
 
 export const activityLogLogic = kea<activityLogLogicType>({
     path: (key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key],
@@ -88,11 +89,25 @@ export const activityLogLogic = kea<activityLogLogicType>({
 
             const shouldPage =
                 (pageScope === ActivityScope.PERSON && hashParams['activeTab'] === 'history') ||
-                (pageScope === ActivityScope.FEATURE_FLAG && searchParams['tab'] === 'history') ||
-                (pageScope === ActivityScope.INSIGHT && searchParams['tab'] === 'history')
+                ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT, ActivityScope.PLUGIN].includes(pageScope) &&
+                    searchParams['tab'] === 'history')
 
             if (shouldPage && pageInURL && pageInURL !== values.page && pageScope === props.scope) {
                 actions.setPage(pageInURL)
+            }
+
+            const shouldRemovePageParam =
+                (pageScope === ActivityScope.PERSON && hashParams['activeTab'] !== 'history') ||
+                ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT, ActivityScope.PLUGIN].includes(pageScope) &&
+                    searchParams['tab'] !== 'history')
+
+            if (shouldRemovePageParam && 'page' in router.values.searchParams) {
+                const { page: _, ...newSearchParams } = router.values.searchParams
+                router.actions.replace(
+                    router.values.currentLocation.pathname,
+                    newSearchParams,
+                    router.values.hashParams
+                )
             }
         }
         return {
@@ -101,6 +116,8 @@ export const activityLogLogic = kea<activityLogLogicType>({
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG),
             [urls.savedInsights()]: ({}, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
+            [urls.projectApps()]: ({}, searchParams, hashParams) =>
+                onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     },
     events: ({ actions }) => ({

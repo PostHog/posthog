@@ -9,6 +9,13 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
+    is_action = serializers.SerializerMethodField(read_only=True)
+    action_id = serializers.IntegerField(read_only=True)
+    is_calculating = serializers.BooleanField(read_only=True)
+    last_calculated_at = serializers.DateTimeField(read_only=True)
+    last_updated_at = serializers.DateTimeField(read_only=True)
+    post_to_slack = serializers.BooleanField(default=False)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -24,9 +31,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "updated_at",
             "updated_by",
             "last_seen_at",
+            "last_updated_at",
             "verified",
             "verified_at",
             "verified_by",
+            # Action fields
+            "is_action",
+            "action_id",
+            "is_calculating",
+            "last_calculated_at",
+            "created_by",
+            "post_to_slack",
         )
         read_only_fields = [
             "id",
@@ -36,8 +51,15 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "volume_30_day",
             "query_usage_30_day",
             "last_seen_at",
+            "last_updated_at",
             "verified_at",
             "verified_by",
+            # Action fields
+            "is_action",
+            "action_id",
+            "is_calculating",
+            "last_calculated_at",
+            "created_by",
         ]
 
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
@@ -62,5 +84,10 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["owner"] = UserBasicSerializer(instance=instance.owner).data if instance.owner else None
+        representation["owner"] = (
+            UserBasicSerializer(instance=instance.owner).data if hasattr(instance, "owner") and instance.owner else None
+        )
         return representation
+
+    def get_is_action(self, obj):
+        return hasattr(obj, "action_id") and obj.action_id is not None

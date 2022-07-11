@@ -1,5 +1,4 @@
 import math
-from datetime import timedelta
 from typing import Tuple
 from urllib.parse import urlencode
 
@@ -9,19 +8,15 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import (
-    ACTIVITY_THRESHOLD_SECONDS,
-    DecompressedRecordingData,
-    RecordingSegment,
-    compress_and_chunk_snapshots,
-)
+from posthog.helpers.session_recording import ACTIVITY_THRESHOLD_SECONDS, DecompressedRecordingData, RecordingSegment
 from posthog.models import Filter
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
+from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
 from posthog.test.base import BaseTest
 
 
-def factory_session_recording_test(session_recording: SessionRecording, session_recording_event_factory):
+def factory_session_recording_test(session_recording: SessionRecording):
     def create_recording_request_and_filter(session_recording_id, limit=None, offset=None) -> Tuple[Request, Filter]:
         params = {}
         if limit:
@@ -34,29 +29,50 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
         req = Request(
             build_req, f"/api/event/session_recording?session_recording_id={session_recording_id}{urlencode(params)}"  # type: ignore
         )
-        return (req, Filter(request=req, data=params))
+        return req, Filter(request=req, data=params)
 
     class TestSessionRecording(BaseTest):
         maxDiff = None
 
         def test_get_snapshots(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
-                self.create_snapshot("user", "1", now())
-                self.create_snapshot("user", "1", now() + relativedelta(seconds=10))
-                self.create_snapshot("user2", "2", now() + relativedelta(seconds=20))
-                self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
+                create_snapshot(
+                    has_full_snapshot=False, distinct_id="user", session_id="1", timestamp=now(), team_id=self.team.id
+                )
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now() + relativedelta(seconds=10),
+                    team_id=self.team.id,
+                )
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user2",
+                    session_id="2",
+                    timestamp=now() + relativedelta(seconds=20),
+                    team_id=self.team.id,
+                )
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now() + relativedelta(seconds=30),
+                    team_id=self.team.id,
+                )
 
                 req, filter = create_recording_request_and_filter("1")
                 recording: DecompressedRecordingData = session_recording(  # type: ignore
                     team=self.team, session_recording_id="1", request=req
                 ).get_snapshots(filter.limit, filter.offset)
+
                 self.assertEqual(
                     recording.snapshot_data_by_window_id,
                     {
                         "": [
-                            {"timestamp": 1_600_000_000_000, "type": 2, "data": {"source": 0}},
-                            {"timestamp": 1_600_000_010_000, "type": 2, "data": {"source": 0}},
-                            {"timestamp": 1_600_000_030_000, "type": 2, "data": {"source": 0}},
+                            {"timestamp": 1600000000.0, "type": 2, "data": {"source": 0}, "has_full_snapshot": False,},
+                            {"timestamp": 1600000010.0, "type": 2, "data": {"source": 0}, "has_full_snapshot": False,},
+                            {"timestamp": 1600000030.0, "type": 2, "data": {"source": 0}, "has_full_snapshot": False,},
                         ]
                     },
                 )
@@ -65,16 +81,31 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
         def test_get_snapshots_does_not_leak_teams(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 another_team = Team.objects.create(organization=self.organization)
-                self.create_snapshot("user1", "1", now() + relativedelta(seconds=10), team_id=another_team.pk)
-                self.create_snapshot("user2", "1", now())
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user1",
+                    session_id="1",
+                    timestamp=now() + relativedelta(seconds=10),
+                    team_id=another_team.pk,
+                    data={"source": "other team"},
+                )
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user2",
+                    session_id="1",
+                    timestamp=now(),
+                    team_id=self.team.id,
+                    data={"source": 0},
+                )
 
                 req, filter = create_recording_request_and_filter("1")
                 recording: DecompressedRecordingData = session_recording(  # type: ignore
                     team=self.team, session_recording_id="1", request=req
                 ).get_snapshots(filter.limit, filter.offset)
+
                 self.assertEqual(
                     recording.snapshot_data_by_window_id,
-                    {"": [{"timestamp": 1_600_000_000_000, "type": 2, "data": {"source": 0}},]},
+                    {"": [{"data": {"source": 0}, "timestamp": 1600000000.0, "has_full_snapshot": False, "type": 2,}]},
                 )
 
         def test_get_snapshots_with_no_such_session(self):
@@ -90,7 +121,13 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 snapshots_per_chunk = 2
                 chunk_limit = 20
                 for _ in range(30):
-                    self.create_chunked_snapshots(snapshots_per_chunk, "user", chunked_session_id, now())
+                    create_chunked_snapshots(
+                        snapshot_count=snapshots_per_chunk,
+                        distinct_id="user",
+                        session_id=chunked_session_id,
+                        timestamp=now(),
+                        team_id=self.team.id,
+                    )
 
                 req, filter = create_recording_request_and_filter(chunked_session_id)
                 recording: DecompressedRecordingData = session_recording(  # type: ignore
@@ -106,8 +143,12 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
                 chunk_offset = 5
                 snapshots_per_chunk = 2
                 for index in range(16):
-                    self.create_chunked_snapshots(
-                        snapshots_per_chunk, "user", chunked_session_id, now() + relativedelta(minutes=index)
+                    create_chunked_snapshots(
+                        snapshot_count=snapshots_per_chunk,
+                        distinct_id="user",
+                        session_id=chunked_session_id,
+                        timestamp=now() + relativedelta(minutes=index),
+                        team_id=self.team.id,
                     )
 
                 req, filter = create_recording_request_and_filter(chunked_session_id, chunk_limit, chunk_offset)
@@ -122,48 +163,132 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
         def test_get_metadata(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 timestamp = now()
-                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="1")
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="1",
+                )
                 timestamp += relativedelta(seconds=1)
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="1",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
                 timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS)
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="1",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
                 timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 2)
-                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="1")
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="1",
+                )
                 timestamp += relativedelta(seconds=1)
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="1",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
                 timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
-                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="1")
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="1",
+                )
                 timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2)) - relativedelta(
                     seconds=4
                 )
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="1", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="1",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
 
                 timestamp = now()
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="2",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
                 timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 2)
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="2",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
                 timestamp += relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS)
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="2",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
                 timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
-                self.create_chunked_snapshots(
-                    1, "u", "1", timestamp, window_id="2", has_full_snapshot=False, source=3
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="2",
+                    has_full_snapshot=False,
+                    source=3,
                 )  # active
                 timestamp += relativedelta(seconds=math.floor(ACTIVITY_THRESHOLD_SECONDS / 2))
-                self.create_chunked_snapshots(1, "u", "1", timestamp, window_id="2")
+                create_chunked_snapshots(
+                    team_id=self.team.id,
+                    snapshot_count=1,
+                    distinct_id="u",
+                    session_id="1",
+                    timestamp=timestamp,
+                    window_id="2",
+                )
 
                 req = create_recording_request_and_filter("1")
                 recording: RecordingMetadata = session_recording(  # type: ignore
@@ -241,78 +366,39 @@ def factory_session_recording_test(session_recording: SessionRecording, session_
         def test_get_metadata_does_not_leak_teams(self):
             with freeze_time("2020-09-13T12:26:40.000Z"):
                 another_team = Team.objects.create(organization=self.organization)
-                self.create_snapshot("user", "1", now(), team_id=another_team.pk)
-                self.create_snapshot("user", "1", now() + relativedelta(seconds=10))
-                self.create_snapshot("user", "1", now() + relativedelta(seconds=20))
-                self.create_snapshot("user", "1", now() + relativedelta(seconds=30))
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now(),
+                    team_id=another_team.pk,
+                )
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now() + relativedelta(seconds=10),
+                    team_id=self.team.id,
+                )
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now() + relativedelta(seconds=20),
+                    team_id=self.team.id,
+                )
+                create_snapshot(
+                    has_full_snapshot=False,
+                    distinct_id="user",
+                    session_id="1",
+                    timestamp=now() + relativedelta(seconds=30),
+                    team_id=self.team.id,
+                )
 
                 req, _ = create_recording_request_and_filter("1")
                 recording: RecordingMetadata = session_recording(  # type: ignore
                     team=self.team, session_recording_id="1", request=req,
                 ).get_metadata()
                 self.assertNotEqual(recording.segments[0].start_time, now())
-
-        def create_snapshot(self, distinct_id, session_id, timestamp, window_id="", type=2, source=0, team_id=None):
-            if team_id is None:
-                team_id = self.team.pk
-            session_recording_event_factory(
-                team_id=team_id,
-                distinct_id=distinct_id,
-                timestamp=timestamp,
-                session_id=session_id,
-                window_id=window_id,
-                snapshot_data={"timestamp": timestamp.timestamp() * 1000, "type": type, "data": {"source": source}},
-            )
-
-        def create_chunked_snapshots(
-            self, snapshot_count, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True, source=0
-        ):
-            snapshot = []
-            for index in range(snapshot_count):
-                snapshot.append(
-                    {
-                        "event": "$snapshot",
-                        "properties": {
-                            "$snapshot_data": {
-                                "type": 2 if has_full_snapshot else 3,
-                                "data": {
-                                    "source": source,
-                                    "texts": [],
-                                    "attributes": [],
-                                    "removes": [],
-                                    "adds": [
-                                        {
-                                            "parentId": 4,
-                                            "nextId": 386,
-                                            "node": {
-                                                "type": 2,
-                                                "tagName": "style",
-                                                "attributes": {"data-emotion": "css"},
-                                                "childNodes": [],
-                                                "id": 729,
-                                            },
-                                        },
-                                    ],
-                                },
-                                "timestamp": (timestamp + timedelta(seconds=index)).timestamp() * 1000,
-                            },
-                            "$window_id": window_id,
-                            "$session_id": session_id,
-                            "distinct_id": distinct_id,
-                        },
-                    }
-                )
-            chunked_snapshots = compress_and_chunk_snapshots(
-                snapshot, chunk_size=15
-            )  # Small chunk size makes sure the snapshots are chunked for the test
-            for snapshot_chunk in chunked_snapshots:
-                session_recording_event_factory(
-                    team_id=self.team.pk,
-                    distinct_id=distinct_id,
-                    timestamp=timestamp,
-                    session_id=session_id,
-                    window_id=window_id,
-                    snapshot_data=snapshot_chunk["properties"].get("$snapshot_data"),
-                )
 
     return TestSessionRecording

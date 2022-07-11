@@ -1,0 +1,31 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<h3>Hi, {{ first_name }}!</h3>
+<div>
+    <p>Looks like you haven't sent any events to your PostHog instance yet. Oh no!</p>
+    <p>
+        If you're having trouble getting started, you can
+        <a
+            href="https://posthog.com/signup/self-host/get-in-touch?{{ utm_tags }}#demo"
+            target="_blank"
+        >
+            <strong>book a demo with our customer success team</strong>
+        </a>
+        and they'll show you everything PostHog has to offer, including…
+    </p>
+    <ul>
+        <li>How to build an AARRR <strong>funnel analysis</strong></li>
+        <li>How to launch products with <strong>feature flags</strong></li>
+        <li>How to find pain points with <strong>session recordings</strong></li>
+        <li>How to test ideas with <strong>experimentation</strong> and <strong>correlation analysis</strong></li>
+        <li>How to sync data with other tools using <strong>apps</strong></li>
+    </ul>
+    <p>Don't forget that you can also invite a teammate with code access to help you get started with PostHog too!</p>
+    <p>
+        Thanks,<br />
+        The PostHog Team
+    </p>
+</div>
+<div class="text-center">
+    <a href="{% absolute_uri '/ingestion' %}?{{ utm_tags }}" target="_blank"><button class="action-btn">Send some events!</button></a>
+</div>
+{% endblock %}

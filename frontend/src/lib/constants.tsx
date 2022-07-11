@@ -100,20 +100,29 @@ export const FEATURE_FLAGS = {
     RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
     WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
     NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
-    DATA_MANAGEMENT: 'data-management', // owner: @alexkim205
     INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
     DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
     SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
-    ONBOARDING_1: 'onboarding-1', // owner: @liyiy
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     MULTI_DASHBOARD_INSIGHTS: 'multi-dashboard-insights', // owner: @pauldambra
     INSIGHT_ACTIVITY_LOG: '8545-insight-activity-log', // owner: @pauldambra
-    COHORT_FILTERS: 'cohort-filters', // owner: @edscode
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     PROPERTY_FILTER_ON_DASHBOARD: 'property-filter-on-dashboard', // owner: @edscode
+    EXPORT_DASHBOARD_INSIGHTS: 'export-dashboard-insights', // owner: @benjackwhite
+    ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
+    BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
+    INSIGHT_SUBSCRIPTIONS: 'insight-subscriptions', // owner: @benjackwhite
+    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    SUBSCRIPTIONS_SLACK: 'subscriptions-slack', // owner: @benjackwhite
+    SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
+    TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
+    FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
+    EMBED_INSIGHTS: 'embed-insights', // owner: @mariusandra
+    ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: 'ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS', // owner: @pauldambra
+    HISTOGRAM_INSIGHTS: 'histogram-insights', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -136,6 +145,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
     [AvailableFeature.SAML]: LicensePlan.Enterprise,
     [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
+    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
@@ -160,11 +170,11 @@ export enum CohortTypeEnum {
  */
 export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
 
-export const SSOProviderNames: Record<SSOProviders, string> = {
+export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
-    saml: 'Single sign-on (SAML)',
+    saml: 'single sign-on (SAML)',
 }
 
 // TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the

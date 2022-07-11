@@ -1,0 +1,79 @@
+.funnel-correlation {
+    margin-bottom: 3rem;
+
+    .skew-warning {
+        margin-top: 1rem;
+        line-height: 2em;
+        border: 1px solid var(--warning);
+
+        .ant-card-body {
+            padding: 0.5rem 1rem;
+        }
+
+        h4 {
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            margin-left: -1rem;
+            margin-right: -1rem;
+            position: relative;
+
+            .close-button {
+                position: absolute;
+                right: 16px;
+                color: var(--text-muted) !important;
+                cursor: pointer;
+            }
+        }
+
+        b {
+            padding-bottom: 0.5rem;
+            font-weight: var(--font-medium);
+        }
+    }
+
+    .correlation-feedback {
+        margin-top: 1rem;
+
+        .ant-card-body {
+            padding: 0.5rem 1rem;
+        }
+
+        h4 {
+            padding: 0;
+            margin: 0;
+            font-weight: bold;
+            color: var(--text-muted-alt);
+        }
+
+        .emoji-button {
+            margin-right: 4px;
+            &:last-of-type {
+                margin-right: 0;
+            }
+        }
+
+        .row-initial {
+            display: flex;
+            align-items: center;
+            .ant-col {
+                text-align: right;
+                &:first-of-type {
+                    text-align: left;
+                }
+            }
+        }
+
+        .close-button {
+            color: var(--text-muted) !important;
+            cursor: pointer;
+            z-index: var(--z-raised);
+        }
+
+        .feedback-button {
+            margin: 1rem 0;
+        }
+    }
+}

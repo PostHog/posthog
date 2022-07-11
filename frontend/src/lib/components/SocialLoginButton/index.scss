@@ -1,30 +1,27 @@
-@import '~/vars';
+@import '../../../styles/breakpoints';
 
 .social-logins {
-    margin-bottom: $default_spacing;
-    margin-top: $default_spacing * 2;
+    margin-top: 1rem;
     text-align: center;
 
     &:not(.empty) {
-        border-top: 1px dashed $border;
-        padding-top: $default_spacing;
+        border-top: 1px dashed var(--border);
+        padding-top: 1rem;
     }
 
     button,
     a {
-        margin-bottom: $default_spacing / 2;
+        margin-bottom: 0.5rem;
     }
 
     .caption {
-        margin-bottom: $default_spacing / 2;
-        color: $text_muted;
+        margin-bottom: 0.5rem;
+        color: var(--text-muted);
     }
 
     @media screen and (max-width: $sm) {
-        margin-top: 0;
-
         .link-social-login {
-            padding: 0 $default_spacing / 2;
+            padding: 0 0.5rem;
         }
     }
 }
@@ -32,10 +29,10 @@
 .link-social-login {
     display: inline-flex;
     align-items: center;
-    color: $primary;
+    color: var(--primary);
 
     .anticon {
-        color: $primary_alt;
+        color: var(--primary-alt);
         transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
     }
 }

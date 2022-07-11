@@ -1,22 +1,15 @@
 import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { ChangeDescriptions, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import React from 'react'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { pluralize } from 'lib/utils'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'
     return item.item_id ? <Link to={urls.featureFlag(item.item_id)}>{name}</Link> : name
-}
-
-type Description = string | JSX.Element | null
-
-interface ChangeDescriptions {
-    descriptions: Description[]
-    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
-    bareName: boolean
 }
 
 const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: ActivityChange) => ChangeDescriptions | null> =
@@ -160,6 +153,15 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         key: function onKey(change) {
             return { descriptions: [<>changed flag key from ${change?.before}</>], bareName: false }
         },
+        ensure_experience_continuity: function onExperienceContinuity(change) {
+            let isEnabled: boolean = !!change?.after
+            if (typeof change?.after === 'string') {
+                isEnabled = change?.after.toLowerCase() === 'true'
+            }
+            const describeChange: string = isEnabled ? 'enabled' : 'disabled'
+
+            return { descriptions: [<>{describeChange}</>], bareName: true }
+        },
         // fields that are excluded on the backend
         id: () => null,
         created_at: () => null,
@@ -210,44 +212,4 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
     }
 
     return null
-}
-
-interface SentenceListProps {
-    listParts: (string | JSX.Element | null)[]
-    prefix?: string | JSX.Element | null
-    suffix?: string | JSX.Element | null
-}
-
-// TODO this should be a component. and needs the height of parts sorting out
-export function SentenceList({ listParts, prefix = null, suffix = null }: SentenceListProps): JSX.Element {
-    return (
-        <div className="sentence-list">
-            {prefix && <div className="sentence-part">{prefix}&#32;</div>}
-            <>
-                {listParts
-                    .filter((part) => !!part)
-                    .flatMap((part, index, all) => {
-                        const isntFirst = index > 0
-                        const isLast = index === all.length - 1
-                        const atLeastThree = all.length >= 2
-                        return [
-                            isntFirst && (
-                                <div className="sentence-part" key={`${index}-a`}>
-                                    ,&#32;
-                                </div>
-                            ),
-                            isLast && atLeastThree && (
-                                <div className="sentence-part" key={`${index}-b`}>
-                                    and&#32;
-                                </div>
-                            ),
-                            <div className="sentence-part" key={`${index}-c`}>
-                                {part}
-                            </div>,
-                        ]
-                    })}
-            </>
-            {suffix && <div className="sentence-part">&#32;{suffix}</div>}
-        </div>
-    )
 }

@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { delay, idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React from 'react'
-import { dashboardsModelType } from './dashboardsModelType'
+import type { dashboardsModelType } from './dashboardsModelType'
 import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,7 +39,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         loadDashboards: true,
-        loadSharedDashboard: (shareToken: string) => ({ shareToken }),
         duplicateDashboard: ({ id, name, show }: { id: number; name?: string; show?: boolean }) => ({
             id: id,
             name: name || `#${id}`,
@@ -51,23 +50,22 @@ export const dashboardsModel = kea<dashboardsModelType>({
             {} as Record<string, DashboardType>,
             {
                 loadDashboards: async (_, breakpoint) => {
+                    // looking at a fully exported dashboard, return its contents
+                    const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
+                    if (exportedDashboard?.id && exportedDashboard?.items) {
+                        return { [exportedDashboard.id]: exportedDashboard }
+                    }
+
                     await breakpoint(50)
+
                     if (!isUserLoggedIn()) {
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
-                        return []
+                        return {}
                     }
                     const { results } = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=300`
                     )
                     return idToKey(results ?? [])
-                },
-            },
-        ],
-        sharedDashboard: [
-            null as DashboardType | null,
-            {
-                loadSharedDashboard: async ({ shareToken }) => {
-                    return await api.get(`api/shared_dashboards/${shareToken}`)
                 },
             },
         ],
@@ -94,10 +92,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 }
                 return response
             },
-            setIsSharedDashboard: async ({ id, isShared }) =>
-                (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    is_shared: isShared,
-                })) as DashboardType,
             deleteDashboard: async ({ id }) =>
                 (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                     deleted: true,
@@ -149,7 +143,6 @@ export const dashboardsModel = kea<dashboardsModelType>({
             restoreDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             updateDashboardSuccess: (state, { dashboard }) =>
                 dashboard ? { ...state, [dashboard.id]: dashboard } : state,
-            setIsSharedDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
             deleteDashboardSuccess: (state, { dashboard }) => ({
                 ...state,
                 [dashboard.id]: { ...state[dashboard.id], deleted: true },
@@ -195,10 +188,7 @@ export const dashboardsModel = kea<dashboardsModelType>({
                 )
             },
         ],
-        dashboardsLoading: [
-            () => [selectors.rawDashboardsLoading, selectors.sharedDashboardLoading],
-            (dashesLoading, sharedLoading) => dashesLoading || sharedLoading,
-        ],
+        dashboardsLoading: [() => [selectors.rawDashboardsLoading], (dashesLoading) => dashesLoading],
         pinnedDashboards: [
             () => [selectors.nameSortedDashboards],
             (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),

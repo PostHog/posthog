@@ -5,6 +5,7 @@ import pytest
 from posthog.client import sync_execute
 from posthog.models import Cohort, FeatureFlag, Person, Team
 from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.test.base import BaseTest
 
 
@@ -38,7 +39,7 @@ class TestCohort(BaseTest):
         person1 = Person.objects.create(
             distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
-        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         person3 = Person.objects.create(
             distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
@@ -52,10 +53,7 @@ class TestCohort(BaseTest):
 
         uuids = [
             row[0]
-            for row in sync_execute(
-                "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s GROUP BY person_id, cohort_id, team_id HAVING sum(sign) > 0",
-                {"cohort_id": cohort.pk, "team_id": self.team.pk},
-            )
+            for row in sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"cohort_id": cohort.pk, "team_id": self.team.pk},)
         ]
         self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
@@ -71,13 +69,9 @@ class TestCohort(BaseTest):
 
     @patch("time.sleep", return_value=None)
     def test_batch_delete_cohort_people(self, patch_sleep):
-        person1 = Person.objects.create(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
-        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
-        person3 = Person.objects.create(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
-        )
+        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        Person.objects.create(distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"})
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],

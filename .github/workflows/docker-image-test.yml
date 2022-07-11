@@ -1,16 +1,52 @@
 name: Test Docker image build
 
 on:
-    - pull_request
+    pull_request:
+    push:
+        branches:
+            - master
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
 
 jobs:
     build:
         name: Test image build
         runs-on: ubuntu-20.04
 
+        outputs:
+            docker_image: ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
+
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
+
+            # As ghcr.io complains if the image has upper case letters, we use
+            # this action to ensure we get a lower case version. See
+            # https://github.com/docker/build-push-action/issues/237#issuecomment-848673650
+            # for more details
+            - name: Docker image metadata
+              id: meta
+              uses: docker/metadata-action@v3
+              with:
+                  images: ghcr.io/${{ github.repository }}/posthog
+                  tags: |
+                      type=ref,event=pr
+                      type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+                      type=raw,value=master,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+
+            # We also want to use cache-from when building, but we want to also
+            # include the master tag so we get the master branch image as well.
+            # This creates a scope similar to the github cache action scoping
+            - name: Docker cache-from/cache-to metadata
+              id: meta-for-cache
+              uses: docker/metadata-action@v3
+              with:
+                  images: ghcr.io/${{ github.repository }}/posthog
+                  tags: |
+                      type=raw,value=master
+                      type=ref,event=pr
 
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v1
@@ -18,9 +54,145 @@ jobs:
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v1
 
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v1
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Build
               id: docker_build
               uses: docker/build-push-action@v2
               with:
-                  push: false
-                  tags: posthog/posthog:testing
+                  push: true
+                  cache-from: ${{ steps.meta-for-cache.outputs.tags }}
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  # load: true # NOTE: this option is not compatible with `push: true`
+                  # NOTE: we use inline as suggested here:
+                  # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
+                  # It notes that it doesn't support mode=max, but we're not
+                  # removing any layers, soooo, maybe it's fine.
+                  cache-to: type=inline
+
+            - name: Output image info including size
+              run: |
+                  export docker_image=ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
+                  image_size_bytes=$(docker manifest inspect $docker_image | jq '[.layers[].size] | add')
+                  echo "### Build info" >> $GITHUB_STEP_SUMMARY
+                  echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
+                  echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
+
+    # Job that lists and chunks spec file names and caches node modules
+    cypress_prep:
+        name: Cypress E2E preparation
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        outputs:
+            specs: ${{ steps.set-specs.outputs.specs }}
+
+        steps:
+            - uses: actions/checkout@v2
+            - id: set-specs
+              # List cypress/e2e and produce a JSON array of the files, in chunks
+              run: echo "::set-output name=specs::$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(3) | join("\n")' | jq --slurp -c .)"
+
+    cypress:
+        name: Cypress E2E tests (${{ strategy.job-index }})
+        if: ${{ github.ref != 'refs/heads/master' }} # Don't run on master, we only cace about node_modules cache
+        runs-on: ubuntu-18.04
+        timeout-minutes: 30
+        needs: [build, cypress_prep]
+
+        strategy:
+            # when one test fails, DO NOT cancel the other
+            # containers, as there may be other spec failures
+            # we want to know about.
+            fail-fast: false
+            matrix:
+                specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v2
+
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d
+
+            - name: Wait for ClickHouse
+              run: ./bin/check_kafka_clickhouse_up
+
+            - name: Setup env
+              run: |
+                  cat <<EOT >> .env
+                  SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
+                  REDIS_URL=redis://localhost
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+                  KAFKA_URL=kafka://kafka:9092
+                  DISABLE_SECURE_SSL_REDIRECT=1
+                  SECURE_COOKIES=0
+                  OPT_OUT_CAPTURE=1
+                  SELF_CAPTURE=0
+                  E2E_TESTING=1
+                  EMAIL_HOST=email.test.posthog.net
+                  SITE_URL=http://localhost:8000
+                  NO_RESTART_LOOP=1
+                  CLICKHOUSE_SECURE=0
+                  OBJECT_STORAGE_ENABLED=1
+                  OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+                  OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+                  OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
+                  EOT
+
+            - name: Boot PostHog
+              env:
+                  DOCKER_IMAGE: ${{ needs.build.outputs.docker_image }}
+              run: |
+                  mkdir -p /tmp/logs
+
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env $DOCKER_IMAGE"
+
+                  $DOCKER_RUN ./bin/migrate
+                  $DOCKER_RUN python manage.py setup_dev
+
+                  $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
+                  $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
+
+            - name: Cypress run
+              uses: cypress-io/github-action@v2
+              with:
+                  config-file: cypress.e2e.config.ts
+                  config: retries=2
+                  spec: ${{ matrix.specs }}
+
+            - name: Archive test screenshots
+              uses: actions/upload-artifact@v3
+              with:
+                  name: screenshots
+                  path: cypress/screenshots
+              if: ${{ failure() }}
+
+            - name: Archive test downloads
+              uses: actions/upload-artifact@v3
+              with:
+                  name: downloads
+                  path: cypress/downloads
+              if: ${{ failure() }}
+
+            - name: Archive test videos
+              uses: actions/upload-artifact@v3
+              with:
+                  name: videos
+                  path: cypress/videos
+              if: ${{ failure() }}
+
+            - name: Show logs on failure
+              # use artefact here, as I think the output will be too large for display in an action
+              uses: actions/upload-artifact@v3
+              with:
+                  name: logs
+                  path: /tmp/logs
+              if: ${{ failure() }}

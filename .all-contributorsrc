@@ -1890,6 +1890,51 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "asavoy",
+      "name": "Alvin Savoy",
+      "avatar_url": "https://avatars.githubusercontent.com/u/235466?v=4",
+      "profile": "https://github.com/asavoy",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "Zombie123456",
+      "name": "Zombie123456",
+      "avatar_url": "https://avatars.githubusercontent.com/u/41881936?v=4",
+      "profile": "https://github.com/Zombie123456",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "bmarty",
+      "name": "Benoit Marty",
+      "avatar_url": "https://avatars.githubusercontent.com/u/3940906?v=4",
+      "profile": "https://github.com/bmarty",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "navi86",
+      "name": "Ivan Krylov",
+      "avatar_url": "https://avatars.githubusercontent.com/u/28907696?v=4",
+      "profile": "https://github.com/navi86",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "hakubo",
+      "name": "Jakub Olek",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1018759?v=4",
+      "profile": "https://github.com/hakubo",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

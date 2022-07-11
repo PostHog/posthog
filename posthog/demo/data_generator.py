@@ -37,7 +37,7 @@ class DataGenerator:
             for person, distinct_id in zip(self.people, self.distinct_ids)
         ]
         PersonDistinctId.objects.bulk_create(pids)
-        from ee.clickhouse.models.person import create_person, create_person_distinct_id
+        from posthog.models.person.util import create_person, create_person_distinct_id
 
         for person in self.people:
             create_person(
@@ -45,6 +45,7 @@ class DataGenerator:
                 team_id=person.team.pk,
                 properties=person.properties,
                 is_identified=person.is_identified,
+                version=0,
             )
         for pid in pids:
             create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
@@ -65,8 +66,8 @@ class DataGenerator:
         pass
 
     def bulk_import_events(self):
-        from ee.clickhouse.models.event import create_event
-        from ee.clickhouse.models.session_recording_event import create_session_recording_event
+        from posthog.models.event.util import create_event
+        from posthog.models.session_recording_event.util import create_session_recording_event
 
         for event_data in self.events:
             create_event(**event_data, team=self.team, event_uuid=uuid4())

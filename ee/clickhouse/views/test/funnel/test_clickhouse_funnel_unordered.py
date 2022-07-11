@@ -2,13 +2,12 @@ import json
 from datetime import datetime
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.models.group import create_group
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from ee.clickhouse.views.test.funnel.util import EventPattern, FunnelRequest, get_funnel_actors_ok, get_funnel_ok
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
@@ -25,18 +24,6 @@ class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin
 
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
-        filters = {
-            "events": [
-                {"id": "user signed up", "type": "events", "order": 0},
-                {"id": "paid", "type": "events", "order": 1},
-            ],
-            "insight": INSIGHT_FUNNELS,
-            "aggregation_group_type_index": 0,
-            "date_from": "2020-01-01",
-            "date_to": "2020-01-14",
-            "funnel_order_type": "unordered",
-        }
 
         events_by_person = {
             "user_1": [
@@ -55,7 +42,7 @@ class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin
                 }
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
 
         params = FunnelRequest(
             events=json.dumps(

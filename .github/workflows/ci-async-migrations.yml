@@ -33,7 +33,7 @@ jobs:
               run: |
                   export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
                   docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d db clickhouse zookeeper kafka redis &
+                  docker-compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@v2
@@ -72,6 +72,7 @@ jobs:
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
                   touch frontend/dist/shared_dashboard.html
+                  touch frontend/dist/exporter.html
 
             - name: Wait for Clickhouse & Kafka
               shell: bash

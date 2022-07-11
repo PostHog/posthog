@@ -51,6 +51,12 @@ describe('insightLogic', () => {
                 '/api/projects/:team/insights/path': { result: ['result from api'] },
                 '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
                 '/api/projects/:team/insights/retention/': { result: ['result from api'] },
+                '/api/projects/:team/insights/43/': {
+                    id: 43,
+                    short_id: Insight43,
+                    result: ['result 43'],
+                    filters: API_FILTERS,
+                },
                 '/api/projects/:team/insights/': (req) => {
                     if (req.url.searchParams.get('saved')) {
                         return [
@@ -395,11 +401,25 @@ describe('insightLogic', () => {
                             properties: [partial({ value: 'a' })],
                         }),
                     })
+                    // first result comes from the /insights/43/ api
+                    .toDispatchActions(['loadResults', 'loadResultsSuccess'])
+                    .toMatchValues({
+                        insight: partial({ id: 43, result: ['result 43'] }),
+                        filters: partial({
+                            events: [{ id: 3 }],
+                            properties: [partial({ value: 'a' })],
+                        }),
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ ...API_FILTERS, events: [{ id: 4 }] })
+                })
+                    // result with changed filters comes from the /insights/trends/ api
                     .toDispatchActions(['loadResults', 'loadResultsSuccess'])
                     .toMatchValues({
                         insight: partial({ id: 43, result: ['result from api'] }),
                         filters: partial({
-                            events: [{ id: 3 }],
+                            events: [{ id: 4 }],
                             properties: [partial({ value: 'a' })],
                         }),
                     })
@@ -748,6 +768,23 @@ describe('insightLogic', () => {
             expectLogic(logic).toMatchValues({
                 filterPropertiesCount: count,
             })
+        })
+    })
+
+    describe('setFilters with new entity', () => {
+        it('does not call the api on empty filters', async () => {
+            const insight = {
+                result: ['result from api'],
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ new_entity: [] })
+            }).toNotHaveDispatchedActions(['loadResults'])
         })
     })
 })

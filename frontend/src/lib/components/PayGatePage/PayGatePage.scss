@@ -1,11 +1,9 @@
-@import '~/vars';
-
 .pay-gate-page {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    margin-top: $default_spacing;
+    margin-top: 1rem;
 
     h2 {
         font-size: 32px;
@@ -14,7 +12,7 @@
 
         .highlight {
             font-weight: bold;
-            color: $danger;
+            color: var(--danger);
         }
     }
 
@@ -23,12 +21,12 @@
     }
 
     .pay-buttons {
-        margin-top: $default_spacing;
+        margin-top: 1rem;
         width: 320px;
         max-width: 90%;
 
         .ant-btn {
-            margin-bottom: $default_spacing;
+            margin-bottom: 1rem;
         }
     }
 }

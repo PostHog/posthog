@@ -24,7 +24,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
 } from '~/types'
-import { dayjs } from 'lib/dayjs'
+import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
@@ -124,6 +124,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         funnel_viz_type,
         funnel_from_step,
         funnel_to_step,
+        insight,
     } = filters
 
     let properties_local: string[] = []
@@ -191,6 +192,7 @@ function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any>
         breakdown_by_groups,
         using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
         used_cohort_filter_ids,
+        insight,
     }
 }
 
@@ -200,6 +202,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         values: [preflightLogic, ['realm'], userLogic, ['user']],
     },
     actions: {
+        reportEventsTablePollingReactedToPageVisibility: (pageIsVisible: boolean) => ({ pageIsVisible }),
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
         reportInsightCreated: (insight: InsightType | null) => ({ insight }),
@@ -261,15 +264,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean, delay?: number) => ({
+        reportDashboardViewed: (dashboard: DashboardType, delay?: number) => ({
             dashboard,
-            hasShareToken,
             delay,
         }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (lastRefreshed?: string | dayjs.Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | dayjs.Dayjs, dateTo?: string | dayjs.Dayjs | null) => ({
+        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
@@ -369,10 +371,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
-        reportExperimentLaunched: (experiment: Experiment, launchDate: dayjs.Dayjs) => ({ experiment, launchDate }),
+        reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentCompleted: (
             experiment: Experiment,
-            endDate: dayjs.Dayjs,
+            endDate: Dayjs,
             duration: number,
             significant: boolean
         ) => ({
@@ -422,7 +424,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadTime,
             error,
         }),
-        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: true,
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
             loadTime,
             resultsLength,
@@ -444,8 +445,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
         reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportInviteMembersButtonClicked: true,
+        reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
     },
     listeners: ({ values }) => ({
+        reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
+            posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })
+        },
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
             if (!annotations) {
                 // If value is `null` the component has been unmounted, don't report
@@ -600,7 +606,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
-        reportDashboardViewed: async ({ dashboard, hasShareToken, delay }, breakpoint) => {
+        reportDashboardViewed: async ({ dashboard, delay }, breakpoint) => {
             if (!delay) {
                 await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
             }
@@ -613,7 +619,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 sample_items_count: 0,
                 item_count: dashboard.items?.length || 0,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken,
                 dashboard_id: id,
             }
 
@@ -1000,9 +1005,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 error,
             })
         },
-        reportDataManagementEventDefinitionsPageClickNestedPropertyDetail: () => {
-            posthog.capture('event definitions page event nested property show detail clicked')
-        },
         reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
             posthog.capture('event property definitions page load succeeded', {
                 load_time: loadTime,
@@ -1065,6 +1067,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
+        },
+        reportInviteMembersButtonClicked: () => {
+            posthog.capture('invite members button clicked')
+        },
+        reportIngestionSidebarButtonClicked: ({ name }) => {
+            posthog.capture('ingestion sidebar button clicked', {
+                name: name,
+            })
         },
     }),
 })

@@ -1,7 +1,7 @@
-@import '~/vars';
+@import '../../../styles/breakpoints';
 
 .TopBar {
-    z-index: $z_main_nav;
+    z-index: var(--z-main-nav);
     position: sticky;
     top: 0;
     display: flex;
@@ -97,6 +97,7 @@
 
 .SitePopover {
     max-width: 22rem;
+    min-width: 16rem;
 }
 
 .SitePopover__main-info {

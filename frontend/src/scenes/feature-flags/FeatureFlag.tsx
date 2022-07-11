@@ -25,6 +25,10 @@ import { Field } from 'lib/forms/Field'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic as enabledFeatureFlagsToCheckLogic } from 'lib/logic/featureFlagLogic'
+import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -78,6 +82,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
 
+    const { featureFlags: enabledFeatureFlagsToCheck } = useValues(enabledFeatureFlagsToCheckLogic)
+
     return (
         <div className="feature-flag">
             {featureFlag ? (
@@ -125,7 +131,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         }
                     />
-                    <h3 className="l3">General configuration</h3>
+                    <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
+                    <h3 className="l3 mt">General configuration</h3>
                     <div className="text-muted mb">
                         General settings for your feature flag and integration instructions.
                     </div>
@@ -179,6 +186,42 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     placeholder="Adding a helpful description can ensure others know what this feature is for."
                                 />
                             </Field>
+
+                            {enabledFeatureFlagsToCheck[FEATURE_FLAGS.FEATURE_FLAG_EXPERIENCE_CONTINUITY] && (
+                                <Field name="ensure_experience_continuity">
+                                    {({ value, onChange }) => (
+                                        <div style={{ border: '1px solid var(--border)', borderRadius: 4 }}>
+                                            <LemonCheckbox
+                                                id="continuity-checkbox"
+                                                label={
+                                                    <div>
+                                                        Persist flag across authentication steps{' '}
+                                                        <LemonTag type="warning">Beta</LemonTag>
+                                                    </div>
+                                                }
+                                                onChange={() => onChange(!value)}
+                                                rowProps={{ fullWidth: true }}
+                                                checked={value}
+                                            />
+                                            <div
+                                                className="text-muted"
+                                                style={{
+                                                    fontSize: 13,
+                                                    marginLeft: '2.5rem',
+                                                    paddingBottom: '.75rem',
+                                                    paddingRight: '.75rem',
+                                                }}
+                                            >
+                                                If your feature flag is applied prior to an identify or authentication
+                                                event, use this to ensure that feature flags are not reset after a
+                                                person is identified. This ensures the experience for the anonymous
+                                                person is carried forward to the authenticated person. Currently
+                                                supported for posthog-js only.
+                                            </div>
+                                        </div>
+                                    )}
+                                </Field>
+                            )}
                         </Col>
                         <Col span={12} style={{ paddingTop: 31 }}>
                             <Collapse>
@@ -292,7 +335,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             if they match one or more release condition groups.
                         </div>
                         {multivariateEnabled && (
-                            <div className="variant-form-list">
+                            <div className="variant-form-list space-y-05">
                                 <Row gutter={8} className="label-row">
                                     <Col span={7}>Variant key</Col>
                                     <Col span={7}>Description</Col>
@@ -397,7 +440,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         focusVariantKeyField(newIndex)
                                     }}
                                     style={{ margin: '1rem 0' }}
-                                    size="small"
                                     fullWidth
                                     center
                                 >
@@ -540,7 +582,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </LemonButton>
                     </Card>
                     <div className="text-right">
-                        <LemonButton htmlType="submit" type="primary" data-attr="feature-flag-submit-bottom">
+                        <LemonButton
+                            htmlType="submit"
+                            loading={featureFlagLoading}
+                            type="primary"
+                            data-attr="feature-flag-submit-bottom"
+                        >
                             Save changes
                         </LemonButton>
                     </div>

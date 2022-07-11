@@ -5,7 +5,9 @@ import { Hub, PluginConfig, RawEventMessage } from 'types'
 
 import { UUIDT } from '../../../utils/utils'
 import { ApiExtension, createApi } from './api'
+
 const { version } = require('../../../../package.json')
+
 interface InternalData {
     distinct_id: string
     event: string
@@ -20,42 +22,36 @@ export interface DummyPostHog {
     api: ApiExtension
 }
 
-export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPostHog {
+async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalData): Promise<void> {
+    const partitionKeyHash = crypto.createHash('sha256')
+    partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
+    const partitionKey = partitionKeyHash.digest('hex')
+
+    await hub.kafkaProducer.queueMessage({
+        topic: hub.KAFKA_CONSUMPTION_TOPIC!,
+        messages: [
+            {
+                key: partitionKey,
+                value: JSON.stringify({
+                    distinct_id: data.distinct_id,
+                    ip: '',
+                    site_url: '',
+                    data: JSON.stringify(data),
+                    team_id: pluginConfig.team_id,
+                    now: data.timestamp,
+                    sent_at: data.timestamp,
+                    uuid: data.uuid,
+                } as RawEventMessage),
+            },
+        ],
+    })
+}
+
+export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
-    let sendEvent: (data: InternalData) => Promise<void>
-
-    if (server.KAFKA_ENABLED) {
-        // Sending event to our Kafka>ClickHouse pipeline
-        sendEvent = async (data) => {
-            const partitionKeyHash = crypto.createHash('sha256')
-            partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
-            const partitionKey = partitionKeyHash.digest('hex')
-
-            await server.kafkaProducer.queueMessage({
-                topic: server.KAFKA_CONSUMPTION_TOPIC!,
-                messages: [
-                    {
-                        key: partitionKey,
-                        value: JSON.stringify({
-                            distinct_id: data.distinct_id,
-                            ip: '',
-                            site_url: '',
-                            data: JSON.stringify(data),
-                            team_id: pluginConfig.team_id,
-                            now: data.timestamp,
-                            sent_at: data.timestamp,
-                            uuid: data.uuid,
-                        } as RawEventMessage),
-                    },
-                ],
-            })
-            server.statsd?.increment('vm_posthog_extension_capture_called')
-        }
-    }
-
     return {
-        async capture(event, properties = {}) {
+        capture: async (event, properties = {}) => {
             const { timestamp = DateTime.utc().toISO(), distinct_id = distinctId, ...otherProperties } = properties
             const data: InternalData = {
                 distinct_id,
@@ -70,8 +66,9 @@ export function createPosthog(server: Hub, pluginConfig: PluginConfig): DummyPos
                 team_id: pluginConfig.team_id,
                 uuid: new UUIDT().toString(),
             }
-            await sendEvent(data)
+            await queueEvent(hub, pluginConfig, data)
+            hub.statsd?.increment('vm_posthog_extension_capture_called')
         },
-        api: createApi(server, pluginConfig),
+        api: createApi(hub, pluginConfig),
     }
 }

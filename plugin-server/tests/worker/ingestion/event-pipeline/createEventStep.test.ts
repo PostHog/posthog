@@ -1,5 +1,5 @@
 import { PreIngestionEvent } from '../../../../src/types'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
+import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-createEventStep'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -12,9 +12,8 @@ const preIngestionEvent: PreIngestionEvent = {
     event: '$pageview',
     properties: {},
     elementsList: [],
+    person: { id: 'testid' } as any,
 }
-
-const testPerson: any = { id: 'testid' }
 
 describe('createEventStep()', () => {
     let runner: any
@@ -24,15 +23,15 @@ describe('createEventStep()', () => {
             nextStep: (...args: any[]) => args,
             hub: {
                 eventsProcessor: {
-                    createEvent: jest.fn(),
+                    createEvent: jest.fn().mockReturnValue(preIngestionEvent),
                 },
             },
         }
     })
 
     it('calls `createEvent` and forwards to `runAsyncHandlersStep`', async () => {
-        const response = await createEventStep(runner, preIngestionEvent, testPerson)
+        const response = await createEventStep(runner, preIngestionEvent)
 
-        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, testPerson])
+        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent])
     })
 })

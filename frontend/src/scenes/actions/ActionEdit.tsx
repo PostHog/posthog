@@ -1,5 +1,5 @@
 import React from 'react'
-import { compactNumber, deleteWithUndo, uuid } from 'lib/utils'
+import { compactNumber, uuid } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
@@ -9,10 +9,8 @@ import { Button, Col, Row } from 'antd'
 import { InfoCircleOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { actionsModel } from '~/models/actionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import api from '../../lib/api'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ActionStepType, AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
@@ -32,8 +30,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
         temporaryToken,
     }
     const logic = actionEditLogic(logicProps)
-    const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
-    const { loadActions } = useActions(actionsModel)
+    const { action, actionLoading, actionCount, actionCountLoading, shouldSimplifyActions } = useValues(logic)
+    const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -46,14 +44,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             type="secondary"
             style={{ marginRight: 8 }}
             onClick={() => {
-                deleteWithUndo({
-                    endpoint: api.actions.determineDeleteEndpoint(),
-                    object: action,
-                    callback: () => {
-                        router.actions.push(urls.actions())
-                        loadActions()
-                    },
-                })
+                deleteAction()
             }}
         >
             Delete
@@ -67,7 +58,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             type="secondary"
             style={{ marginRight: 8 }}
             onClick={() => {
-                router.actions.push(urls.actions())
+                router.actions.push(shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
             }}
         >
             Cancel
@@ -84,22 +75,21 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <EditableField
                                     name="name"
                                     value={value || ''}
-                                    placeholder="Name this action"
+                                    placeholder={`Name this ${shouldSimplifyActions ? 'event' : 'action'}`}
                                     onChange={
                                         !id
                                             ? onChange
                                             : undefined /* When creating a new action, change value on type */
                                     }
-                                    onSave={
-                                        !id
-                                            ? undefined
-                                            : onChange /* When not creating a new action, change value on save */
-                                    }
+                                    onSave={(value) => {
+                                        onChange(value)
+                                        submitAction()
+                                        /* When clicking 'Save' on an `EditableField`, save the form too */
+                                    }}
                                     mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
                                     minLength={1}
                                     maxLength={400} // Sync with action model
                                     data-attr={`action-name-${id ? 'edit' : 'create'}`}
-                                    saveButtonText="Set"
                                     className="action-name"
                                 />
                             )}
@@ -119,11 +109,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                                 ? onChange
                                                 : undefined /* When creating a new action, change value on type */
                                         }
-                                        onSave={
-                                            !id
-                                                ? undefined
-                                                : onChange /* When not creating a new action, change value on save */
-                                        }
+                                        onSave={(value) => {
+                                            onChange(value)
+                                            submitAction()
+                                            /* When clicking 'Set' on an `EditableField`, always save the form */
+                                        }}
                                         mode={
                                             !id
                                                 ? 'edit'
@@ -135,7 +125,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         compactButtons
                                         maxLength={600} // No limit on backend model, but enforce shortish description
                                         paywall={!hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY)}
-                                        saveButtonText="Set"
                                     />
                                 )}
                             </Field>
@@ -160,8 +149,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>
-                                        This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
-                                        months
+                                        This {shouldSimplifyActions ? 'event' : 'action'} matches{' '}
+                                        <b>{compactNumber(actionCount)}</b> raw events in the last 3 months
                                     </>
                                 )}
                             </span>
@@ -172,7 +161,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
                     <div>
-                        Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
+                        Your {shouldSimplifyActions ? 'event' : 'action'} will be triggered whenever{' '}
+                        <b>any of your match groups</b> are received.{' '}
                         <a href="https://posthog.com/docs/features/actions" target="_blank">
                             <InfoCircleOutlined />
                         </a>
@@ -254,7 +244,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     disabled={!slackEnabled}
                                     label={
                                         <>
-                                            Post to webhook when this action is triggered.
+                                            Post to webhook when this {shouldSimplifyActions ? 'event' : 'action'} is
+                                            triggered.
                                             <Link to="/project/settings#webhook" style={{ marginLeft: 4 }}>
                                                 {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
                                             </Link>
@@ -308,10 +299,12 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     )
 }
 
-export function duplicateActionErrorToast(errorActionId: string): void {
+// TODO: remove when "simplify-actions" FF is released
+export function duplicateActionErrorToast(errorActionId: string, shouldSimplifyActions: boolean): void {
     lemonToast.error(
         <>
-            Action with this name already exists. <a href={urls.action(errorActionId)}>Click here to edit.</a>
+            {shouldSimplifyActions ? 'Event' : 'Action'} with this name already exists.{' '}
+            <a href={urls.action(errorActionId)}>Click here to edit.</a>
         </>
     )
 }

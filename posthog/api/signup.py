@@ -90,11 +90,15 @@ class SignupSerializer(serializers.Serializer):
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
         matrix = HedgeboxMatrix(
-            start=timezone.datetime.now() - timezone.timedelta(days=120), end=timezone.datetime.now(), n_clusters=50,
+            settings.SECRET_KEY,
+            start=timezone.datetime.now() - timezone.timedelta(days=120),
+            end=timezone.datetime.now(),
+            n_clusters=50,
         )
-        self._organization, self._team, self._user = MatrixManager.ensure_account_and_run(
-            matrix, email, first_name, organization_name
-        )
+        with transaction.atomic():
+            self._organization, self._team, self._user = MatrixManager(matrix, pre_save=True).ensure_account_and_save(
+                email, first_name, organization_name
+            )
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
@@ -352,15 +356,15 @@ def process_social_domain_jit_provisioning_signup(
                     f"process_social_domain_jit_provisioning_join_complete",
                     domain=domain,
                     user=user.email,
-                    organization=domain_instance.organization.id,
+                    organization=domain_instance.organization_id,
                 )
-            elif not user.organizations.filter(pk=domain_instance.organization.pk).exists():
+            if not user.organizations.filter(pk=domain_instance.organization_id).exists():
                 user.join(organization=domain_instance.organization)
                 logger.info(
                     f"process_social_domain_jit_provisioning_join_existing",
                     domain=domain,
                     user=user.email,
-                    organization=domain_instance.organization.id,
+                    organization=domain_instance.organization_id,
                 )
 
     return user

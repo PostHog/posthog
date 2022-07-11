@@ -1,8 +1,5 @@
-@import '~/vars';
-
-$funnel_canvas_background: #fff;
-
-$editor_panel_width: min(28rem, 50%);
+@import '../../styles/breakpoints';
+@import '../../styles/mixins';
 
 .insights-page {
     h2 {
@@ -51,12 +48,8 @@ $editor_panel_width: min(28rem, 50%);
         border: 0;
         border-bottom: 2px solid transparent;
         &.active {
-            border-bottom: 2px solid $primary;
+            border-bottom: 2px solid var(--primary);
         }
-    }
-
-    .LastModified {
-        margin-top: 0.5rem;
     }
 
     hr {
@@ -70,22 +63,22 @@ $editor_panel_width: min(28rem, 50%);
     .ant-tabs-tab {
         .hotkey {
             margin-bottom: 0;
-            background-color: rgba($primary, 0.1) !important;
-            border-color: rgba($primary, 0.1) !important;
+            background-color: var(--primary-bg-hover) !important;
+            border-color: var(--primary-bg-hover) !important;
         }
         // TODO: Remove deprecated style if we fully remove or actively support again
         .deprecated {
-            color: $text_muted;
+            color: var(--text-muted);
             .hotkey {
                 margin-bottom: 0;
-                background-color: rgba($border, 0.1) !important;
-                border-color: $border !important;
-                color: $text_muted;
+                background-color: var(--depr-rgba-border-0-1) !important;
+                border-color: var(--border) !important;
+                color: var(--text-muted);
             }
         }
         &.ant-tabs-tab-active {
             .deprecated {
-                color: $primary;
+                color: var(--primary);
             }
         }
     }
@@ -93,11 +86,11 @@ $editor_panel_width: min(28rem, 50%);
     .ant-tabs-tab:not(.ant-tabs-tab-active):hover {
         // TODO: If we remove deprecated tabs, remove the :not selector below
         .hotkey {
-            background-color: rgba($primary, 0.2) !important;
+            background-color: var(--primary-bg-active) !important;
         }
         .deprecated {
             .hotkey {
-                background-color: rgba($border, 0.2) !important;
+                background-color: var(--depr-rgba-border-0-2) !important;
             }
         }
     }
@@ -108,48 +101,21 @@ $editor_panel_width: min(28rem, 50%);
         margin-bottom: 1rem;
 
         .ant-card-body {
-            padding: $default_spacing * 0.8 $default_spacing;
+            padding: 0.8rem 1rem;
         }
     }
 
-    .insights-wrapper {
-        @media screen and (min-width: $md) {
-            display: flex;
-            overflow: hidden;
-            gap: $default_spacing;
-            flex-direction: row-reverse;
-        }
+    .insight-wrapper {
+        &.insight-wrapper--editorpanels,
+        &.insight-wrapper--singlecolumn {
+            position: relative;
+            @media screen and (min-width: $xl) {
+                display: flex;
+                overflow: hidden;
 
-        .insights-container {
-            flex: 1;
-            overflow-x: auto;
-        }
-        .insight-editor-area {
-            flex-shrink: 0;
-
-            > * {
-                margin-bottom: 1em;
-            }
-
-            @media screen and (min-width: $md) {
-                width: $editor_panel_width;
-
-                &.anim--enter {
-                    width: 0px;
-                }
-
-                &.anim--enter-active {
-                    width: $editor_panel_width;
-                    transition: width 250ms;
-                }
-
-                &.anim--exit {
-                    width: $editor_panel_width;
-                }
-
-                &.anim--exit-active {
-                    width: 0px;
-                    transition: width 250ms;
+                .insights-container {
+                    flex: 1;
+                    overflow-x: auto;
                 }
             }
         }
@@ -160,24 +126,26 @@ $editor_panel_width: min(28rem, 50%);
         margin-bottom: 1rem;
 
         .ant-card-head {
-            border-bottom: 1px solid $border;
+            border-bottom: 1px solid var(--border);
             min-height: unset;
-            background-color: $bg_light;
-            padding-left: $default_spacing;
-            padding-right: $default_spacing;
+            background-color: var(--bg-light);
+            padding-left: 1rem;
+            padding-right: 1rem;
 
             .ant-card-head-title {
                 padding: 0;
 
                 span.filter {
                     font-size: 14px;
+                    display: flex;
+                    align-items: center;
 
                     &:not(:last-child) {
-                        margin-right: $default_spacing / 2;
+                        margin-right: 0.5rem;
                     }
 
                     span.head-title-item {
-                        margin-right: $default_spacing / 2;
+                        margin-right: 0.5rem;
                     }
                 }
             }
@@ -210,7 +178,7 @@ $editor_panel_width: min(28rem, 50%);
                 height: min(calc(90vh - 16rem), 36rem); // same as .trends-insights-container
                 max-width: 300px;
                 width: fit-content;
-                padding: 0 $default_spacing $default_spacing 0;
+                padding: 0 1rem 1rem 0;
                 display: flex;
                 align-items: center;
             }
@@ -234,17 +202,9 @@ $editor_panel_width: min(28rem, 50%);
         }
     }
 
-    .insights-tab-actions {
-        margin-left: auto;
-        padding-left: 1rem;
-        display: flex;
-        flex-wrap: nowrap;
-        justify-content: flex-end;
-    }
-
     .advanced-options-dropdown {
         font-size: 1.4em;
-        color: $primary_alt;
+        color: var(--primary-alt);
         &.expanded {
             transform: rotateX(180deg);
         }
@@ -253,7 +213,7 @@ $editor_panel_width: min(28rem, 50%);
     .funnel-advanced-options {
         .funnel-exclusions-filter {
             .mt:first-of-type {
-                margin-top: $default_spacing / 2;
+                margin-top: 0.5rem;
             }
         }
     }
@@ -262,15 +222,15 @@ $editor_panel_width: min(28rem, 50%);
         background-color: transparent;
         border: 0;
         input::placeholder {
-            color: $text_default;
+            color: var(--text-default);
         }
     }
 
     .insights-graph-header {
         margin-top: 0 !important;
         margin-bottom: 0 !important;
-        padding-left: $default_spacing;
-        padding-right: $default_spacing;
+        padding-left: 1rem;
+        padding-right: 1rem;
         min-height: 48px;
     }
 }
@@ -293,13 +253,8 @@ $editor_panel_width: min(28rem, 50%);
 }
 
 .funnel-insights-container {
-    padding: 24px;
-    background-color: $funnel_canvas_background;
+    background-color: var(--funnel-canvas-background);
     border-radius: 0 0 var(--radius) var(--radius);
-
-    &.no-padding {
-        padding: 0;
-    }
 
     &.non-empty-state {
         min-height: 26rem;

@@ -38,7 +38,7 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
-            - ./posthog/ee/idl:/idl
+            - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
@@ -116,7 +116,6 @@ services:
         restart: on-failure
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_ENABLED: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CLICKHOUSE_HOST: 'clickhouse'

@@ -18,12 +18,14 @@ services:
             POSTGRES_PASSWORD: posthog
         ports:
             - '5432:5432'
+
     redis:
         image: redis:6.2.7-alpine
         restart: on-failure
         ports:
             - '6379:6379'
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+
     clickhouse:
         #
         # Note: please keep the default version in sync across
@@ -40,13 +42,14 @@ services:
             - '9440:9440'
             - '9009:9009'
         volumes:
-            - ./ee/idl:/idl
+            - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
     zookeeper:
         image: zookeeper:3.7.0
         restart: on-failure
+
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
         restart: on-failure
@@ -62,71 +65,21 @@ services:
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
-    worker: &worker
-        build:
-            context: .
-            dockerfile: dev.Dockerfile
-        command: ./bin/docker-worker-celery --with-scheduler
-        restart: on-failure
-        volumes:
-            - .:/code
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            CLICKHOUSE_HOST: 'clickhouse'
-            CLICKHOUSE_DATABASE: 'posthog'
-            CLICKHOUSE_SECURE: 'false'
-            CLICKHOUSE_VERIFY: 'false'
-            KAFKA_URL: 'kafka://kafka'
-            REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: 'alsdfjiosdajfklalsdjkf'
-            DEBUG: 'true'
-            PGHOST: db
-            PGUSER: posthog
-            PGPASSWORD: posthog
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-            - object_storage
-    web:
-        <<: *worker
-        command: '${CH_WEB_SCRIPT:-./ee/bin/docker-ch-dev-web}'
-        restart: on-failure
-        ports:
-            - '8000:8000'
-            - '8234:8234'
-    plugins:
-        build:
-            context: .
-            dockerfile: dev.Dockerfile
-        command: ./bin/plugin-server --no-restart-loop
-        restart: on-failure
-        volumes:
-            - .:/code
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_ENABLED: 'true'
-            KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
-            CLICKHOUSE_HOST: 'clickhouse'
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-            - object_storage
-
     object_storage:
-        image: minio/minio
+        image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
         ports:
             - '19000:19000'
             - '19001:19001'
-        volumes:
-            - ./object_storage:/data
         environment:
             MINIO_ROOT_USER: object_storage_root_user
             MINIO_ROOT_PASSWORD: object_storage_root_password
         entrypoint: sh
         command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
+
+    maildev:
+        image: maildev/maildev:2.0.5
+        restart: on-failure
+        ports:
+            - '1080:1080'
+            - '1025:1025'

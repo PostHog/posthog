@@ -4,12 +4,12 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { BindLogic, Provider, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import React, { CSSProperties, useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
-import { LockOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { IconInfo, IconOpenInNew } from 'lib/components/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -21,9 +21,8 @@ import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
-import { usePopper } from 'react-popper'
-import ReactDOM from 'react-dom'
 import { TitleWithIcon } from '../TitleWithIcon'
+import { UseFloatingReturn } from '@floating-ui/react-dom-interactions'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -96,6 +95,44 @@ function TaxonomyIntroductionSection(): JSX.Element {
                 </Link>
             </DefinitionPopup.Section>
         </>
+    )
+}
+
+export function VerifiedEventCheckbox({
+    verified,
+    onChange,
+    compact = false,
+}: {
+    verified: boolean
+    onChange: (nextVerified: boolean) => void
+    compact?: boolean
+}): JSX.Element {
+    const copy =
+        'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
+
+    return (
+        <div style={{ border: '1px solid var(--border)', padding: '0.5rem', borderRadius: 'var(--radius)' }}>
+            <Checkbox
+                checked={verified}
+                onChange={() => {
+                    onChange(!verified)
+                }}
+            >
+                <span style={{ fontWeight: 600 }}>
+                    Verified event
+                    {compact && (
+                        <Tooltip title={copy}>
+                            <InfoCircleOutlined style={{ marginLeft: '0.5rem', color: 'var(--text-muted)' }} />
+                        </Tooltip>
+                    )}
+                </span>
+                {!compact && (
+                    <div className="text-muted" style={{ marginTop: '0.25rem' }}>
+                        {copy}
+                    </div>
+                )}
+            </Checkbox>
+        </div>
     )
 }
 
@@ -263,8 +300,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             value={formatTimeFromNow(_definition.last_calculation)}
                         />
                     </DefinitionPopup.Grid>
-                    {(_definition.groups?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
-                    <CohortPopupInfo entity={_definition} />
+                    <CohortPopupInfo cohort={_definition} />
                 </>
             )
         }
@@ -358,21 +394,13 @@ function DefinitionEdit(): JSX.Element {
                     </>
                 )}
                 {definition && definition.name && !isPostHogProp(definition.name) && 'verified' in localDefinition && (
-                    <Checkbox
-                        checked={localDefinition.verified}
-                        onChange={() => {
-                            setLocalDefinition({ verified: !localDefinition.verified })
+                    <VerifiedEventCheckbox
+                        verified={!!localDefinition.verified}
+                        onChange={(nextVerified) => {
+                            setLocalDefinition({ verified: nextVerified })
                         }}
-                    >
-                        <div className="definition-popup-edit-form-label">
-                            <span className="label-text">Verified event</span>
-                        </div>
-                        <div className="text-muted definition-popup-edit-form-value">
-                            Verified events are prioritized in filters and other selection components. Verifying an
-                            event is a signal to collaborators that this event should be used in favor of similar
-                            events.
-                        </div>
-                    </Checkbox>
+                        compact
+                    />
                 )}
                 <DefinitionPopup.HorizontalLine style={{ marginTop: 0 }} />
                 <div className="definition-popup-edit-form-buttons click-outside-block">
@@ -420,19 +448,13 @@ interface BaseDefinitionPopupContentsProps {
 }
 
 interface ControlledDefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
-    popper: {
-        styles: CSSProperties
-        attributes?: Record<string, any>
-        forceUpdate: (() => void) | null
-        setRef: React.Dispatch<React.SetStateAction<HTMLDivElement | null>>
-        ref: HTMLDivElement | null
-    }
+    floatingReturn: UseFloatingReturn<HTMLElement>
 }
 
 export function ControlledDefinitionPopupContents({
     item,
     group,
-    popper,
+    floatingReturn,
 }: ControlledDefinitionPopupContentsProps): JSX.Element {
     // Supports all types specified in selectedItemHasPopup
     const value = group.getValue?.(item)
@@ -451,9 +473,18 @@ export function ControlledDefinitionPopupContents({
         setDefinition(item)
     }, [item])
 
+    const {
+        x,
+        y,
+        floating: setFloatingRef,
+        refs: { floating: floatingRef },
+        strategy,
+        update,
+    } = floatingReturn
+
     // Force popper to recalculate position when popup state changes. Keep this independent of logic
     useEffect(() => {
-        popper.forceUpdate?.()
+        update()
     }, [state])
 
     return (
@@ -471,21 +502,22 @@ export function ControlledDefinitionPopupContents({
                     // If not in edit mode, bury it.
                     style={{ zIndex: 1062 }}
                     onClick={() => {
-                        popper.ref?.focus()
+                        floatingRef.current?.focus()
                     }}
                 />
             </CSSTransition>
             <div
                 className="popper-tooltip click-outside-block hotkey-block Popup Popup__box"
                 tabIndex={-1} // Only programmatically focusable
-                ref={popper.setRef}
+                ref={setFloatingRef}
                 // zIndex: 1063 ensures it opens above the overlay which is 1062
                 style={{
-                    ...popper.styles,
+                    position: strategy,
+                    top: y ?? 0,
+                    left: x ?? 0,
                     transition: 'none',
                     zIndex: 1063,
                 }}
-                {...popper.attributes}
                 onMouseLeave={() => {
                     if (state !== DefinitionPopupState.Edit) {
                         onMouseLeave?.()
@@ -510,88 +542,6 @@ export function ControlledDefinitionPopupContents({
                     {state === DefinitionPopupState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopup.Wrapper>
             </div>
-        </>
-    )
-}
-
-interface DefinitionPopupContentsProps extends BaseDefinitionPopupContentsProps {
-    referenceEl: HTMLElement | null
-    children?: React.ReactNode
-    updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
-    onMouseLeave?: () => void
-    onCancel?: () => void
-    onSave?: () => void
-    hideView?: boolean
-    hideEdit?: boolean
-    openDetailInNewTab?: boolean
-}
-
-export function DefinitionPopupContents({
-    item,
-    group,
-    referenceEl,
-    children,
-    updateRemoteItem,
-    onMouseLeave,
-    onCancel,
-    onSave,
-    hideView = false,
-    hideEdit = false,
-    openDetailInNewTab = true,
-}: DefinitionPopupContentsProps): JSX.Element {
-    const [popperElement, setPopperElement] = useState<HTMLDivElement | null>(null)
-
-    const { styles, attributes, forceUpdate } = usePopper(referenceEl, popperElement, {
-        placement: 'right',
-        modifiers: [
-            {
-                name: 'offset',
-                options: {
-                    offset: [0, 10],
-                },
-            },
-            {
-                name: 'preventOverflow',
-                options: {
-                    padding: 10,
-                },
-            },
-        ],
-    })
-
-    return (
-        <>
-            <Provider>
-                {ReactDOM.createPortal(
-                    <BindLogic
-                        logic={definitionPopupLogic}
-                        props={{
-                            type: group.type,
-                            updateRemoteItem,
-                            onMouseLeave,
-                            onSave,
-                            onCancel,
-                            hideView,
-                            hideEdit,
-                            openDetailInNewTab,
-                        }}
-                    >
-                        <ControlledDefinitionPopupContents
-                            item={item}
-                            group={group}
-                            popper={{
-                                styles: styles.popper,
-                                attributes: attributes.popper,
-                                forceUpdate,
-                                setRef: setPopperElement,
-                                ref: popperElement,
-                            }}
-                        />
-                    </BindLogic>,
-                    document.querySelector('body') as HTMLElement
-                )}
-            </Provider>
-            {children}
         </>
     )
 }

@@ -1,4 +1,4 @@
-@import '~/vars';
+@import '../../../styles/breakpoints';
 
 .SideBar__layout {
     position: relative;
@@ -8,7 +8,7 @@
 }
 
 .SideBar__slider {
-    z-index: $z_lemon_sidebar;
+    z-index: var(--z-lemon-sidebar);
     transition: 200ms ease margin, 200ms ease transform;
     position: absolute;
     flex-shrink: 0;
@@ -31,7 +31,7 @@
 }
 
 .SideBar__overlay {
-    z-index: $z_mobile_nav_overlay;
+    z-index: var(--z-mobile-nav-overlay);
     transition: 200ms ease opacity;
     opacity: 1;
     position: absolute;
@@ -83,7 +83,12 @@
     letter-spacing: 0.5px;
 }
 
-.SideBar__pinned-dashboards {
+.SideBar__side-actions {
     max-height: calc(100vh - 20rem);
     max-width: calc(100vw - 14rem);
+
+    .LaunchToolbarButton {
+        padding-left: 0.5em;
+        padding-right: 0.5em;
+    }
 }

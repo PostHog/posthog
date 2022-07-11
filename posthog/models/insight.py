@@ -2,7 +2,7 @@ import secrets
 import string
 from typing import Optional
 
-from django.contrib.postgres.fields.array import ArrayField
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
-from posthog.utils import generate_cache_key
+from posthog.utils import absolute_uri, generate_cache_key
 
 
 def generate_short_id():
@@ -69,12 +69,10 @@ class Insight(models.Model):
     # DEPRECATED: we don't store funnels as a separate model any more
     funnel: models.IntegerField = deprecate_field(models.IntegerField(null=True, blank=True))
     # DEPRECATED: now using app-wide tagging model. See EnterpriseTaggedItem
-    deprecated_tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=list), return_instead=[],
-    )
+    deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
     # DEPRECATED: now using app-wide tagging model. See EnterpriseTaggedItem
-    tags: ArrayField = deprecate_field(
-        ArrayField(models.CharField(max_length=32), blank=True, default=None), return_instead=[],
+    deprecated_tags_v2: ArrayField = ArrayField(
+        models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
     )
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
@@ -140,6 +138,10 @@ class Insight(models.Model):
             return Dashboard.PrivilegeLevel.CAN_EDIT
         else:
             return Dashboard.PrivilegeLevel.CAN_VIEW
+
+    @property
+    def url(self):
+        return absolute_uri(f"/insights/{self.short_id}")
 
 
 class InsightViewed(models.Model):

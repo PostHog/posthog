@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconTrendUp, IconOpenInNew, IconErrorOutline } from 'lib/components/icons'
+import { IconErrorOutline, IconOpenInNew, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { entityFilterLogic } from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
@@ -14,9 +14,10 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
+import { Animation } from 'lib/components/Animation/Animation'
+import { AnimationType } from 'lib/animations/animations'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -78,7 +79,9 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
-                <div className="illustration-main">{isLoading ? <Spinner size="lg" /> : <IconErrorOutline />}</div>
+                <div className="illustration-main" style={{ height: 'auto' }}>
+                    {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
+                </div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
                 {isLoading ? (
                     <>

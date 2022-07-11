@@ -45,6 +45,7 @@ export enum AvailableFeature {
     TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
     WHITE_LABELLING = 'white_labelling',
+    SUBSCRIPTIONS = 'subscriptions',
 }
 
 export enum LicensePlan {
@@ -239,6 +240,7 @@ export interface TeamType extends TeamBasicType {
     person_display_name_properties: string[]
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
+    live_events_columns: string[] | null // Custom columns shown on the Live Events page
 
     // Uses to exclude person properties from correlation analysis results, for
     // example can be used to exclude properties that have trivial causation
@@ -256,6 +258,7 @@ export interface ActionType {
     id: number
     is_calculating?: boolean
     last_calculated_at?: string
+    last_updated_at?: string // alias for last_calculated_at to achieve event and action parity
     name: string | null
     description?: string
     post_to_slack?: boolean
@@ -263,6 +266,9 @@ export interface ActionType {
     steps?: ActionStepType[]
     created_by: UserBasicType | null
     tags?: string[]
+    verified?: boolean
+    is_action?: true
+    action_id?: number // alias of id to make it compatible with event definitions uuid
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -391,6 +397,12 @@ export interface PersonPropertyFilter extends BasePropertyFilter {
 export interface ElementPropertyFilter extends BasePropertyFilter {
     type: 'element'
     key: 'tag_name' | 'text' | 'href' | 'selector'
+    operator: PropertyOperator
+}
+
+export interface SessionPropertyFilter extends BasePropertyFilter {
+    type: 'session'
+    key: '$session_duration'
     operator: PropertyOperator
 }
 
@@ -718,6 +730,11 @@ export interface SessionRecordingEvents {
     events: RecordingEventType[]
 }
 
+export interface CurrentBillCycleType {
+    current_period_start: number
+    current_period_end: number
+}
+
 export interface BillingType {
     should_setup_billing: boolean
     is_billing_active: boolean
@@ -727,9 +744,11 @@ export interface BillingType {
     current_usage: number | null
     subscription_url: string
     current_bill_amount: number | null
+    current_bill_usage: number | null
     should_display_current_bill: boolean
     billing_limit: number | null
     billing_limit_exceeded: boolean | null
+    current_bill_cycle: CurrentBillCycleType
     tiers: BillingTierType[] | null
 }
 
@@ -777,7 +796,7 @@ export interface InsightModel extends DashboardTile {
     /** The primary key in the database, used as well in API endpoints */
     id: number
     name: string
-    derived_name?: string
+    derived_name?: string | null
     description?: string
     favorited?: boolean
     order: number | null
@@ -794,7 +813,7 @@ export interface InsightModel extends DashboardTile {
     last_modified_by: UserBasicType | null
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
-    timezone?: string
+    timezone?: string | null
     /** Only used in the frontend to store the next breakdown url */
     next?: string
 }
@@ -808,7 +827,6 @@ export interface DashboardType {
     created_at: string
     created_by: UserBasicType | null
     is_shared: boolean
-    share_token: string
     deleted: boolean
     filters: Record<string, any>
     creation_mode: 'default' | 'template' | 'duplicate'
@@ -843,6 +861,7 @@ export interface OrganizationInviteType {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
+    message?: string
 }
 
 export interface PluginType {
@@ -1080,6 +1099,9 @@ export interface FilterType {
     funnel_advanced?: boolean // used to toggle advanced options on or off
     show_legend?: boolean // used to show/hide legend next to insights graph
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
+    breakdown_attribution_value?: number // funnels breakdown attribution specific step value
+    breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
 }
 
 export interface RecordingEventsFilters {
@@ -1087,7 +1109,7 @@ export interface RecordingEventsFilters {
 }
 
 export type InsightEditorFilterGroup = {
-    title: string
+    title?: string
     editorFilters: InsightEditorFilter[]
     defaultExpanded?: boolean
     count?: number
@@ -1104,6 +1126,7 @@ export interface InsightEditorFilter {
     key: string
     label?: string
     tooltip?: JSX.Element
+    position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
 }
@@ -1124,10 +1147,7 @@ export interface SystemStatusRow {
 export interface SystemStatus {
     overview: SystemStatusRow[]
     internal_metrics: {
-        clickhouse?: {
-            id: number
-            share_token: string
-        }
+        clickhouse?: DashboardType
     }
 }
 
@@ -1300,6 +1320,13 @@ export interface FlattenedFunnelStepByBreakdown {
     significant?: boolean
 }
 
+export enum BreakdownAttributionType {
+    FirstTouch = 'first_touch',
+    LastTouch = 'last_touch',
+    AllSteps = 'all_events',
+    Step = 'step',
+}
+
 export interface ChartParams {
     inCardView?: boolean
     inSharedMode?: boolean
@@ -1319,7 +1346,6 @@ export interface InsightLogicProps {
 }
 
 export interface SetInsightOptions {
-    shouldMergeWithExisting?: boolean
     /** this overrides the in-flight filters on the page, which may not equal the last returned API response */
     overrideFilter?: boolean
     /** calling with this updates the "last saved" filters */
@@ -1358,19 +1384,12 @@ export interface FeatureFlagType {
     created_at: string | null
     is_simple_flag: boolean
     rollout_percentage: number | null
+    ensure_experience_continuity: boolean | null
 }
 
-export interface FeatureFlagOverrideType {
-    id: number
-    feature_flag: number
-    user: number
-    override_value: boolean | string
-}
-
-export interface CombinedFeatureFlagAndOverrideType {
+export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
-    value_for_user_without_override: boolean | string
-    override: FeatureFlagOverrideType | null
+    value: boolean | string
 }
 
 export interface PrevalidatedInvite {
@@ -1414,19 +1433,23 @@ export interface PreflightStatus {
     licensed_users_available?: number | null
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
+    buffer_conversion_seconds?: number
     object_storage: boolean
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
     Edit = 'edit',
     View = 'view',
+    Subscriptions = 'subscriptions',
+    Sharing = 'sharing',
 }
 
 export enum DashboardPlacement {
-    Public = 'public', // When viewing the dashboard publicly via a shareToken
+    Dashboard = 'dashboard', // When on the standard dashboard page
     InternalMetrics = 'internal-metrics', // When embedded in /instance/status
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
-    Dashboard = 'dashboard', // When on the standard dashboard page
+    Public = 'public', // When viewing the dashboard publicly
+    Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
 
 export enum DashboardMode { // Default mode is null
@@ -1477,18 +1500,20 @@ export interface LicenseType {
 export interface EventDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
-    volume_30_day: number | null
-    query_usage_30_day: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
     owner?: UserBasicType | null
     created_at?: string
     last_seen_at?: string
+    last_updated_at?: string // alias for last_seen_at to achieve event and action parity
     updated_at?: string
     updated_by?: UserBasicType | null
     verified?: boolean
     verified_at?: string
     verified_by?: string
+    is_action?: boolean
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -1497,15 +1522,16 @@ export enum PropertyType {
     String = 'String',
     Numeric = 'Numeric',
     Boolean = 'Boolean',
+    Duration = 'Duration',
 }
 
 export interface PropertyDefinition {
     id: string
     name: string
-    description: string
+    description?: string
     tags?: string[]
-    volume_30_day: number | null
-    query_usage_30_day: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
@@ -1514,7 +1540,10 @@ export interface PropertyDefinition {
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
     example?: string
+    is_action?: boolean
 }
+
+export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
     id: number
@@ -1705,9 +1734,11 @@ export interface VersionType {
 }
 
 export interface dateMappingOption {
+    key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
-    getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    getFormattedDate?: (date: dayjs.Dayjs, format?: string) => string
+    defaultInterval?: IntervalType
 }
 
 export interface Breadcrumb {
@@ -1805,6 +1836,7 @@ export enum BaseMathType {
     DailyActive = 'dau',
     WeeklyActive = 'weekly_active',
     MonthlyActive = 'monthly_active',
+    UniqueSessions = 'unique_session',
 }
 
 export enum PropertyMathType {
@@ -1868,4 +1900,87 @@ export enum ValueOptionType {
     MostRecent = 'most_recent',
     Previous = 'previous',
     OnDate = 'on_date',
+}
+
+export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+
+export interface SubscriptionType {
+    id: number
+    insight?: number
+    dashboard?: number
+    target_type: string
+    target_value: string
+    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    interval: number
+    byweekday: WeekdayType[] | null
+    bysetpos: number | null
+    start_date: string
+    until_date?: string
+    title: string
+    summary: string
+    created_by?: UserBasicType | null
+    created_at: string
+    updated_at: string
+    deleted?: boolean
+}
+
+export type Description = string | JSX.Element | null
+
+export interface ChangeDescriptions {
+    descriptions: Description[]
+    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
+    bareName: boolean
+}
+
+export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
+
+export type Duration = {
+    timeValue: number
+    unit: SmallTimeUnit
+}
+
+export type CombinedEvent = EventDefinition | ActionType
+
+export interface IntegrationType {
+    id: number
+    kind: 'slack'
+    config: any
+    created_by?: UserBasicType | null
+    created_at: string
+}
+
+export interface SlackChannelType {
+    id: string
+    name: string
+    is_private: boolean
+    is_ext_shared: boolean
+    is_member: boolean
+}
+
+export interface SharingConfigurationType {
+    enabled: boolean
+    access_token: string
+    created_at: string
+}
+
+export enum ExporterFormat {
+    PNG = 'image/png',
+    CSV = 'text/csv',
+    PDF = 'application/pdf',
+}
+
+export interface ExportedAssetType {
+    id: number
+    export_format: ExporterFormat
+    dashboard?: number
+    insight?: number
+    export_context?: {
+        method?: string
+        path: string
+        query?: any
+        body?: any
+        filename?: string
+    }
+    has_content: boolean
+    filename: string
 }

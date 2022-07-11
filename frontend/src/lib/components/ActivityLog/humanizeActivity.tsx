@@ -3,7 +3,7 @@ import { InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
     type: 'FeatureFlag' | 'Person' | 'Insight'
-    action: 'changed' | 'created' | 'deleted'
+    action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
     field?: string
     before?: string | Record<string, any> | boolean
     after?: string | Record<string, any> | boolean
@@ -31,6 +31,8 @@ export enum ActivityScope {
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
     INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
+    PLUGIN_CONFIG = 'PluginConfig',
 }
 
 export interface ActivityLogItem {

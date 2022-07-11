@@ -9,14 +9,12 @@ from ee.clickhouse.materialized_columns.columns import (
     get_materialized_columns,
     materialize,
 )
-from ee.clickhouse.sql.events import EVENTS_DATA_TABLE
-from ee.clickhouse.util import ClickhouseTestMixin
-from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.settings import CLICKHOUSE_DATABASE
-from posthog.test.base import BaseTest, _create_event
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
 EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",
@@ -163,8 +161,13 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         backfill_materialized_columns("events", ["myprop"], timedelta(days=50))
         self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
 
-        mark_all_materialized()
-        self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
+        try:
+            from ee.tasks.materialized_columns import mark_all_materialized
+        except ImportError:
+            pass
+        else:
+            mark_all_materialized()
+            self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
     def _count_materialized_rows(self, column):
         return sync_execute(

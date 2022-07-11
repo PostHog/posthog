@@ -8,7 +8,6 @@ import { api } from 'lib/api.mock'
 import { cohortsModel } from '~/models/cohortsModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import {
     BehavioralEventType,
     BehavioralLifecycleType,
@@ -93,86 +92,7 @@ describe('cohortEditLogic', () => {
         expect(api.update).toBeCalledTimes(1)
     })
 
-    describe('form validation old cohort groups', () => {
-        it('save with valid cohort', async () => {
-            await initCohortLogic({ id: 1 })
-            await expectLogic(logic, async () => {
-                await logic.actions.setCohort(mockCohort)
-                await logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
-            expect(api.update).toBeCalledTimes(1)
-        })
-        it('do not save with invalid name', async () => {
-            await initCohortLogic({ id: 1 })
-            await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
-                    ...mockCohort,
-                    name: '',
-                })
-                await logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
-            expect(api.update).toBeCalledTimes(0)
-        })
-        it('do not save dynamic cohort with empty groups', async () => {
-            await initCohortLogic({ id: 1 })
-            await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
-                    ...mockCohort,
-                    groups: [],
-                })
-                await logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
-            expect(api.update).toBeCalledTimes(0)
-        })
-        it('do not save dynamic cohort with malformed events group', async () => {
-            await initCohortLogic({ id: 1 })
-            await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
-                    ...mockCohort,
-                    groups: [
-                        {
-                            id: '1',
-                            matchType: ENTITY_MATCH_TYPE,
-                        },
-                    ],
-                })
-                await logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
-            expect(api.update).toBeCalledTimes(0)
-        })
-        it('do not save dynamic cohort with malformed properties group', async () => {
-            await initCohortLogic({ id: 1 })
-            await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
-                    ...mockCohort,
-                    groups: [
-                        {
-                            id: '1',
-                            matchType: PROPERTY_MATCH_TYPE,
-                            properties: [],
-                        },
-                    ],
-                })
-                await logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
-            expect(api.update).toBeCalledTimes(0)
-        })
-        it('do not save static cohort with empty csv', async () => {
-            await initCohortLogic({ id: 1 })
-            await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
-                    ...mockCohort,
-                    is_static: true,
-                    groups: [],
-                    csv: undefined,
-                })
-                await logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
-            expect(api.update).toBeCalledTimes(0)
-        })
-    })
-
-    describe('form validation new cohort filters', () => {
+    describe('form validation', () => {
         beforeAll(() => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], { 'cohort-filters': true })
@@ -582,7 +502,7 @@ describe('cohortEditLogic', () => {
             })
         })
 
-        it('do not save static cohort with empty csv', async () => {
+        it('can save existing static cohort with empty csv', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
                 await logic.actions.setCohort({
@@ -590,6 +510,21 @@ describe('cohortEditLogic', () => {
                     is_static: true,
                     groups: [],
                     csv: undefined,
+                })
+                await logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            expect(api.update).toBeCalledTimes(1)
+        })
+
+        it('do not save static cohort with empty csv', async () => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, async () => {
+                await logic.actions.setCohort({
+                    ...mockCohort,
+                    is_static: true,
+                    groups: [],
+                    csv: undefined,
+                    id: 'new',
                 })
                 await logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])

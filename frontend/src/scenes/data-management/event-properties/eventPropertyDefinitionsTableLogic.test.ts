@@ -18,20 +18,6 @@ describe('eventPropertyDefinitionsTableLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/property_definitions/': (req) => {
-                    if (req.url.searchParams.get('order_ids_first')?.includes('uuid-5-foobar')) {
-                        return [
-                            200,
-                            {
-                                results: [
-                                    mockEventPropertyDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                                    ...mockEventPropertyDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                                ],
-                                count: 50,
-                                previous: null,
-                                next: null,
-                            },
-                        ]
-                    }
                     if (req.url.searchParams.get('limit') === '50' && !req.url.searchParams.get('offset')) {
                         return [
                             200,
@@ -86,7 +72,6 @@ describe('eventPropertyDefinitionsTableLogic', () => {
         const startingUrl = `api/projects/${MOCK_TEAM_ID}/property_definitions${
             combineUrl('', {
                 limit: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                order_ids_first: [],
             }).search
         }`
 
@@ -122,42 +107,6 @@ describe('eventPropertyDefinitionsTableLogic', () => {
 
             // Doesn't call api.get again
             expect(api.get).toBeCalledTimes(1)
-        })
-
-        it('load property definitions on navigate and open specific definition', async () => {
-            const startingDefinitionUrl = `api/projects/${MOCK_TEAM_ID}/property_definitions${
-                combineUrl('', {
-                    limit: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                    order_ids_first: ['uuid-5-foobar'],
-                }).search
-            }`
-
-            const url = urls.eventPropertyDefinition('uuid-5-foobar')
-            router.actions.push(url)
-            await expectLogic(logic)
-                .toDispatchActionsInAnyOrder([
-                    router.actionCreators.push(url),
-                    'loadEventPropertyDefinitions',
-                    'loadEventPropertyDefinitionsSuccess',
-                    'setOpenedDefinition',
-                ])
-                .toMatchValues({
-                    eventPropertyDefinitions: partial({
-                        count: 50,
-                        results: [
-                            mockEventPropertyDefinitions.find(({ id }) => id === 'uuid-5-foobar'),
-                            ...mockEventPropertyDefinitions.filter(({ id }) => id !== 'uuid-5-foobar'),
-                        ],
-                    }),
-                    apiCache: partial({
-                        [startingDefinitionUrl]: partial({
-                            count: 50,
-                        }),
-                    }),
-                })
-
-            expect(api.get).toBeCalledTimes(1)
-            expect(api.get).toBeCalledWith(startingDefinitionUrl)
         })
 
         it('pagination forwards and backwards', async () => {

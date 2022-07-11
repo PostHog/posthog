@@ -1,31 +1,34 @@
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonTag } from '@posthog/lemon-ui'
 import React from 'react'
-import { PluginTypeWithConfig } from '../../types'
+import { JobSpec } from '~/types'
 import { PluginJobConfiguration } from './PluginJobConfiguration'
 
 interface PluginJobOptionsProps {
-    plugin: PluginTypeWithConfig
+    pluginId: number
     pluginConfigId: number
+    capabilities: Record<'jobs' | 'methods' | 'scheduled_tasks', string[]>
+    publicJobs: Record<string, JobSpec>
 }
 
-export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsProps): JSX.Element {
-    const { capabilities, public_jobs } = plugin
-
-    if (!capabilities || !capabilities.jobs || !public_jobs || public_jobs.length === 0) {
-        return <></>
-    }
-
+export function PluginJobOptions({
+    pluginId,
+    pluginConfigId,
+    capabilities,
+    publicJobs,
+}: PluginJobOptionsProps): JSX.Element {
     return (
         <>
             <h3 className="l3" style={{ marginTop: 32 }}>
-                Jobs (Beta)
+                Jobs
+                <LemonTag type="warning" style={{ verticalAlign: '0.125em', marginLeft: 6 }}>
+                    BETA
+                </LemonTag>
             </h3>
 
-            {capabilities.jobs.map((jobName) => {
-                if (!(jobName in public_jobs)) {
-                    return
-                }
-                return (
+            {capabilities.jobs
+                .filter((jobName) => jobName in publicJobs)
+                .map((jobName) => (
                     <div key={jobName}>
                         {jobName === 'Export historical events' ? (
                             <Tooltip title="Run this app on all historical events ingested until now">
@@ -36,13 +39,12 @@ export function PluginJobOptions({ plugin, pluginConfigId }: PluginJobOptionsPro
                         )}
                         <PluginJobConfiguration
                             jobName={jobName}
-                            jobSpec={public_jobs[jobName]}
+                            jobSpec={publicJobs[jobName]}
                             pluginConfigId={pluginConfigId}
-                            pluginId={plugin.id}
+                            pluginId={pluginId}
                         />
                     </div>
-                )
-            })}
+                ))}
         </>
     )
 }

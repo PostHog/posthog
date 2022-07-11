@@ -2,7 +2,7 @@
 
 set -e
 
-export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}" # TODO: move this back to `latest-release` after `1.36.0`
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 
 POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
@@ -11,6 +11,17 @@ export POSTHOG_SECRET
 echo "Welcome to the single instance PostHog installer 🦔"
 echo ""
 echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
+echo ""
+echo "What version of PostHog would you like to install? (We default to 'latest-release')"
+echo "You can check out available versions here: https://hub.docker.com/r/posthog/posthog/tags"
+read -r POSTHOG_APP_TAG_READ
+if [ -z "$POSTHOG_APP_TAG_READ" ]
+then
+    echo "Using default and installing $POSTHOG_APP_TAG"
+else
+    export POSTHOG_APP_TAG=$POSTHOG_APP_TAG_READ
+    echo "Using provided tag: $POSTHOG_APP_TAG"
+fi
 echo ""
 while true; do
     echo "Should we setup a TLS certificate for you using Let's Encrypt?"
@@ -25,7 +36,7 @@ done
 echo "Let's get the exact domain PostHog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
-echo "ie: test.posthog.net"
+echo "ie: test.posthog.net (NOT an IP address)"
 read -r DOMAIN
 export DOMAIN=$DOMAIN
 echo "Ok we'll set up certs for https://$DOMAIN"

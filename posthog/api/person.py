@@ -26,49 +26,34 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from ee.clickhouse.models.cohort import get_all_cohort_ids_by_person_uuid
-from ee.clickhouse.models.person import delete_person
-from ee.clickhouse.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
-from ee.clickhouse.queries.funnels.base import ClickhouseFunnelBase
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from ee.clickhouse.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
-from ee.clickhouse.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
-from ee.clickhouse.queries.paths import ClickhousePathsActors
-from ee.clickhouse.queries.property_values import get_person_property_values_for_key
-from ee.clickhouse.queries.retention.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.stickiness.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.trends.lifecycle import ClickhouseLifecycle
-from ee.clickhouse.sql.person import GET_PERSON_PROPERTIES_COUNT
 from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
-from posthog.constants import (
-    CSV_EXPORT_LIMIT,
-    FUNNEL_CORRELATION_PERSON_LIMIT,
-    FUNNEL_CORRELATION_PERSON_OFFSET,
-    INSIGHT_FUNNELS,
-    INSIGHT_PATHS,
-    LIMIT,
-    TRENDS_TABLE,
-    FunnelVizType,
-)
+from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, TRENDS_TABLE, FunnelVizType
 from posthog.decorators import cached_function
+from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
-from posthog.models.activity_logging.activity_log import (
-    ActivityPage,
-    Change,
-    Detail,
-    Merge,
-    load_activity,
-    log_activity,
-)
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
+from posthog.models.person.util import delete_ch_distinct_ids, delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.actor_base_query import ActorBaseQuery
+from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
+from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
+from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.paths import PathsActors
+from posthog.queries.property_values import get_person_property_values_for_key
+from posthog.queries.retention import Retention
+from posthog.queries.stickiness import Stickiness
+from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.util import get_earliest_timestamp
+from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
@@ -172,8 +157,19 @@ def should_paginate(results, limit: Union[str, int]) -> bool:
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
-    funnel_actor_class: Type[ClickhouseFunnelBase]
-    if filter.funnel_viz_type == FunnelVizType.TRENDS:
+    funnel_actor_class: Type[ActorBaseQuery]
+
+    if filter.correlation_person_entity and EE_AVAILABLE:
+
+        if EE_AVAILABLE:
+            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+
+            funnel_actor_class = FunnelCorrelationActors
+        else:
+            raise ValueError(
+                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
+            )
+    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:
         if filter.funnel_order_type == "unordered":
@@ -193,9 +189,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     pagination_class = PersonCursorPagination
     filterset_class = PersonFilter
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    lifecycle_class = ClickhouseLifecycle
-    retention_class = ClickhouseRetention
-    stickiness_class = ClickhouseStickiness
+    lifecycle_class = Lifecycle
+    retention_class = Retention
+    stickiness_class = Stickiness
 
     def paginate_queryset(self, queryset):
         if self.request.accepted_renderer.format == "csv" or not self.paginator:
@@ -207,8 +203,9 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             person = Person.objects.get(team=self.team, pk=pk)
             person_id = person.id
 
-            delete_person(
-                person.uuid, person.properties, person.is_identified, delete_events=True, team_id=self.team.pk
+            delete_person(person=person)
+            delete_ch_distinct_ids(
+                person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
             )
             person.delete()
 
@@ -281,59 +278,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url)}
 
-    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
-    def funnel_correlation(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        results_package = self.calculate_funnel_correlation_persons(request)
-
-        if not results_package:
-            return response.Response(data=[])
-
-        people, next_url, initial_url = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": people, "count": len(people)}],
-                "next": next_url,
-                "initial": initial_url,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-            }
-        )
-
-    @cached_function
-    def calculate_funnel_correlation_persons(
-        self, request: request.Request
-    ) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
-        if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
-
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        if not filter.correlation_person_limit:
-            filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
-        base_uri = request.build_absolute_uri("/")
-        actors, serialized_actors = FunnelCorrelationActors(
-            filter=filter, team=self.team, base_uri=base_uri
-        ).get_actors()
-        _should_paginate = should_paginate(actors, filter.correlation_person_limit)
-
-        next_url = (
-            format_query_params_absolute_url(
-                request,
-                filter.correlation_person_offset + filter.correlation_person_limit,
-                offset_alias=FUNNEL_CORRELATION_PERSON_OFFSET,
-                limit_alias=FUNNEL_CORRELATION_PERSON_LIMIT,
-            )
-            if _should_paginate
-            else None
-        )
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
-
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_properties(request)
@@ -382,7 +326,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, serialized_actors = ClickhousePathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        people, serialized_actors = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
         _should_paginate = should_paginate(people, filter.limit)
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
@@ -397,21 +341,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         value = request.GET.get("value")
         flattened = []
         if key:
-            timer = statsd.timer("get_person_property_values_for_key_timer").start()
-            try:
-                result = get_person_property_values_for_key(key, self.team, value)
-                statsd.incr(
-                    "get_person_property_values_for_key_success",
-                    tags={"key": key, "value": value, "team_id": self.team.id},
-                )
-            except Exception as e:
-                statsd.incr(
-                    "get_person_property_values_for_key_error",
-                    tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
-                )
-                raise e
-            finally:
-                timer.stop()
+            result = self._get_person_property_values_for_key(key, value)
 
             for (value, count) in result:
                 try:
@@ -420,6 +350,22 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 except json.decoder.JSONDecodeError:
                     flattened.append({"name": convert_property_value(value), "count": count})
         return response.Response(flattened)
+
+    @timed("get_person_property_values_for_key_timer")
+    def _get_person_property_values_for_key(self, key, value):
+        try:
+            result = get_person_property_values_for_key(key, self.team, value)
+            statsd.incr(
+                "get_person_property_values_for_key_success", tags={"team_id": self.team.id},
+            )
+        except Exception as e:
+            statsd.incr(
+                "get_person_property_values_for_key_error",
+                tags={"error": str(e), "key": key, "value": value, "team_id": self.team.id},
+            )
+            raise e
+
+        return result
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
@@ -612,7 +558,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         page = int(request.query_params.get("page", "1"))
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -623,23 +569,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
-
-    @staticmethod
-    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
-        return Response(
-            {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
-                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
-                if activity_page.has_next
-                else None,
-                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
-                if activity_page.has_previous
-                else None,
-                "total_count": activity_page.total_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
         instance = self.get_queryset().get(pk=kwargs["pk"])

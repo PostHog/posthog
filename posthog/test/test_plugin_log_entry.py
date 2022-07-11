@@ -1,141 +1,164 @@
-from typing import Callable
-
 from django.utils import timezone
 
-from posthog.models import Plugin, PluginConfig, PluginLogEntry
-from posthog.models.plugin import fetch_plugin_log_entries
+from posthog.client import sync_execute
+from posthog.models import Plugin, PluginConfig
+from posthog.models.plugin import PluginLogEntrySource, PluginLogEntryType, fetch_plugin_log_entries
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
 
-def factory_test_plugin_log_entry(plugin_log_entry_factory: Callable):
-    class TestPluginLogEntry(BaseTest):
-        def test_simple_log_is_fetched(self):
-            plugin_server_instance_id = str(UUIDT())
+def create_plugin_log_entry(
+    *,
+    team_id: int,
+    plugin_id: int,
+    plugin_config_id: int,
+    source: PluginLogEntrySource,
+    type: PluginLogEntryType,
+    message: str,
+    instance_id: str
+):
+    from posthog.clickhouse.plugin_log_entries import INSERT_PLUGIN_LOG_ENTRY_SQL
 
-            some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
-            some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
+    sync_execute(
+        INSERT_PLUGIN_LOG_ENTRY_SQL,
+        {
+            "id": UUIDT(),
+            "team_id": team_id,
+            "plugin_id": plugin_id,
+            "plugin_config_id": plugin_config_id,
+            "source": source,
+            "type": type,
+            "instance_id": instance_id,
+            "message": message,
+            "timestamp": timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
+        },
+    )
 
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.INFO,
-                message="Something happened!",
-                instance_id=plugin_server_instance_id,
-            )
 
-            results = fetch_plugin_log_entries(
-                plugin_config_id=some_plugin_config.pk,
-                after=timezone.datetime.min,
-                before=timezone.now() + timezone.timedelta(seconds=5),
-            )
+class TestPluginLogEntry(BaseTest):
+    def test_simple_log_is_fetched(self):
+        plugin_server_instance_id = str(UUIDT())
 
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0].message, "Something happened!")
+        some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
+        some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
 
-        def test_log_search_works(self):
-            plugin_server_instance_id = str(UUIDT())
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.INFO,
+            message="Something happened!",
+            instance_id=plugin_server_instance_id,
+        )
 
-            some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
-            some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
+        results = fetch_plugin_log_entries(
+            plugin_config_id=some_plugin_config.pk,
+            after=timezone.datetime.min,
+            before=timezone.now() + timezone.timedelta(seconds=5),
+        )
 
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.INFO,
-                message="Something happened!",
-                instance_id=plugin_server_instance_id,
-            )
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.ERROR,
-                message="Random error",
-                instance_id=plugin_server_instance_id,
-            )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].message, "Something happened!")
 
-            results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, search="somethinG")
+    def test_log_search_works(self):
+        plugin_server_instance_id = str(UUIDT())
 
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0].message, "Something happened!")
+        some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
+        some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
 
-        def test_log_type_filter_works(self):
-            plugin_server_instance_id = str(UUIDT())
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.INFO,
+            message="Something happened!",
+            instance_id=plugin_server_instance_id,
+        )
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.ERROR,
+            message="Random error",
+            instance_id=plugin_server_instance_id,
+        )
 
-            some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
-            some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
+        results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, search="somethinG")
 
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.INFO,
-                message="Something happened!",
-                instance_id=plugin_server_instance_id,
-            )
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.ERROR,
-                message="Random error",
-                instance_id=plugin_server_instance_id,
-            )
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.DEBUG,
-                message="debug message",
-                instance_id=plugin_server_instance_id,
-            )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].message, "Something happened!")
 
-            results = fetch_plugin_log_entries(
-                plugin_config_id=some_plugin_config.pk,
-                type_filter=[PluginLogEntry.Type.ERROR, PluginLogEntry.Type.DEBUG],
-            )
+    def test_log_type_filter_works(self):
+        plugin_server_instance_id = str(UUIDT())
 
-            self.assertEqual(len(results), 2)
-            self.assertEqual(results[0].message, "debug message")
-            self.assertEqual(results[1].message, "Random error")
+        some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
+        some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
 
-        def test_log_limit_works(self):
-            plugin_server_instance_id = str(UUIDT())
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.INFO,
+            message="Something happened!",
+            instance_id=plugin_server_instance_id,
+        )
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.ERROR,
+            message="Random error",
+            instance_id=plugin_server_instance_id,
+        )
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.DEBUG,
+            message="debug message",
+            instance_id=plugin_server_instance_id,
+        )
 
-            some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
-            some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
+        results = fetch_plugin_log_entries(
+            plugin_config_id=some_plugin_config.pk, type_filter=[PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG],
+        )
 
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.INFO,
-                message="Something happened!",
-                instance_id=plugin_server_instance_id,
-            )
-            plugin_log_entry_factory(
-                team_id=self.team.pk,
-                plugin_id=some_plugin.pk,
-                plugin_config_id=some_plugin_config.pk,
-                source=PluginLogEntry.Source.CONSOLE,
-                type=PluginLogEntry.Type.ERROR,
-                message="Random error",
-                instance_id=plugin_server_instance_id,
-            )
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].message, "debug message")
+        self.assertEqual(results[1].message, "Random error")
 
-            results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, limit=1)
+    def test_log_limit_works(self):
+        plugin_server_instance_id = str(UUIDT())
 
-            self.assertEqual(len(results), 1)
-            self.assertEqual(results[0].message, "Random error")
+        some_plugin: Plugin = Plugin.objects.create(organization=self.organization)
+        some_plugin_config: PluginConfig = PluginConfig.objects.create(plugin=some_plugin, order=1)
 
-    return TestPluginLogEntry
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.INFO,
+            message="Something happened!",
+            instance_id=plugin_server_instance_id,
+        )
+        create_plugin_log_entry(
+            team_id=self.team.pk,
+            plugin_id=some_plugin.pk,
+            plugin_config_id=some_plugin_config.pk,
+            source=PluginLogEntrySource.CONSOLE,
+            type=PluginLogEntryType.ERROR,
+            message="Random error",
+            instance_id=plugin_server_instance_id,
+        )
+
+        results = fetch_plugin_log_entries(plugin_config_id=some_plugin_config.pk, limit=1)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].message, "Random error")

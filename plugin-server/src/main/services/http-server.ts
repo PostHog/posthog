@@ -13,7 +13,7 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serve
         if (req.url === '/_health' && req.method === 'GET') {
             let serverHealthy = true
 
-            if (hub.KAFKA_ENABLED && serverInstance.kafkaHealthcheckConsumer) {
+            if (serverInstance.kafkaHealthcheckConsumer) {
                 const [kafkaHealthy, error] = await kafkaHealthcheck(
                     hub.kafkaProducer,
                     serverInstance.kafkaHealthcheckConsumer,
@@ -38,6 +38,24 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serve
                 res.end(JSON.stringify(responseBody))
             } else {
                 status.info('💔', 'Server healthcheck failed')
+                const responseBody = {
+                    status: 'error',
+                }
+                res.statusCode = 503
+                res.end(JSON.stringify(responseBody))
+            }
+        } else if (req.url === '/_ready' && req.method === 'GET') {
+            // Check that, if the server should have a kafka queue,
+            // the Kafka consumer is ready to consume messages
+            if (!serverInstance.queue || serverInstance.queue.consumerReady) {
+                status.info('💚', 'Server readiness check succeeded')
+                const responseBody = {
+                    status: 'ok',
+                }
+                res.statusCode = 200
+                res.end(JSON.stringify(responseBody))
+            } else {
+                status.info('💔', 'Server readiness check failed')
                 const responseBody = {
                     status: 'error',
                 }

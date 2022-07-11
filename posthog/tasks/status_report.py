@@ -12,7 +12,14 @@ from psycopg2 import sql
 from posthog import version_requirement
 from posthog.models import GroupTypeMapping, Person, Team, User
 from posthog.models.dashboard import Dashboard
+from posthog.models.event.util import (
+    get_event_count_for_team,
+    get_event_count_for_team_and_period,
+    get_events_count_for_team_by_client_lib,
+    get_events_count_for_team_by_event_type,
+)
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_week
@@ -66,19 +73,8 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
 
     for team in Team.objects.exclude(organization__for_internal_metrics=True):
         try:
-            params = (team.id, report["period"]["start_inclusive"], report["period"]["end_inclusive"])
             team_report: Dict[str, Any] = {}
             # pull events stats from clickhouse
-            from ee.clickhouse.models.event import (
-                get_event_count_for_team,
-                get_event_count_for_team_and_period,
-                get_events_count_for_team_by_client_lib,
-                get_events_count_for_team_by_event_type,
-            )
-            from ee.clickhouse.models.person import (
-                count_duplicate_distinct_ids_for_team,
-                count_total_persons_with_multiple_ids,
-            )
 
             team_event_count = get_event_count_for_team(team.id)
             instance_usage_summary["events_count_total"] += team_event_count
@@ -116,7 +112,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
             team_report["dashboards_count"] = team_dashboards.count()
             instance_usage_summary["dashboards_count"] += team_report["dashboards_count"]
             team_report["dashboards_template_count"] = team_dashboards.filter(creation_mode="template").count()
-            team_report["dashboards_shared_count"] = team_dashboards.filter(is_shared=True).count()
+            team_report["dashboards_shared_count"] = team_dashboards.filter(sharingconfiguration__enabled=True).count()
             team_report["dashboards_tagged_count"] = team_dashboards.exclude(tagged_items__isnull=True).count()
 
             # Feature Flags
@@ -195,6 +191,9 @@ def fetch_sql(sql_: str, params: Tuple[Any, ...]) -> List[Any]:
 
 
 def get_instance_licenses() -> List[str]:
-    from ee.models import License
-
-    return [license.key for license in License.objects.all()]
+    try:
+        from ee.models import License
+    except ImportError:
+        return []
+    else:
+        return [license.key for license in License.objects.all()]

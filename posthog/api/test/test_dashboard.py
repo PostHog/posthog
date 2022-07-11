@@ -1,9 +1,8 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from dateutil import parser
-from django.db import DEFAULT_DB_ALIAS, connection, connections
-from django.test.utils import CaptureQueriesContext
+from django.db import connection
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -11,7 +10,9 @@ from rest_framework import status
 
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
 from posthog.models.organization import Organization
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.utils import generate_cache_key
 
 
@@ -40,9 +41,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "b dashboard"})
         self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "c dashboard"})
+        self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "d dashboard"})
 
-        # Verify that the query count is the same when there are multiple dashboards
-        with self.assertNumQueries(expected_query_count):
+        # Verify that the query count only increases by one per additional dashboard
+        # sharing configuration is a prefetch and so adds another query
+        with self.assertNumQueries(expected_query_count + 3):
             self.client.get(f"/api/projects/{self.team.id}/dashboards/")
 
     @snapshot_postgres_queries
@@ -103,7 +106,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(dashboard.name, "dashboard new name")
 
     def test_create_dashboard_item(self):
-        dashboard = Dashboard.objects.create(team=self.team, share_token="testtoken", name="public dashboard")
+        dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
         self._create_insight(
             {
                 "dashboards": [dashboard.pk],
@@ -118,46 +121,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Short ID is automatically generated
         self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
-    def test_share_token_lookup_is_shared_true(self):
-        _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
-        dashboard = Dashboard.objects.create(
-            team=other_team, share_token="testtoken", name="public dashboard", is_shared=True
-        )
-        # Project-based endpoint while logged in, but not belonging to the same org
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        # Project-based endpoint while logged out
-        self.client.logout()
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        # Shared dashboards endpoint while logged out
-        response = self.client.get(f"/api/shared_dashboards/testtoken")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["name"], "public dashboard")
-
-    def test_share_token_lookup_is_shared_false(self):
-        _, other_team, _ = User.objects.bootstrap("X", "y@x.com", None)
-        Dashboard.objects.create(team=other_team, share_token="testtoken", name="public dashboard", is_shared=False)
-        # Shared dashboards endpoint while logged out (dashboards should be unavailable as it's not shared)
-        response = self.client.get(f"/api/shared_dashboards/testtoken")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
     def test_shared_dashboard(self):
         self.client.logout()
-        Dashboard.objects.create(
-            team=self.team, share_token="testtoken", name="public dashboard", is_shared=True,
-        )
+        dashboard = Dashboard.objects.create(team=self.team, name="public dashboard",)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, access_token="testtoken", enabled=True)
+
         response = self.client.get("/shared_dashboard/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_share_dashboard(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk, {"name": "dashboard 2", "is_shared": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        dashboard = Dashboard.objects.get(pk=dashboard.pk)
-        self.assertIsNotNone(dashboard.share_token)
 
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -190,9 +160,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["items"][0]["result"][0]["count"], 0)
 
     def _get_dashboard_counting_queries(self, dashboard_id: int) -> Tuple[int, List[Dict[str, str]]]:
-        db_connection = connections[DEFAULT_DB_ALIAS]
-
-        with CaptureQueriesContext(db_connection) as capture_query_context:
+        with capture_db_queries() as capture_query_context:
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -641,7 +609,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         item = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team=self.team, last_refresh=now(),)
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}").json()
-        self.assertEqual(response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS"})
+        self.assertEqual(
+            response["items"][0]["filters"], {"events": [{"id": "$pageview"}], "insight": "TRENDS", "date_from": "-7d"}
+        )
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
@@ -658,6 +628,76 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["name"], "replaced")
+
+    def test_can_soft_delete_insight_after_soft_deleting_dashboard(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+        insight_json = self._get_insight(insight_id=insight_id)
+        self.assertEqual(insight_json["dashboards"], [])
+
+        self._soft_delete(insight_id, "insights")
+
+    def test_can_soft_delete_dashboard_after_soft_deleting_insight(self) -> None:
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+            "insight": "TRENDS",
+        }
+
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+
+        self._soft_delete(insight_id, "insights")
+
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
+
+        dashboard_json = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").json()
+        self.assertEqual(len(dashboard_json["items"]), 0)
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+    def test_hard_delete_is_forbidden(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        api_response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}")
+        self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK,
+        )
+
+    def test_soft_delete_can_be_reversed_with_patch(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+
+        self._soft_delete(dashboard_id, "dashboards")
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"deleted": False}
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").status_code, status.HTTP_200_OK
+        )
+
+    def _soft_delete(
+        self,
+        model_id: int,
+        model_type: Literal["insights", "dashboards"],
+        expected_get_status: int = status.HTTP_404_NOT_FOUND,
+    ) -> None:
+        api_response = self.client.patch(f"/api/projects/{self.team.id}/{model_type}/{model_id}", {"deleted": True})
+        self.assertEqual(api_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code, expected_get_status,
+        )
 
     def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:

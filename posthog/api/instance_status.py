@@ -8,6 +8,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.dashboard import DashboardSerializer
 from posthog.async_migrations.status import async_migrations_ok
 from posthog.gitsha import GIT_SHA
 from posthog.internal_metrics.team import get_internal_metrics_dashboards
@@ -91,7 +92,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 {"key": "async_migrations_ok", "metric": "Async migrations up-to-date", "value": async_migrations_ok()},
             )
 
-        from ee.clickhouse.system_status import system_status
+        from posthog.clickhouse.system_status import system_status
 
         metrics.extend(list(system_status()))
 
@@ -139,7 +140,15 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 {"key": "object_storage", "metric": "Object Storage healthy", "value": object_storage.health_check()}
             )
 
-        return Response({"results": {"overview": metrics, "internal_metrics": get_internal_metrics_dashboards()}})
+        # NOTE: This is hacky but needed for the dashboard serializer
+        self.action = "retrieve"
+        dashboard_context = {"view": self, "request": request}
+        dashboards = get_internal_metrics_dashboards()
+        dashboards_serialized = {
+            key: DashboardSerializer(dashboards[key], context=dashboard_context).data for key in dashboards
+        }
+
+        return Response({"results": {"overview": metrics, "internal_metrics": dashboards_serialized}})
 
     # Used to capture internal metrics shown on dashboards
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
@@ -154,7 +163,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     def queries(self, request: Request) -> Response:
         queries = {"postgres_running": self.get_postgres_running_queries()}
 
-        from ee.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
+        from posthog.clickhouse.system_status import get_clickhouse_running_queries, get_clickhouse_slow_log
 
         queries["clickhouse_running"] = get_clickhouse_running_queries()
         queries["clickhouse_slow_log"] = get_clickhouse_slow_log()
@@ -169,7 +178,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
     def analyze_ch_query(self, request: Request) -> Response:
         response = {}
 
-        from ee.clickhouse.system_status import analyze_query
+        from posthog.clickhouse.system_status import analyze_query
 
         response["results"] = analyze_query(request.data["query"])
 

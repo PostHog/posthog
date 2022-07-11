@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
-import { infiniteListLogicType } from './infiniteListLogicType'
+import type { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
 import {
@@ -123,7 +123,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         await breakpoint(1)
                     }
 
-                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery } = values
+                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery, excludedProperties } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
@@ -134,6 +134,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
                         offset,
+                        excluded_properties: JSON.stringify(excludedProperties),
                     }
 
                     const [response, expandedCountResponse] = await Promise.all([
@@ -237,6 +238,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                 taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
         ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
+        excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
         isExpandable: [
             (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],

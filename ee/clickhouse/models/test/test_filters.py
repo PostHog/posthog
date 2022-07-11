@@ -1,21 +1,20 @@
 import json
 from typing import Optional
 
-from ee.clickhouse.models.event import ClickhouseEventSerializer
-from ee.clickhouse.models.property import parse_prop_grouped_clauses
-from ee.clickhouse.sql.events import GET_EVENTS_WITH_PROPERTIES
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
+from posthog.models.event.sql import GET_EVENTS_WITH_PROPERTIES
+from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
 from posthog.models.filters.test.test_filter import property_to_Q_test_factory
+from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import PersonPropertiesMode
-from posthog.test.base import _create_event, _create_person
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.test_journeys import journeys_for
 
 
 def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
@@ -401,8 +400,8 @@ class TestFiltering(
         self.assertEqual(len(events), 1)
 
     def test_user_properties(self):
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"group": "some group"})
-        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"group": "another group"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"group": "some group"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"group": "another group"})
         event2_uuid = _create_event(
             team=self.team,
             distinct_id="person1",
@@ -418,10 +417,8 @@ class TestFiltering(
 
         # test for leakage
         _, _, team2 = Organization.objects.bootstrap(None)
-        person_team2 = _create_person(
-            team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"}
-        )
-        event_team2 = _create_event(
+        _create_person(team_id=team2.pk, distinct_ids=["person_team_2"], properties={"group": "another group"})
+        _create_event(
             team=team2,
             distinct_id="person_team_2",
             event="$pageview",
@@ -441,8 +438,8 @@ class TestFiltering(
         self.assertEqual(len(events), 1)
 
     def test_user_properties_numerical(self):
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"group": 1})
-        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"group": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"group": 1})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"group": 2})
         event2_uuid = _create_event(
             team=self.team,
             distinct_id="person1",
@@ -468,7 +465,9 @@ class TestFiltering(
         self.assertEqual(len(events), 1)
 
     def test_boolean_filters(self):
-        event1_uuid = _create_event(team=self.team, event="$pageview", distinct_id="test",)
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="test",
+        )
         event2_uuid = _create_event(
             team=self.team, event="$pageview", distinct_id="test", properties={"is_first_user": True}
         )
@@ -494,6 +493,21 @@ class TestFiltering(
         self.assertEqual(events[0]["id"], event2_uuid)
         self.assertEqual(len(events), 1)
 
+    def test_is_not_set_and_is_set_with_missing_value(self):
+        event1_uuid = _create_event(team=self.team, event="$pageview", distinct_id="test",)
+        event2_uuid = _create_event(
+            team=self.team, event="$pageview", distinct_id="test", properties={"is_first_user": True}
+        )
+        filter = Filter(data={"properties": [{"key": "is_first_user", "operator": "is_not_set"}]})
+        events = _filter_events(filter, self.team)
+        self.assertEqual(events[0]["id"], event1_uuid)
+        self.assertEqual(len(events), 1)
+
+        filter = Filter(data={"properties": [{"key": "is_first_user", "operator": "is_set"}]})
+        events = _filter_events(filter, self.team)
+        self.assertEqual(events[0]["id"], event2_uuid)
+        self.assertEqual(len(events), 1)
+
     def test_true_false(self):
         _create_event(team=self.team, distinct_id="test", event="$pageview")
         event2_uuid = _create_event(
@@ -510,7 +524,7 @@ class TestFiltering(
 
     def test_is_not_true_false(self):
         event_uuid = _create_event(team=self.team, distinct_id="test", event="$pageview")
-        event2_uuid = _create_event(
+        _create_event(
             team=self.team, event="$pageview", distinct_id="test", properties={"is_first": True},
         )
         filter = Filter(data={"properties": [{"key": "is_first", "value": "true", "operator": "is_not"}]})
@@ -518,7 +532,7 @@ class TestFiltering(
         self.assertEqual(events[0]["id"], event_uuid)
 
     def test_json_object(self):
-        person1 = _create_person(
+        _create_person(
             team_id=self.team.pk,
             distinct_ids=["person1"],
             properties={"name": {"first_name": "Mary", "last_name": "Smith"}},
@@ -586,12 +600,8 @@ class TestFiltering(
         self.assertEqual(len(events_response_2), 1)
 
     def test_filter_out_team_members(self):
-        person1 = _create_person(
-            team_id=self.team.pk, distinct_ids=["team_member"], properties={"email": "test@posthog.com"}
-        )
-        person1 = _create_person(
-            team_id=self.team.pk, distinct_ids=["random_user"], properties={"email": "test@gmail.com"}
-        )
+        _create_person(team_id=self.team.pk, distinct_ids=["team_member"], properties={"email": "test@posthog.com"})
+        _create_person(team_id=self.team.pk, distinct_ids=["random_user"], properties={"email": "test@gmail.com"})
         self.team.test_account_filters = [
             {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
         ]
@@ -690,7 +700,7 @@ class TestFiltering(
 
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
-        person1 = Person.objects.create(
+        Person.objects.create(
             team=self.team, distinct_ids=[person1_distinct_id], properties={"$some_prop": "something"}
         )
 
@@ -701,7 +711,7 @@ class TestFiltering(
         )
 
         person2_distinct_id = "person2"
-        person2 = Person.objects.create(
+        Person.objects.create(
             team=self.team, distinct_ids=[person2_distinct_id], properties={"$some_prop": "different"}
         )
         cohort2 = Cohort.objects.create(

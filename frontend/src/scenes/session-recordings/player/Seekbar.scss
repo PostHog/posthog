@@ -1,5 +1,3 @@
-@import '~/vars';
-
 $slider-height: 16px;
 $thumb_size: 15px;
 $tick_size: 9px;
@@ -23,8 +21,8 @@ $tick_hover_size: 5px;
             border-radius: 50%;
             width: $thumb_size;
             height: $thumb_size;
-            border: 2px solid $bg_light;
-            background-color: $brand_red;
+            border: 2px solid var(--bg-light);
+            background-color: var(--brand-red);
             transform-origin: center;
             transform: translateX(-$thumb_size / 2);
             transition: transform 50ms;
@@ -40,7 +38,7 @@ $tick_hover_size: 5px;
 
         .slider-bar {
             z-index: 1;
-            background-color: $border;
+            background-color: var(--border);
             height: 4px;
             top: ($slider-height - 4px) / 2;
         }
@@ -48,7 +46,7 @@ $tick_hover_size: 5px;
         .buffer-bar {
             z-index: 2;
             transition: width 200ms;
-            background-color: $recording_buffer_bg;
+            background-color: var(--recording-buffer-bg);
             position: absolute;
             height: 2px;
             top: ($slider-height - 2px) / 2;
@@ -58,7 +56,7 @@ $tick_hover_size: 5px;
 
         .current-bar {
             z-index: 3;
-            background-color: $brand_red;
+            background-color: var(--brand-red);
             position: absolute;
             height: 2px;
             top: ($slider-height - 2px) / 2;
@@ -102,18 +100,18 @@ $tick_hover_size: 5px;
                 position: absolute;
                 width: 1px;
                 height: 21px;
-                background-color: $recording_player_container_bg;
+                background-color: var(--recording-player-container-bg);
                 right: floor($tick_hover_size / 2);
             }
 
             .tick-info {
-                border-radius: $radius;
-                padding: $default_spacing/4 $default_spacing/2;
+                border-radius: var(--radius);
+                padding: 0.25rem 0.5rem;
                 position: absolute;
                 top: -4 * $tick_size;
-                background-color: $bg_charcoal;
+                background-color: var(--bg-charcoal);
                 display: none;
-                color: $text_light;
+                color: var(--text-light);
                 white-space: nowrap;
                 // Next 2 lines centers the absolute positioned tick info
                 left: 50%;
@@ -130,8 +128,8 @@ $tick_hover_size: 5px;
                 border-radius: 50%;
                 right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
                 top: -1 * floor($tick_size / 2);
-                border: 0.5px solid $recording_player_container_bg;
-                background-color: $bg_light;
+                border: 0.5px solid var(--recording-player-container-bg);
+                background-color: var(--bg-light);
                 transform-origin: center;
                 transition: transform 200ms;
 

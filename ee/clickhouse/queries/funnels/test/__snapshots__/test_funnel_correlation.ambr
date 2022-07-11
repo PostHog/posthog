@@ -187,7 +187,7 @@
      FROM funnel_actors
      JOIN
        (SELECT id,
-               argMax(properties, _timestamp) as person_props
+               argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -262,6 +262,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -277,13 +284,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -351,6 +351,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -366,13 +373,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -440,6 +440,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -455,13 +462,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -529,6 +529,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -544,13 +551,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -641,7 +641,7 @@
      FROM funnel_actors
      JOIN
        (SELECT id,
-               argMax(pmat_$browser, _timestamp) as pmat_$browser
+               argMax(pmat_$browser, version) as pmat_$browser
         FROM person
         WHERE team_id = 2
         GROUP BY id
@@ -716,6 +716,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -731,13 +738,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -805,6 +805,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -820,13 +827,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -894,6 +894,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -909,13 +916,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps = target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -983,6 +983,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -998,13 +1005,6 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  JOIN
-    (SELECT id
-     FROM person
-     WHERE team_id = 2
-     GROUP BY id
-     HAVING max(is_deleted) = 0
-     AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = funnel_actors.actor_id
   WHERE funnel_actors.steps <> target_step
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
@@ -2059,12 +2059,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2076,15 +2085,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps = target_step
-    AND has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
@@ -2141,12 +2142,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2158,15 +2168,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps <> target_step
-    AND has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
@@ -2223,12 +2225,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2240,15 +2251,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps = target_step
-    AND has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
@@ -2305,12 +2308,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2322,15 +2334,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps <> target_step
-    AND has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
@@ -2568,12 +2572,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2585,15 +2598,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps = target_step
-    AND has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
@@ -2650,12 +2655,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2667,15 +2681,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps <> target_step
-    AND has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
@@ -2732,12 +2738,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2749,15 +2764,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps = target_step
-    AND has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100
@@ -2814,12 +2821,21 @@
                               e.team_id as team_id,
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
-                              e."$group_0" as aggregation_target
+                              e."$group_0" as aggregation_target,
+                              groups_0.group_properties_0 as group_properties_0
                        FROM events e
+                       INNER JOIN
+                         (SELECT group_key,
+                                 argMax(group_properties, _timestamp) AS group_properties_0
+                          FROM groups
+                          WHERE team_id = 2
+                            AND group_type_index = 0
+                          GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                         AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                         AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -2831,15 +2847,7 @@
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
-  INNER JOIN
-    (SELECT group_key,
-            argMax(group_properties, _timestamp) AS group_properties_0
-     FROM groups
-     WHERE team_id = 2
-       AND group_type_index = 0
-     GROUP BY group_key) groups_0 ON funnel_actors.actor_id == groups_0.group_key
   WHERE funnel_actors.steps <> target_step
-    AND has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
   GROUP BY funnel_actors.actor_id
   ORDER BY actor_id
   LIMIT 100

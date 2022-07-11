@@ -1,0 +1,51 @@
+.correlation-matrix {
+    .ant-modal-body {
+        display: flex;
+        justify-content: center;
+    }
+    .correlation-table-wrapper {
+        table {
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            border-collapse: separate;
+            border-spacing: 0px;
+            margin: 0 auto;
+
+            td {
+                padding: 0.5rem 1rem;
+                border-left: 1px solid var(--border);
+                border-top: 1px solid var(--border);
+                text-align: center;
+
+                .percentage {
+                    font-weight: bold;
+                    padding-bottom: 0.25rem;
+                }
+                &:first-child {
+                    border-left: none;
+                }
+            }
+
+            .table-title {
+                color: var(--text-muted-alt);
+                td {
+                    border-top: none;
+                }
+            }
+
+            thead,
+            .horizontal-header {
+                font-weight: bold;
+                background-color: var(--antd-table-background-dark);
+                text-transform: uppercase;
+                color: var(--text-muted);
+            }
+
+            tbody {
+                td:not(.horizontal-header) {
+                    text-align: right;
+                }
+            }
+        }
+    }
+}

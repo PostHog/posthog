@@ -26,10 +26,9 @@
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
-     FROM session_recording_events
-     WHERE team_id = 2
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
@@ -82,10 +81,9 @@
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
-     FROM session_recording_events
-     WHERE team_id = 2
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
@@ -121,7 +119,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---
@@ -136,7 +135,8 @@
        AND cohort_id = 2
      GROUP BY person_id,
               cohort_id,
-              team_id
+              team_id,
+              version
      HAVING sum(sign) > 0)
   '
 ---
@@ -156,10 +156,9 @@
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
-     FROM session_recording_events
-     WHERE team_id = 2
-       AND timestamp >= '2021-08-13 12:00:00'
-       AND timestamp <= '2021-08-22 11:59:59'
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-08-13 12:00:00'
+     AND timestamp <= '2021-08-22 11:59:59'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-08-14 00:00:00'
@@ -185,7 +184,8 @@
               AND cohort_id = 2
             GROUP BY person_id,
                      cohort_id,
-                     team_id
+                     team_id,
+                     version
             HAVING sum(sign) > 0))
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
@@ -221,10 +221,9 @@
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
-     FROM session_recording_events
-     WHERE team_id = 2
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
@@ -277,10 +276,9 @@
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
-     FROM session_recording_events
-     WHERE team_id = 2
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
@@ -321,10 +319,9 @@
             dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
-     FROM session_recording_events
-     WHERE team_id = 2
-       AND timestamp >= '2021-01-13 12:00:00'
-       AND timestamp <= '2021-01-22 11:59:59'
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 11:59:59'
      GROUP BY session_id
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'

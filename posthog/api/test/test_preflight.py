@@ -12,6 +12,8 @@ from posthog.version import VERSION
 
 
 class TestPreflight(APIBaseTest):
+    maxDiff = 2000
+
     def instance_preferences(self, **kwargs):
         return {
             "debug_queries": False,
@@ -85,11 +87,12 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": False,
                     "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
                     "object_storage": False,
+                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
-    @patch("posthog.storage.object_storage.s3_client")
+    @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = True
 
@@ -128,6 +131,7 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": False,
                     "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
                     "object_storage": True,
+                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -196,6 +200,7 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": True,
                     "instance_preferences": {"debug_queries": False, "disable_paid_fs": False,},
                     "object_storage": False,
+                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -241,6 +246,7 @@ class TestPreflight(APIBaseTest):
                     "can_create_org": True,
                     "instance_preferences": {"debug_queries": False, "disable_paid_fs": True,},
                     "object_storage": False,
+                    "buffer_conversion_seconds": 60,
                 },
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
@@ -277,19 +283,24 @@ class TestPreflight(APIBaseTest):
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
     def test_ee_preflight_with_users_limit(self):
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key_123",
+                plan="free_clickhouse",
+                valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+                max_users=3,
+            )
 
-        from ee.models.license import License, LicenseManager
+            OrganizationInvite.objects.create(organization=self.organization, target_email="invite@posthog.com")
 
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="free_clickhouse", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
-        )
-
-        OrganizationInvite.objects.create(organization=self.organization, target_email="invite@posthog.com")
-
-        response = self.client.get("/_preflight/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["licensed_users_available"], 1)
-        self.assertEqual(response.json()["can_create_org"], False)
+            response = self.client.get("/_preflight/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["licensed_users_available"], 1)
+            self.assertEqual(response.json()["can_create_org"], False)
 
     def test_can_create_org_in_fresh_instance(self):
         Organization.objects.all().delete()
@@ -307,13 +318,15 @@ class TestPreflight(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["can_create_org"], False)
 
-        # Now with proper license
-        from ee.models.license import License, LicenseManager
-
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
-        )
-        with self.settings(MULTI_ORG_ENABLED=True):
-            response = self.client.get("/_preflight/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["can_create_org"], True)
+        try:
+            from ee.models.license import License, LicenseManager
+        except ImportError:
+            pass
+        else:
+            super(LicenseManager, cast(LicenseManager, License.objects)).create(
+                key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            )
+            with self.settings(MULTI_ORG_ENABLED=True):
+                response = self.client.get("/_preflight/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["can_create_org"], True)

@@ -7,16 +7,17 @@ from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
 from posthog.test.base import (
     APIBaseTest,
+    ClickhouseTestMixin,
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
 
@@ -298,6 +299,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
 
     def test_filter_uuid(self) -> None:
         person1 = _create_person(

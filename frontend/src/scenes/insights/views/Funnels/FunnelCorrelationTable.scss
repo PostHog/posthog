@@ -1,0 +1,93 @@
+.funnel-correlation-table {
+    margin-top: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    .ant-table {
+        thead th {
+            border-bottom: 1px solid var(--border);
+        }
+    }
+
+    .funnel-correlation-header {
+        background: #f2f2f2;
+        display: flex;
+        align-self: stretch;
+        justify-content: space-between;
+        align-content: space-between;
+        border-top-left-radius: var(--radius);
+        border-top-right-radius: var(--radius);
+        padding-bottom: 5px;
+
+        .table-header {
+            font-style: normal;
+            font-weight: bold;
+            font-size: 11px;
+            line-height: 16px;
+            padding-bottom: 4px;
+
+            display: flex;
+            align-items: center;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+
+            color: var(--text-default);
+            margin-left: 1rem;
+            margin-top: 0.5rem;
+        }
+
+        .table-options {
+            display: flex;
+            flex-grow: 1;
+            justify-content: flex-end;
+            align-items: center;
+            margin-top: 5px;
+
+            .title {
+                font-family: Inter;
+                font-style: normal;
+                font-weight: 600;
+                font-size: 11px;
+                line-height: 16px;
+                /* identical to box height, or 145% */
+
+                display: flex;
+                align-items: center;
+                letter-spacing: 0.02em;
+                text-transform: uppercase;
+                margin: 5px;
+
+                color: rgba(0, 0, 0, 0.5);
+            }
+        }
+    }
+
+    .column-info {
+        color: var(--text-muted-alt);
+        cursor: pointer;
+        padding-left: 4px;
+    }
+
+    .nested-properties-table {
+        margin: 1rem;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        thead th {
+            border-bottom: 1px solid var(--border);
+        }
+    }
+
+    .nested-properties-loading {
+        text-align: center;
+        padding: 2rem 0;
+
+        h3 {
+            font-size: 1rem;
+            font-weight: bold;
+            margin-bottom: 0;
+            p {
+                color: var(--text-muted-alt);
+            }
+        }
+    }
+}

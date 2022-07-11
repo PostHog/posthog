@@ -1,5 +1,8 @@
 import {
     ActionFilter,
+    BreakdownKeyType,
+    BreakdownType,
+    CohortType,
     EntityFilter,
     FilterType,
     FunnelVizType,
@@ -16,13 +19,15 @@ import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { groupsModelType } from '~/models/groupsModelType'
-import { toLocalFilters } from './ActionFilter/entityFilterLogic'
+import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { retentionOptions } from 'scenes/retention/retentionTableLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightLogic } from './insightLogic'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -114,8 +119,12 @@ export function findInsightFromMountedLogic(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    return (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
-        .results[0]?.id
+    const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
+
+    return insightId
+        ? insightId
+        : (await api.get(`api/projects/${getCurrentTeamId()}/insights/?short_id=${encodeURIComponent(shortId)}`))
+              .results[0]?.id
 }
 
 export function humanizePathsEventTypes(filters: Partial<FilterType>): string[] {
@@ -288,4 +297,46 @@ export function summarizeInsightFilters(
             }
     }
     return summary
+}
+
+export function formatBreakdownLabel(
+    cohorts?: CohortType[],
+    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction,
+    breakdown_value?: BreakdownKeyType,
+    breakdown?: BreakdownKeyType,
+    breakdown_type?: BreakdownType | null,
+    isHistogram?: boolean
+): string {
+    if (isHistogram && typeof breakdown_value === 'string') {
+        const [bucketStart, bucketEnd] = JSON.parse(breakdown_value)
+        const formattedBucketStart = formatBreakdownLabel(
+            cohorts,
+            formatPropertyValueForDisplay,
+            bucketStart,
+            breakdown,
+            breakdown_type
+        )
+        const formattedBucketEnd = formatBreakdownLabel(
+            cohorts,
+            formatPropertyValueForDisplay,
+            bucketEnd,
+            breakdown,
+            breakdown_type
+        )
+        return `${formattedBucketStart} – ${formattedBucketEnd}`
+    }
+    if (typeof breakdown_value == 'number') {
+        if (breakdown_type === 'cohort') {
+            return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? breakdown_value.toString()
+        }
+        return formatPropertyValueForDisplay
+            ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
+            : breakdown_value.toString()
+    } else if (typeof breakdown_value == 'string') {
+        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
+    } else if (Array.isArray(breakdown_value)) {
+        return breakdown_value.join('::')
+    } else {
+        return ''
+    }
 }

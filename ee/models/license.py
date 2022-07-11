@@ -61,6 +61,7 @@ class License(models.Model):
         AvailableFeature.TAGGING,
         AvailableFeature.BEHAVIORAL_COHORT_FILTERING,
         AvailableFeature.WHITE_LABELLING,
+        AvailableFeature.SUBSCRIPTIONS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"

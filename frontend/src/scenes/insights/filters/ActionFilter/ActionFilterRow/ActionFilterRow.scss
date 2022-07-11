@@ -1,0 +1,66 @@
+.ActionFilterRow {
+    .ActionFilterRow-content {
+        display: flex;
+        align-items: flex-start;
+
+        > * + * {
+            margin-left: 0.5rem;
+        }
+    }
+
+    .row-start,
+    .row-center,
+    .row-end {
+        display: flex;
+        align-items: center;
+    }
+
+    .row-start,
+    .row-end {
+        flex: 0;
+    }
+
+    .row-end {
+        padding-top: 5px;
+        > * + * {
+            margin-left: 0.25rem;
+        }
+    }
+
+    .row-center {
+        flex: 1;
+        overflow: hidden;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .series-indicator {
+        padding-top: 5px;
+    }
+
+    .row-action-btn {
+        padding: 0 4px;
+        &:hover,
+        &:focus,
+        &.visible {
+            border: 1px solid var(--primary);
+        }
+
+        &.delete {
+            padding: 0;
+            width: unset;
+            color: var(--depr-rgba-danger-0-6);
+        }
+    }
+}
+
+.ActionFilterRowDragHandle {
+    cursor: move;
+    color: var(--text-default);
+    font-size: 1.2em;
+    padding-right: 5px;
+
+    svg {
+        transform: rotate(90deg) translateX(5px);
+    }
+}

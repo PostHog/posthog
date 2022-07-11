@@ -4,9 +4,8 @@ from typing import Any, Dict, List, Union
 from django.test.client import Client
 from rest_framework import status
 
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.test_journeys import journeys_for
 
 
 class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):

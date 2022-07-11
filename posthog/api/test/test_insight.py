@@ -5,14 +5,11 @@ from unittest.case import skip
 from unittest.mock import patch
 
 import pytz
-from django.db import DEFAULT_DB_ALIAS, connections
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import LicensedTestMixin
-from ee.clickhouse.util import ClickhouseTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.models import (
@@ -28,7 +25,9 @@ from posthog.models import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.test.base import APIBaseTest, QueryMatchingTest, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
+from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.test_journeys import journeys_for
 
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
@@ -268,8 +267,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assertEqual(len(response.json()["results"]), 2)
         self.assertEqual(
-            list(response.json()["results"][0].keys()),
-            [
+            set(response.json()["results"][0].keys()),
+            {
                 "id",
                 "short_id",
                 "name",
@@ -279,17 +278,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "last_refresh",
                 "refreshing",
                 "saved",
-                "tags",
                 "updated_at",
                 "created_by",
                 "created_at",
                 "last_modified_at",
-            ],
+                "tags",
+            },
         )
 
     def test_listing_insights_does_not_nplus1(self):
-        db_connection = connections[DEFAULT_DB_ALIAS]
-
         query_counts: List[int] = []
         queries = []
 
@@ -308,7 +305,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
             self.assertEqual(Insight.objects.count(), i + 1)
 
-            with CaptureQueriesContext(db_connection) as capture_query_context:
+            with capture_db_queries() as capture_query_context:
                 response = self.client.get(f"/api/projects/{self.team.id}/insights")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(len(response.json()["results"]), i + 1)
@@ -342,7 +339,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["tags"], [])
 
         objects = Insight.objects.all()
-        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects.count(), 1)
         self.assertEqual(objects[0].filters["events"][0]["id"], "$pageview")
         self.assertEqual(objects[0].filters["date_from"], "-90d")
         self.assertEqual(len(objects[0].short_id), 8)
@@ -448,12 +445,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             frozen_time.tick(delta=timedelta(minutes=10))
 
             response = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "insight new name"},
+                f"/api/projects/{self.team.id}/insights/{insight_id}",
+                {"name": "insight new name", "tags": ["add", "these", "tags"]},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_data = response.json()
             self.assertEqual(response_data["name"], "insight new name")
+            self.assertEqual(sorted(response_data["tags"]), sorted(["add", "these", "tags"]))
             self.assertEqual(response_data["created_by"]["distinct_id"], self.user.distinct_id)
             self.assertEqual(
                 response_data["effective_restriction_level"], Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
@@ -470,11 +469,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     {
                         "user": {"first_name": "", "email": "user1@posthog.com"},
                         "activity": "updated",
-                        "created_at": "2012-01-14T03:31:34Z",
                         "scope": "Insight",
                         "item_id": str(insight_id),
                         "detail": {
                             "changes": [
+                                {
+                                    "type": "Insight",
+                                    "action": "changed",
+                                    "field": "tags",
+                                    "before": [],
+                                    "after": ["add", "tags", "these"],
+                                },
                                 {
                                     "type": "Insight",
                                     "action": "changed",
@@ -487,51 +492,15 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             "name": "insight new name",
                             "short_id": short_id,
                         },
+                        "created_at": "2012-01-14T03:31:34Z",
                     },
                     {
                         "user": {"first_name": "", "email": "user1@posthog.com"},
                         "activity": "created",
-                        "created_at": "2012-01-14T03:21:34Z",
                         "scope": "Insight",
                         "item_id": str(insight_id),
                         "detail": {"changes": None, "merge": None, "name": "insight name", "short_id": short_id},
-                    },
-                ],
-            )
-
-    def test_hard_delete_insight(self):
-        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
-            insight_id, insight = self._create_insight(
-                {"name": "insight new name", "description": "Internal system metrics.",}
-            )
-            short_id = insight["short_id"]
-
-            frozen_time.tick(delta=timedelta(minutes=10))
-
-            response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}",)
-            self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}",)
-            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-            self.assert_insight_activity(
-                insight_id=None,
-                expected=[
-                    {
-                        "user": {"first_name": "", "email": "user1@posthog.com"},
-                        "activity": "deleted",
-                        "created_at": "2012-01-14T03:31:34Z",
-                        "scope": "Insight",
-                        "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
-                    },
-                    {
-                        "user": {"first_name": "", "email": "user1@posthog.com"},
-                        "activity": "created",
                         "created_at": "2012-01-14T03:21:34Z",
-                        "scope": "Insight",
-                        "item_id": str(insight_id),
-                        "detail": {"changes": None, "merge": None, "name": "insight new name", "short_id": short_id},
                     },
                 ],
             )
@@ -546,6 +515,96 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["filters_hash"], original_filters_hash)
+
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_can_add_and_remove_tags(self):
+        insight_id, response_data = self._create_insight(
+            {
+                "name": "a created dashboard",
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            }
+        )
+        insight_short_id = response_data["short_id"]
+        self.assertEqual(response_data["tags"], [])
+
+        add_tags_response = self.client.patch(
+            # tags are displayed in order of insertion
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"tags": ["2", "1", "3"]},
+        )
+
+        self.assertEqual(sorted(add_tags_response.json()["tags"]), ["1", "2", "3"])
+
+        remove_tags_response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"tags": ["3"]},
+        )
+
+        self.assertEqual(remove_tags_response.json()["tags"], ["3"])
+
+        self.assert_insight_activity(
+            insight_id=insight_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                    },
+                    "created_at": "2012-01-14T03:21:34Z",
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "tags",
+                                "before": [],
+                                "after": ["1", "2", "3"],
+                            }
+                        ],
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                    },
+                    "created_at": "2012-01-14T03:21:34Z",
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "tags",
+                                "before": ["1", "2", "3"],
+                                "after": ["3"],
+                            }
+                        ],
+                        "merge": None,
+                        "name": "a created dashboard",
+                        "short_id": insight_short_id,
+                    },
+                    "created_at": "2012-01-14T03:21:34Z",
+                },
+            ],
+        )
 
     @skip("Compatibility issue caused by test account filters")
     def test_update_insight_filters(self):
@@ -613,7 +672,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         objects = Insight.objects.all()
-        self.assertEqual(len(objects), 1)
+        self.assertEqual(objects.count(), 1)
         self.assertEqual(objects[0].filters["events"][1]["id"], "$rageclick")
         self.assertEqual(objects[0].filters["display"], "FunnelViz")
         self.assertEqual(objects[0].filters["interval"], "day")
@@ -815,6 +874,92 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("offset=25", response.json()["next"])
 
+    def test_insight_trends_breakdown_persons_with_histogram(self):
+        people = journeys_for(
+            {
+                "1": [
+                    {"event": "$pageview", "properties": {"$session_id": "one"}, "timestamp": "2012-01-14 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "one"},
+                        "timestamp": "2012-01-14 00:16:10",
+                    },  # 10s session
+                    {"event": "$pageview", "properties": {"$session_id": "two"}, "timestamp": "2012-01-15 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "two"},
+                        "timestamp": "2012-01-15 00:16:50",
+                    },  # 50s session, day 2
+                ],
+                "2": [
+                    {"event": "$pageview", "properties": {"$session_id": "three"}, "timestamp": "2012-01-14 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "three"},
+                        "timestamp": "2012-01-14 00:16:30",
+                    },  # 30s session
+                    {"event": "$pageview", "properties": {"$session_id": "four"}, "timestamp": "2012-01-15 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "four"},
+                        "timestamp": "2012-01-15 00:16:20",
+                    },  # 20s session, day 2
+                ],
+                "3": [
+                    {"event": "$pageview", "properties": {"$session_id": "five"}, "timestamp": "2012-01-15 00:16:00"},
+                    {
+                        "event": "$pageview",
+                        "properties": {"$session_id": "five"},
+                        "timestamp": "2012-01-15 00:16:35",
+                    },  # 35s session, day 2
+                ],
+            },
+            self.team,
+        )
+
+        with freeze_time("2012-01-16T04:01:34.000Z"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                {
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "breakdown": "$session_duration",
+                    "breakdown_type": "session",
+                    "breakdown_histogram_bin_count": 2,
+                    "date_from": "-3d",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result = response.json()["result"]
+
+            self.assertEqual([resp["breakdown_value"] for resp in result], ["[10.0,30.0]", "[30.0,50.01]"])
+            self.assertEqual(result[0]["labels"], ["13-Jan-2012", "14-Jan-2012", "15-Jan-2012", "16-Jan-2012"])
+            self.assertEqual(result[0]["data"], [0, 2, 2, 0])
+            self.assertEqual(result[1]["data"], [0, 2, 4, 0])
+
+            first_breakdown_persons = self.client.get("/" + result[0]["persons_urls"][1]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in first_breakdown_persons.json()["results"][0]["people"]],
+                [str(people["1"].uuid)],
+            )
+
+            first_breakdown_persons_day_two = self.client.get("/" + result[0]["persons_urls"][2]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in first_breakdown_persons_day_two.json()["results"][0]["people"]],
+                [str(people["2"].uuid)],
+            )
+
+            second_breakdown_persons = self.client.get("/" + result[1]["persons_urls"][1]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in second_breakdown_persons.json()["results"][0]["people"]],
+                [str(people["2"].uuid)],
+            )
+
+            second_breakdown_persons_day_two = self.client.get("/" + result[1]["persons_urls"][2]["url"])
+            self.assertCountEqual(
+                [person["id"] for person in second_breakdown_persons_day_two.json()["results"][0]["people"]],
+                [str(people["1"].uuid), str(people["3"].uuid)],
+            )
+
     def test_insight_paths_basic(self):
         _create_person(team=self.team, distinct_ids=["person_1"])
         _create_event(
@@ -988,7 +1133,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.organization_membership.save()
         self.team.access_control = True
         self.team.save()
-        self_team_membership = ExplicitTeamMembership.objects.create(
+        ExplicitTeamMembership.objects.create(
             team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.MEMBER
         )
         response = self.client.get(
@@ -1387,7 +1532,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"filters": {"date_from": "-7d"},},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"filters": {"date_from": "-14d"},},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1416,6 +1561,40 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertIsNotNone(before_save)
         self.assertIsNotNone(after_save)
         self.assertEqual(before_save, after_save)
+
+    def test_hard_delete_is_forbidden(self) -> None:
+        insight_id, _ = self._create_insight({"name": "to be deleted"})
+        api_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
+        self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK,
+        )
+
+    def test_soft_delete_causes_404(self) -> None:
+        insight_id, _ = self._create_insight({"name": "to be deleted"})
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
+
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
+
+    def test_soft_delete_can_be_reversed_by_patch(self) -> None:
+        insight_id, _ = self._create_insight({"name": "an insight"})
+
+        self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": False})
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK
+        )
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
@@ -1486,6 +1665,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         activity_response = self._get_insight_activity(insight_id)
 
         activity: List[Dict] = activity_response["results"]
+
         self.maxDiff = None
         self.assertEqual(
             activity, expected,

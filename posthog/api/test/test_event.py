@@ -10,17 +10,18 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from ee.clickhouse.test.test_journeys import journeys_for
-from ee.clickhouse.util import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
 from posthog.test.base import (
     APIBaseTest,
+    ClickhouseTestMixin,
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
     test_with_materialized_columns,
 )
+from posthog.test.test_journeys import journeys_for
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
@@ -112,17 +113,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_filter_events_by_precalculated_cohort(self):
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z",
         )
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key": "value"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:00:00Z",
         )
 
-        p3 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p3"], properties={"key_2": "value_2"})
         _create_event(
             team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-02T12:00:00Z",
         )
@@ -386,7 +387,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(page3["next"])
 
     def test_ascending_order_timestamp(self):
-        for idx in range(10):
+        for idx in range(20):
             _create_event(
                 team=self.team,
                 event="some event",
@@ -395,15 +396,16 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?distinct_id=1&orderBy={json.dumps(['timestamp'])}"
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['timestamp'])}"
         ).json()
         self.assertEqual(len(response["results"]), 10)
         self.assertLess(
             parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
         )
+        assert "after=" in response["next"]
 
     def test_default_descending_order_timestamp(self):
-        for idx in range(10):
+        for idx in range(20):
             _create_event(
                 team=self.team,
                 event="some event",
@@ -411,11 +413,30 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
             )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10").json()
         self.assertEqual(len(response["results"]), 10)
         self.assertGreater(
             parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
         )
+        assert "before=" in response["next"]
+
+    def test_specified_descending_order_timestamp(self):
+        for idx in range(20):
+            _create_event(
+                team=self.team,
+                event="some event",
+                distinct_id="1",
+                timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['-timestamp'])}"
+        ).json()
+        self.assertEqual(len(response["results"]), 10)
+        self.assertGreater(
+            parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
+        )
+        assert "before=" in response["next"]
 
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)
@@ -440,52 +461,6 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2012-01-15T04:01:34.000Z"):
             response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         self.assertEqual(len(response["results"]), 1)
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_with_param_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv?limit=5")
-        self.assertEqual(
-            len(response.content.splitlines()), 6, "CSV export should return up to limit=5 events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_DEFAULT_LIMIT", 10)
-    def test_events_csv_export_default_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_maximum_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
-
-    @patch("posthog.api.event.EventViewSet.CSV_EXPORT_MAXIMUM_LIMIT", 10)
-    def test_events_csv_export_over_maximum_limit(self):
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            for _ in range(12):
-                _create_event(team=self.team, event="5th action", distinct_id="2", properties={"$os": "Windows 95"})
-            response = self.client.get(f"/api/projects/{self.team.id}/events.csv?limit=100")
-        self.assertEqual(
-            len(response.content.splitlines()),
-            11,
-            "CSV export should return up to CSV_EXPORT_MAXIMUM_LIMIT events (+ headers row)",
-        )
 
     def test_get_event_by_id(self):
         _create_person(
@@ -573,7 +548,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.api.event.query_with_columns")
+    @patch("posthog.models.event.query_event_list.query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older

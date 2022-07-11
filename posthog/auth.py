@@ -3,12 +3,16 @@ import re
 from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
+import jwt
 from django.apps import apps
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+
+from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.models.user import User
 
 
 class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
@@ -68,8 +72,19 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             )
         except PersonalAPIKey.DoesNotExist:
             raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
-        personal_api_key_object.last_used_at = timezone.now()
-        personal_api_key_object.save()
+
+        now = timezone.now()
+        key_last_used_at = personal_api_key_object.last_used_at
+        # Only updating last_used_at if the hour's changed
+        # This is to avooid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+        if key_last_used_at is None or (now.year, now.month, now.day, now.hour) > (
+            key_last_used_at.year,
+            key_last_used_at.month,
+            key_last_used_at.day,
+            key_last_used_at.hour,
+        ):
+            key_last_used_at = now
+            personal_api_key_object.save()
         assert personal_api_key_object.user is not None
         return personal_api_key_object.user, None
 
@@ -100,6 +115,39 @@ class TemporaryTokenAuthentication(authentication.BaseAuthentication):
                 raise AuthenticationFailed(detail="User doesn't exist")
             return (user.first(), None)
         return None
+
+
+class JwtAuthentication(authentication.BaseAuthentication):
+    """
+    A way of authenticating with a JWT, primarily by background jobs impersonating a User
+    """
+
+    keyword = "Bearer"
+
+    @classmethod
+    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(fr"^Bearer\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                try:
+                    token = authorization_match.group(1).strip()
+                    info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
+                    user = User.objects.get(pk=info["id"])
+                    return (user, None)
+                except jwt.DecodeError:
+                    # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+                    return None
+                except Exception:
+                    raise AuthenticationFailed(detail=f"Token invalid.")
+            else:
+                # We don't throw so that the PersonalAPIKeyAuthentication can have a go
+                return None
+
+        return None
+
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
 
 
 def authenticate_secondarily(endpoint):

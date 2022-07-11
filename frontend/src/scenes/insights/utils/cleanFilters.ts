@@ -8,7 +8,7 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { LocalFilter, toLocalFilters } from '../ActionFilter/entityFilterLogic'
+import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -127,6 +127,7 @@ export function cleanFilters(
                 ? { display: insightChanged ? ChartDisplayType.FunnelViz : filters.display }
                 : {}),
             ...(filters.layout ? { layout: filters.layout } : {}),
+            ...(filters.new_entity ? { new_entity: filters.new_entity } : {}),
             ...(filters.interval ? { interval: filters.interval } : {}),
             ...(filters.properties ? { properties: filters.properties } : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
@@ -149,6 +150,12 @@ export function cleanFilters(
             ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
             ...(filters.hidden_legend_keys ? { hidden_legend_keys: filters.hidden_legend_keys } : {}),
             ...(filters.funnel_advanced ? { funnel_advanced: filters.funnel_advanced } : {}),
+            ...(filters.breakdown_attribution_type
+                ? { breakdown_attribution_type: filters.breakdown_attribution_type }
+                : {}),
+            ...(filters.breakdown_attribution_value !== undefined
+                ? { breakdown_attribution_value: filters.breakdown_attribution_value }
+                : {}),
             exclusions: deepCleanFunnelExclusionEvents(filters),
             interval: autocorrectInterval(filters),
             funnel_correlation_person_entity: filters.funnel_correlation_person_entity || undefined,
