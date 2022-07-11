@@ -198,6 +198,7 @@ class Migration(AsyncMigrationDefinition):
                     table_name=TEMPORARY_GROUPS_TABLE_NAME,
                     final=True,
                     deduplicate=True,
+                    per_shard=True,
                 )
             ),
             AsyncMigrationOperationSQL(
