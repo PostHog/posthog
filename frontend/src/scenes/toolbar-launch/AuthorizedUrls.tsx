@@ -96,7 +96,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     />
                 </div>
                 <LemonButton onClick={newUrl} outlined={true} icon={<IconPlus />}>
-                    Add{pageKey === 'toolbar-launch' && ' authorized domain'}
+                    Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
