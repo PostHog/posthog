@@ -227,6 +227,7 @@ class Migration(AsyncMigrationDefinition):
                 per_shard=True,
             ),
             AsyncMigrationOperation(fn=self.run_backfill,),
+            AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
 
     def run_backfill(self, query_id):
@@ -253,6 +254,19 @@ class Migration(AsyncMigrationDefinition):
             """,
             settings={"mutations_sync": 1, "max_execution_time": 0},
         )
+
+    def _clear_temporary_tables(self, query_id):
+        queries = [
+            f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP DICTIONARY IF EXISTS person_dict {{on_cluster_clause}}",
+            f"DROP DICTIONARY IF EXISTS person_distinct_id2_dict {{on_cluster_clause}}",
+            f"DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
+        ]
+        for query in queries:
+            # :TODO: Make per_shard work
+            execute_op_clickhouse(query_id=query_id, sql=query, per_shard=True)
 
     def progress(self, migration_instance: AsyncMigrationType) -> int:
         # Use parts_to_do when running the backfill as a proxy
