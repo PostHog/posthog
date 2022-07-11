@@ -51,11 +51,7 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
-    try:
-        logging.config.dictConfig(logs.LOGGING)  # type: ignore
-    except Exception as e:
-        # swallow any exception because we used to do no configuration
-        print(f"could not configure logging: {str(e)}")
+    logging.config.dictConfig(logs.LOGGING)  # type: ignore
 
 
 @app.on_after_configure.connect
