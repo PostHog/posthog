@@ -159,7 +159,9 @@ def _sleep_until_finished(query_pattern: str) -> None:
         sleep(SLEEP_TIME_SECONDS)
 
 
-def run_optimize_table(unique_name: str, query_id: str, table_name: str, deduplicate=False, final=False):
+def run_optimize_table(
+    *, unique_name: str, query_id: str, table_name: str, deduplicate=False, final=False, per_shard=False
+):
     """
     Runs the passed OPTIMIZE TABLE query.
 
@@ -172,11 +174,15 @@ def run_optimize_table(unique_name: str, query_id: str, table_name: str, dedupli
         final_clause = "FINAL" if final else ""
         deduplicate_clause = "DEDUPLICATE" if deduplicate else ""
         sql = f"OPTIMIZE TABLE {table_name} {{on_cluster_clause}} {final_clause} {deduplicate_clause}"
+
+        if not per_shard:
+            sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+
         execute_op_clickhouse(
             sql,
             query_id=f"optimize:{unique_name}/{query_id}",
             settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS, "mutations_sync": 2},
-            per_shard=True,
+            per_shard=per_shard,
         )
 
 
