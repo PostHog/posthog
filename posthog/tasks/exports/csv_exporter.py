@@ -14,6 +14,7 @@ from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -164,14 +165,26 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             renderer.header = all_csv_rows[0].keys()
 
     rendered_csv_content = renderer.render(all_csv_rows)
-    if settings.OBJECT_STORAGE_ENABLED:
-        object_path = f"/{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
-        object_storage.write(object_path, rendered_csv_content)
-        exported_asset.content_location = object_path
-        exported_asset.save(update_fields=["content_location"])
-    else:
-        exported_asset.content = rendered_csv_content
-        exported_asset.save(update_fields=["content"])
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            _write_to_object_storage(exported_asset, rendered_csv_content)
+        else:
+            _write_to_exported_asset(exported_asset, rendered_csv_content)
+    except ObjectStorageError as ose:
+        logger.error("csv_exporter.object-storage-error", exception=ose, exc_info=True)
+        _write_to_exported_asset(exported_asset, rendered_csv_content)
+
+
+def _write_to_exported_asset(exported_asset, rendered_csv_content):
+    exported_asset.content = rendered_csv_content
+    exported_asset.save(update_fields=["content"])
+
+
+def _write_to_object_storage(exported_asset, rendered_csv_content):
+    object_path = f"/{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
+    object_storage.write(object_path, rendered_csv_content)
+    exported_asset.content_location = object_path
+    exported_asset.save(update_fields=["content_location"])
 
 
 @timed("csv_exporter")
