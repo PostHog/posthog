@@ -23,8 +23,9 @@ for file in os.listdir(directory):
 @pytest.mark.parametrize("filename", fixtures)
 @pytest.mark.django_db
 @patch("posthog.tasks.exports.csv_exporter.requests.request")
-def test_csv_rendering(mock_request, filename):
-
+@patch("posthog.tasks.exports.csv_exporter.settings")
+def test_csv_rendering(mock_settings, mock_request, filename):
+    mock_settings.OBJECT_STORAGE_ENABLED = False
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org, name="team")
 
