@@ -1132,7 +1132,7 @@ describe('vm tests', () => {
             const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
             expect(mockEnqueue).toHaveBeenCalledTimes(1)
-            expect(mockEnqueue).toHaveBeenCalledWith({
+            expect(mockEnqueue).toHaveBeenCalledWith('pluginJob', {
                 payload: { batch: [event, event, event], batchId: expect.any(Number), retriesPerformedSoFar: 1 },
                 pluginConfigId: 39,
                 pluginConfigTeam: 2,
@@ -1146,7 +1146,7 @@ describe('vm tests', () => {
 
             // enqueued again
             expect(mockEnqueue).toHaveBeenCalledTimes(2)
-            expect(mockEnqueue).toHaveBeenLastCalledWith({
+            expect(mockEnqueue).toHaveBeenLastCalledWith('pluginJob', {
                 payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
                 pluginConfigId: 39,
                 pluginConfigTeam: 2,
