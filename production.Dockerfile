@@ -69,8 +69,8 @@ RUN apk --update --no-cache add \
     "libpq~=13" \
     "libxslt~=1.1" \
     "nodejs-current~=16" \
-    "chromium~=93" \
-    "chromium-chromedriver~=93" \
+    "chromium=93.0.4577.82-r0" \
+    "chromium-chromedriver=93.0.4577.82-r0" \
     "xmlsec~=1.2"
 
 
