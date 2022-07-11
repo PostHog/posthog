@@ -55,20 +55,19 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
             },
             self.team,
         )
-        with self.settings(SHELL_PLUS_PRINT_SQL=True):
-            result = Trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                        FILTER_TEST_ACCOUNTS: True,
-                    },
-                    team=self.team,
-                ),
-                self.team,
-            )
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    FILTER_TEST_ACCOUNTS: True,
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
 
         self.assertLifecycleResults(
             result,
