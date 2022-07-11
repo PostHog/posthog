@@ -6,6 +6,7 @@
 
 #
 # Build the frontend artifacts
+# a change to make it run
 #
 FROM node:16.15-alpine3.14 AS frontend
 
