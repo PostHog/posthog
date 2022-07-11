@@ -298,9 +298,9 @@ export function PluginDrawer(): JSX.Element {
                             ) : null}
 
                             {!!(
-                                editingPlugin?.pluginConfig.id &&
-                                editingPlugin?.capabilities?.jobs?.length &&
-                                Object.keys(editingPlugin?.public_jobs || []).length
+                                editingPlugin.pluginConfig.id &&
+                                editingPlugin.capabilities?.jobs?.length &&
+                                Object.keys(editingPlugin.public_jobs || []).length
                             ) && (
                                 <PluginJobOptions
                                     pluginId={editingPlugin.id}
