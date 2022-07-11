@@ -172,6 +172,9 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         else:
             _write_to_exported_asset(exported_asset, rendered_csv_content)
     except ObjectStorageError as ose:
+        with push_scope() as scope:
+            scope.set_tag("celery_task", "csv_export")
+            capture_exception(ose)
         logger.error("csv_exporter.object-storage-error", exception=ose, exc_info=True)
         _write_to_exported_asset(exported_asset, rendered_csv_content)
 
