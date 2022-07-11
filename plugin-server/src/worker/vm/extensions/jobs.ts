@@ -39,7 +39,7 @@ export function durationToMs(duration: number, unit: string): number {
 
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
-        await server.jobQueueManager.enqueue({
+        await server.jobQueueManager.enqueue('pluginJob', {
             type,
             payload,
             timestamp,
