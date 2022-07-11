@@ -8,7 +8,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
     AsyncMigrationType,
 )
-from posthog.async_migrations.utils import execute_on_all_shards_in_parallel, run_optimize_table
+from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.settings import CLICKHOUSE_DATABASE
@@ -105,24 +105,24 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    INSERT INTO {TEMPORARY_PERSONS_TABLE_NAME} (id, created_at, team_id, properties, is_deleted, version)
-                    SELECT id, created_at, team_id, properties, is_deleted, version FROM person
+                    ALTER TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
+                    REPLACE PARTITION tuple() FROM person
                 """,
                 rollback=None,
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    INSERT INTO {TEMPORARY_PDI2_TABLE_NAME} (team_id, distinct_id, person_id, is_deleted, version)
-                    SELECT team_id, distinct_id, person_id, is_deleted, version FROM person_distinct_id2
+                    ALTER TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}
+                    REPLACE PARTITION tuple() FROM person_distinct_id2
                 """,
                 rollback=None,
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    INSERT INTO {TEMPORARY_GROUPS_TABLE_NAME} (group_type_index, group_key, created_at, team_id, group_properties)
-                    SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups
+                    ALTER TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}
+                    REPLACE PARTITION tuple() FROM groups
                 """,
                 rollback=None,
                 per_shard=True,
@@ -209,10 +209,12 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=self.run_backfill,),
         ]
 
-    def run_backfill(self, _):
-        execute_on_all_shards_in_parallel(
+    def run_backfill(self, query_id):
+        # :TODO: Make this work when executing per shard
+        execute_op_clickhouse(
+            query_id=query_id,
             sql=f"""
-                ALTER TABLE {EVENTS_DATA_TABLE()} {{on_cluster_clause}}
+                ALTER TABLE {EVENTS_DATA_TABLE()}
                 UPDATE
                     person_id=toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
                     person_properties=dictGetString('person_dict', 'properties', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
@@ -227,9 +229,9 @@ class Migration(AsyncMigrationDefinition):
                     group2_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
                     group3_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
                     group4_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 4, $group_4))
-                WHERE person_id = ''
+                WHERE person_id <> toUUIDOrZero('')
             """,
-            settings={"mutations_sync": 1, "max_execution_time": 0},
+            settings={"mutations_sync": 1, "max_execution_time": 0}
         )
 
     def progress(self, migration_instance: AsyncMigrationType) -> int:
