@@ -57,7 +57,10 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             <Field name="url">
                 <LemonInput autoFocus placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)" />
             </Field>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <LemonButton type="secondary" onClick={cancelProposingUrl}>
+                    Cancel
+                </LemonButton>
                 <LemonButton
                     htmlType="submit"
                     type="primary"
@@ -65,9 +68,6 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                     disabled={isProposedUrlSubmitting}
                 >
                     Save
-                </LemonButton>
-                <LemonButton type="secondary" onClick={cancelProposingUrl}>
-                    Cancel
                 </LemonButton>
             </div>
         </Form>
