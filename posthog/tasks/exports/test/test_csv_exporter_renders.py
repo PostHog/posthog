@@ -2,9 +2,12 @@ import json
 import os
 from unittest.mock import Mock, patch
 
+import pytest
+
 from posthog.models import ExportedAsset
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.tasks.exports import csv_exporter
-from posthog.test.base import APIBaseTest
 
 TEST_BUCKET = "Test-Exports"
 
@@ -17,31 +20,26 @@ for file in os.listdir(directory):
         fixtures.append(filename)
 
 
-class TestCSVExporterRenders(APIBaseTest):
-    @patch("posthog.tasks.exports.csv_exporter.requests.request")
-    def test_response_renders(self, mock_request) -> None:
-        with self.settings(OBJECT_STORAGE_ENABLED=False):
-            for filename in fixtures:
-                # print(os.path.join(directory, filename))
-                with open(os.path.join(directory, filename)) as f:
-                    fixture = json.loads(f.read())
+@pytest.mark.parametrize("filename", fixtures)
+@pytest.mark.django_db
+@patch("posthog.tasks.exports.csv_exporter.requests.request")
+def test_csv_rendering(mock_request, filename):
 
-                print(f"Testing csv case: {filename}")  # noqa
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
 
-                asset = ExportedAsset(
-                    team=self.team,
-                    export_format=ExportedAsset.ExportFormat.CSV,
-                    export_context={"path": "/api/literally/anything"},
-                )
-                asset.save()
+    with open(os.path.join(directory, filename)) as f:
+        fixture = json.loads(f.read())
 
-                mock = Mock()
-                mock.json.return_value = fixture["response"]
-                mock_request.return_value = mock
-                csv_exporter.export_csv(asset)
-                csv_rows = asset.content.decode("utf-8").split("\r\n")
+    asset = ExportedAsset(
+        team=team, export_format=ExportedAsset.ExportFormat.CSV, export_context={"path": "/api/literally/anything"},
+    )
+    asset.save()
 
-                print("Got csv data:")  # noqa
-                print({"csv_rows": csv_rows})  # noqa
+    mock = Mock()
+    mock.json.return_value = fixture["response"]
+    mock_request.return_value = mock
+    csv_exporter.export_csv(asset)
+    csv_rows = asset.content.decode("utf-8").split("\r\n")
 
-                assert csv_rows == fixture["csv_rows"]
+    assert csv_rows == fixture["csv_rows"]
