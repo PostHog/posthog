@@ -9,6 +9,7 @@ from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Person
 from posthog.models.event.util import create_event
+from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
@@ -204,7 +205,67 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_data_copy_groups(self):
-        pass
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:5",
+            properties={"industry": "finance"},
+            timestamp="2022-01-01T00:00:00Z",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:7",
+            properties={"industry": "IT"},
+            timestamp="2022-01-02T00:00:00Z",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=2,
+            group_key="77",
+            properties={"index": 2},
+            timestamp="2022-01-03T00:00:00Z",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=3,
+            group_key="77",
+            properties={"index": 3},
+            timestamp="2022-01-04T00:00:00Z",
+        )
+
+        create_event(
+            event_uuid=uuid1,
+            team=self.team,
+            distinct_id="1",
+            event="$pageview",
+            properties={"$group_0": "org:7", "$group_1": "77", "$group_2": "77", "$group_3": "77",},
+        )
+
+        self.assertTrue(run_migration())
+
+        events = query_events()
+        self.assertEqual(len(events), 1)
+        self.assertDictContainsSubset(
+            {
+                "$group_0": "org:7",
+                "group0_properties": json.dumps({"industry": "IT"}),
+                "group0_created_at": "2022-01-02T00:00:00Z",
+                "$group_1": "77",
+                "group1_properties": "",
+                "group1_created_at": zero_date,
+                "$group_2": "77",
+                "group2_properties": json.dumps({"index": 2}),
+                "group2_created_at": "2022-01-03T00:00:00Z",
+                "$group_3": "77",
+                "group3_properties": json.dumps({"index": 3}),
+                "group3_created_at": "2022-01-04T00:00:00Z",
+                "$group_4": "",
+                "group4_properties": "",
+                "group4_created_at": zero_date,
+            },
+            events[0],
+        )
 
     def test_disk_usage_low(self):
         pass
