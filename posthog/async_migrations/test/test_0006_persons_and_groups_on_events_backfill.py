@@ -6,7 +6,7 @@ import pytest
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
-from posthog.client import query_with_columns
+from posthog.client import query_with_columns, sync_execute
 from posthog.models import Person
 from posthog.models.event.util import create_event
 from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
@@ -68,6 +68,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
     def clear_tables(self):
         run_clickhouse_statement_in_parallel(
             [
+                "TRUNCATE TABLE sharded_events",
                 "DROP TABLE IF EXISTS tmp_person_0006",
                 "DROP TABLE IF EXISTS tmp_person_distinct_id2_0006",
                 "DROP TABLE IF EXISTS tmp_groups_0006",
@@ -207,6 +208,17 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
 
     def test_disk_usage_low(self):
         pass
+
+    def test_no_extra_tables(self):
+        initial_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]
+        initial_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]
+
+        run_migration()
+
+        new_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]
+        new_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]
+        self.assertEqual(initial_table_count, new_table_count)
+        self.assertEqual(initial_dictionary_count, new_dictionary_count)
 
     def test_rollback(self):
         pass
