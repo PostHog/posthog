@@ -96,6 +96,11 @@ def execute_on_each_shard(sql, args, settings=None) -> None:
 def execute_on_all_shards_in_parallel(sql: str, args=None, settings=None) -> None:
     loop = asyncio.get_event_loop()
 
+    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+        sql = sql.format(on_cluster_clause="")
+    else:
+        sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+
     async def run_on_all_shards():
         tasks = []
         for _, _, connection in _get_all_shard_connections():
