@@ -171,8 +171,7 @@ def run_optimize_table(unique_name: str, query_id: str, table_name: str, dedupli
     else:
         final_clause = "FINAL" if final else ""
         deduplicate_clause = "DEDUPLICATE" if deduplicate else ""
-        on_cluster_clause = "{on_cluster_clause}"
-        sql = f"OPTIMIZE TABLE {table_name} {on_cluster_clause} {final_clause} {deduplicate_clause}"
+        sql = f"OPTIMIZE TABLE {table_name} {{on_cluster_clause}} {final_clause} {deduplicate_clause}"
         execute_op_clickhouse(
             sql,
             query_id=f"optimize:{unique_name}/{query_id}",
