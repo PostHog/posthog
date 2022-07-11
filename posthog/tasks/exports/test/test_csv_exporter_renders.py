@@ -2,8 +2,6 @@ import json
 import os
 from unittest.mock import Mock, patch
 
-import pytest
-
 from posthog.models import ExportedAsset
 from posthog.tasks.exports import csv_exporter
 from posthog.test.base import APIBaseTest
@@ -28,7 +26,7 @@ class TestCSVExporterRenders(APIBaseTest):
                 with open(os.path.join(directory, filename)) as f:
                     fixture = json.loads(f.read())
 
-                print(f"Testing csv case: {filename}")
+                print(f"Testing csv case: {filename}")  # noqa
 
                 asset = ExportedAsset(
                     team=self.team,
@@ -43,7 +41,7 @@ class TestCSVExporterRenders(APIBaseTest):
                 csv_exporter.export_csv(asset)
                 csv_rows = asset.content.decode("utf-8").split("\r\n")
 
-                print("Got csv data:")
-                print({"csv_rows": csv_rows})
+                print("Got csv data:")  # noqa
+                print({"csv_rows": csv_rows})  # noqa
 
                 assert csv_rows == fixture["csv_rows"]
