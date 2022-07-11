@@ -1139,7 +1139,7 @@ describe('vm tests', () => {
                 timestamp: expect.any(Number),
                 type: 'exportEventsWithRetry',
             })
-            const jobPayload = mockEnqueue.mock.calls[0][0].payload
+            const jobPayload = mockEnqueue.mock.calls[0][1].payload
 
             // run the job directly
             await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload)
@@ -1153,7 +1153,7 @@ describe('vm tests', () => {
                 timestamp: expect.any(Number),
                 type: 'exportEventsWithRetry',
             })
-            const jobPayload2 = mockEnqueue.mock.calls[1][0].payload
+            const jobPayload2 = mockEnqueue.mock.calls[1][1].payload
 
             // run the job a second time
             await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload2)
@@ -1195,7 +1195,7 @@ describe('vm tests', () => {
 
             // won't retry after the nth time where n = MAXIMUM_RETRIES
             for (let i = 2; i < 20; i++) {
-                const lastPayload = mockEnqueue.mock.calls[mockEnqueue.mock.calls.length - 1][0].payload
+                const lastPayload = mockEnqueue.mock.calls[mockEnqueue.mock.calls.length - 1][1].payload
                 await vm.tasks.job['exportEventsWithRetry'].exec(lastPayload)
                 expect(mockEnqueue).toHaveBeenCalledTimes(i > MAXIMUM_RETRIES ? MAXIMUM_RETRIES : i)
             }
