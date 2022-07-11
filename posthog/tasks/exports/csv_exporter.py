@@ -165,6 +165,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             renderer.header = all_csv_rows[0].keys()
 
     rendered_csv_content = renderer.render(all_csv_rows)
+
     try:
         if settings.OBJECT_STORAGE_ENABLED:
             _write_to_object_storage(exported_asset, rendered_csv_content)
@@ -175,12 +176,12 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         _write_to_exported_asset(exported_asset, rendered_csv_content)
 
 
-def _write_to_exported_asset(exported_asset, rendered_csv_content):
+def _write_to_exported_asset(exported_asset: ExportedAsset, rendered_csv_content: bytes) -> None:
     exported_asset.content = rendered_csv_content
     exported_asset.save(update_fields=["content"])
 
 
-def _write_to_object_storage(exported_asset, rendered_csv_content):
+def _write_to_object_storage(exported_asset: ExportedAsset, rendered_csv_content: bytes) -> None:
     object_path = f"/{settings.OBJECT_STORAGE_EXPORTS_FOLDER}/csvs/team-{exported_asset.team.id}/task-{exported_asset.id}/{UUIDT()}"
     object_storage.write(object_path, rendered_csv_content)
     exported_asset.content_location = object_path
