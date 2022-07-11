@@ -165,7 +165,7 @@ class Migration(AsyncMigrationDefinition):
                         created_at DateTime
                     )
                     PRIMARY KEY team_id, id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} DB 'default'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} DB '{CLICKHOUSE_DATABASE}'))
                     LAYOUT(complex_key_cache(size_in_cells 5000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -181,7 +181,7 @@ class Migration(AsyncMigrationDefinition):
                         person_id UUID
                     )
                     PRIMARY KEY team_id, distinct_id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} DB 'default'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} DB '{CLICKHOUSE_DATABASE}'))
                     LAYOUT(complex_key_cache(size_in_cells 50000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -199,7 +199,7 @@ class Migration(AsyncMigrationDefinition):
                         created_at DateTime
                     )
                     PRIMARY KEY team_id, group_type_index, group_key
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} DB 'default'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} DB '{CLICKHOUSE_DATABASE}'))
                     LAYOUT(complex_key_cache(size_in_cells 1000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -231,7 +231,7 @@ class Migration(AsyncMigrationDefinition):
                     group4_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 4, $group_4))
                 WHERE person_id <> toUUIDOrZero('')
             """,
-            settings={"mutations_sync": 1, "max_execution_time": 0}
+            settings={"mutations_sync": 1, "max_execution_time": 0},
         )
 
     def progress(self, migration_instance: AsyncMigrationType) -> int:
