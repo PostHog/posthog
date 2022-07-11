@@ -122,7 +122,6 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
     EMBED_INSIGHTS: 'embed-insights', // owner: @mariusandra
     ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: 'ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS', // owner: @pauldambra
-    HISTOGRAM_INSIGHTS: 'histogram-insights', // owner: @rcmarron
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
