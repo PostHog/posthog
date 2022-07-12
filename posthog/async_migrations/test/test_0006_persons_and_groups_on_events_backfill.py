@@ -8,6 +8,7 @@ from posthog.async_migrations.setup import get_async_migration_definition, setup
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Person
+from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
@@ -282,4 +283,11 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.assertEqual(initial_dictionary_count, new_dictionary_count)
 
     def test_rollback(self):
-        pass
+        migration = get_async_migration_definition(MIGRATION_NAME)
+
+        self.assertEqual(len(migration.operations), 17)
+        migration.operations[-1].fn = lambda _: 0 / 0  # type: ignore
+
+        migration_successful = run_migration()
+        self.assertFalse(migration_successful)
+        self.assertEqual(AsyncMigration.objects.get(name=MIGRATION_NAME).status, MigrationStatus.RolledBack)
