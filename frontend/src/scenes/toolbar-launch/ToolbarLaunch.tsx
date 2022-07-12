@@ -60,7 +60,7 @@ function ToolbarLaunch(): JSX.Element {
                 disabled={userLoading}
                 loading={userLoading}
                 type="primary"
-                className="EnableToolbarSwitch"
+                className="EnableToolbarSwitch mt mb pt pb full-width"
             />
 
             <h2 className="subtitle" id="urls">
@@ -72,12 +72,12 @@ function ToolbarLaunch(): JSX.Element {
             </p>
             <AuthorizedUrls pageKey="toolbar-launch" />
 
-            <div className="footer-caption">
+            <div className="footer-caption text-muted mt text-center">
                 Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>
 
-            <Row className="feature-highlight-list">
+            <Row className="feature-highlight-list mt-2 mx-auto mb-0">
                 {features.map((feature) => (
                     <FeatureHighlight key={feature.title} {...feature} />
                 ))}
@@ -94,10 +94,10 @@ interface FeatureHighlightProps {
 
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
-        <Col sm={12} className="fh-item">
-            <div className="fh-icon">{icon}</div>
+        <Col sm={12} className="fh-item flex flex-center mt text-muted-alt ">
+            <div className="fh-icon mr">{icon}</div>
             <div>
-                <h4>{title}</h4>
+                <h4 className="mb-0">{title}</h4>
                 <div className="caption">{caption}</div>
             </div>
         </Col>

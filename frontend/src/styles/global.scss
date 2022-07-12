@@ -476,6 +476,11 @@ code.code {
     margin-left: 0.25rem;
 }
 
+.mx-auto {
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .mx-0 {
     margin-left: 0 !important;
     margin-right: 0 !important;
@@ -610,11 +615,11 @@ code.code {
 }
 
 .flex {
-    display: flex;
+    display: flex !important;
 }
 
 .flex-column {
-    display: flex;
+    display: flex !important;
     flex-direction: column;
 }
 
@@ -680,6 +685,10 @@ input::-ms-clear {
 }
 
 .text-muted {
+    color: var(--text-muted) !important;
+}
+
+.text-muted-alt {
     color: var(--text-muted-alt) !important;
 }
 

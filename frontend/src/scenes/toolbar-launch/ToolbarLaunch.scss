@@ -2,39 +2,18 @@
     margin-bottom: 48px;
 
     .EnableToolbarSwitch {
-        padding-top: 1em;
-        padding-bottom: 1em;
-        width: 100%;
         max-width: 400px;
-        margin-bottom: 1.5em;
-        margin-top: 1em;
-    }
-
-    .footer-caption {
-        text-align: center;
-        color: var(--muted);
-        margin-top: 1rem;
     }
 
     .feature-highlight-list {
         max-width: 800px;
-        margin: 0 auto;
-        margin-top: 2rem;
 
         .fh-item {
-            display: flex;
-            align-items: center;
-            margin-top: 1rem;
-
             .fh-icon {
-                color: var(--text-muted-alt);
-                margin-right: 8px;
                 font-size: 1.6em;
             }
 
             h4 {
-                color: var(--text-muted-alt);
-                margin-bottom: 0;
                 font-size: 1.2em;
             }
         }

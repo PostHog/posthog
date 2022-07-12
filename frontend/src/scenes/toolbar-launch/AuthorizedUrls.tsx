@@ -133,11 +133,13 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                     <>
                                         <div className="Url flex-grow">
                                             {keyedAppURL.type === 'suggestion' && (
-                                                <LemonTag type="highlight mr">Suggestion</LemonTag>
+                                                <LemonTag type="highlight" className="mr">
+                                                    Suggestion
+                                                </LemonTag>
                                             )}
                                             <Typography.Text
                                                 ellipsis={{ tooltip: keyedAppURL.url }}
-                                                className="text-muted"
+                                                className="text-muted-alt"
                                             >
                                                 {keyedAppURL.url}
                                             </Typography.Text>
