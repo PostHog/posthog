@@ -11,12 +11,14 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
     // Fetch events for the specified session recording
     // TODO: habdle time range querying, list pagination
 
-    console.debug({ action: 'fetch_session', teamId, sessionId })
+    const prefix = `team_id/${teamId}/session_id/${sessionId}/window_id/`
+
+    console.debug({ action: 'fetch_session', teamId, sessionId, prefix })
 
     const listResponse = await s3Client.send(
         new ListObjectsCommand({
             Bucket: 'posthog',
-            Prefix: `team_id/${teamId}/session_id/${sessionId}/chunks/`,
+            Prefix: prefix,
         })
     )
 
