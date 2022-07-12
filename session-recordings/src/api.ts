@@ -1,28 +1,18 @@
 import express from 'express'
 import { Router } from 'express'
 import consumers from 'stream/consumers'
-import { S3Client } from '@aws-sdk/client-s3'
 import { ListObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { Readable } from 'stream'
-
-// Set the AWS Region.
-const REGION = 'us-east-1' //e.g. "us-east-1"
-// Create an Amazon S3 service client object.
-const s3Client = new S3Client({
-    region: REGION,
-    endpoint: 'http://localhost:19000',
-    credentials: {
-        accessKeyId: 'object_storage_root_user',
-        secretAccessKey: 'object_storage_root_password',
-    },
-    forcePathStyle: true, // Needed to work with MinIO
-})
+import { s3Client } from './s3'
 
 const routes = Router()
 
 routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: { teamId, sessionId } }, res) => {
     // Fetch events for the specified session recording
-    // TODO: habdle time range querying
+    // TODO: habdle time range querying, list pagination
+
+    console.debug({ action: 'fetch_session', teamId, sessionId })
+
     const listResponse = await s3Client.send(
         new ListObjectsCommand({
             Bucket: 'posthog',
@@ -46,6 +36,8 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
     // TODO: we probably don't need to parse JSON here if we're careful and
     // construct the JSON progressively
     const events = blobs.flatMap((blob) => blob.split('\n').map((line) => JSON.parse(line)))
+
+    console.debug({ action: 'returning_session', events })
 
     return res.json({ events })
 })

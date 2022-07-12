@@ -1,22 +1,11 @@
 import { Kafka } from 'kafkajs'
-import { S3Client } from '@aws-sdk/client-s3'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { gunzipSync } from 'zlib'
+import { EventData, Event } from './types'
+import { s3Client } from './s3'
 
-// Set the AWS Region.
-const REGION = 'us-east-1' //e.g. "us-east-1"
-// Create an Amazon S3 service client object.
-const s3Client = new S3Client({
-    region: REGION,
-    endpoint: 'http://localhost:19000',
-    credentials: {
-        accessKeyId: 'object_storage_root_user',
-        secretAccessKey: 'object_storage_root_password',
-    },
-    forcePathStyle: true, // Needed to work with MinIO
-})
-
-const maxChunkAge = 1000
-const maxChunkSize = 1000
+const maxChunkAge = Number.parseInt(process.env.MAX_CHUNK_AGE || '1000')
+const maxChunkSize = Number.parseInt(process.env.MAX_CHUNK_SIZE || '1000')
 
 const kafka = new Kafka({
     clientId: 'ingester',
@@ -24,7 +13,7 @@ const kafka = new Kafka({
 })
 
 const consumer = kafka.consumer({
-    groupId: 'session-recordings-ingestion',
+    groupId: `session-recordings-ingestion`,
 })
 
 consumer.connect()
@@ -52,44 +41,63 @@ consumer.run({
         // isn't threadsafe atm.
         // OPTIONAL: stream data to S3
         // OPTIONAL: use parquet to reduce reads for e.g. timerange querying
-        const eventString = message.value.toString()
-        const event = JSON.parse(eventString)
-        let chunk = eventsBySessionId[event.properties.$session_id]
+        const eventString = message.value.toString('utf-8')
+        const event: Event = JSON.parse(eventString)
 
-        console.log(`Processing ${event.uuid}`)
+        if (event.event !== '$snapshot') {
+            console.debug({ action: 'skipping', event: event.event, uuid: event.uuid })
+            return
+        }
+
+        const eventData: EventData = JSON.parse(event.data)
+        const snapshotData = gunzipSync(Buffer.from(eventData.properties.$snapshot_data.data, 'base64')).toString(
+            'utf-8'
+        )
+        const sessionId = eventData.properties.$session_id
+        let chunk = eventsBySessionId[eventData.properties.$session_id]
+
+        console.debug({ action: 'start', uuid: event.uuid, event: event.event, session_id: sessionId })
 
         const commitChunkToS3 = async () => {
-            delete eventsBySessionId[event.properties.$session_id]
+            const key = `team_id/${chunk.team_id}/session_id/${chunk.session_id}/chunks/${chunk.oldestEventTimestamp}-${chunk.oldestOffset}`
+
+            console.debug({ action: 'commiting_chunk', session_id: chunk.session_id, key: key })
 
             await s3Client.send(
                 new PutObjectCommand({
                     Bucket: 'posthog',
-                    Key: `team_id/${chunk.team_id}/session_id/${chunk.session_id}/chunks/${chunk.oldestEventTimestamp}-${chunk.oldestOffset}`,
+                    Key: key,
                     Body: chunk.events.join('\n'),
                 })
             )
 
             if (eventsBySessionId.length) {
+                const offset = Object.values(eventsBySessionId)
+                    .filter((chunk) => sessionId === chunk.session_id)
+                    .map((chunk) => chunk.oldestOffset)
+                    .sort()[0]
+
                 consumer.commitOffsets([
                     {
                         topic,
                         partition,
-                        offset: Object.values(eventsBySessionId)
-                            .map((chunk) => chunk.oldestOffset)
-                            .sort()[0],
+                        offset: offset,
                     },
                 ])
+                console.debug({ action: 'committed_offset', offset: offset, partition })
             }
+
+            delete eventsBySessionId[sessionId]
         }
 
         if (!chunk) {
-            console.log(`Creating new chunk for ${event.properties.$session_id}`)
+            console.debug({ action: 'create_chunk', session_id: sessionId })
 
-            chunk = eventsBySessionId[event.properties.$session_id] = {
+            chunk = eventsBySessionId[sessionId] = {
                 events: [] as string[],
                 size: 0,
                 team_id: event.team_id,
-                session_id: event.properties.$session_id,
+                session_id: sessionId,
                 oldestEventTimestamp: event.timestamp,
                 oldestOffset: message.offset,
             }
@@ -100,19 +108,19 @@ consumer.run({
             clearTimeout(chunk.timer)
             commitChunkToS3()
 
-            console.log(`Creating new chunk for ${event.properties.$session_id}`)
-            chunk = eventsBySessionId[event.properties.$session_id] = {
+            console.debug({ action: 'create_chunk', session_id: chunk.session_id })
+            chunk = eventsBySessionId[sessionId] = {
                 events: [] as string[],
                 size: 0,
                 team_id: event.team_id,
-                session_id: event.properties.$session_id,
+                session_id: sessionId,
                 oldestEventTimestamp: event.timestamp,
                 oldestOffset: message.offset,
             }
             chunk.timer = setTimeout(() => commitChunkToS3(), maxChunkAge)
         }
 
-        chunk.events.push(eventString)
+        chunk.events.push(snapshotData)
         chunk.size += eventString.length
     },
 })
@@ -123,7 +131,7 @@ const errorTypes = ['unhandledRejection', 'uncaughtException']
 errorTypes.map((type) => {
     process.on(type, async (e) => {
         try {
-            console.log(`process.on ${type}`)
+            console.debug(`process.on ${type}`)
             console.error(e)
             await consumer.disconnect()
             process.exit(0)

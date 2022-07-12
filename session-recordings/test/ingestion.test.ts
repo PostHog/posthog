@@ -1,7 +1,8 @@
-import { beforeEach, afterEach, test, expect, it, describe } from 'vitest'
-import { Kafka, Producer } from 'kafkajs'
+import { beforeEach, afterEach, beforeAll, expect, it, describe } from 'vitest'
+import { Kafka, Partitioners, Producer } from 'kafkajs'
 import http from 'http'
 import { v4 as uuidv4 } from 'uuid'
+import { gzipSync } from 'zlib'
 
 declare module 'vitest' {
     export interface TestContext {
@@ -24,7 +25,16 @@ describe.concurrent('ingester', () => {
                         team_id: teamId,
                         uuid: eventUuid,
                         timestamp: 1234,
-                        properties: { $session_id: sessionId, $snapshot_data: { timestamp: 123 } },
+                        data: JSON.stringify({
+                            properties: {
+                                $session_id: sessionId,
+                                $snapshot_data: {
+                                    data: gzipSync(JSON.stringify({ uuid: eventUuid, timestamp: 123 })).toString(
+                                        'base64'
+                                    ),
+                                },
+                            },
+                        }),
                     }),
                 },
             ],
@@ -39,13 +49,23 @@ describe.concurrent('ingester', () => {
         const teamId = uuidv4()
         const sessionId = uuidv4()
 
-        const events = Array.from(new Array(30).keys()).map((_) => ({
-            event: '$snapshot',
-            team_id: teamId,
-            uuid: uuidv4(),
-            timestamp: 1234,
-            properties: { $session_id: sessionId, $snapshot_data: { timestamp: 123 } },
-        }))
+        const events = Array.from(new Array(30).keys()).map((_) => {
+            const eventUuid = uuidv4()
+            return {
+                event: '$snapshot',
+                team_id: teamId,
+                uuid: eventUuid,
+                timestamp: 1234,
+                data: JSON.stringify({
+                    properties: {
+                        $session_id: sessionId,
+                        $snapshot_data: {
+                            data: gzipSync(JSON.stringify({ uuid: eventUuid, timestamp: 123 })).toString('base64'),
+                        },
+                    },
+                }),
+            }
+        })
 
         await producer.send({
             topic: 'events_plugin_ingestion',
@@ -58,8 +78,64 @@ describe.concurrent('ingester', () => {
         expect(sessionRecording.events.map((event) => event.uuid)).toStrictEqual(events.map((event) => event.uuid))
     })
 
-    it('ignores non $snapshot events', () => {
-        // TODO
+    it('ignores non $snapshot events', async ({ producer }) => {
+        const teamId = uuidv4()
+        const sessionId = uuidv4()
+        const eventUuid = uuidv4()
+
+        await producer.send({
+            topic: 'events_plugin_ingestion',
+            messages: [
+                {
+                    value: JSON.stringify({
+                        event: '$notasnapshot',
+                        team_id: teamId,
+                        uuid: eventUuid,
+                        timestamp: 1234,
+                        data: JSON.stringify({
+                            properties: {
+                                $session_id: sessionId,
+                                $snapshot_data: {
+                                    data: gzipSync(JSON.stringify({ uuid: eventUuid, timestamp: 123 })).toString(
+                                        'base64'
+                                    ),
+                                },
+                            },
+                        }),
+                    }),
+                },
+            ],
+        })
+
+        const snapshotEventUuid = uuidv4()
+
+        await producer.send({
+            topic: 'events_plugin_ingestion',
+            messages: [
+                {
+                    value: JSON.stringify({
+                        event: '$snapshot',
+                        team_id: teamId,
+                        uuid: snapshotEventUuid,
+                        timestamp: 1234,
+                        data: JSON.stringify({
+                            properties: {
+                                $session_id: sessionId,
+                                $snapshot_data: {
+                                    data: gzipSync(
+                                        JSON.stringify({ uuid: snapshotEventUuid, timestamp: 123 })
+                                    ).toString('base64'),
+                                },
+                            },
+                        }),
+                    }),
+                },
+            ],
+        })
+
+        const sessionRecording = await waitForSessionRecording(teamId, sessionId, snapshotEventUuid)
+
+        expect(sessionRecording.events.length).toBe(1)
     })
 })
 
@@ -101,7 +177,7 @@ beforeEach(async (context) => {
         brokers: ['localhost:9092'],
     })
 
-    const producer = kafka.producer()
+    const producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
 
     context.producer = producer
