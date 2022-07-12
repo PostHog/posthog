@@ -15,4 +15,14 @@ a paginated list.
 
 ## Dependencies
 
-The keep complexity down, we are only
+The keep complexity down, we are only dependent on Kafka and MinIO.
+
+## Development
+
+To get up and running with tests, have the following commands running:
+
+```bash
+docker-compose up
+yarn start
+yarn test
+```
