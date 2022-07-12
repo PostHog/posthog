@@ -202,7 +202,7 @@ class Migration(AsyncMigrationDefinition):
                     LAYOUT(complex_key_cache(size_in_cells 5000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
-                rollback="DROP DICTIONARY IF EXISTS person_dict {{on_cluster_clause}}",
+                rollback=f"DROP DICTIONARY IF EXISTS person_dict {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
@@ -218,7 +218,7 @@ class Migration(AsyncMigrationDefinition):
                     LAYOUT(complex_key_cache(size_in_cells 50000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
-                rollback="DROP DICTIONARY IF EXISTS person_distinct_id2_dict {{on_cluster_clause}}",
+                rollback=f"DROP DICTIONARY IF EXISTS person_distinct_id2_dict {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperationSQL(
@@ -236,7 +236,7 @@ class Migration(AsyncMigrationDefinition):
                     LAYOUT(complex_key_cache(size_in_cells 1000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
-                rollback="DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
+                rollback=f"DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
                 per_shard=True,
             ),
             AsyncMigrationOperation(fn=self.run_backfill,),
