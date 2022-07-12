@@ -139,8 +139,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             errors: ({ url }) => ({
                 url: validateProposedURL(url, values.appUrls),
             }),
-            submit: async ({ url }, breakpoint) => {
-                breakpoint() // avoid double clicks processing twice
+            submit: async ({ url }) => {
                 if (url) {
                     if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
                         actions.updateUrl(values.editUrlIndex, url)
