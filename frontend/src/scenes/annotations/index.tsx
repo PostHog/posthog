@@ -231,7 +231,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
             closable={false}
             visible={props.visible}
             onCancel={props.onCancel}
-            title={modalMode === ModalMode.CREATE ? 'Create annotation' : 'Edit ennotation'}
+            title={modalMode === ModalMode.CREATE ? 'Create annotation' : 'Edit annotation'}
         >
             {modalMode === ModalMode.CREATE ? (
                 <span>
