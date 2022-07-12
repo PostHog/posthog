@@ -125,6 +125,15 @@ describe('server', () => {
             )
 
             expect(startPluginSchedules).toHaveBeenCalled()
+            expect(startJobQueueConsumer).toHaveBeenCalled()
+        })
+
+        test('disabling processPluginJobs and ingestion', async () => {
+            pluginsServer = await createPluginServer(
+                {},
+                { ingestion: false, pluginScheduledTasks: true, processPluginJobs: false }
+            )
+
             expect(startJobQueueConsumer).not.toHaveBeenCalled()
         })
     })
