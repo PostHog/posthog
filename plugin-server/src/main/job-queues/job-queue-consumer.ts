@@ -7,7 +7,7 @@ import { status } from '../../utils/status'
 import { logOrThrowJobQueueError } from '../../utils/utils'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { runInstrumentedFunction } from '../utils'
-import { runBufferEventPipeline } from './buffer-utils'
+import { runBufferEventPipeline } from './buffer'
 
 export async function startJobQueueConsumer(hub: Hub, piscina: Piscina): Promise<JobQueueConsumerControl> {
     status.info('🔄', 'Starting job queue consumer, trying to get lock...')

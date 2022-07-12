@@ -20,8 +20,7 @@ export async function emitToBufferStep(
     const person = await runner.hub.db.fetchPerson(event.team_id, event.distinct_id)
 
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
-        const processEventAt =
-            new Date(event.timestamp || Date.now()).valueOf() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
+        const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, {
             eventPayload: event,
             timestamp: processEventAt,
