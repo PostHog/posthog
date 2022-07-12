@@ -117,6 +117,7 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
         aggregationTargetLabel.singular,
         aggregationTargetLabel.plural
     )
+    console.log(step)
 
     return (
         <div className="StepLegend">
@@ -246,7 +247,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
                         {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                             <td key={stepIndex}>
                                 <StepLegend
-                                    step={step}
+                                    step={step.nested_breakdown?.length ? step.nested_breakdown[0] : step}
                                     stepIndex={stepIndex}
                                     showTime={showTime}
                                     showPersonsModal={showPersonsModal}
