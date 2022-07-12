@@ -30,12 +30,18 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     elements_chain VARCHAR,
     created_at DateTime64(6, 'UTC'),
     person_id UUID,
+    person_created_at DateTime64,
     person_properties VARCHAR,
     group0_properties VARCHAR,
     group1_properties VARCHAR,
     group2_properties VARCHAR,
     group3_properties VARCHAR,
-    group4_properties VARCHAR
+    group4_properties VARCHAR,
+    group0_created_at DateTime64,
+    group1_created_at DateTime64,
+    group2_created_at DateTime64,
+    group3_created_at DateTime64,
+    group4_created_at DateTime64
     {materialized_columns}
     {extra_fields}
 ) ENGINE = {engine}
@@ -81,6 +87,9 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     storage_policy=STORAGE_POLICY(),
 )
 
+# DEPRECATED
+# Use KAFKA_EVENTS_TABLE_JSON_SQL instead
+# We cannot remove this code yet for backwards compatibility while moving to the new table
 KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
@@ -89,8 +98,9 @@ KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     materialized_columns="",
 )
 
-# You must include the database here because of a bug in clickhouse
-# related to https://github.com/ClickHouse/ClickHouse/issues/10471
+# DEPRECATED
+# Use EVENTS_TABLE_JSON_MV_SQL instead
+# We cannot remove this code yet for backwards compatibility while moving to the new table
 EVENTS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
@@ -142,12 +152,18 @@ distinct_id,
 elements_chain,
 created_at,
 person_id,
+person_created_at,
 person_properties,
 group0_properties,
 group1_properties,
 group2_properties,
 group3_properties,
 group4_properties,
+group0_created_at,
+group1_created_at,
+group2_created_at,
+group3_created_at,
+group4_created_at,
 _timestamp,
 _offset
 FROM {database}.kafka_events_json
@@ -186,7 +202,32 @@ VALUES (%(uuid)s, %(event)s, %(properties)s, %(timestamp)s, %(team_id)s, %(disti
 
 BULK_INSERT_EVENT_SQL = (
     lambda: f"""
-INSERT INTO {EVENTS_DATA_TABLE()} (uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, person_id, person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, created_at, _timestamp, _offset)
+INSERT INTO {EVENTS_DATA_TABLE()}
+(
+    uuid,
+    event,
+    properties,
+    timestamp,
+    team_id,
+    distinct_id,
+    elements_chain,
+    person_id,
+    person_properties,
+    person_created_at,
+    group0_properties,
+    group1_properties,
+    group2_properties,
+    group3_properties,
+    group4_properties,
+    group0_created_at,
+    group1_created_at,
+    group2_created_at,
+    group3_created_at,
+    group4_created_at,
+    created_at,
+    _timestamp,
+    _offset
+)
 VALUES
 """
 )
@@ -362,6 +403,7 @@ GET_TOTAL_EVENTS_VOLUME = "SELECT count() AS count FROM events WHERE team_id = %
 
 COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
     table_name=WRITABLE_EVENTS_DATA_TABLE(),
-    columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id,
-    person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties""",
+    columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
+    person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
+     group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at""",
 )

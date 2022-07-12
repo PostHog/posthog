@@ -103,7 +103,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             ],
         }
 
-        people = journeys_for(events_by_person=journey, team=self.team)
+        journeys_for(events_by_person=journey, team=self.team)
 
         filter = Filter(
             data={

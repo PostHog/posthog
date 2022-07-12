@@ -76,7 +76,7 @@ class TestClickhouseFunnel(funnel_test_factory(ClickhouseFunnel, _create_event, 
                 },
             ],
         }
-        created_people = journeys_for(events_by_person, self.team)
+        journeys_for(events_by_person, self.team)
         cohort.calculate_people_ch(pending_version=0)
 
         filters = {

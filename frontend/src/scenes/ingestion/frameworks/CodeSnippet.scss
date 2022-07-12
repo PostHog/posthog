@@ -1,12 +1,16 @@
-.code-container {
+.CodeSnippet {
     position: relative;
-    .action-icon-container {
+    .CodeSnippet__actions {
         position: absolute;
         display: flex;
         top: 0.75rem;
         right: 0.75rem;
         gap: 0.5rem;
         font-size: 1.5rem;
+        .CodeSnippet__copy-button {
+            background: rgb(39, 40, 34) !important;
+            box-shadow: 0 0 10px rgb(39 40 34) !important;
+        }
     }
     button,
     svg {

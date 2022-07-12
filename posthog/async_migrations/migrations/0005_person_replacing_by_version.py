@@ -13,7 +13,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
     AsyncMigrationType,
 )
-from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.client import sync_execute
@@ -65,22 +65,6 @@ PG_COPY_BATCH_SIZE = 1000
 PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00"
 
 
-def optimize_table_fn(query_id):
-    default_timeout = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
-    try:
-        execute_op_clickhouse(
-            f"OPTIMIZE TABLE {PERSON_TABLE} FINAL",
-            query_id=query_id,
-            settings={
-                "max_execution_time": default_timeout,
-                "send_timeout": default_timeout,
-                "receive_timeout": default_timeout,
-            },
-        )
-    except:  # TODO: we should only pass the timeout one here
-        pass
-
-
 class Migration(AsyncMigrationDefinition):
     description = "Move `person` table over to a improved schema from a correctness standpoint"
 
@@ -98,7 +82,9 @@ class Migration(AsyncMigrationDefinition):
             {"database": settings.CLICKHOUSE_DATABASE, "name": "person"},
         )[0][0]
 
-        return not ("ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine)
+        has_new_engine = "ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine
+        persons_backfill_ongoing = get_client().get(REDIS_HIGHWATERMARK_KEY) is not None
+        return not has_new_engine or persons_backfill_ongoing
 
     @cached_property
     def operations(self):
@@ -210,7 +196,10 @@ class Migration(AsyncMigrationDefinition):
             should_continue = True
             while should_continue:
                 should_continue = self._copy_batch_from_postgres(query_id)
-            optimize_table_fn(query_id)
+            self.unset_highwatermark()
+            run_optimize_table(
+                unique_name="0005_person_replacing_by_version", query_id=query_id, table_name=PERSON_TABLE, final=True
+            )
         except Exception as err:
             logger.warn("Re-copying persons from postgres failed. Marking async migration as complete.", error=err)
             capture_exception(err)
@@ -245,7 +234,7 @@ class Migration(AsyncMigrationDefinition):
         values = []
         params: Dict = {}
         for i, person in enumerate(persons):
-            created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S.%f")
+            created_at = person.created_at.strftime("%Y-%m-%d %H:%M:%S")
             # :TRICKY: We use a custom _timestamp to identify rows migrated during this migration
             values.append(
                 f"(%(uuid_{i})s, '{created_at}', {person.team_id}, %(properties_{i})s, {'1' if person.is_identified else '0'}, '{PG_COPY_INSERT_TIMESTAMP}', 0, 0, {person.version or 0})"

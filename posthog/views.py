@@ -120,6 +120,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "licensed_users_available": get_licensed_users_available(),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
+            "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
         }
 
     return JsonResponse(response)

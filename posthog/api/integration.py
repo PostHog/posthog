@@ -68,7 +68,13 @@ class IntegrationViewSet(
 
         slack = SlackIntegration(instance)
         channels = [
-            {"id": channel["id"], "name": channel["name"], "is_private": channel["is_private"]}
+            {
+                "id": channel["id"],
+                "name": channel["name"],
+                "is_private": channel["is_private"],
+                "is_member": channel["is_member"],
+                "is_ext_shared": channel["is_ext_shared"],
+            }
             for channel in slack.list_channels()
         ]
 

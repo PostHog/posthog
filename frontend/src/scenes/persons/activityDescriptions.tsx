@@ -1,7 +1,7 @@
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import React from 'react'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 export function personActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
     if (logItem.scope != 'Person') {

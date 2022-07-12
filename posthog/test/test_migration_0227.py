@@ -22,13 +22,13 @@ class CreatingDashboardTilesTestCase(TestMigrations):
         # CASE 1:
         # dashboard with no insights
         # Expect: no tiles for this dashboard
-        no_tiles_dashboard = Dashboard.objects.create(name="d1", team=team)
+        Dashboard.objects.create(name="d1", team=team)
 
         # CASE 2:
         # dashboard no filters with 2 tiles
         # Expect: 2 tiles with layout and color
         dashboard_2 = Dashboard.objects.create(name="d2", team=team)
-        insight_for_dash_2 = Insight.objects.create(
+        Insight.objects.create(
             team=team,
             filters={"insight": "TRENDS", "date_from": "-7d"},
             dashboard=dashboard_2,
@@ -36,7 +36,7 @@ class CreatingDashboardTilesTestCase(TestMigrations):
             color="blue",
             name="blue",
         )
-        second_insight_for_dash_2 = Insight.objects.create(
+        Insight.objects.create(
             team=team,
             filters={"insight": "TRENDS", "date_from": "-14d"},
             dashboard=dashboard_2,
@@ -49,7 +49,7 @@ class CreatingDashboardTilesTestCase(TestMigrations):
         # soft deleted insight with dashboard
         # Expect: no tiles
         dashboard_3 = Dashboard.objects.create(name="d3", team=team, deleted=False)
-        insight_for_dash_3 = Insight.objects.create(
+        Insight.objects.create(
             team=team, filters={"insight": "TRENDS", "date_from": "-7d"}, dashboard=dashboard_3, deleted=True
         )
 

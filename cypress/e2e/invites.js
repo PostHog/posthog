@@ -94,12 +94,13 @@ describe('Invite Signup', () => {
         cy.get('.page-title').should('contain', 'Organization')
 
         // Change membership level
-        cy.get('[data-attr=change-membership-level]').last().should('contain', 'member')
-        cy.get('[data-attr=change-membership-level]').last().click()
+        cy.get('[data-attr=membership-level]').last().should('contain', 'member')
+        cy.get('[data-attr=org-members-table] [data-attr=more-button]').last().click()
         cy.get('[data-test-level=8]').click()
-        cy.get('[data-attr=change-membership-level]').last().should('contain', 'admin')
+        cy.get('[data-attr=membership-level]').last().should('contain', 'admin')
 
         // Delete member
+        cy.get('[data-attr=org-members-table] [data-attr=more-button]').last().click()
         cy.get('[data-attr=delete-org-membership]').last().click()
         cy.get('.ant-modal-confirm-btns button').last().click()
         cy.get('.Toastify__toast-body').should('contain', 'Removed Bob from organization')

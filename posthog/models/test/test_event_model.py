@@ -285,7 +285,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
                 event="$autocapture", action=action4, url="/123$", url_matching=ActionStep.REGEX,
             )
 
-            event1_uuid = _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
+            _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
             event2_uuid = _create_event(
                 event="$autocapture",
                 team=self.team,
@@ -314,8 +314,8 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
             ActionStep.objects.create(action=action_watch_movie, tag_name="a", href="/movie", event="$autocapture")
 
-            person = _create_person(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
-            event_watched_movie_anonymous_uuid = _create_event(
+            _create_person(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
+            _create_event(
                 distinct_id="anonymous_user",
                 team=self.team,
                 elements=[Element(tag_name="a", href="/movie")],
@@ -337,13 +337,11 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
             action_watch_movie = Action.objects.create(team=self.team, name="watched movie")
             ActionStep.objects.create(action=action_watch_movie, event="user signed up")
 
-            person = _create_person(distinct_ids=["anonymous_user"], team=self.team)
-            event_watched_movie_anonymous = _create_event(
-                event="user signed up", distinct_id="anonymous_user", team=self.team
-            )
+            _create_person(distinct_ids=["anonymous_user"], team=self.team)
+            _create_event(event="user signed up", distinct_id="anonymous_user", team=self.team)
 
             team2 = Organization.objects.bootstrap(None)[2]
-            person2 = _create_person(distinct_ids=["anonymous_user2"], team=team2)
+            _create_person(distinct_ids=["anonymous_user2"], team=team2)
 
             events = _get_events_for_action(action_watch_movie)
             self.assertEqual(len(events), 1)
@@ -363,7 +361,7 @@ def filter_by_actions_factory(_create_event, _create_person, _get_events_for_act
 
         def test_no_steps(self):
             _create_person(distinct_ids=["whatever"], team=self.team)
-            event1 = _create_event(
+            _create_event(
                 event="$autocapture",
                 team=self.team,
                 distinct_id="whatever",

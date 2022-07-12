@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { PropertyDefinition, PropertyFilterValue, PropertyType, SelectOption } from '~/types'
+import { BreakdownKeyType, PropertyDefinition, PropertyFilterValue, PropertyType, SelectOption } from '~/types'
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { colonDelimitedDuration } from 'lib/utils'
 
 export interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -15,6 +16,8 @@ export interface PropertyDefinitionStorage {
     results: PropertyDefinition[]
 }
 
+// List of property definitions that are calculated on the backend. These
+// are valid properties that do not exist on events.
 const localPropertyDefinitions: PropertyDefinition[] = [
     {
         id: '$session_duration',
@@ -39,9 +42,9 @@ const normaliseToArray = (
     }
 }
 
-export type FormatForDisplayFunction = (
-    propertyName: string | undefined,
-    valueToFormat: PropertyFilterValue | undefined
+export type FormatPropertyValueForDisplayFunction = (
+    propertyName?: BreakdownKeyType,
+    valueToFormat?: PropertyFilterValue
 ) => string | string[] | null
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
@@ -135,10 +138,17 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
                     return match?.property_type ?? null
                 },
         ],
-        formatForDisplay: [
+        getPropertyDefinition: [
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): FormatForDisplayFunction => {
-                return (propertyName: string | undefined, valueToFormat: PropertyFilterValue | undefined) => {
+            (propertyDefinitions: PropertyDefinition[]): ((s: TaxonomicFilterValue) => PropertyDefinition | null) =>
+                (propertyName: TaxonomicFilterValue) => {
+                    return propertyDefinitions.find((pd) => pd.name === propertyName) ?? null
+                },
+        ],
+        formatPropertyValueForDisplay: [
+            (s) => [s.propertyDefinitions],
+            (propertyDefinitions: PropertyDefinition[]): FormatPropertyValueForDisplayFunction => {
+                return (propertyName?: BreakdownKeyType, valueToFormat?: PropertyFilterValue | undefined) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
                         return null
                     }
@@ -165,6 +175,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
                                 const numericalTimestamp = Number.parseInt(propertyValue)
                                 return dayjs(numericalTimestamp).tz().format('YYYY-MM-DD hh:mm:ss')
                             }
+                        } else if (propertyDefinition?.property_type === PropertyType.Duration) {
+                            const numericalDuration = Number.parseFloat(propertyValue)
+                            return isNaN(numericalDuration) ? propertyValue : colonDelimitedDuration(numericalDuration)
                         }
 
                         return propertyValue

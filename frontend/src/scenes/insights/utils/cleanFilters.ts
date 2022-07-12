@@ -8,7 +8,7 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { isTrendsInsight } from 'scenes/insights/sharedUtils'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { LocalFilter, toLocalFilters } from '../ActionFilter/entityFilterLogic'
+import { LocalFilter, toLocalFilters } from '../filters/ActionFilter/entityFilterLogic'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()

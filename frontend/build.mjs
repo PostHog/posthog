@@ -34,7 +34,7 @@ await buildInParallel(
         },
         {
             name: 'Exporter',
-            entryPoints: ['src/exporter/Exporter.tsx'],
+            entryPoints: ['src/exporter/index.tsx'],
             format: 'iife',
             outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
             ...common,
@@ -76,5 +76,5 @@ export function writeIndexHtml(chunks = {}, entrypoints = []) {
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/exporter/exporter.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+    copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
 }

@@ -73,7 +73,7 @@ class SessionRecordingList(EventQuery):
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
         FROM session_recording_events
-        WHERE
+        PREWHERE
             team_id = %(team_id)s
             {events_timestamp_clause}
         GROUP BY session_id

@@ -7,6 +7,10 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { slugify } from 'lib/utils'
 import { LemonBubble } from 'lib/components/LemonBubble/LemonBubble'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import clsx from 'clsx'
 
 export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
@@ -17,10 +21,19 @@ export interface EditorFilterGroupProps {
 export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: EditorFilterGroupProps): JSX.Element {
     const { title, editorFilters, count, defaultExpanded = true } = editorFilterGroup
     const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
+
     return (
-        <div key={title} className="insights-filter-group">
+        <div
+            key={title}
+            className={clsx('EditorFilterGroup', {
+                'EditorFilterGroup--editorpanels': usingEditorPanels,
+            })}
+        >
             {title && (
-                <div className="insights-filter-group-title">
+                <div className="EditorFilterGroup__title">
                     <LemonButton
                         type={'stealth'}
                         fullWidth
@@ -39,8 +52,8 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     </LemonButton>
                 </div>
             )}
-            {isRowExpanded ? (
-                <div className="insights-filter-group-content">
+            {!usingEditorPanels || isRowExpanded ? (
+                <div className="EditorFilterGroup__content">
                     {editorFilters.map(({ label, tooltip, key, valueSelector, component: Component }) => (
                         <div key={key}>
                             {label ? <EditorFilterItemTitle label={label} tooltip={tooltip} /> : null}

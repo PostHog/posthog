@@ -176,10 +176,10 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
         _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z")
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "foo"})
         _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-02T12:01:00Z")
 
         self._run_query(filter)
@@ -204,8 +204,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21")
     def test_account_filters(self):
-        person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-        person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
         _create_event(event="event_name", team=self.team, distinct_id="person_1")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
@@ -228,8 +228,8 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter)
 
     def test_action_with_person_property_filter(self):
-        person1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
-        person2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_1"], properties={"name": "John"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["person_2"], properties={"name": "Jane"})
 
         _create_event(event="event_name", team=self.team, distinct_id="person_1")
         _create_event(event="event_name", team=self.team, distinct_id="person_2")
@@ -262,7 +262,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         materialize("events", "test_prop")
 
-        p1 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -271,7 +271,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             properties={"test_prop": "hi"},
         )
 
-        p2 = Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["p2"], properties={"key_2": "value_2"})
         _create_event(
             team=self.team,
             event="$pageview",
@@ -479,6 +479,136 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         # Event with no session
         _create_event(
             team=self.team, event="$pageview", distinct_id="p2", timestamp="2021-05-02 00:02:00",
+        )
+
+        results, _ = self._run_query(filter)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0].strftime("%Y-%m-%d %H:%M:%S"), event_timestamp_str)
+
+    @snapshot_clickhouse_queries
+    def test_entity_filtered_by_multiple_session_duration_filters(self):
+
+        filter = Filter(
+            data={
+                "date_from": "2021-05-02 00:00:00",
+                "date_to": "2021-05-03 00:00:00",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "order": 0,
+                        "properties": [
+                            {"key": "$session_duration", "type": "session", "operator": "gt", "value": 90},
+                            {"key": "$session_duration", "type": "session", "operator": "lt", "value": 150},
+                        ],
+                    },
+                ],
+            }
+        )
+
+        event_timestamp_str = "2021-05-02 00:01:00"
+
+        # 120s session
+        _create_event(
+            team=self.team,
+            event="start",
+            distinct_id="p1",
+            timestamp="2021-05-01 23:59:00",
+            properties={"$session_id": "1abc"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=event_timestamp_str,
+            properties={"$session_id": "1abc"},
+        )
+
+        # 1s session (too short)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:02:00",
+            properties={"$session_id": "2abc"},
+        )
+        _create_event(
+            team=self.team,
+            event="final_event",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:02:01",
+            properties={"$session_id": "2abc"},
+        )
+
+        # 600s session (too long)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:02:00",
+            properties={"$session_id": "3abc"},
+        )
+        _create_event(
+            team=self.team,
+            event="final_event",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:07:00",
+            properties={"$session_id": "3abc"},
+        )
+
+        results, _ = self._run_query(filter)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0].strftime("%Y-%m-%d %H:%M:%S"), event_timestamp_str)
+
+    @snapshot_clickhouse_queries
+    def test_unique_session_math_filtered_by_session_duration(self):
+
+        filter = Filter(
+            data={
+                "date_from": "2021-05-02 00:00:00",
+                "date_to": "2021-05-03 00:00:00",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "math": "unique_session",
+                        "order": 0,
+                        "properties": [{"key": "$session_duration", "type": "session", "operator": "gt", "value": 30},],
+                    },
+                ],
+            }
+        )
+
+        event_timestamp_str = "2021-05-02 00:01:00"
+
+        # Session that should be returned
+        _create_event(
+            team=self.team,
+            event="start",
+            distinct_id="p1",
+            timestamp="2021-05-02 00:00:00",
+            properties={"$session_id": "1abc"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp=event_timestamp_str,
+            properties={"$session_id": "1abc"},
+        )
+
+        # Session that's too short
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:02:00",
+            properties={"$session_id": "2abc"},
+        )
+        _create_event(
+            team=self.team,
+            event="final_event",
+            distinct_id="p2",
+            timestamp="2021-05-02 00:02:01",
+            properties={"$session_id": "2abc"},
         )
 
         results, _ = self._run_query(filter)

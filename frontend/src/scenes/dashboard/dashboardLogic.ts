@@ -40,7 +40,7 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export interface DashboardLogicProps {
     id?: number
-    shareToken?: string
+    dashboard?: DashboardType
     placement?: DashboardPlacement
 }
 
@@ -75,8 +75,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
             refresh,
         }),
         triggerDashboardUpdate: (payload) => ({ payload }),
-        /** Whether the dashboard is shared or not. */
-        setIsSharedDashboard: (id: number, isShared: boolean) => ({ id, isShared }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
@@ -103,7 +101,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
     },
 
-    loaders: ({ actions, props }) => ({
+    loaders: ({ actions, props, values }) => ({
         // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
@@ -117,11 +115,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     }
 
                     try {
-                        const apiUrl = props.shareToken
-                            ? `api/shared_dashboards/${props.shareToken}`
-                            : `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/?${toParams({
-                                  refresh,
-                              })}`
+                        const apiUrl = values.apiUrl(refresh)
                         const dashboard = await api.get(apiUrl)
                         actions.setDates(dashboard.filters.date_from, dashboard.filters.date_to, false)
                         return dashboard
@@ -354,6 +348,15 @@ export const dashboardLogic = kea<dashboardLogicType>({
     }),
     selectors: () => ({
         placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
+        apiUrl: [
+            () => [(_, props) => props.id],
+            (id) => {
+                return (refresh?: boolean) =>
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
+                        refresh,
+                    })}`
+            },
+        ],
         items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
         itemsLoading: [
             (s) => [s.allItemsLoading, s.refreshStatus],
@@ -386,14 +389,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         dashboard: [
-            () => [
-                dashboardsModel.selectors.sharedDashboard,
-                dashboardsModel.selectors.nameSortedDashboards,
-                (_, { shareToken }) => shareToken,
-                (_, { id }) => id,
-            ],
-            (sharedDashboard, dashboards, shareToken, id): DashboardType | null => {
-                return shareToken ? sharedDashboard : dashboards.find((d) => d.id === id) || null
+            () => [dashboardsModel.selectors.nameSortedDashboards, (_, { id }) => id],
+            (dashboards, id): DashboardType | null => {
+                return dashboards.find((d) => d.id === id) || null
             },
         ],
         canEditDashboard: [
@@ -548,19 +546,13 @@ export const dashboardLogic = kea<dashboardLogicType>({
     events: ({ actions, cache, props }) => ({
         afterMount: () => {
             if (props.id) {
-                const exportedDashboard = window.POSTHOG_EXPORTED_DATA?.dashboard
-                if (exportedDashboard && exportedDashboard.id === props.id && exportedDashboard.items) {
-                    actions.loadExportedDashboard(exportedDashboard as DashboardType)
+                if (props.dashboard) {
+                    actions.loadExportedDashboard(props.dashboard)
                 } else {
-                    // When the scene is initially loaded, the dashboard ID is undefined
                     actions.loadDashboardItems({
                         refresh: props.placement === DashboardPlacement.InternalMetrics,
                     })
                 }
-            }
-
-            if (props.shareToken) {
-                dashboardsModel.actions.loadSharedDashboard(props.shareToken)
             }
         },
         beforeUnmount: () => {
@@ -571,10 +563,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
     }),
     listeners: ({ actions, values, cache, props }) => ({
-        setIsSharedDashboard: ({ id, isShared }) => {
-            dashboardsModel.actions.setIsSharedDashboard({ id, isShared })
-            eventUsageLogic.actions.reportDashboardShareToggled(isShared)
-        },
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
@@ -760,14 +748,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
             // and "values.allItems" will then fail
             const { allItems } = values
             if (allItems) {
-                eventUsageLogic.actions.reportDashboardViewed(allItems, !!props.shareToken)
+                eventUsageLogic.actions.reportDashboardViewed(allItems)
                 await breakpoint(IS_TEST_MODE ? 1 : 10000) // Tests will wait for all breakpoints to finish
                 if (
                     router.values.location.pathname === urls.dashboard(allItems.id) ||
                     router.values.location.pathname === urls.projectHomepage() ||
-                    (props.shareToken && router.values.location.pathname === urls.sharedDashboard(props.shareToken))
+                    router.values.location.pathname.startsWith(urls.sharedDashboard(''))
                 ) {
-                    eventUsageLogic.actions.reportDashboardViewed(allItems, !!props.shareToken, 10)
+                    eventUsageLogic.actions.reportDashboardViewed(allItems, 10)
                 }
             } else {
                 // allItems has not loaded yet, report after API request is completed
@@ -784,10 +772,16 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     : parseInt(subscriptionId, 10)
                 : undefined
             actions.setSubscriptionMode(true, id)
+            actions.setDashboardMode(null, null)
         },
 
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
+        },
+        '/dashboard/:id/sharing': () => {
+            actions.setSubscriptionMode(false, undefined)
+            actions.setDashboardMode(DashboardMode.Sharing, null)
         },
     }),
 })

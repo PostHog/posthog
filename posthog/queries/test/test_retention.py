@@ -105,8 +105,8 @@ def retention_test_factory(retention):
             )
 
         def test_day_interval(self):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
             _create_events(
                 self.team,
@@ -421,7 +421,7 @@ def retention_test_factory(retention):
 
         def test_retention_people_basic(self):
             person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
             _create_events(
                 self.team,
@@ -612,9 +612,10 @@ def retention_test_factory(retention):
                 [[2, 0, 0, 0, 0, 2, 1], [2, 0, 0, 0, 2, 1], [2, 0, 0, 2, 1], [2, 0, 2, 1], [0, 0, 0], [1, 0], [0]],
             )
 
+        @snapshot_clickhouse_queries
         def test_retention_event_action(self):
-            person1 = _create_person(team=self.team, distinct_ids=["person1", "alias1"])
-            person2 = _create_person(team=self.team, distinct_ids=["person2"])
+            _create_person(team=self.team, distinct_ids=["person1", "alias1"])
+            _create_person(team=self.team, distinct_ids=["person2"])
 
             action = _create_signup_actions(
                 self.team,
@@ -688,8 +689,8 @@ def retention_test_factory(retention):
 
         def test_retention_with_properties(self):
 
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
             _create_events(
                 self.team,
@@ -738,10 +739,10 @@ def retention_test_factory(retention):
             )
 
         def test_retention_with_user_properties(self):
-            person1 = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"},
             )
-            person2 = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "person2@test.com"},
             )
 
@@ -783,8 +784,8 @@ def retention_test_factory(retention):
             )
 
         def test_retention_action_start_point(self):
-            person1 = _create_person(team=self.team, distinct_ids=["person1", "alias1"])
-            person2 = _create_person(team=self.team, distinct_ids=["person2"])
+            _create_person(team=self.team, distinct_ids=["person1", "alias1"])
+            _create_person(team=self.team, distinct_ids=["person2"])
 
             action = _create_signup_actions(
                 self.team,
@@ -827,10 +828,10 @@ def retention_test_factory(retention):
             )
 
         def test_filter_test_accounts(self):
-            person1 = _create_person(
+            _create_person(
                 team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"email": "test@posthog.com"}
             )
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
             _create_events(
                 self.team,
@@ -929,10 +930,8 @@ def retention_test_factory(retention):
 
         def test_retention_aggregate_by_distinct_id(self):
 
-            person1 = _create_person(
-                team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"test": "ok"}
-            )
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"test": "ok"})
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
             _create_events(
                 self.team,
@@ -1018,8 +1017,8 @@ def retention_test_factory(retention):
         @snapshot_clickhouse_queries
         @patch("posthoganalytics.feature_enabled", return_value=True)
         def test_timezones(self, patch_feature_enabled):
-            person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
-            person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
             _create_events(
                 self.team,

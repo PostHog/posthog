@@ -3,12 +3,12 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { Description, FilterType, InsightModel } from '~/types'
 import React from 'react'
-import { SentenceList } from 'scenes/feature-flags/activityDescriptions'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/InsightCard/InsightDetails'
 import '../../lib/components/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
 import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/InsightCard/InsightCard'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToInsight = (item: ActivityLogItem): string | JSX.Element => {
     const name = item.detail.name || '(empty string)'

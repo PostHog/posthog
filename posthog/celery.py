@@ -4,10 +4,11 @@ from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_postrun, task_prerun
+from celery.signals import setup_logging, task_postrun, task_prerun
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+from django_structlog.celery.steps import DjangoStructLogInitStep
 
 from posthog.redis import get_client
 from posthog.utils import get_crontab
@@ -30,6 +31,8 @@ app.autodiscover_tasks()
 # https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
 app.conf.broker_pool_limit = 0
 
+app.steps["worker"].add(DjangoStructLogInitStep)
+
 # How frequently do we want to calculate action -> event relationships if async is enabled
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = settings.ACTION_EVENT_MAPPING_INTERVAL_SECONDS
 
@@ -38,6 +41,17 @@ EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_S
 
 # How frequently do we want to check if dashboard items need to be recalculated
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
+
+
+@setup_logging.connect
+def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
+    import logging
+
+    from posthog.settings import logs
+
+    # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
+    # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
+    logging.config.dictConfig(logs.LOGGING)  # type: ignore
 
 
 @app.on_after_configure.connect
@@ -79,7 +93,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
-    if getattr(settings, "MULTI_TENANCY", False):
+    if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
     sender.add_periodic_task(120, clickhouse_lag.s(), name="clickhouse table lag")
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
@@ -191,7 +205,7 @@ def pg_table_cache_hit_rate():
             )
             tables = cursor.fetchall()
             for row in tables:
-                gauge("pg_table_cache_hit_rate", row[1], tags={"table": row[0]})
+                gauge("pg_table_cache_hit_rate", float(row[1]), tags={"table": row[0]})
         except:
             # if this doesn't work keep going
             pass
@@ -262,6 +276,13 @@ def clickhouse_lag():
             pass
 
 
+HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
+    "heartbeat": "ingestion",
+    "heartbeat_buffer": "ingestion_buffer",
+    "heartbeat_api": "ingestion_api",
+}
+
+
 @app.task(ignore_result=True)
 def ingestion_lag():
     from posthog.client import sync_execute
@@ -269,10 +290,12 @@ def ingestion_lag():
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
-    for event, metric in {"heartbeat": "ingestion", "heartbeat_api": "ingestion_api"}.items():
+    for event, metric in HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.items():
         try:
-            query = """select now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp'))) from events where team_id = 2 and _timestamp > yesterday() and event = %(event)s;"""
-            lag = sync_execute(query, {"event": event})[0][0]
+            query = """
+                SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
+                FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
+            lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
             gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
         except:
             pass

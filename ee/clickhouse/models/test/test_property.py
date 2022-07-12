@@ -1136,7 +1136,7 @@ def test_session_property_validation():
     # Operator not valid for $session_duration
     with pytest.raises(ValidationError):
         filter = Filter(
-            data={"properties": [{"type": "session", "key": "$session_duration", "value": 0, "operator": "exact"}],}
+            data={"properties": [{"type": "session", "key": "$session_duration", "value": 0, "operator": "is_set"}],}
         )
         parse_prop_grouped_clauses(
             team_id=1, property_group=filter.property_groups,

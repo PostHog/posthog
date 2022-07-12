@@ -1,8 +1,10 @@
+import json
 import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pytz
+from django.forms import ValidationError
 
 from posthog.constants import (
     MONTHLY_ACTIVE,
@@ -31,15 +33,19 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.groups_join_query import GroupsJoinQuery
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
     BREAKDOWN_COHORT_JOIN_SQL,
     BREAKDOWN_CUMULATIVE_INNER_SQL,
+    BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
+    SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL,
+    SESSION_MATH_BREAKDOWN_INNER_SQL,
 )
 from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
@@ -164,18 +170,33 @@ class TrendsBreakdown:
 
         person_join_condition, person_join_params = self._person_join_condition()
         groups_join_condition, groups_join_params = self._groups_join_condition()
-        self.params = {**self.params, **_params, **person_join_params, **groups_join_params}
+        sessions_join_condition, sessions_join_params = self._sessions_join_condition()
+        self.params = {**self.params, **_params, **person_join_params, **groups_join_params, **sessions_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
-            content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
-                breakdown_filter=breakdown_filter,
-                person_join=person_join_condition,
-                groups_join=groups_join_condition,
-                aggregate_operation=aggregate_operation,
-                breakdown_value=breakdown_value,
-            )
+
+            if self.entity.math_property == "$session_duration":
+                # TODO: When we add more person/group properties to math_property,
+                # generalise this query to work for everything, not just sessions.
+                content_sql = SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join_condition=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    breakdown_value=breakdown_value,
+                )
+            else:
+                content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join_condition=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    breakdown_value=breakdown_value,
+                )
             time_range = enumerate_time_range(self.filter, seconds_in_interval)
 
             return (
@@ -197,6 +218,7 @@ class TrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
                     person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
@@ -211,6 +233,7 @@ class TrendsBreakdown:
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
                     person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
@@ -218,11 +241,25 @@ class TrendsBreakdown:
                     start_of_week_fix=start_of_week_fix(self.filter),
                     **breakdown_filter_params,
                 )
+            elif self.entity.math_property == "$session_duration":
+                # TODO: When we add more person/group properties to math_property,
+                # generalise this query to work for everything, not just sessions.
+                inner_sql = SESSION_MATH_BREAKDOWN_INNER_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
+                    start_of_week_fix=start_of_week_fix(self.filter),
+                )
             else:
                 inner_sql = BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
@@ -263,17 +300,29 @@ class TrendsBreakdown:
         assert isinstance(self.filter.breakdown, str)
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
+        numeric_property_filter = ""
+        if self.filter.using_histogram:
+            numeric_property_filter = f"AND {breakdown_value} is not null"
+            breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
         return (
             {"values": values_arr},
-            BREAKDOWN_PROP_JOIN_SQL,
-            {"breakdown_value_expr": breakdown_value},
+            BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
+            {"breakdown_value_expr": breakdown_value, "numeric_property_filter": numeric_property_filter},
             breakdown_value,
         )
 
-    def _get_breakdown_value(self, breakdown: str):
+    def _get_breakdown_value(self, breakdown: str) -> str:
 
-        if self.using_person_on_events:
+        if self.filter.breakdown_type == "session":
+            if breakdown == "$session_duration":
+                # Return the session duration expression right away because it's already an number,
+                # so it doesn't need casting for the histogram case (like the other properties)
+                breakdown_value = f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration"
+            else:
+                raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
+
+        elif self.using_person_on_events:
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "person_properties")
             elif self.filter.breakdown_type == "group":
@@ -281,9 +330,6 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", properties_field)
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
-
-            return breakdown_value
-
         else:
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr("person", breakdown, "%(key)s", "person_props")
@@ -293,7 +339,43 @@ class TrendsBreakdown:
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
-            return breakdown_value
+        if self.filter.using_histogram:
+            return f"toFloat64OrNull(toString({breakdown_value}))"
+        return breakdown_value
+
+    def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
+
+        multi_if_conditionals = []
+        values_arr = []
+
+        if len(buckets) == 1:
+            # Only one value, so treat this as a single bucket
+            # starting at this value, ending at the same value.
+            buckets = [buckets[0], buckets[0]]
+
+        for i in range(len(buckets) - 1):
+            last_bucket = i == len(buckets) - 2
+
+            # Since we always `floor(x, 2)` the value, we add 0.01 to the last bucket
+            # to ensure it's always slightly greater than the maximum value
+            lower_bound = buckets[i]
+            upper_bound = buckets[i + 1] + 0.01 if last_bucket else buckets[i + 1]
+            multi_if_conditionals.append(
+                f"{raw_breakdown_value} >= {lower_bound} AND {raw_breakdown_value} < {upper_bound}"
+            )
+            bucket_value = f"[{lower_bound},{upper_bound}]"
+            multi_if_conditionals.append(f"'{bucket_value}'")
+            values_arr.append(bucket_value)
+
+        # else condition
+        multi_if_conditionals.append(f"""'["",""]'""")
+
+        return f"multiIf({','.join(multi_if_conditionals)})", values_arr
+
+    def breakdown_sort_function(self, value):
+        if self.filter.using_histogram:
+            return json.loads(value.get("breakdown_value"))[0]
+        return 0 if value.get("breakdown_value") != "all" else 1
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
@@ -321,8 +403,7 @@ class TrendsBreakdown:
                     **additional_values,
                 }
                 parsed_results.append(parsed_result)
-
-            return parsed_results
+            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
 
         return _parse
 
@@ -341,7 +422,7 @@ class TrendsBreakdown:
                 )
                 parsed_results.append(parsed_result)
                 parsed_result.update({"filter": filter.to_dict()})
-            return sorted(parsed_results, key=lambda x: 0 if x.get("breakdown_value") != "all" else 1)
+            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
 
         return _parse
 
@@ -437,3 +518,16 @@ class TrendsBreakdown:
         return GroupsJoinQuery(
             self.filter, self.team_id, self.column_optimizer, using_person_on_events=self.using_person_on_events
         ).get_join_query()
+
+    def _sessions_join_condition(self) -> Tuple[str, Dict]:
+        session_query = SessionQuery(filter=self.filter, team=self.team)
+        if session_query.is_used:
+            query, session_params = session_query.get_query()
+            return (
+                f"""
+                    INNER JOIN ({query}) {SessionQuery.SESSION_TABLE_ALIAS}
+                    ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                """,
+                session_params,
+            )
+        return "", {}

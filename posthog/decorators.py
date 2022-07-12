@@ -8,7 +8,7 @@ from django.utils.timezone import now
 from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.models import User
+from posthog.models import DashboardTile, User
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import Insight
 from posthog.utils import should_refresh
@@ -41,7 +41,7 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
         filter = get_filter(request=request, team=team)
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
 
-        # return cached result if possible
+        # return cached result when possible
         if not should_refresh(request):
             cached_result_package = get_safe_cache(cache_key)
             if cached_result_package and cached_result_package.get("result"):
@@ -60,8 +60,12 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
                     cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL,
                 )
                 if filter:
-                    insights = Insight.objects.filter(team_id=team.pk, filters_hash=cache_key)
-                    insights.update(last_refresh=now())
+                    Insight.objects.filter(team_id=team.pk, filters_hash=cache_key).update(last_refresh=now())
+
+                    DashboardTile.objects.filter(insight__team_id=team.pk, filters_hash=cache_key).update(
+                        last_refresh=now()
+                    )
+
         return fresh_result_package
 
     return wrapper

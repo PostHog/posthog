@@ -9,6 +9,7 @@ from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .event.event import Event
+from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
@@ -29,6 +30,7 @@ from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .property import Property
 from .property_definition import PropertyDefinition
 from .session_recording_event import SessionRecordingEvent
+from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
@@ -48,6 +50,7 @@ __all__ = [
     "ElementGroup",
     "Entity",
     "Event",
+    "EventBuffer",
     "EventDefinition",
     "EventProperty",
     "Experiment",
@@ -77,6 +80,7 @@ __all__ = [
     "PropertyDefinition",
     "RetentionFilter",
     "SessionRecordingEvent",
+    "SharingConfiguration",
     "Subscription",
     "Tag",
     "TaggedItem",

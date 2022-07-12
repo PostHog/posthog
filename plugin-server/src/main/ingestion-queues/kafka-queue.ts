@@ -5,7 +5,7 @@ import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
+import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
@@ -24,9 +24,7 @@ export class KafkaQueue {
     private consumer: Consumer
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
-    private sleepTimeout: NodeJS.Timeout | null
     private ingestionTopic: string
-    private bufferTopic: string
     private eventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
@@ -36,12 +34,10 @@ export class KafkaQueue {
         this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
-        this.sleepTimeout = null
         this.consumerGroupMemberId = null
         this.consumerReady = false
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-        this.bufferTopic = KAFKA_BUFFER
         this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
@@ -137,17 +133,6 @@ export class KafkaQueue {
         return await startPromise
     }
 
-    async bufferSleep(sleepMs: number, partition: number): Promise<void> {
-        this.sleepTimeout = setTimeout(() => {
-            if (this.sleepTimeout) {
-                clearTimeout(this.sleepTimeout)
-            }
-            this.resume(this.bufferTopic, partition)
-        }, sleepMs)
-
-        await this.pause(this.bufferTopic, partition)
-    }
-
     async pause(targetTopic: string, partition?: number): Promise<void> {
         if (this.wasConsumerRan && !this.isPaused(targetTopic, partition)) {
             const pausePayload: ConsumerManagementPayload = { topic: targetTopic }
@@ -170,11 +155,11 @@ export class KafkaQueue {
             let partitionInfo = ''
             if (partition) {
                 resumePayload.partitions = [partition]
-                partitionInfo = `(partition ${partition})`
+                partitionInfo = `(partition ${partition}) `
             }
             status.info('⏳', `Resuming Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
             this.consumer.resume([resumePayload])
-            status.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo} resumed!`)
+            status.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo}resumed!`)
         }
     }
 

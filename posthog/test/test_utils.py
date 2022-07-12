@@ -156,7 +156,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(RequestParsingError) as ctx:
+        with self.assertRaises(RequestParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()
@@ -173,7 +173,7 @@ class TestLoadDataFromRequest(TestCase):
 
         post_request = self._create_request_with_headers(origin, referer)
 
-        with self.assertRaises(RequestParsingError) as ctx:
+        with self.assertRaises(RequestParsingError):
             load_data_from_request(post_request)
 
         patched_scope.assert_called_once()

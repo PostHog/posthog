@@ -1,6 +1,5 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Select } from 'antd'
 import { chartFilterLogic } from './chartFilterLogic'
 import {
     AreaChartOutlined,
@@ -12,11 +11,11 @@ import {
     TableOutlined,
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { toLocalFilters } from 'scenes/insights/ActionFilter/entityFilterLogic'
+import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
 import { LemonTag } from '../LemonTag/LemonTag'
+import { LemonSelect, LemonSelectOptions, LemonSelectSection } from '@posthog/lemon-ui'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -66,15 +65,13 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
         )
     }
 
-    const options =
+    const options: LemonSelectOptions | LemonSelectSection<LemonSelectOptions>[] =
         filters.insight === InsightType.FUNNELS
-            ? [
-                  {
-                      value: FunnelVizType.Steps,
+            ? {
+                  [FunnelVizType.Steps]: {
                       label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
                   },
-                  {
-                      value: FunnelVizType.Trends,
+                  [FunnelVizType.Trends]: {
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
@@ -84,75 +81,73 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                           </Label>
                       ),
                   },
-              ]
+              }
             : [
                   {
                       label: 'Line Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsLineGraph,
+                      options: {
+                          [ChartDisplayType.ActionsLineGraph]: {
                               label: <Label icon={<LineChartOutlined />}>Linear</Label>,
                           },
-                          {
-                              value: ChartDisplayType.ActionsLineGraphCumulative,
+                          [ChartDisplayType.ActionsLineGraphCumulative]: {
                               label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
                               disabled: cumulativeDisabled,
                           },
-                      ],
+                      },
                   },
                   {
                       label: 'Bar Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsBar,
+                      options: {
+                          [ChartDisplayType.ActionsBar]: {
                               label: <Label icon={<BarChartOutlined />}>Time</Label>,
                               disabled: barDisabled,
                           },
-                          {
-                              value: ChartDisplayType.ActionsBarValue,
+                          [ChartDisplayType.ActionsBarValue]: {
                               label: <Label icon={<BarChartOutlined />}>Value</Label>,
                               disabled: barValueDisabled,
                           },
-                      ],
+                      },
                   },
                   {
-                      value: ChartDisplayType.ActionsTable,
-                      label: <Label icon={<TableOutlined />}>Table</Label>,
-                  },
-                  {
-                      value: ChartDisplayType.ActionsPie,
-                      label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                      disabled: pieDisabled,
-                  },
-                  {
-                      value: ChartDisplayType.WorldMap,
-                      label: (
-                          <Label
-                              icon={<GlobalOutlined />}
-                              tooltip="Visualize data by country. Only works with one series at a time."
-                          >
-                              World Map
-                          </Label>
-                      ),
-                      disabled: worldMapDisabled,
+                      label: '',
+                      options: {
+                          [ChartDisplayType.ActionsTable]: {
+                              label: <Label icon={<TableOutlined />}>Table</Label>,
+                          },
+                          [ChartDisplayType.ActionsPie]: {
+                              label: <Label icon={<PieChartOutlined />}>Pie</Label>,
+                              disabled: pieDisabled,
+                          },
+                          [ChartDisplayType.WorldMap]: {
+                              label: (
+                                  <Label
+                                      icon={<GlobalOutlined />}
+                                      tooltip="Visualize data by country. Only works with one series at a time."
+                                  >
+                                      World Map
+                                  </Label>
+                              ),
+                              disabled: worldMapDisabled,
+                          },
+                      },
                   },
               ]
     return (
-        <Select
+        <LemonSelect
             key="2"
-            defaultValue={filters.display || defaultDisplay}
-            value={chartFilter || defaultDisplay}
-            onChange={(value: ChartDisplayType | FunnelVizType) => {
-                setChartFilter(value)
-                onChange?.(value)
+            value={chartFilter || defaultDisplay || filters.display}
+            onChange={(value) => {
+                setChartFilter(value as ChartDisplayType | FunnelVizType)
+                onChange?.(value as ChartDisplayType | FunnelVizType)
             }}
             bordered
-            dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
+            dropdownPlacement={'bottom-end'}
             dropdownMatchSelectWidth={false}
-            listHeight={288} // We want to avoid the scrollbar, which is an issue with the default max-height of 256 px
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
+            type={'stealth'}
+            size={'small'}
         />
     )
 }

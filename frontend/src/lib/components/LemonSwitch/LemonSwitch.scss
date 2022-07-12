@@ -4,6 +4,10 @@
     &.LemonRow--disabled {
         opacity: var(--opacity-disabled);
     }
+
+    &.LemonRow--full-width {
+        width: 100%;
+    }
 }
 
 .LemonSwitch__button {

@@ -92,8 +92,8 @@ export function CodeSnippet({
     hideCopyButton = false,
 }: CodeSnippetProps): JSX.Element {
     return (
-        <div className="code-container" style={style}>
-            <div className="action-icon-container">
+        <div className="CodeSnippet" style={style}>
+            <div className="CodeSnippet__actions">
                 {actions &&
                     actions.map(({ icon, callback, popconfirmProps, title }, index) =>
                         !popconfirmProps ? (
@@ -106,6 +106,8 @@ export function CodeSnippet({
                     )}
                 {!hideCopyButton && (
                     <LemonButton
+                        className="CodeSnippet__copy-button"
+                        data-attr="copy-code-button"
                         icon={<IconCopy />}
                         onClick={() => {
                             children && copyToClipboard(children, copyDescription)

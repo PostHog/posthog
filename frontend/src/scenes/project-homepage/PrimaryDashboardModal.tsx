@@ -10,11 +10,6 @@ import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
 
-export interface ShareModalProps {
-    visible: boolean
-    onCancel: () => void
-}
-
 export function PrimaryDashboardModal(): JSX.Element {
     const { visible, primaryDashboardId } = useValues(primaryDashboardModalLogic)
     const { closePrimaryDashboardModal, setPrimaryDashboard } = useActions(primaryDashboardModalLogic)

@@ -10,7 +10,7 @@ import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { GlobalFiltersTitle } from 'scenes/insights/common'
 import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
-import { TestAccountFilter } from 'scenes/insights/TestAccountFilter'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { LemonDivider } from '../LemonDivider'
 
 interface PropertyGroupFilters {
@@ -108,7 +108,7 @@ export function PropertyGroupFilters({
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)
                                                     }}
-                                                    pageKey={`trends-filters-${propertyGroupIndex}`}
+                                                    pageKey={`insight-filters-${propertyGroupIndex}`}
                                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                                     eventNames={eventNames}
                                                     propertyGroupType={group.type}

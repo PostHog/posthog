@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from rest_framework import status
 
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey
 from posthog.test.base import APIBaseTest
 
@@ -121,4 +124,21 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
         response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_does_not_interfere_with_temporary_token_auth(self):
+        key = PersonalAPIKey(label="Test", user=self.user)
+        key.save()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer {key.value}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        impersonated_access_token = encode_jwt(
+            {"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer {impersonated_access_token}"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
