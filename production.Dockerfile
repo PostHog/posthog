@@ -54,7 +54,7 @@ RUN yarn config set network-timeout 300000 && \
 COPY ./plugin-server/src/ ./src/
 RUN yarn build
 
-RUN RUN apk --update --no-cache add "curl~=7.84" \
+RUN apk --update --no-cache add "curl~=7.84" \
     && curl -sf https://gobinaries.com/tj/node-prune | sh
 
 RUN npm prune --production && node-prune
