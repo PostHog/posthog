@@ -325,7 +325,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(set([p2.uuid]), set([r[0] for r in res]))
 
-    def test_performed_multiple_performed_event_multiple(self):
+    def test_can_handle_many_performed_multiple_filters(self):
         p1 = _create_person(
             team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
         )
