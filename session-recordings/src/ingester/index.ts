@@ -30,6 +30,7 @@ type Chunk = {
     size: number
     oldestEventTimestamp: number
     oldestOffset: string
+    newestOffset: string
     timer?: NodeJS.Timeout
 }
 
@@ -99,6 +100,8 @@ consumer.run({
             const otherSessions = Object.values(eventsBySessionId).filter((chunk) => sessionId === chunk.sessionId)
 
             if (otherSessions.length) {
+                // If there are other chunks still in flight, then update the
+                // offset to the oldest message referenced by them.
                 const offset = otherSessions.map((chunk) => chunk.oldestOffset).sort()[0]
 
                 console.debug({ action: 'committing_offset', offset: offset, partition })
@@ -114,6 +117,16 @@ consumer.run({
                 chunksInFlight.addCallback((observableResult) =>
                     observableResult.observe(Object.keys(eventsBySessionId).length)
                 )
+            } else {
+                // If we are the only chunk in flight then update to the newest
+                // message in the chunk.
+                consumer.commitOffsets([
+                    {
+                        topic,
+                        partition,
+                        offset: chunk.newestOffset,
+                    },
+                ])
             }
 
             delete eventsBySessionId[sessionId]
@@ -129,6 +142,7 @@ consumer.run({
                 windowId: windowId,
                 oldestEventTimestamp: event.timestamp,
                 oldestOffset: message.offset,
+                newestOffset: message.offset,
             }
             chunk.timer = setTimeout(() => commitChunkToS3(), maxChunkAge)
             console.debug({ action: 'create_chunk', session_id: chunk.sessionId })
@@ -149,6 +163,7 @@ consumer.run({
 
         chunk.events.push(...snapshotData.map((event) => JSON.stringify(event)))
         chunk.size += eventString.length
+        chunk.newestOffset = message.offset
 
         snapshotMessagesProcessed.add(1)
     },

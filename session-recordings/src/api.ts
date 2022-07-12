@@ -46,7 +46,32 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
     return res.json({ events })
 })
 
-const server = express()
-server.use(routes)
+const app = express()
+app.use(routes)
 
-server.listen(3000)
+const server = app.listen(3000)
+
+// Make sure we log any errors we haven't handled
+const errorTypes = ['unhandledRejection', 'uncaughtException']
+
+errorTypes.map((type) => {
+    process.on(type, async (e) => {
+        console.debug(`process.on ${type}`)
+        console.error(e)
+    })
+})
+
+// Make sure we disconnect the consumer before shutdown, especially important
+// for the test use case as we'll end up having to wait for and old registered
+// consumers to timeout.
+const signalTraps = ['SIGTERM', 'SIGINT', 'SIGUSR2']
+
+signalTraps.map((type) => {
+    process.once(type, async () => {
+        try {
+            await server.close()
+        } finally {
+            process.kill(process.pid, type)
+        }
+    })
+})
