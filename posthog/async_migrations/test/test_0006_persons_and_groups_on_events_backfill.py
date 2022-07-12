@@ -2,6 +2,7 @@ import json
 from typing import Dict, List
 
 import pytest
+from django.test import override_settings
 
 from posthog.async_migrations.runner import start_async_migration
 from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
@@ -59,6 +60,7 @@ def query_events() -> List[Dict]:
 
 
 @pytest.mark.async_migrations
+@override_settings(MULTI_TENANCY=True)
 class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         self.clear_tables()
