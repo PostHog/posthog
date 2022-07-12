@@ -11,7 +11,7 @@ from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_fo
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.settings import CLICKHOUSE_DATABASE
+from posthog.settings import CLICKHOUSE_DATABASE, MULTI_TENANCY
 
 logger = structlog.get_logger(__name__)
 
@@ -62,6 +62,9 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0005_person_replacing_by_version"
 
     def precheck(self):
+        if not MULTI_TENANCY:
+            return False, "This async migration is not yet ready for self-hosted users"
+
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
