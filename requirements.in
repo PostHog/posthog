@@ -5,9 +5,9 @@
 # - `pip-compile --rebuild requirements-dev.in`
 #
 django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
-amqp==2.5.2
+amqp==2.6.0
 boto3==1.21.29
-celery==4.4.2
+celery==4.4.7
 celery-redbeat==2.0.0
 clickhouse-driver==0.2.1
 clickhouse-pool==0.5.3
@@ -39,7 +39,7 @@ importlib-metadata==1.6.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@37722f350f3b449bbcd6564917c436b0d93e796f
 kafka-python==2.0.2
 kafka-helper==0.2
-kombu==4.6.8
+kombu==4.6.10
 lzstring==1.0.4
 numpy==1.21.4
 parso==0.8.1
