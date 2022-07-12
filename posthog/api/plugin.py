@@ -6,7 +6,6 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connection as default_connection
 from django.db import connections
 from django.db.models import Q
 from django.http import HttpResponse
@@ -590,7 +589,8 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
         params = [payload_json]
         try:
-            with connections.get("graphile", default_connection).cursor() as cursor:
+            connection = connections["graphile"] if "graphile" in connections else connections["default"]
+            with connection.cursor() as cursor:
                 cursor.execute(sql, params)
         except Exception as e:
             raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
