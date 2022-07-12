@@ -75,26 +75,12 @@ def execute_op_clickhouse(
     client._request_information = None
 
 
-def execute_on_each_shard(sql, args=None, settings=None) -> None:
+def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
     """
     Executes query on each shard separately (if enabled) or on the cluster as a whole (if not enabled).
 
     Note that the shard selection is stable - subsequent queries are guaranteed to hit the same shards!
     """
-    if "{on_cluster_clause}" not in sql:
-        raise Exception("SQL must include {on_cluster_clause} to allow execution on each shard")
-
-    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
-        sql = sql.format(on_cluster_clause="")
-    else:
-        sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
-
-    for _, _, connection in _get_all_shard_connections():
-        connection.execute(sql, args, settings=settings)
-
-
-def execute_on_all_shards_in_parallel(sql: str, args=None, settings=None) -> None:
-    loop = asyncio.get_event_loop()
 
     if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
         sql = sql.format(on_cluster_clause="")
@@ -103,13 +89,16 @@ def execute_on_all_shards_in_parallel(sql: str, args=None, settings=None) -> Non
 
     async def run_on_all_shards():
         tasks = []
-        for _, _, connection in _get_all_shard_connections():
-            tasks.append(asyncio.create_task(connection.execute(sql, args, settings=settings)))
+        for _, _, connection_pool in _get_all_shard_connections():
+            tasks.append(asyncio.create_task(run_on_connection(connection_pool)))
 
         await asyncio.wait(tasks)
 
-    loop.run_until_complete(run_on_all_shards())
-    loop.close()
+    async def run_on_connection(connection_pool):
+        with connection_pool.get_client() as connection:
+            connection.execute(sql, args, settings=settings)
+
+    asyncio.run(run_on_all_shards())
 
 
 def _get_all_shard_connections():
@@ -128,11 +117,9 @@ def _get_all_shard_connections():
         )
         for shard, host in rows:
             ch_pool = make_ch_pool(host=host)
-            with ch_pool.get_client() as connection:
-                yield shard, host, connection
+            yield shard, host, ch_pool
     else:
-        with default_ch_pool.get_client() as connection:
-            yield None, None, connection
+        yield None, None, default_ch_pool
 
 
 def execute_op_postgres(sql: str, query_id: str):
