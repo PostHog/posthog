@@ -47,6 +47,48 @@ describe.concurrent('ingester', () => {
         expect(sessionRecording.events.length).toBe(1)
     })
 
+    it('handles event larger than the max chunk limit', async ({ producer }) => {
+        const teamId = uuidv4()
+        const sessionId = uuidv4()
+        const windowId = uuidv4()
+        const eventUuid = uuidv4()
+
+        await producer.send({
+            topic: 'events_plugin_ingestion',
+            messages: [
+                {
+                    value: JSON.stringify({
+                        event: '$snapshot',
+                        team_id: teamId,
+                        uuid: eventUuid,
+                        timestamp: 1234,
+                        data: JSON.stringify({
+                            properties: {
+                                $session_id: sessionId,
+                                $window_id: windowId,
+                                $snapshot_data: {
+                                    data: gzipSync(
+                                        JSON.stringify([
+                                            {
+                                                uuid: eventUuid,
+                                                timestamp: 123,
+                                                data: Array.from(new Array(10000).keys()),
+                                            },
+                                        ])
+                                    ).toString('base64'),
+                                },
+                            },
+                        }),
+                    }),
+                },
+            ],
+        })
+
+        const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
+
+        expect(sessionRecording.events.length).toBe(1)
+    })
+
     it('handles lots of events', async ({ producer }) => {
         const teamId = uuidv4()
         const sessionId = uuidv4()
