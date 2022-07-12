@@ -259,28 +259,36 @@ class Migration(AsyncMigrationDefinition):
             )
 
     def run_backfill(self, query_id):
-        # :TODO: Make this work when executing per shard
         execute_op_clickhouse(
             query_id=query_id,
             sql=f"""
                 ALTER TABLE {EVENTS_DATA_TABLE()}
+                {{on_cluster_clause}}
                 UPDATE
-                    person_id=toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
-                    person_properties=dictGetString('person_dict', 'properties', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
-                    person_created_at=dictGetDateTime('person_dict', 'created_at', tuple(team_id, toUUID(dictGet('person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
-                    group0_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
-                    group1_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
-                    group2_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
-                    group3_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
-                    group4_properties=dictGetString('groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
-                    group0_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
-                    group1_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
-                    group2_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
-                    group3_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
-                    group4_created_at=dictGetDateTime('groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+                    person_id=toUUID(dictGet('{CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
+                    person_properties=dictGetString(
+                        '{CLICKHOUSE_DATABASE}.person_dict',
+                        'properties',
+                        tuple(
+                            team_id,
+                            toUUID(dictGet('{CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
+                        )
+                    ),
+                    person_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.person_dict', 'created_at', tuple(team_id, toUUID(dictGet('{CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
+                    group0_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
+                    group1_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
+                    group2_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
+                    group3_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
+                    group4_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
+                    group0_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
+                    group1_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
+                    group2_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
+                    group3_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
+                    group4_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
                 WHERE person_id = toUUIDOrZero('')
             """,
             settings={"mutations_sync": 1, "max_execution_time": 0},
+            per_shard=True,
         )
 
     def _clear_temporary_tables(self, query_id):
@@ -293,7 +301,6 @@ class Migration(AsyncMigrationDefinition):
             f"DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
         ]
         for query in queries:
-            # :TODO: Make per_shard work
             execute_op_clickhouse(query_id=query_id, sql=query, per_shard=True)
 
     def healthcheck(self):
