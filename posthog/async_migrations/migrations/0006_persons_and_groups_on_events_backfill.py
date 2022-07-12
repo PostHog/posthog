@@ -6,8 +6,8 @@ from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
-    AsyncMigrationType,
 )
+from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -55,7 +55,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0005_person_replacing_by_version"
 
     def precheck(self):
-        return True, None
+        return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
         compression_codec = sync_execute(
@@ -289,6 +289,10 @@ class Migration(AsyncMigrationDefinition):
             # :TODO: Make per_shard work
             execute_op_clickhouse(query_id=query_id, sql=query, per_shard=True)
 
-    def progress(self, migration_instance: AsyncMigrationType) -> int:
-        # Use parts_to_do when running the backfill as a proxy
-        return 1
+    def healthcheck(self):
+        result = sync_execute("SELECT free_space FROM system.disks")
+        # 100mb or less left
+        if int(result[0][0]) < 100000000:
+            return (False, "ClickHouse available storage below 100MB")
+
+        return (True, None)

@@ -270,9 +270,6 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             events[0],
         )
 
-    def test_disk_usage_low(self):
-        pass
-
     def test_no_extra_tables(self):
         initial_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]
         initial_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]
