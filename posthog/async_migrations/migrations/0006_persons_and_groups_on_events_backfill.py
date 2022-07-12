@@ -42,6 +42,13 @@ We will run the following operations on the cluster
 4. Optimize the temporary tables to remove duplicates and remove deleted data
 5. Create a dictionary to query each temporary table with caching
 6. Run an ALTER TABLE ... UPDATE to backfill all the data using the dictionaries
+
+Constraints
+===========
+
+1. The migration requires a lot of extra space for the new columns. At least 2x disk space is required to avoid issues while migrating.
+2. We use ZSTD(3) compression on the new columns to save on space and speed up large reads.
+3. New columns need to be populated for new rows before running this async migration.
 """
 
 TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0006"
