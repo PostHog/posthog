@@ -75,7 +75,7 @@ def execute_op_clickhouse(
     client._request_information = None
 
 
-def execute_on_each_shard(sql, args, settings=None) -> None:
+def execute_on_each_shard(sql, args=None, settings=None) -> None:
     """
     Executes query on each shard separately (if enabled) or on the cluster as a whole (if not enabled).
 
