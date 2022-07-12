@@ -234,6 +234,7 @@ jobs:
         name: Notify Sentry of a production release
         runs-on: ubuntu-20.04
         if: github.repository == 'PostHog/posthog'
+        needs: build
         steps:
             - name: Checkout master
               uses: actions/checkout@v2
