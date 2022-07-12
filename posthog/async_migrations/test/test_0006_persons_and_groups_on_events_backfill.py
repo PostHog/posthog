@@ -70,6 +70,10 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.clear_tables()
         super().tearDown()
 
+    @classmethod
+    def tearDownClass(cls):
+        sync_execute("ALTER TABLE sharded_events MODIFY COLUMN person_properties VARCHAR CODEC(ZSTD(3))")
+
     def clear_tables(self):
         run_clickhouse_statement_in_parallel(
             [
