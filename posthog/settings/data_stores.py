@@ -78,10 +78,8 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
-
-DATABASES["graphile"] = dj_database_url.config(
-    default=JOB_QUEUE_GRAPHILE_URL if JOB_QUEUE_GRAPHILE_URL else DATABASE_URL, conn_max_age=600
-)
+if JOB_QUEUE_GRAPHILE_URL:
+    DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"

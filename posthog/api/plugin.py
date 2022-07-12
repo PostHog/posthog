@@ -589,7 +589,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
         params = [payload_json]
         try:
-            with connections["graphile"].cursor() as cursor:
+            with connections.get("graphile", "default").cursor() as cursor:
                 cursor.execute(sql, params)
         except Exception as e:
             raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
