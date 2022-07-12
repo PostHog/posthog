@@ -14,6 +14,7 @@ describe.concurrent('ingester', () => {
     it('handles one event', async ({ producer }) => {
         const teamId = uuidv4()
         const sessionId = uuidv4()
+        const windowId = uuidv4()
         const eventUuid = uuidv4()
 
         await producer.send({
@@ -28,8 +29,9 @@ describe.concurrent('ingester', () => {
                         data: JSON.stringify({
                             properties: {
                                 $session_id: sessionId,
+                                $window_id: windowId,
                                 $snapshot_data: {
-                                    data: gzipSync(JSON.stringify({ uuid: eventUuid, timestamp: 123 })).toString(
+                                    data: gzipSync(JSON.stringify([{ uuid: eventUuid, timestamp: 123 }])).toString(
                                         'base64'
                                     ),
                                 },
@@ -48,6 +50,7 @@ describe.concurrent('ingester', () => {
     it('handles lots of events', async ({ producer }) => {
         const teamId = uuidv4()
         const sessionId = uuidv4()
+        const windowId = uuidv4()
 
         const events = Array.from(new Array(30).keys()).map((_) => {
             const eventUuid = uuidv4()
@@ -59,8 +62,9 @@ describe.concurrent('ingester', () => {
                 data: JSON.stringify({
                     properties: {
                         $session_id: sessionId,
+                        $window_id: windowId,
                         $snapshot_data: {
-                            data: gzipSync(JSON.stringify({ uuid: eventUuid, timestamp: 123 })).toString('base64'),
+                            data: gzipSync(JSON.stringify([{ uuid: eventUuid, timestamp: 123 }])).toString('base64'),
                         },
                     },
                 }),
@@ -81,6 +85,7 @@ describe.concurrent('ingester', () => {
     it('ignores non $snapshot events', async ({ producer }) => {
         const teamId = uuidv4()
         const sessionId = uuidv4()
+        const windowId = uuidv4()
         const eventUuid = uuidv4()
 
         await producer.send({
@@ -95,8 +100,9 @@ describe.concurrent('ingester', () => {
                         data: JSON.stringify({
                             properties: {
                                 $session_id: sessionId,
+                                $window_id: windowId,
                                 $snapshot_data: {
-                                    data: gzipSync(JSON.stringify({ uuid: eventUuid, timestamp: 123 })).toString(
+                                    data: gzipSync(JSON.stringify([{ uuid: eventUuid, timestamp: 123 }])).toString(
                                         'base64'
                                     ),
                                 },
@@ -121,9 +127,10 @@ describe.concurrent('ingester', () => {
                         data: JSON.stringify({
                             properties: {
                                 $session_id: sessionId,
+                                $window_id: windowId,
                                 $snapshot_data: {
                                     data: gzipSync(
-                                        JSON.stringify({ uuid: snapshotEventUuid, timestamp: 123 })
+                                        JSON.stringify([{ uuid: snapshotEventUuid, timestamp: 123 }])
                                     ).toString('base64'),
                                 },
                             },

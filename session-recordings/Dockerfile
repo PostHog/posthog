@@ -13,9 +13,9 @@ COPY src ./src
 
 RUN yarn build
 
-RUN npm prune --production
+# RUN npm prune --production
 
-RUN node-prune
+# RUN node-prune
 
 
 FROM node:16-alpine3.15

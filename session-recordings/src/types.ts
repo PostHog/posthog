@@ -13,3 +13,5 @@ export type EventData = {
         $snapshot_data: { data: string }
     }
 }
+
+export type SessionData = any[]

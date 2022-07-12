@@ -1,11 +1,11 @@
 import { Kafka } from 'kafkajs'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { gunzipSync } from 'zlib'
-import { EventData, Event } from './types'
+import { EventData, Event, SessionData } from './types'
 import { s3Client } from './s3'
 
-const maxChunkAge = Number.parseInt(process.env.MAX_CHUNK_AGE || '1000')
-const maxChunkSize = Number.parseInt(process.env.MAX_CHUNK_SIZE || '1000')
+const maxChunkAge = Number.parseInt(process.env.MAX_CHUNK_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000')
+const maxChunkSize = Number.parseInt(process.env.MAX_CHUNK_SIZE || process.env.NODE_ENV === 'dev' ? '1000' : '1000000')
 
 const kafka = new Kafka({
     clientId: 'ingester',
@@ -20,8 +20,9 @@ consumer.connect()
 consumer.subscribe({ topic: 'events_plugin_ingestion' })
 
 type Chunk = {
-    team_id: string
-    session_id: string
+    teamId: string
+    sessionId: string
+    windowId: string
     // TODO: replace string[] with a file handle that we can append to
     events: string[]
     size: number
@@ -29,6 +30,7 @@ type Chunk = {
     oldestOffset: string
     timer?: NodeJS.Timeout
 }
+
 const eventsBySessionId: { [key: string]: Chunk } = {}
 
 consumer.run({
@@ -50,18 +52,19 @@ consumer.run({
         }
 
         const eventData: EventData = JSON.parse(event.data)
-        const snapshotData = gunzipSync(Buffer.from(eventData.properties.$snapshot_data.data, 'base64')).toString(
-            'utf-8'
+        const snapshotData: SessionData = JSON.parse(
+            gunzipSync(Buffer.from(eventData.properties.$snapshot_data.data, 'base64')).toString('utf-8')
         )
         const sessionId = eventData.properties.$session_id
+        const windowId = eventData.properties.$window_id
         let chunk = eventsBySessionId[eventData.properties.$session_id]
 
         console.debug({ action: 'start', uuid: event.uuid, event: event.event, session_id: sessionId })
 
         const commitChunkToS3 = async () => {
-            const key = `team_id/${chunk.team_id}/session_id/${chunk.session_id}/chunks/${chunk.oldestEventTimestamp}-${chunk.oldestOffset}`
+            const key = `team_id/${chunk.teamId}/session_id/${chunk.sessionId}/window_id/${chunk.windowId}/chunks/${chunk.oldestEventTimestamp}-${chunk.oldestOffset}`
 
-            console.debug({ action: 'commiting_chunk', session_id: chunk.session_id, key: key })
+            console.debug({ action: 'commiting_chunk', session_id: chunk.sessionId, key: key })
 
             await s3Client.send(
                 new PutObjectCommand({
@@ -73,7 +76,7 @@ consumer.run({
 
             if (eventsBySessionId.length) {
                 const offset = Object.values(eventsBySessionId)
-                    .filter((chunk) => sessionId === chunk.session_id)
+                    .filter((chunk) => sessionId === chunk.sessionId)
                     .map((chunk) => chunk.oldestOffset)
                     .sort()[0]
 
@@ -96,8 +99,9 @@ consumer.run({
             chunk = eventsBySessionId[sessionId] = {
                 events: [] as string[],
                 size: 0,
-                team_id: event.team_id,
-                session_id: sessionId,
+                teamId: event.team_id,
+                sessionId: sessionId,
+                windowId: windowId,
                 oldestEventTimestamp: event.timestamp,
                 oldestOffset: message.offset,
             }
@@ -108,19 +112,20 @@ consumer.run({
             clearTimeout(chunk.timer)
             commitChunkToS3()
 
-            console.debug({ action: 'create_chunk', session_id: chunk.session_id })
+            console.debug({ action: 'create_chunk', session_id: chunk.sessionId })
             chunk = eventsBySessionId[sessionId] = {
                 events: [] as string[],
                 size: 0,
-                team_id: event.team_id,
-                session_id: sessionId,
+                teamId: event.team_id,
+                sessionId: sessionId,
+                windowId: windowId,
                 oldestEventTimestamp: event.timestamp,
                 oldestOffset: message.offset,
             }
             chunk.timer = setTimeout(() => commitChunkToS3(), maxChunkAge)
         }
 
-        chunk.events.push(snapshotData)
+        chunk.events.push(...snapshotData.map((event) => JSON.stringify(event)))
         chunk.size += eventString.length
     },
 })

@@ -12,9 +12,9 @@
     "scripts": {
         "build": "swc ./src/ --out-dir ./dist",
         "test": "vitest",
-        "start:ingester:dev": "nodemon -w src/ src/ingester.ts",
+        "start:ingester:dev": "NODE_ENV=dev nodemon -w src/ src/ingester.ts",
         "start:ingester:prod": "nodemon dist/api.js",
-        "start:api:dev": "nodemon -w src/ src/api.ts",
+        "start:api:dev": "NODE_ENV=dev nodemon -w src/ src/api.ts",
         "start:api:prod": "node dist/api.js",
         "start": "yarn start:api:dev & yarn start:ingester:dev"
     },

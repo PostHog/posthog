@@ -20,6 +20,8 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
         })
     )
 
+    console.debug({ event: listResponse.Contents })
+
     const objects = await Promise.all(
         listResponse.Contents?.map((key) =>
             s3Client.send(
