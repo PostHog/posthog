@@ -28,7 +28,7 @@ def analyze_enough_disk_space_free_for_table(table_name: str, required_ratio: fl
             formatReadableSize(required)
         """,
         {"database": CLICKHOUSE_DATABASE, "table_name": table_name, "ratio": required_ratio,},
-    )
+    )[0]
 
     if current_ratio >= required_ratio:
         return (True, None)
