@@ -52,6 +52,12 @@ RUN yarn config set network-timeout 300000 && \
 COPY ./plugin-server/src/ ./src/
 RUN yarn build
 
+RUN curl -sf https://gobinaries.com/tj/node-prune | sh
+
+RUN npm prune --production
+
+RUN node-prune
+
 # Build the posthog image, incorporating the Django app along with the frontend,
 # as well as the plugin-server
 FROM python:3.8.12-alpine3.14
@@ -124,17 +130,10 @@ COPY ./plugin-server/package.json ./plugin-server/yarn.lock ./
 # still need yarn to run the plugin-server so we do not remove it.
 USER root
 RUN apk --update --no-cache add "yarn~=1"
-
-# NOTE: we need make and g++ for node-gyp
-# NOTE: npm is required for re2
-RUN apk --update --no-cache add "make~=4.3" "g++~=10.3" "npm~=7" --virtual .build-deps \
-    && yarn install --frozen-lockfile --production=true \
-    && yarn cache clean \
-    && apk del .build-deps
-
 USER posthog
 
 # Add in the compiled plugin-server
+COPY --from=plugin-server /code/plugin-server/node_modules/ ./node_modules/
 COPY --from=plugin-server /code/plugin-server/dist/ ./dist/
 
 WORKDIR /code/
