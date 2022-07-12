@@ -23,9 +23,11 @@ interface AuthorizedUrlsTableInterface {
 function EmptyState({
     numberOfResults,
     isSearching,
+    isAddingEntry,
 }: {
     numberOfResults: number
     isSearching: boolean
+    isAddingEntry: boolean
 }): JSX.Element | null {
     if (numberOfResults > 0) {
         return null
@@ -35,7 +37,7 @@ function EmptyState({
         <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
             There are no authorized URLs that match your search.
         </LemonRow>
-    ) : (
+    ) : isAddingEntry ? null : (
         <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
             There are no authorized URLs or domains. Add one to get started.
         </LemonRow>
@@ -76,7 +78,8 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
 
 export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterface): JSX.Element {
     const logic = authorizedUrlsLogic({ actionId })
-    const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex } = useValues(logic)
+    const { appUrlsKeyed, suggestionsLoading, searchTerm, launchUrl, editUrlIndex, isAddUrlFormVisible } =
+        useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
 
     return (
@@ -105,12 +108,16 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                 </LemonRow>
             ) : (
                 <>
-                    {editUrlIndex === -1 && (
+                    {isAddUrlFormVisible && (
                         <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
                             <AuthorizedUrlForm actionId={actionId} />
                         </LemonRow>
                     )}
-                    <EmptyState numberOfResults={appUrlsKeyed.length} isSearching={searchTerm.length > 0} />
+                    <EmptyState
+                        numberOfResults={appUrlsKeyed.length}
+                        isSearching={searchTerm.length > 0}
+                        isAddingEntry={isAddUrlFormVisible}
+                    />
                     {appUrlsKeyed.map((keyedAppURL, index) => {
                         return (
                             <LemonRow

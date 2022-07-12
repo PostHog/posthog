@@ -280,6 +280,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
             },
         ],
         launchUrl: [() => [], () => (url: string) => appEditorUrl(url, props.actionId, !props.actionId)],
+        isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
     })),
     urlToAction(({ actions }) => ({
         [urls.toolbarLaunch()]: (_, searchParams) => {
