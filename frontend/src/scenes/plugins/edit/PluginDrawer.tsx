@@ -300,7 +300,8 @@ export function PluginDrawer(): JSX.Element {
                             {!!(
                                 editingPlugin.pluginConfig.id &&
                                 editingPlugin.capabilities?.jobs?.length &&
-                                Object.keys(editingPlugin.public_jobs || []).length
+                                editingPlugin.public_jobs &&
+                                Object.keys(editingPlugin.public_jobs).length
                             ) && (
                                 <PluginJobOptions
                                     pluginId={editingPlugin.id}
