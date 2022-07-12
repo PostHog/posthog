@@ -53,7 +53,7 @@ beforeEach(() => {
 })
 
 describe('emitToBufferStep()', () => {
-    it('calls `addEventToBuffer` if event should be buffered, stops processing', async () => {
+    it('enqueues graphile job if event should be buffered, stops processing', async () => {
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
         expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(JobName.BUFFER_JOB, {
