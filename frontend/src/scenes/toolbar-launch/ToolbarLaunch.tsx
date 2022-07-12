@@ -94,10 +94,10 @@ interface FeatureHighlightProps {
 
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
-        <Col sm={12} className="fh-item flex flex-center mt text-muted-alt ">
-            <div className="fh-icon mr">{icon}</div>
+        <Col sm={12} className="fh-item flex flex-center mt ">
+            <div className="fh-icon mr text-muted-alt">{icon}</div>
             <div>
-                <h4 className="mb-0">{title}</h4>
+                <h4 className="mb-0 text-muted-alt">{title}</h4>
                 <div className="caption">{caption}</div>
             </div>
         </Col>
