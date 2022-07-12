@@ -59,7 +59,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             <Field name="url">
                 <LemonInput autoFocus placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)" />
             </Field>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div className="flex justify-end">
                 <LemonButton type="secondary" onClick={cancelProposingUrl}>
                     Cancel
                 </LemonButton>
