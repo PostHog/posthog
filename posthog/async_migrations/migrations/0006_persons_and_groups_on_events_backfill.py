@@ -201,7 +201,7 @@ class Migration(AsyncMigrationDefinition):
                         created_at DateTime
                     )
                     PRIMARY KEY team_id, id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} DB '{settings.CLICKHOUSE_DATABASE}'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} {self._dictionary_connection_string()}))
                     LAYOUT(complex_key_cache(size_in_cells 5000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -217,7 +217,7 @@ class Migration(AsyncMigrationDefinition):
                         person_id UUID
                     )
                     PRIMARY KEY team_id, distinct_id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} DB '{settings.CLICKHOUSE_DATABASE}'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} {self._dictionary_connection_string()}))
                     LAYOUT(complex_key_cache(size_in_cells 50000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -235,7 +235,7 @@ class Migration(AsyncMigrationDefinition):
                         created_at DateTime
                     )
                     PRIMARY KEY team_id, group_type_index, group_key
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} DB '{settings.CLICKHOUSE_DATABASE}'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} {self._dictionary_connection_string()}))
                     LAYOUT(complex_key_cache(size_in_cells 1000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -283,6 +283,14 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=self._wait_for_mutation_done,),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
+
+    def _dictionary_connection_string(self):
+        result = f"DB '{settings.CLICKHOUSE_DATABASE}'"
+        if settings.CLICKHOUSE_USER:
+            result += f" USER '{settings.CLICKHOUSE_USER}'"
+        if settings.CLICKHOUSE_PASSWORD:
+            result += f" PASSWORD '{settings.CLICKHOUSE_PASSWORD}'"
+        return result
 
     def _update_properties_column_compression_codec(self, query_id, codec):
         columns = [
