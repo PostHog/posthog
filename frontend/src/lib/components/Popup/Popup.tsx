@@ -1,5 +1,13 @@
 import './Popup.scss'
-import React, { MouseEventHandler, MutableRefObject, ReactElement, useEffect, useMemo } from 'react'
+import React, {
+    MouseEventHandler,
+    MutableRefObject,
+    ReactElement,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+} from 'react'
 import ReactDOM from 'react-dom'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import clsx from 'clsx'
@@ -13,6 +21,7 @@ import {
     shift,
     flip,
     size,
+    arrow,
 } from '@floating-ui/react-dom-interactions'
 
 export interface PopupProps {
@@ -21,7 +30,9 @@ export interface PopupProps {
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
-    children: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
+    children?: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
+    /** External reference element not passed as a direct child */
+    referenceElement?: HTMLElement
     /** Content of the overlay. */
     overlay: React.ReactNode | React.ReactNode[]
     /** Where the popover should start relative to children. */
@@ -41,6 +52,8 @@ export interface PopupProps {
     additionalRefs?: (React.MutableRefObject<HTMLDivElement | null> | string)[]
     style?: React.CSSProperties
     getPopupContainer?: () => HTMLElement
+    /** Whether to show an arrow pointing to a reference element */
+    showArrow?: boolean
 }
 
 /** 0 means no parent. */
@@ -56,6 +69,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
     (
         {
             children,
+            referenceElement,
             overlay,
             visible,
             onClickOutside,
@@ -70,17 +84,21 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             additionalRefs = [],
             style,
             getPopupContainer,
+            showArrow,
         },
         ref
     ): JSX.Element => {
         const popupId = useMemo(() => uniqueMemoizedIndex++, [])
+        const arrowRef = useRef<HTMLDivElement>(null)
         const {
             x,
             y,
+            reference,
             refs: { reference: referenceRef, floating: floatingRef },
             strategy,
             placement: floatingPlacement,
             update,
+            middlewareData,
         } = useFloating<HTMLElement>({
             placement,
             strategy: 'fixed',
@@ -98,9 +116,31 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                         }
                     },
                 }),
+                arrow({ element: arrowRef }),
                 ...(middleware ?? []),
             ],
         })
+
+        const arrowStaticSide = {
+            top: 'bottom',
+            right: 'left',
+            bottom: 'top',
+            left: 'right',
+        }[floatingPlacement.split('-')[0]] as string
+
+        const arrowStyle = middlewareData.arrow
+            ? {
+                  left: `${middlewareData.arrow.x}px`,
+                  top: `${middlewareData.arrow.y}px`,
+                  [arrowStaticSide]: '-0.25rem',
+              }
+            : {}
+
+        useLayoutEffect(() => {
+            if (referenceElement) {
+                reference(referenceElement)
+            }
+        }, [referenceElement])
 
         useOutsideClickHandler(
             [floatingRef, referenceRef, ...additionalRefs],
@@ -114,12 +154,13 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
             }
         }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
 
-        const clonedChildren =
-            typeof children === 'function'
+        const clonedChildren = children
+            ? typeof children === 'function'
                 ? children({ ref: referenceRef })
                 : React.Children.toArray(children).map((child) =>
                       React.cloneElement(child as ReactElement, { ref: referenceRef })
                   )
+            : null
 
         return (
             <>
@@ -142,6 +183,17 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                                 <div ref={ref} className="Popup__box">
                                     {overlay}
                                 </div>
+                                {showArrow && (
+                                    <div
+                                        ref={arrowRef}
+                                        className={clsx(
+                                            'Popup__arrow',
+                                            `Popup__arrow--${arrowStaticSide}`,
+                                            actionable && 'Popup--actionable'
+                                        )}
+                                        style={arrowStyle}
+                                    />
+                                )}
                             </div>
                         </PopupContext.Provider>
                     </CSSTransition>,

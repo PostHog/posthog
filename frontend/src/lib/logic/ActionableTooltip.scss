@@ -1,0 +1,31 @@
+.ActionableTooltip {
+    .ActionableTooltip__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .ActionableTooltip__icon {
+        padding-left: 0.5rem;
+        display: flex;
+        align-items: center;
+    }
+    .ActionableTooltip__body {
+        padding: 0.5rem;
+    }
+    .ActionableTooltip__footer {
+        display: flex;
+        justify-content: between;
+    }
+    .ActionableTooltip__navigation {
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+
+        .ActionableTooltip__navigation--left {
+            margin-right: 0.25rem;
+        }
+        .ActionableTooltip__navigation--right {
+            margin-left: 0.25rem;
+        }
+    }
+}

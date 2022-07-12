@@ -54,3 +54,35 @@
         width: max-content;
     }
 }
+
+.Popup__arrow {
+    position: absolute;
+    width: 0.5rem;
+    height: 0.5rem;
+    transform: rotate(45deg);
+    background: #fff;
+
+    &--top {
+        border-top: 1px solid var(--border);
+        border-left: 1px solid var(--border);
+    }
+
+    &--bottom {
+        border-bottom: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+    }
+
+    &--right {
+        border-bottom: 1px solid var(--border);
+        border-left: 1px solid var(--border);
+    }
+
+    &--left {
+        border-top: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+    }
+
+    .Popup--actionable & {
+        border-color: var(--primary);
+    }
+}
