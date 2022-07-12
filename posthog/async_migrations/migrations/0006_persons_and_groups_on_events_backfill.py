@@ -91,7 +91,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}} AS person
+                    CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.person
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, id)
                     SETTINGS index_granularity = 128
@@ -101,7 +101,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}} AS person_distinct_id2
+                    CREATE TABLE {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.person_distinct_id2
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, distinct_id)
                     SETTINGS index_granularity = 128
@@ -111,7 +111,7 @@ class Migration(AsyncMigrationDefinition):
             ),
             AsyncMigrationOperationSQL(
                 sql=f"""
-                    CREATE TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}} AS groups
+                    CREATE TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.groups
                     ENGINE = ReplacingMergeTree(_timestamp)
                     ORDER BY (team_id, group_type_index, group_key)
                     SETTINGS index_granularity = 128
