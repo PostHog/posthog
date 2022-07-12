@@ -242,7 +242,44 @@ class Migration(AsyncMigrationDefinition):
                 rollback=f"DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
                 per_shard=True,
             ),
-            AsyncMigrationOperation(fn=self.run_backfill,),
+            AsyncMigrationOperationSQL(
+                sql=f"""
+                    ALTER TABLE {EVENTS_DATA_TABLE()}
+                    {{on_cluster_clause}}
+                    UPDATE
+                        person_id=toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
+                        person_properties=dictGetString(
+                            '{settings.CLICKHOUSE_DATABASE}.person_dict',
+                            'properties',
+                            tuple(
+                                team_id,
+                                toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
+                            )
+                        ),
+                        person_created_at=dictGetDateTime(
+                            '{settings.CLICKHOUSE_DATABASE}.person_dict',
+                            'created_at',
+                            tuple(
+                                team_id,
+                                toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
+                            )
+                        ),
+                        group0_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
+                        group1_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
+                        group2_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
+                        group3_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
+                        group4_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
+                        group0_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
+                        group1_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
+                        group2_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
+                        group3_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
+                        group4_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+                    WHERE person_id = toUUIDOrZero('')
+                """,
+                sql_settings={"max_execution_time": 0},
+                rollback=None,
+                per_shard=True,
+            ),
             AsyncMigrationOperation(fn=self._wait_for_mutation_done,),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
@@ -262,41 +299,8 @@ class Migration(AsyncMigrationDefinition):
                 sql=f"ALTER TABLE {EVENTS_DATA_TABLE()} MODIFY COLUMN {column} VARCHAR Codec({codec})",
             )
 
-    def run_backfill(self, query_id):
-        execute_op_clickhouse(
-            query_id=query_id,
-            sql=f"""
-                ALTER TABLE {EVENTS_DATA_TABLE()}
-                {{on_cluster_clause}}
-                UPDATE
-                    person_id=toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
-                    person_properties=dictGetString(
-                        '{settings.CLICKHOUSE_DATABASE}.person_dict',
-                        'properties',
-                        tuple(
-                            team_id,
-                            toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
-                        )
-                    ),
-                    person_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.person_dict', 'created_at', tuple(team_id, toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
-                    group0_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
-                    group1_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
-                    group2_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
-                    group3_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
-                    group4_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
-                    group0_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
-                    group1_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
-                    group2_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
-                    group3_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
-                    group4_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
-                WHERE person_id = toUUIDOrZero('')
-            """,
-            # :KLUDGE: mutations_sync does not work with ON CLUSTER queries, causing test races
-            settings={"max_execution_time": 0},
-            per_shard=True,
-        )
-
     def _wait_for_mutation_done(self, query_id):
+        # :KLUDGE: mutations_sync does not work with ON CLUSTER queries, causing race conditions with subsequent steps
         sleep_until_finished("events table backill", lambda: self._count_running_mutations() > 0)
 
     def _count_running_mutations(self):
