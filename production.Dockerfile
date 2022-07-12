@@ -26,6 +26,8 @@ RUN yarn build
 #
 FROM node:16.15-alpine3.14 AS plugin-server
 
+SHELL ["/bin/sh", "-o", "pipefail", "-c"]
+
 WORKDIR /code/plugin-server
 
 # Install python, make and gcc as they are needed for the yarn install
@@ -33,7 +35,8 @@ RUN apk --update --no-cache add \
     "make~=4.3" \
     "g++~=10.3" \
     "gcc~=10.3" \
-    "python3~=3.9"
+    "python3~=3.9" \
+    "curl~=7.84"
 
 # Compile and install Yarn dependencies.
 #
@@ -54,9 +57,7 @@ RUN yarn build
 
 RUN curl -sf https://gobinaries.com/tj/node-prune | sh
 
-RUN npm prune --production
-
-RUN node-prune
+RUN npm prune --production && node-prune
 
 # Build the posthog image, incorporating the Django app along with the frontend,
 # as well as the plugin-server
