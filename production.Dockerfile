@@ -35,8 +35,7 @@ RUN apk --update --no-cache add \
     "make~=4.3" \
     "g++~=10.3" \
     "gcc~=10.3" \
-    "python3~=3.9" \
-    "curl~=7.84"
+    "python3~=3.9"
 
 # Compile and install Yarn dependencies.
 #
@@ -55,7 +54,8 @@ RUN yarn config set network-timeout 300000 && \
 COPY ./plugin-server/src/ ./src/
 RUN yarn build
 
-RUN curl -sf https://gobinaries.com/tj/node-prune | sh
+RUN RUN apk --update --no-cache add "curl~=7.84" \
+    && curl -sf https://gobinaries.com/tj/node-prune | sh
 
 RUN npm prune --production && node-prune
 
