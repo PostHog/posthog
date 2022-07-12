@@ -4,7 +4,7 @@ from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun
+from celery.signals import after_task_publish, setup_logging, task_failure, task_postrun, task_prerun, task_success
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -52,6 +52,27 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
     logging.config.dictConfig(logs.LOGGING)  # type: ignore
+
+
+@after_task_publish.connect
+def task_sent_published(sender=None, **kwargs):
+    from statshog.defaults.django import statsd
+
+    statsd.incr("celery.task_published", tags={"task": sender})
+
+
+@task_success.connect
+def task_success(sender=None, **kwargs):
+    from statshog.defaults.django import statsd
+
+    statsd.incr("celery.task_succeeded", tags={"task": sender})
+
+
+@task_failure.connect
+def task_failed(sender=None, **kwargs):
+    from statshog.defaults.django import statsd
+
+    statsd.incr("celery.task_failed", tags={"task": sender})
 
 
 @app.on_after_configure.connect
