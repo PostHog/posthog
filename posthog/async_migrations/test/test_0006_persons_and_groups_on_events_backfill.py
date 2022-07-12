@@ -17,8 +17,9 @@ from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_p
 MIGRATION_NAME = "0006_persons_and_groups_on_events_backfill"
 
 uuid1, uuid2, uuid3 = [UUIDT() for _ in range(3)]
-zero_uuid = UUIDT(uuid_str="00000000-0000-0000-0000-000000000000")
-zero_date = "1970-01-01T00:00:00Z"
+# Clickhouse leaves behind blank/zero values for non-filled columns, these are checked against these constants
+ZERO_UUID = UUIDT(uuid_str="00000000-0000-0000-0000-000000000000")
+ZERO_DATE = "1970-01-01T00:00:00Z"
 
 
 def run_migration():
@@ -202,7 +203,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
         self.assertEqual(len(events), 1)
         self.assertDictContainsSubset(
-            {"distinct_id": "1", "person_id": zero_uuid, "person_properties": "", "person_created_at": zero_date,},
+            {"distinct_id": "1", "person_id": ZERO_UUID, "person_properties": "", "person_created_at": ZERO_DATE,},
             events[0],
         )
 
@@ -255,7 +256,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "group0_created_at": "2022-01-02T00:00:00Z",
                 "$group_1": "77",
                 "group1_properties": "",
-                "group1_created_at": zero_date,
+                "group1_created_at": ZERO_DATE,
                 "$group_2": "77",
                 "group2_properties": json.dumps({"index": 2}),
                 "group2_created_at": "2022-01-03T00:00:00Z",
@@ -264,7 +265,7 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "group3_created_at": "2022-01-04T00:00:00Z",
                 "$group_4": "",
                 "group4_properties": "",
-                "group4_created_at": zero_date,
+                "group4_created_at": ZERO_DATE,
             },
             events[0],
         )
