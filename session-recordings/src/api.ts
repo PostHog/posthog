@@ -22,7 +22,7 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
         })
     )
 
-    console.debug({ event: listResponse.Contents })
+    console.debug({ event: listResponse.Contents?.map((object) => object.Key) })
 
     const objects = await Promise.all(
         listResponse.Contents?.map((key) =>
