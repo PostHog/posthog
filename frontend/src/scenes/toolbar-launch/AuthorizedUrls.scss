@@ -1,39 +1,7 @@
 .AuthorizedUrlRow {
-    display: flex;
-    align-items: center;
-    margin-bottom: 0.5em;
-
-    .LemonTag {
-        margin-right: 1em;
-    }
-    &.suggestion {
-        color: var(--text-muted-alt);
-    }
     .Url {
-        flex-grow: 1;
-
         span {
             max-width: 80%;
         }
-    }
-    .Actions {
-        display: flex;
-        flex-direction: row;
-
-        .ActionButton {
-            margin-right: 1.5em;
-        }
-
-        & > :last-child {
-            margin-right: 0.75em;
-        }
-    }
-}
-
-.AuthorizedURLForm {
-    width: 100%;
-
-    .form-submit {
-        margin-left: 8px;
     }
 }

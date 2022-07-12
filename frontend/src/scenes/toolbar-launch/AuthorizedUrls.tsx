@@ -54,7 +54,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             props={{ actionId }}
             formKey="proposedUrl"
             enableFormOnSubmit
-            className="AuthorizedURLForm"
+            className="AuthorizedURLForm full-width"
         >
             <Field name="url">
                 <LemonInput autoFocus placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)" />
@@ -66,7 +66,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                 <LemonButton
                     htmlType="submit"
                     type="primary"
-                    className="form-submit"
+                    className="form-submit ml"
                     disabled={isProposedUrlSubmitting}
                 >
                     Save
@@ -125,21 +125,24 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                 fullWidth
                                 size="tall"
                                 key={index}
-                                className={clsx('AuthorizedUrlRow', keyedAppURL.type)}
+                                className={clsx('AuthorizedUrlRow', keyedAppURL.type, 'flex-center', 'mb-05', 'mr')}
                             >
                                 {editUrlIndex === index ? (
                                     <AuthorizedUrlForm actionId={actionId} />
                                 ) : (
                                     <>
-                                        <div className="Url">
+                                        <div className="Url flex-grow">
                                             {keyedAppURL.type === 'suggestion' && (
-                                                <LemonTag type="highlight">Suggestion</LemonTag>
+                                                <LemonTag type="highlight mr">Suggestion</LemonTag>
                                             )}
-                                            <Typography.Text ellipsis={{ tooltip: keyedAppURL.url }}>
+                                            <Typography.Text
+                                                ellipsis={{ tooltip: keyedAppURL.url }}
+                                                className="text-muted"
+                                            >
                                                 {keyedAppURL.url}
                                             </Typography.Text>
                                         </div>
-                                        <div className="Actions">
+                                        <div className="Actions flex flex-row">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
                                                     onClick={() => addUrl(keyedAppURL.url)}
@@ -155,7 +158,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         href={launchUrl(keyedAppURL.url)}
                                                         tooltip={'Launch toolbar'}
                                                         center
-                                                        className="ActionButton"
+                                                        className="ActionButton mr"
                                                     />
 
                                                     <LemonButton
@@ -163,7 +166,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
                                                         tooltip={'Edit'}
                                                         center
-                                                        className="ActionButton"
+                                                        className="ActionButton mr"
                                                     />
                                                     <Popconfirm
                                                         placement="topRight"
@@ -176,7 +179,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                             icon={<IconDelete />}
                                                             tooltip={'Remove URL'}
                                                             center
-                                                            className="ActionButton"
+                                                            className="ActionButton mr-05"
                                                         />
                                                     </Popconfirm>
                                                 </>

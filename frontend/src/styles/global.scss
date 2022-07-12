@@ -618,12 +618,20 @@ code.code {
     flex-direction: column;
 }
 
+.flex-row {
+    flex-direction: row;
+}
+
 .flex-wrap {
     flex-wrap: wrap;
 }
 
 .flex-auto {
     flex: auto;
+}
+
+.flex-grow {
+    flex-grow: 1;
 }
 
 .flex-center {
@@ -669,6 +677,10 @@ input::-ms-clear {
 
 .text-warning {
     color: var(--warning) !important;
+}
+
+.text-muted {
+    color: var(--text-muted-alt) !important;
 }
 
 // Random general styles
