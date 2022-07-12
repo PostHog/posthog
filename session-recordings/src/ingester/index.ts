@@ -1,8 +1,10 @@
 import { Kafka } from 'kafkajs'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { gunzipSync } from 'zlib'
-import { EventData, Event, SessionData } from './types'
-import { s3Client } from './s3'
+import { EventData, Event, SessionData } from '../types'
+import { s3Client } from '../s3'
+import { meterProvider } from './metrics'
+import { performance } from 'perf_hooks'
 
 const maxChunkAge = Number.parseInt(process.env.MAX_CHUNK_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000')
 const maxChunkSize = Number.parseInt(process.env.MAX_CHUNK_SIZE || process.env.NODE_ENV === 'dev' ? '1000' : '1000000')
@@ -33,6 +35,18 @@ type Chunk = {
 
 const eventsBySessionId: { [key: string]: Chunk } = {}
 
+// Define the metrics we'll be exposing at /metrics
+const meter = meterProvider.getMeter('ingester')
+const messagesReceived = meter.createCounter('messages_received')
+const nonSnapshotsDiscarded = meter.createCounter('non_snapshots_discarded')
+const snapshotMessagesProcessed = meter.createCounter('snapshot_messages_processed')
+const chunksCommittedCounter = meter.createCounter('chunks_committed')
+const chunksStarted = meter.createCounter('chunks_started')
+const chunksInFlight = meter.createObservableGauge('chunks_in_flight', {
+    description: "Number of chunks that haven't been committed to S3 yet.",
+})
+const s3PutObjectTime = meter.createHistogram('s3_put_object_time')
+
 consumer.run({
     autoCommit: false,
     eachMessage: async ({ topic, partition, message }) => {
@@ -43,10 +57,15 @@ consumer.run({
         // isn't threadsafe atm.
         // OPTIONAL: stream data to S3
         // OPTIONAL: use parquet to reduce reads for e.g. timerange querying
+        messagesReceived.add(1)
+        chunksInFlight.addCallback((observableResult) =>
+            observableResult.observe(Object.keys(eventsBySessionId).length)
+        )
         const eventString = message.value.toString('utf-8')
         const event: Event = JSON.parse(eventString)
 
         if (event.event !== '$snapshot') {
+            nonSnapshotsDiscarded.add(1)
             console.debug({ action: 'skipping', event: event.event, uuid: event.uuid })
             return
         }
@@ -64,8 +83,9 @@ consumer.run({
         const commitChunkToS3 = async () => {
             const key = `team_id/${chunk.teamId}/session_id/${chunk.sessionId}/window_id/${chunk.windowId}/chunks/${chunk.oldestEventTimestamp}-${chunk.oldestOffset}`
 
-            console.debug({ action: 'commiting_chunk', session_id: chunk.sessionId, key: key })
+            console.debug({ action: 'committing_chunk', session_id: chunk.sessionId, key: key })
 
+            const sendStartTime = performance.now()
             await s3Client.send(
                 new PutObjectCommand({
                     Bucket: 'posthog',
@@ -73,8 +93,10 @@ consumer.run({
                     Body: chunk.events.join('\n'),
                 })
             )
+            const sendEndTime = performance.now()
+            s3PutObjectTime.record(sendEndTime - sendStartTime)
 
-            if (eventsBySessionId.length) {
+            if (Object.keys(eventsBySessionId).length) {
                 const offset = Object.values(eventsBySessionId)
                     .filter((chunk) => sessionId === chunk.sessionId)
                     .map((chunk) => chunk.oldestOffset)
@@ -91,12 +113,11 @@ consumer.run({
             }
 
             delete eventsBySessionId[sessionId]
+            chunksCommittedCounter.add(1)
         }
 
-        if (!chunk) {
-            console.debug({ action: 'create_chunk', session_id: sessionId })
-
-            chunk = eventsBySessionId[sessionId] = {
+        const createNewChunk = () => {
+            const chunk: Chunk = {
                 events: [] as string[],
                 size: 0,
                 teamId: event.team_id,
@@ -106,27 +127,26 @@ consumer.run({
                 oldestOffset: message.offset,
             }
             chunk.timer = setTimeout(() => commitChunkToS3(), maxChunkAge)
+            console.debug({ action: 'create_chunk', session_id: chunk.sessionId })
+            return chunk
+        }
+
+        if (!chunk) {
+            chunk = eventsBySessionId[sessionId] = createNewChunk()
+            chunksStarted.add(1, { reason: 'no-existing-chunk' })
         }
 
         if (chunk.size + eventString.length > maxChunkSize) {
             clearTimeout(chunk.timer)
             commitChunkToS3()
-
-            console.debug({ action: 'create_chunk', session_id: chunk.sessionId })
-            chunk = eventsBySessionId[sessionId] = {
-                events: [] as string[],
-                size: 0,
-                teamId: event.team_id,
-                sessionId: sessionId,
-                windowId: windowId,
-                oldestEventTimestamp: event.timestamp,
-                oldestOffset: message.offset,
-            }
-            chunk.timer = setTimeout(() => commitChunkToS3(), maxChunkAge)
+            chunk = eventsBySessionId[sessionId] = createNewChunk()
+            chunksStarted.add(1, { reason: 'max-size-reached' })
         }
 
         chunk.events.push(...snapshotData.map((event) => JSON.stringify(event)))
         chunk.size += eventString.length
+
+        snapshotMessagesProcessed.add(1)
     },
 })
 

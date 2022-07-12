@@ -5,6 +5,8 @@
     "license": "MIT",
     "dependencies": {
         "@aws-sdk/client-s3": "^3.121.0",
+        "@opentelemetry/exporter-prometheus": "^0.30.0",
+        "@opentelemetry/sdk-metrics-base": "^0.30.0",
         "express": "^4.18.1",
         "kafkajs": "^2.1.0",
         "uuid": "^8.3.2"
@@ -12,7 +14,7 @@
     "scripts": {
         "build": "swc ./src/ --out-dir ./dist",
         "test": "vitest",
-        "start:ingester:dev": "NODE_ENV=dev nodemon -w src/ src/ingester.ts",
+        "start:ingester:dev": "NODE_ENV=dev nodemon -w src/ src/ingester/index.ts",
         "start:ingester:prod": "nodemon dist/api.js",
         "start:api:dev": "NODE_ENV=dev nodemon -w src/ src/api.ts",
         "start:api:prod": "node dist/api.js",
