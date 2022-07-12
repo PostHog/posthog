@@ -1,6 +1,7 @@
 from functools import cached_property
 
 import structlog
+from django.conf import settings
 
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
@@ -11,7 +12,6 @@ from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_fo
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.settings import CLICKHOUSE_DATABASE, MULTI_TENANCY
 
 logger = structlog.get_logger(__name__)
 
@@ -62,7 +62,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0005_person_replacing_by_version"
 
     def precheck(self):
-        if not MULTI_TENANCY:
+        if not settings.MULTI_TENANCY:
             return False, "This async migration is not yet ready for self-hosted users"
 
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
@@ -76,7 +76,7 @@ class Migration(AsyncMigrationDefinition):
               AND table = %(events_data_table)s
               AND name = 'person_properties'
         """,
-            {"database": CLICKHOUSE_DATABASE, "events_data_table": EVENTS_DATA_TABLE()},
+            {"database": settings.CLICKHOUSE_DATABASE, "events_data_table": EVENTS_DATA_TABLE()},
         )[0][0]
 
         return compression_codec != "CODEC(ZSTD(3))"
@@ -201,7 +201,7 @@ class Migration(AsyncMigrationDefinition):
                         created_at DateTime
                     )
                     PRIMARY KEY team_id, id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} DB '{CLICKHOUSE_DATABASE}'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} DB '{settings.CLICKHOUSE_DATABASE}'))
                     LAYOUT(complex_key_cache(size_in_cells 5000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -217,7 +217,7 @@ class Migration(AsyncMigrationDefinition):
                         person_id UUID
                     )
                     PRIMARY KEY team_id, distinct_id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} DB '{CLICKHOUSE_DATABASE}'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} DB '{settings.CLICKHOUSE_DATABASE}'))
                     LAYOUT(complex_key_cache(size_in_cells 50000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -235,7 +235,7 @@ class Migration(AsyncMigrationDefinition):
                         created_at DateTime
                     )
                     PRIMARY KEY team_id, group_type_index, group_key
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} DB '{CLICKHOUSE_DATABASE}'))
+                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} DB '{settings.CLICKHOUSE_DATABASE}'))
                     LAYOUT(complex_key_cache(size_in_cells 1000000 max_threads_for_updates 6 allow_read_expired_keys 1))
                     Lifetime(60000)
                 """,
@@ -268,29 +268,29 @@ class Migration(AsyncMigrationDefinition):
                 ALTER TABLE {EVENTS_DATA_TABLE()}
                 {{on_cluster_clause}}
                 UPDATE
-                    person_id=toUUID(dictGet('{CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
+                    person_id=toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))),
                     person_properties=dictGetString(
-                        '{CLICKHOUSE_DATABASE}.person_dict',
+                        '{settings.CLICKHOUSE_DATABASE}.person_dict',
                         'properties',
                         tuple(
                             team_id,
-                            toUUID(dictGet('{CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
+                            toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id)))
                         )
                     ),
-                    person_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.person_dict', 'created_at', tuple(team_id, toUUID(dictGet('{CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
-                    group0_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
-                    group1_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
-                    group2_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
-                    group3_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
-                    group4_properties=dictGetString('{CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
-                    group0_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
-                    group1_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
-                    group2_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
-                    group3_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
-                    group4_created_at=dictGetDateTime('{CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
+                    person_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.person_dict', 'created_at', tuple(team_id, toUUID(dictGet('{settings.CLICKHOUSE_DATABASE}.person_distinct_id2_dict', 'person_id', tuple(team_id, distinct_id))))),
+                    group0_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 0, $group_0)),
+                    group1_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 1, $group_1)),
+                    group2_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 2, $group_2)),
+                    group3_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 3, $group_3)),
+                    group4_properties=dictGetString('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'group_properties', tuple(team_id, 4, $group_4)),
+                    group0_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 0, $group_0)),
+                    group1_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 1, $group_1)),
+                    group2_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 2, $group_2)),
+                    group3_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 3, $group_3)),
+                    group4_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
                 WHERE person_id = toUUIDOrZero('')
             """,
-            settings={"mutations_sync": 1, "max_execution_time": 0},
+            settings={"mutations_sync": 2, "max_execution_time": 0},
             per_shard=True,
         )
 
