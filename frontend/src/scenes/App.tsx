@@ -19,11 +19,11 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { organizationLogic } from 'scenes/organizationLogic'
 import { ToastCloseButton } from 'lib/components/lemonToast'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { actionableTooltipLogic } from 'lib/logic/actionableTooltipLogic'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
-    connect: [teamLogic, organizationLogic, frontendAppsLogic, actionableTooltipLogic],
+    connect: [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

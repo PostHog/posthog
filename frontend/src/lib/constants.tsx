@@ -123,7 +123,7 @@ export const FEATURE_FLAGS = {
     PLUGINS_HISTORY: 'plugins-history', // owner: @yakkomajuri,
     EMBED_INSIGHTS: 'embed-insights', // owner: @mariusandra
     ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: 'ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS', // owner: @pauldambra
-    DATE_FILTER_EXPERIMENT: 'date-filter-experiment', // owner: @kappa90
+    IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

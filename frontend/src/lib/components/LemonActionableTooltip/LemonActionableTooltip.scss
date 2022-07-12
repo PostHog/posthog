@@ -1,30 +1,30 @@
-.ActionableTooltip {
-    .ActionableTooltip__header {
+.LemonActionableTooltip {
+    .LemonActionableTooltip__header {
         display: flex;
         align-items: center;
         justify-content: space-between;
     }
-    .ActionableTooltip__icon {
+    .LemonActionableTooltip__icon {
         padding-left: 0.5rem;
         display: flex;
         align-items: center;
     }
-    .ActionableTooltip__body {
+    .LemonActionableTooltip__body {
         padding: 0.5rem;
     }
-    .ActionableTooltip__footer {
+    .LemonActionableTooltip__footer {
         display: flex;
         justify-content: between;
     }
-    .ActionableTooltip__navigation {
+    .LemonActionableTooltip__navigation {
         color: var(--muted);
         display: flex;
         align-items: center;
 
-        .ActionableTooltip__navigation--left {
+        .LemonActionableTooltip__navigation--left {
             margin-right: 0.25rem;
         }
-        .ActionableTooltip__navigation--right {
+        .LemonActionableTooltip__navigation--right {
             margin-left: 0.25rem;
         }
     }
