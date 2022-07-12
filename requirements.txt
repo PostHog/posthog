@@ -4,7 +4,7 @@
 #
 #    pip-compile requirements.in
 #
-amqp==2.5.2
+amqp==2.6.0
     # via
     #   -r requirements.in
     #   kombu
@@ -29,7 +29,7 @@ botocore==1.24.46
     # via
     #   boto3
     #   s3transfer
-celery==4.4.2
+celery==4.4.7
     # via
     #   -r requirements.in
     #   celery-redbeat
@@ -166,7 +166,7 @@ kafka-helper==0.2
     # via -r requirements.in
 kafka-python==2.0.2
     # via -r requirements.in
-kombu==4.6.8
+kombu==4.6.10
     # via
     #   -r requirements.in
     #   celery
