@@ -189,14 +189,6 @@ jobs:
             #       SLACK_USERNAME: Max Hedgehog
             #       SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
-            - name: Notify Grafana of deploy for annotations
-              uses: frankie567/grafana-annotation-action@v1.0.2
-              with:
-                  apiHost: https://metrics.posthog.net
-                  apiToken: ${{ secrets.GRAFANA_API_KEY }}
-                  text: Prod deployment of ${{ github.sha }} - ${{ github.event.head_commit.message }}
-                  tags: deployment,github
-
             - name: Trigger PostHog Cloud deployment
               uses: mvasigh/dispatch-action@main
               with:
@@ -212,6 +204,23 @@ jobs:
                         "image_tag": "${{ github.sha }}",
                         "context": ${{ toJson(github) }}
                       }
+
+            - name: Notify Grafana of deploy for annotations
+              uses: frankie567/grafana-annotation-action@v1.0.2
+              with:
+                  apiHost: https://metrics.posthog.net
+                  apiToken: ${{ secrets.GRAFANA_API_KEY }}
+                  text: Prod deployment of ${{ github.sha }} - ${{ github.event.head_commit.message }}
+                  tags: deployment,github
+
+            - name: Notify Sentry of a production release
+              uses: getsentry/action-release@v1
+              env:
+                  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+                  SENTRY_ORG: posthog2
+                  SENTRY_PROJECT: posthog
+              with:
+                  environment: production
 
     # TODO: Bring back once https://github.com/rtCamp/action-slack-notify/issues/126 is resolved
     # slack:
@@ -229,19 +238,3 @@ jobs:
     #               SLACK_TITLE: Message
     #               SLACK_USERNAME: Max Hedgehog
     #               SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-
-    sentry:
-        name: Notify Sentry of a production release
-        runs-on: ubuntu-20.04
-        if: github.repository == 'PostHog/posthog'
-        steps:
-            - name: Checkout master
-              uses: actions/checkout@v2
-            - name: Notify Sentry
-              uses: getsentry/action-release@v1
-              env:
-                  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-                  SENTRY_ORG: posthog2
-                  SENTRY_PROJECT: posthog
-              with:
-                  environment: production
