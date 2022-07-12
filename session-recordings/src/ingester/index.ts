@@ -96,11 +96,12 @@ consumer.run({
             const sendEndTime = performance.now()
             s3PutObjectTime.record(sendEndTime - sendStartTime)
 
-            if (Object.keys(eventsBySessionId).length) {
-                const offset = Object.values(eventsBySessionId)
-                    .filter((chunk) => sessionId === chunk.sessionId)
-                    .map((chunk) => chunk.oldestOffset)
-                    .sort()[0]
+            const otherSessions = Object.values(eventsBySessionId).filter((chunk) => sessionId === chunk.sessionId)
+
+            if (otherSessions.length) {
+                const offset = otherSessions.map((chunk) => chunk.oldestOffset).sort()[0]
+
+                console.debug({ action: 'committing_offset', offset: offset, partition })
 
                 consumer.commitOffsets([
                     {
@@ -109,7 +110,10 @@ consumer.run({
                         offset: offset,
                     },
                 ])
-                console.debug({ action: 'committed_offset', offset: offset, partition })
+
+                chunksInFlight.addCallback((observableResult) =>
+                    observableResult.observe(Object.keys(eventsBySessionId).length)
+                )
             }
 
             delete eventsBySessionId[sessionId]
