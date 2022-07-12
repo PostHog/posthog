@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 import posthoganalytics
 import structlog
@@ -26,7 +26,7 @@ from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
 
-SLEEP_TIME_SECONDS = 20
+SLEEP_TIME_SECONDS = 20 if not TEST else 1
 
 
 def send_analytics_to_posthog(event, data):
@@ -156,11 +156,11 @@ def _get_number_running_on_cluster(query_pattern: str) -> int:
     )[0][0]
 
 
-def _sleep_until_finished(query_pattern: str) -> None:
+def sleep_until_finished(name, is_running: Callable[[], bool]) -> None:
     from time import sleep
 
-    while _get_number_running_on_cluster(query_pattern) > 0:
-        logger.debug("Query still running, waiting until it's complete", query_pattern=query_pattern)
+    while is_running():
+        logger.debug("Operation still running, waiting until it's complete", name=name)
         sleep(SLEEP_TIME_SECONDS)
 
 
@@ -174,7 +174,7 @@ def run_optimize_table(
     we'll wait for that to complete first.
     """
     if not TEST and _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
-        _sleep_until_finished(f"%%optimize:{unique_name}%%")
+        sleep_until_finished(unique_name, lambda: _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0)
     else:
         final_clause = "FINAL" if final else ""
         deduplicate_clause = "DEDUPLICATE" if deduplicate else ""

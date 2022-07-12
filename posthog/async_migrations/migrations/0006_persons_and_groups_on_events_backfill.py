@@ -9,7 +9,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
 )
 from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_for_table
-from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
+from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -243,6 +243,7 @@ class Migration(AsyncMigrationDefinition):
                 per_shard=True,
             ),
             AsyncMigrationOperation(fn=self.run_backfill,),
+            AsyncMigrationOperation(fn=self._wait_for_mutation_done,),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
 
@@ -290,18 +291,32 @@ class Migration(AsyncMigrationDefinition):
                     group4_created_at=dictGetDateTime('{settings.CLICKHOUSE_DATABASE}.groups_dict', 'created_at', tuple(team_id, 4, $group_4))
                 WHERE person_id = toUUIDOrZero('')
             """,
-            settings={"mutations_sync": 2, "max_execution_time": 0},
+            # :KLUDGE: mutations_sync does not work with ON CLUSTER queries, causing test races
+            settings={"max_execution_time": 0},
             per_shard=True,
         )
 
+    def _wait_for_mutation_done(self, query_id):
+        sleep_until_finished("events table backill", lambda: self._count_running_mutations() > 0)
+
+    def _count_running_mutations(self):
+        return sync_execute(
+            """
+            SELECT count()
+            FROM clusterAllReplicas(%(cluster)s, system, 'mutations')
+            WHERE not is_done AND command LIKE %(pattern)s
+            """,
+            {"cluster": settings.CLICKHOUSE_CLUSTER, "pattern": "%person_properties = dictGetString%",},
+        )[0][0]
+
     def _clear_temporary_tables(self, query_id):
         queries = [
-            f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
-            f"DROP TABLE IF EXISTS {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}",
-            f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
             f"DROP DICTIONARY IF EXISTS person_dict {{on_cluster_clause}}",
             f"DROP DICTIONARY IF EXISTS person_distinct_id2_dict {{on_cluster_clause}}",
             f"DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {TEMPORARY_PDI2_TABLE_NAME} {{on_cluster_clause}}",
+            f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
         ]
         for query in queries:
             execute_op_clickhouse(query_id=query_id, sql=query, per_shard=True)
