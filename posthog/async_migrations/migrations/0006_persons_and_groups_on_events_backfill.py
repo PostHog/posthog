@@ -24,8 +24,8 @@ Backfill the sharded_events table to add data for the following columns:
 - person_id
 - person_properties
 - person_created_at
-- group_X_properties
-- group_X_created_at
+- groupX_properties
+- groupX_created_at
 
 This allows us to switch entirely to only querying the events table for insights,
 without having to hit additional tables for persons, groups, and distinct IDs.
@@ -36,11 +36,12 @@ Migration strategy
 We will run the following operations on the cluster
 (or on one node per shard if shard-level configuration is provided):
 
-1. Create temporary tables with the relevant columns from `person`, `person_distinct_id`, and `groups`
-2. Insert data from the main tables into them
-3. Optimize the temporary tables to remove duplicates
-4. Create a dictionary to query each temporary table
-5. Run an ALTER TABLE ... UPDATE to backfill all the data using the dictionaries
+1. Update `person_properties` and `groupX_properties` columns to use ZSTD(3) compression
+2. Create temporary tables with the relevant columns from `person`, `person_distinct_id`, and `groups`
+3. Copy data from the main tables into them
+4. Optimize the temporary tables to remove duplicates and remove deleted data
+5. Create a dictionary to query each temporary table with caching
+6. Run an ALTER TABLE ... UPDATE to backfill all the data using the dictionaries
 """
 
 TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0006"
@@ -57,22 +58,27 @@ class Migration(AsyncMigrationDefinition):
         return True, None
 
     def is_required(self) -> bool:
-        rows = sync_execute(
+        compression_codec = sync_execute(
             """
-            SELECT comment
+            SELECT compression_codec
             FROM system.columns
-            WHERE database = %(database)s AND
-            table = %(events_data_table)s
+            WHERE database = %(database)s
+              AND table = %(events_data_table)s
+              AND name = 'person_properties'
         """,
             {"database": CLICKHOUSE_DATABASE, "events_data_table": EVENTS_DATA_TABLE()},
-        )
+        )[0][0]
 
-        comments = [row[0] for row in rows]
-        return "skip_0006_persons_and_groups_on_events_backfill" not in comments
+        return compression_codec != "CODEC(ZSTD(3))"
 
     @cached_property
     def operations(self):
         return [
+            AsyncMigrationOperation(
+                # See https://github.com/PostHog/posthog/issues/10616 for details on choice of codec
+                fn=lambda query_id: self._update_properties_column_compression_codec(query_id, "ZSTD(3)"),
+                rollback_fn=lambda query_id: self._update_properties_column_compression_codec(query_id, "LZ4"),
+            ),
             AsyncMigrationOperationSQL(
                 sql=f"""
                     CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}} AS person
@@ -229,6 +235,21 @@ class Migration(AsyncMigrationDefinition):
             AsyncMigrationOperation(fn=self.run_backfill,),
             AsyncMigrationOperation(fn=self._clear_temporary_tables),
         ]
+
+    def _update_properties_column_compression_codec(self, query_id, codec):
+        columns = [
+            "person_properties",
+            "group0_properties",
+            "group1_properties",
+            "group2_properties",
+            "group3_properties",
+            "group4_properties",
+        ]
+        for column in columns:
+            execute_op_clickhouse(
+                query_id=query_id,
+                sql=f"ALTER TABLE {EVENTS_DATA_TABLE()} MODIFY COLUMN {column} VARCHAR Codec({codec})",
+            )
 
     def run_backfill(self, query_id):
         # :TODO: Make this work when executing per shard

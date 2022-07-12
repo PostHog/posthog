@@ -4,7 +4,7 @@ from typing import Dict, List
 import pytest
 
 from posthog.async_migrations.runner import start_async_migration
-from posthog.async_migrations.setup import setup_async_migrations
+from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Person
@@ -76,14 +76,16 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "DROP DICTIONARY IF EXISTS person_dict",
                 "DROP DICTIONARY IF EXISTS person_distinct_id2_dict",
                 "DROP DICTIONARY IF EXISTS groups_dict",
+                "ALTER TABLE sharded_events MODIFY COLUMN person_properties VARCHAR CODEC(LZ4)",
             ]
         )
 
-    def test_is_required_without_compression(self):
-        pass
+    def test_is_required(self):
+        definition = get_async_migration_definition(MIGRATION_NAME)
+        self.assertTrue(definition.is_required())
 
-    def test_is_not_required_by_default(self):
-        pass
+        run_migration()
+        self.assertFalse(definition.is_required())
 
     def test_completes_successfully(self):
         self.assertTrue(run_migration())
