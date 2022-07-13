@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import React from 'react'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 const POLL_DELAY_MS = 1000
 const MAX_PNG_POLL = 10
@@ -80,24 +81,34 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
             reject(`Export failed: ${JSON.stringify(e)}`)
         }
     })
-    await lemonToast.promise(poller, {
-        pending: <PendingWithHedgeHog />,
-        success: 'Export complete!',
-        error: 'Export failed!',
-    })
+    await lemonToast.promise(
+        poller,
+        {
+            pending: <DelayedContent atStart="Export starting..." afterDelay="Waiting for export..." />,
+            success: 'Export complete!',
+            error: 'Export failed!',
+        },
+        {
+            pending: (
+                <DelayedContent
+                    atStart={<Spinner style={{ width: '1.5rem', height: '1.5rem' }} />}
+                    afterDelay={<Animation size="small" type={AnimationType.SportsHog} />}
+                />
+            ),
+        }
+    )
 }
 
-function PendingWithHedgeHog(): JSX.Element {
-    const [content, setContent] = useState<JSX.Element | string>('Export starting')
+interface DelayedContentProps {
+    atStart: JSX.Element | string
+    afterDelay: JSX.Element | string
+}
+
+function DelayedContent({ atStart, afterDelay }: DelayedContentProps): JSX.Element {
+    const [content, setContent] = useState<JSX.Element | string>(atStart)
     useEffect(() => {
         setTimeout(() => {
-            setContent(
-                <>
-                    <div className="flex flex-center">
-                        Waiting for export... <Animation size="small" type={AnimationType.SportsHog} />
-                    </div>
-                </>
-            )
+            setContent(afterDelay)
         }, 30000)
     }, [])
     return <>{content}</>
