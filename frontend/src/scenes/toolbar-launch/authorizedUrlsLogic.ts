@@ -24,15 +24,15 @@ import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
 export interface ProposeNewUrlFormType {
-    url: string | undefined
+    url: string
 }
 
-const validateProposedURL = (proposedUrl: string | undefined, currentUrls: string[]): string | undefined => {
-    if (!proposedUrl) {
+const validateProposedURL = (proposedUrl: string, currentUrls: string[]): string | undefined => {
+    if (proposedUrl === '') {
         return 'Please type a valid URL or domain.'
     }
     // See https://regex101.com/r/UMBc9g/1 for tests
-    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^\*]*\.[^\*]+\.[^\*]+$/)) {
+    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
         return 'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
     }
     if (!isURL(proposedUrl)) {
@@ -42,6 +42,7 @@ const validateProposedURL = (proposedUrl: string | undefined, currentUrls: strin
     if (currentUrls.indexOf(proposedUrl) > -1) {
         return 'This URL is already registered.'
     }
+
     return
 }
 
@@ -135,17 +136,15 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
     }),
     forms(({ values, actions }) => ({
         proposedUrl: {
-            defaults: { url: undefined } as ProposeNewUrlFormType,
+            defaults: { url: '' } as ProposeNewUrlFormType,
             errors: ({ url }) => ({
                 url: validateProposedURL(url, values.appUrls),
             }),
             submit: async ({ url }) => {
-                if (url) {
-                    if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
-                        actions.updateUrl(values.editUrlIndex, url)
-                    } else {
-                        actions.addUrl(url)
-                    }
+                if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
+                    actions.updateUrl(values.editUrlIndex, url)
+                } else {
+                    actions.addUrl(url)
                 }
             },
         },
