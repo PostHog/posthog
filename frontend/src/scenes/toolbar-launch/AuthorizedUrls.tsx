@@ -112,9 +112,9 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     <Spinner size="md" />
                 </LemonRow>
             ) : (
-                <>
+                <div className="space-y-05">
                     {isAddUrlFormVisible && (
-                        <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
+                        <LemonRow outlined fullWidth size="large">
                             <AuthorizedUrlForm actionId={actionId} />
                         </LemonRow>
                     )}
@@ -130,7 +130,13 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                 fullWidth
                                 size="tall"
                                 key={index}
-                                className={clsx('AuthorizedUrlRow', keyedAppURL.type, 'flex-center', 'mb-05', 'mr')}
+                                className={clsx(
+                                    'AuthorizedUrlRow',
+                                    keyedAppURL.type,
+                                    'flex-center',
+                                    'mr',
+                                    editUrlIndex !== index && 'highlight-on-hover'
+                                )}
                             >
                                 {editUrlIndex === index ? (
                                     <AuthorizedUrlForm actionId={actionId} />
@@ -199,7 +205,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                             </LemonRow>
                         )
                     })}
-                </>
+                </div>
             )}
         </div>
     )
