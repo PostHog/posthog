@@ -3,7 +3,6 @@ import { kea, path, listeners, selectors, connect, afterMount, actions } from 'k
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { IntegrationType, SlackChannelType } from '~/types'
@@ -59,8 +58,7 @@ export const getSlackAppManifest = (): any => ({
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['scenes', 'project', 'Settings', 'integrationsLogic']),
     connect({
-        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight'], systemStatusLogic, ['instanceSettings']],
-        actions: [systemStatusLogic, ['loadInstanceSettings']],
+        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     }),
 
     actions({
@@ -134,7 +132,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadIntegrations()
-        actions.loadInstanceSettings()
     }),
 
     urlToAction(({ actions }) => ({
@@ -165,10 +162,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         addToSlackButtonUrl: [
-            (s) => [s.instanceSettings],
-            (instanceSettings) => {
+            (s) => [s.preflight],
+            (preflight) => {
                 return (next: string = '') => {
-                    const clientId = instanceSettings.find((item) => item.key === 'SLACK_APP_CLIENT_ID')?.value
+                    const clientId = preflight?.slack_service?.client_id
 
                     return clientId
                         ? `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=channels:read,groups:read,chat:write&redirect_uri=${encodeURIComponent(
