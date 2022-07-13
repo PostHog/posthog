@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
+from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
 from posthog.models.async_migration import (
     AsyncMigration,
@@ -22,9 +23,7 @@ class AsyncMigrationErrorsSerializer(serializers.ModelSerializer):
 
 class AsyncMigrationSerializer(serializers.ModelSerializer):
     error_count = serializers.SerializerMethodField()
-
-    def get_error_count(self, async_migration: AsyncMigration):
-        return AsyncMigrationError.objects.filter(async_migration=async_migration).count()
+    parameter_definitions = serializers.SerializerMethodField()
 
     class Meta:
         model = AsyncMigration
@@ -41,7 +40,9 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "finished_at",
             "posthog_max_version",
             "posthog_min_version",
+            "parameters",
             "error_count",
+            "parameter_definitions",
         ]
         read_only_fields = [
             "id",
@@ -57,7 +58,16 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "posthog_max_version",
             "posthog_min_version",
             "error_count",
+            "parameter_definitions",
         ]
+
+    def get_error_count(self, async_migration: AsyncMigration):
+        return AsyncMigrationError.objects.filter(async_migration=async_migration).count()
+
+    def get_parameter_definitions(self, async_migration: AsyncMigration):
+        definition = get_async_migration_definition(async_migration.name)
+        # Ignore typecasting logic for parameters
+        return {key: param[:2] for key, param in definition.parameters.items()}
 
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
