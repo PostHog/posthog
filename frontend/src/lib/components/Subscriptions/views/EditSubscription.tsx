@@ -280,7 +280,7 @@ export function EditSubscription({
                                                     <div className="text-small text-muted mt-05">
                                                         Private channels are only shown if you have{' '}
                                                         <a
-                                                            href="https://posthog.com/docs/integrations/slack"
+                                                            href="https://posthog.com/docs/integrate/third-party/slack"
                                                             target="_blank"
                                                             rel="noopener"
                                                         >
@@ -301,7 +301,7 @@ export function EditSubscription({
                                                             to the channel otherwise Subscriptions will fail to be
                                                             delivered.{' '}
                                                             <a
-                                                                href="https://posthog.com/docs/integrations/slack"
+                                                                href="https://posthog.com/docs/integrate/third-party/slack"
                                                                 target="_blank"
                                                                 rel="noopener"
                                                             >

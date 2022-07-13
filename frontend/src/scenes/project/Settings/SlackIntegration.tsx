@@ -35,7 +35,7 @@ export function SlackIntegration(): JSX.Element {
                 Integrate with Slack directly to get more advanced options such as sending webhook events to{' '}
                 <b>different channels</b> and <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack
                 channels of your choice. Guidance on integrating with Slack available{' '}
-                <a href="https://posthog.com/docs/integrations/slack">in our docs</a>.
+                <a href="https://posthog.com/docs/integrate/third-party/slack">in our docs</a>.
             </p>
 
             <p>
