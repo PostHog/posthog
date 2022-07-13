@@ -6,7 +6,6 @@ import { SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { IconFlag, IconGroupedEvents, IconHeatmap } from 'lib/components/icons'
-import { Col, Row } from 'antd'
 import { AuthorizedUrls } from './AuthorizedUrls'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -77,11 +76,11 @@ function ToolbarLaunch(): JSX.Element {
                 latest <code>posthog-js</code> version.
             </div>
 
-            <Row className="feature-highlight-list mt-2 mx-auto mb-0">
+            <div className="feature-highlight-list mt-2 mx-auto mb-0 flex flex-wrap flex-center .space-x justify-center">
                 {features.map((feature) => (
                     <FeatureHighlight key={feature.title} {...feature} />
                 ))}
-            </Row>
+            </div>
         </div>
     )
 }
@@ -94,12 +93,12 @@ interface FeatureHighlightProps {
 
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
-        <Col sm={12} className="fh-item flex flex-center mt ">
+        <div className="fh-item flex flex-center mt">
             <div className="fh-icon mr text-muted-alt">{icon}</div>
             <div>
                 <h4 className="mb-0 text-muted-alt">{title}</h4>
                 <div className="caption">{caption}</div>
             </div>
-        </Col>
+        </div>
     )
 }

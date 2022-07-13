@@ -9,6 +9,12 @@
         max-width: 800px;
 
         .fh-item {
+            width: calc(100% * (1 / 2) - 8px);
+
+            @media (max-width: 599px) {
+                width: calc(100% - 8px);
+            }
+
             .fh-icon {
                 font-size: 1.6em;
             }

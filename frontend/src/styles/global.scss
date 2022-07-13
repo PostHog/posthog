@@ -619,11 +619,11 @@ code.code {
 }
 
 .flex {
-    display: flex !important;
+    display: flex;
 }
 
 .flex-column {
-    display: flex !important;
+    display: flex;
     flex-direction: column;
 }
 
