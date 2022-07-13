@@ -76,8 +76,9 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                                 onPressEnter={save}
                                 autoFocus
                                 placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
+                                data-attr="url-input"
                             />
-                            <Button type="primary" onClick={save}>
+                            <Button type="primary" onClick={save} data-attr="url-save">
                                 Save
                             </Button>
                         </div>
@@ -93,12 +94,21 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                 return (
                     <div className="actions-col">
                         {record.type === 'suggestion' ? (
-                            <LemonButton type="secondary" onClick={() => addUrl(record.url)}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => addUrl(record.url)}
+                                data-attr="toolbar-apply-suggestion"
+                            >
                                 Apply suggestion
                             </LemonButton>
                         ) : (
                             <>
-                                <LemonButton type="highlighted" href={launchUrl(record.url)} className="mr">
+                                <LemonButton
+                                    type="highlighted"
+                                    href={launchUrl(record.url)}
+                                    className="mr"
+                                    data-attr="toolbar-open"
+                                >
                                     Open with Toolbar
                                 </LemonButton>
                                 <More
@@ -146,7 +156,7 @@ export function AuthorizedUrlsTable({ pageKey, actionId }: AuthorizedUrlsTableIn
                         autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     />
                 </div>
-                <LemonButton type="primary" onClick={newUrl}>
+                <LemonButton type="primary" onClick={newUrl} data-attr="toolbar-add-url">
                     Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>
             </div>
