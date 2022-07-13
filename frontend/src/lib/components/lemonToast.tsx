@@ -107,7 +107,7 @@ export const lemonToast = {
             {
                 pending: {
                     render: <ToastContent type={'info'} message={messages.pending} />,
-                    icon: icons.pending ?? <Spinner style={{ width: '1.5rem', height: '1.5rem' }} />,
+                    icon: icons.pending ?? <Spinner />,
                 },
                 success: {
                     render({ data }: ToastifyRenderProps<string>) {
