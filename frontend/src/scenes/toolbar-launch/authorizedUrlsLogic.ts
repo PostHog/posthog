@@ -1,13 +1,50 @@
-import { kea } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { isURL, toParams } from 'lib/utils'
 import { EditorProps, TrendResult } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import Fuse from 'fuse.js'
 import type { authorizedUrlsLogicType } from './authorizedUrlsLogicType'
-import { encodeParams } from 'kea-router'
+import { encodeParams, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
+
+export interface ProposeNewUrlFormType {
+    url: string
+}
+
+const validateProposedURL = (proposedUrl: string, currentUrls: string[]): string | undefined => {
+    if (proposedUrl === '') {
+        return 'Please type a valid URL or domain.'
+    }
+    // See https://regex101.com/r/UMBc9g/1 for tests
+    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
+        return 'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
+    }
+    if (!isURL(proposedUrl)) {
+        return 'Please type a valid URL or domain.'
+    }
+
+    if (currentUrls.indexOf(proposedUrl) > -1) {
+        return 'This URL is already registered.'
+    }
+
+    return
+}
 
 /** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
 export function appEditorUrl(appUrl?: string, actionId?: number, defaultIntent?: boolean): string {
@@ -27,18 +64,20 @@ export interface KeyedAppUrl {
     originalIndex: number
 }
 
-export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
-    path: (key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key],
-    key: (props) => `${props.pageKey}${props.actionId}` || 'global',
-    props: {} as {
-        actionId?: number
-        pageKey?: string
-    },
-    connect: {
+export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>([
+    path((key) => ['lib', 'components', 'AppEditorLink', 'appUrlsLogic', key]),
+    key((props) => `${props.pageKey}${props.actionId}` || 'global'),
+    props(
+        {} as {
+            actionId?: number
+            pageKey?: string
+        }
+    ),
+    connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
-    },
-    actions: () => ({
+    }),
+    actions(() => ({
         setAppUrls: (appUrls: string[]) => ({ appUrls }),
         addUrl: (url: string, launch?: boolean) => ({ url, launch }),
         newUrl: true,
@@ -47,9 +86,9 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
         launchAtUrl: (url: string) => ({ url }),
         setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
-    }),
-
-    loaders: ({ values }) => ({
+        cancelProposingUrl: true,
+    })),
+    loaders(({ values }) => ({
         suggestions: {
             __default: [] as string[],
             loadSuggestions: async () => {
@@ -88,22 +127,42 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
                     .slice(0, 20)
             },
         },
+    })),
+    afterMount(({ actions, values }) => {
+        actions.loadSuggestions()
+        if (values.currentTeam) {
+            actions.setAppUrls(values.currentTeam.app_urls)
+        }
     }),
-    events: ({ actions, values }) => ({
-        afterMount: () => {
-            actions.loadSuggestions()
-            if (values.currentTeam) {
-                actions.setAppUrls(values.currentTeam.app_urls)
-            }
+    forms(({ values, actions }) => ({
+        proposedUrl: {
+            defaults: { url: '' } as ProposeNewUrlFormType,
+            errors: ({ url }) => ({
+                url: validateProposedURL(url, values.appUrls),
+            }),
+            submit: async ({ url }) => {
+                if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {
+                    actions.updateUrl(values.editUrlIndex, url)
+                } else {
+                    actions.addUrl(url)
+                }
+            },
         },
-    }),
-    reducers: () => ({
+    })),
+    reducers(() => ({
+        showProposedURLForm: [
+            false as boolean,
+            {
+                newUrl: () => true,
+                submitProposedUrlSuccess: () => false,
+                cancelProposingUrl: () => false,
+            },
+        ],
         appUrls: [
             [] as string[],
             {
                 setAppUrls: (_, { appUrls }) => appUrls,
                 addUrl: (state, { url }) => state.concat([url]),
-                newUrl: (state) => (state.includes(NEW_URL) ? state : [NEW_URL].concat(state)),
                 updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
                 removeUrl: (state, { index }) => {
                     const newAppUrls = [...state]
@@ -134,10 +193,25 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
                         : index === editUrlIndex
                         ? null
                         : editUrlIndex,
+                newUrl: () => -1,
+                updateUrl: () => null,
+                addUrl: () => null,
+                cancelProposingUrl: () => null,
             },
         ],
-    }),
-    listeners: ({ sharedListeners, values, actions }) => ({
+    })),
+    sharedListeners(({ values }) => ({
+        saveAppUrls: () => {
+            teamLogic.actions.updateCurrentTeam({ app_urls: values.appUrls })
+        },
+    })),
+    listeners(({ sharedListeners, values, actions }) => ({
+        setEditUrlIndex: () => {
+            actions.setProposedUrlValue('url', values.urlToEdit)
+        },
+        newUrl: () => {
+            actions.setProposedUrlValue('url', NEW_URL)
+        },
         addUrl: [
             sharedListeners.saveAppUrls,
             async ({ url, launch }) => {
@@ -147,7 +221,7 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
             },
         ],
         removeUrl: sharedListeners.saveAppUrls,
-        updateUrl: [sharedListeners.saveAppUrls, () => actions.setEditUrlIndex(null)],
+        updateUrl: sharedListeners.saveAppUrls,
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: async ({ currentTeam }) => {
             if (currentTeam) {
                 actions.setAppUrls(currentTeam.app_urls)
@@ -156,13 +230,24 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
         launchAtUrl: ({ url }) => {
             window.location.href = values.launchUrl(url)
         },
-    }),
-    sharedListeners: ({ values }) => ({
-        saveAppUrls: () => {
-            teamLogic.actions.updateCurrentTeam({ app_urls: values.appUrls })
+        cancelProposingUrl: () => {
+            actions.resetProposedUrl()
         },
-    }),
-    selectors: ({ props }) => ({
+        submitProposedUrlSuccess: () => {
+            actions.setEditUrlIndex(null)
+            actions.resetProposedUrl()
+        },
+    })),
+    selectors(({ props }) => ({
+        urlToEdit: [
+            (s) => [s.appUrls, s.editUrlIndex],
+            (appUrls, editUrlIndex) => {
+                if (editUrlIndex === null || editUrlIndex === -1) {
+                    return NEW_URL
+                }
+                return appUrls[editUrlIndex]
+            },
+        ],
         appUrlsKeyed: [
             (s) => [s.appUrls, s.suggestions, s.searchTerm],
             (appUrls, suggestions, searchTerm): KeyedAppUrl[] => {
@@ -193,12 +278,13 @@ export const authorizedUrlsLogic = kea<authorizedUrlsLogicType>({
             },
         ],
         launchUrl: [() => [], () => (url: string) => appEditorUrl(url, props.actionId, !props.actionId)],
-    }),
-    urlToAction: ({ actions }) => ({
+        isAddUrlFormVisible: [(s) => [s.editUrlIndex], (editUrlIndex) => editUrlIndex === -1],
+    })),
+    urlToAction(({ actions }) => ({
         [urls.toolbarLaunch()]: (_, searchParams) => {
             if (searchParams.addNew) {
                 actions.newUrl()
             }
         },
-    }),
-})
+    })),
+])

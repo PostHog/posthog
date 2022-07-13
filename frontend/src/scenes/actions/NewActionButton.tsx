@@ -3,7 +3,7 @@ import { Modal, Button, Card, Row, Col } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
 import { IconEdit } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { useValues } from 'kea'
@@ -73,7 +73,7 @@ export function NewActionButton(): JSX.Element {
                         </Col>
                     </Row>
                 )}
-                {appUrlsVisible && <AuthorizedUrlsTable />}
+                {appUrlsVisible && <AuthorizedUrls />}
             </Modal>
         </>
     )

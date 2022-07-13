@@ -1,0 +1,11 @@
+.AuthorizedUrlRow {
+    &:hover {
+        background: var(--primary-bg-hover);
+    }
+
+    .Url {
+        span {
+            max-width: 80%;
+        }
+    }
+}
