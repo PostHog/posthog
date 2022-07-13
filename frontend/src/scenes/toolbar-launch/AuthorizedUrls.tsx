@@ -85,7 +85,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
     return (
         <div>
             <div className="flex-center mb">
-                <div style={{ flexGrow: 1 }}>
+                <div className="flex-grow">
                     <Input.Search
                         allowClear
                         enterButton
