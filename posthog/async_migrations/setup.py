@@ -13,7 +13,7 @@ from posthog.version import VERSION
 
 def reload_migration_definitions():
     for name, module in all_migrations.items():
-        ALL_ASYNC_MIGRATIONS[name] = module.Migration()
+        ALL_ASYNC_MIGRATIONS[name] = module.Migration(name)
 
 
 ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
@@ -109,7 +109,7 @@ def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinit
     if TEST:
         test_migrations = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
         if migration_name in test_migrations:
-            return test_migrations[migration_name].Migration()
+            return test_migrations[migration_name].Migration(migration_name)
 
     return ALL_ASYNC_MIGRATIONS[migration_name]
 

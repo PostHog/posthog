@@ -13,7 +13,7 @@ class TestAsyncMigrationDefinition(BaseTest):
         from posthog.async_migrations.examples.example import example_fn, example_rollback_fn
 
         modules = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
-        example_migration = modules["example"].Migration()
+        example_migration = modules["example"].Migration("example")
 
         self.assertTrue(isinstance(example_migration, AsyncMigrationDefinition))
         self.assertTrue(isinstance(example_migration.operations[0], AsyncMigrationOperation))

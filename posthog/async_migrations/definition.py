@@ -79,6 +79,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
 
 
 class AsyncMigrationDefinition:
+    name: str
 
     # the migration cannot be run before this version
     posthog_min_version = "0.0.0"
@@ -97,6 +98,9 @@ class AsyncMigrationDefinition:
 
     # name of async migration this migration depends on
     depends_on: Optional[str] = None
+
+    def __init__(self, name):
+        self.name = name
 
     # run before creating the migration model. Returns a boolean specifying if the instance should
     # set up the AsyncMigration model and show this migration in the UI
