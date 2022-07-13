@@ -39,6 +39,7 @@ jobs:
                   context: .
                   push: true
                   tags: posthog/posthog:latest
+              timeout-minutes: 60
 
             - name: Image digests
               run: |
