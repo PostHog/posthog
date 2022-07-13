@@ -76,7 +76,7 @@ function ToolbarLaunch(): JSX.Element {
                 latest <code>posthog-js</code> version.
             </div>
 
-            <div className="feature-highlight-list mt-2 mx-auto mb-0 flex flex-wrap flex-center .space-x justify-center">
+            <div className="feature-highlight-list mt-2 mx-auto mb-0 flex flex-wrap flex-center justify-center">
                 {features.map((feature) => (
                     <FeatureHighlight key={feature.title} {...feature} />
                 ))}
