@@ -27,14 +27,15 @@ export interface ProposeNewUrlFormType {
     url: string
 }
 
-const validateProposedURL = (proposedUrl: string, currentUrls: string[]): string | undefined => {
+export const validateProposedURL = (proposedUrl: string, currentUrls: string[]): string | undefined => {
     if (proposedUrl === '') {
         return 'Please type a valid URL or domain.'
     }
-    // See https://regex101.com/r/UMBc9g/1 for tests
+
     if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
         return 'You can only wildcard subdomains. If you wildcard the domain or TLD, people might be able to gain access to your PostHog data.'
     }
+
     if (!isURL(proposedUrl)) {
         return 'Please type a valid URL or domain.'
     }
