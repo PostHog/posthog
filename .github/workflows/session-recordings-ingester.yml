@@ -111,4 +111,11 @@ jobs:
               run: |
                   docker-compose up -d
                   docker run --rm ${{ needs.build.outputs.docker_image }} -- yarn start:prod &
+
+                  until (curl http://localhost:3001/metrics);
+                  do
+                    echo "Waiting for instance to come up"
+                    sleep 5
+                  done
+
                   yarn test
