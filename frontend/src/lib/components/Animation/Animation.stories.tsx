@@ -3,8 +3,6 @@ import { AnimationType } from 'lib/animations/animations'
 import { ComponentStory, Meta } from '@storybook/react'
 import { Animation } from 'lib/components/Animation/Animation'
 
-console.log(Object.keys(AnimationType))
-
 export default {
     title: 'Layout/Animations',
     parameters: {
