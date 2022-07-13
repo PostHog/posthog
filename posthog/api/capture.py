@@ -23,14 +23,21 @@ from posthog.api.utils import (
     safe_clickhouse_string,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.helpers.session_recording import preprocess_session_recording_events
+from posthog.helpers.session_recording import (
+    RecordingEventForObjectStorage,
+    get_session_recording_events_for_object_storage,
+    preprocess_session_recording_events_for_clickhouse,
+)
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-from posthog.utils import cors_response, get_ip_address
+from posthog.settings import (
+    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+    KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC,
+)
+from posthog.utils import cors_response, get_ip_address, should_write_recordings_to_object_storage
 
 
 def parse_kafka_event_data(
@@ -55,6 +62,26 @@ def parse_kafka_event_data(
     }
 
 
+def parse_kafka_recording_for_object_storage_event_data(
+    team_id: int, recording_event: RecordingEventForObjectStorage, now: datetime, sent_at: Optional[datetime],
+) -> Dict:
+    return {
+        "unix_timestamp": recording_event.unix_timestamp,
+        "recording_event_id": recording_event.recording_event_id,
+        "session_id": recording_event.session_id,
+        "distinct_id": recording_event.distinct_id,
+        "chunk_count": recording_event.chunk_count,
+        "chunk_index": recording_event.chunk_index,
+        "recording_event_data_chunk": recording_event.recording_event_data_chunk,
+        "recording_event_source": recording_event.recording_event_source,
+        "recording_event_type": recording_event.recording_event_type,
+        "window_id": recording_event.window_id,
+        "now": now.isoformat(),
+        "sent_at": sent_at.isoformat() if sent_at else "",
+        "team_id": team_id,
+    }
+
+
 def log_event(data: Dict, event_name: str, partition_key: str) -> None:
     if settings.DEBUG:
         print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
@@ -66,6 +93,23 @@ def log_event(data: Dict, event_name: str, partition_key: str) -> None:
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
         print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        raise e
+
+
+def log_session_recording_event(data: Dict, partition_key: str) -> None:
+    if settings.DEBUG:
+        print(f"Logging recording event to Kafka topic {KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC}")
+    try:
+        KafkaProducer().produce(
+            topic=KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC, data=data, key=partition_key
+        )
+        statsd.incr("recording_event_to_object_storage_ingestion")
+    except Exception as e:
+        statsd.incr("capture_endpoint_log_recording_event_error")
+        print(
+            f"Failed to produce recording event to Kafka topic {KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC} with error:",
+            e,
+        )
         raise e
 
 
@@ -207,8 +251,27 @@ def get_event(request):
     else:
         events = [data]
 
+    # TODO: Handle and log any exception here to make sure we don't disrupt the existing data path
+    if should_write_recordings_to_object_storage(ingestion_context.team_id):
+        session_recording_events = get_session_recording_events_for_object_storage(events)
+        for recording_event in session_recording_events:
+            print(
+                parse_kafka_recording_for_object_storage_event_data(
+                    ingestion_context.team_id, recording_event, now=now, sent_at=sent_at
+                )
+            )
+            log_session_recording_event(
+                parse_kafka_recording_for_object_storage_event_data(
+                    ingestion_context.team_id, recording_event, now=now, sent_at=sent_at
+                ),
+                # QUESTION: should the session_id be the partition key?
+                partition_key=hashlib.sha256(
+                    f"{ingestion_context.team_id}:{recording_event.session_id}".encode()
+                ).hexdigest(),
+            )
+
     try:
-        events = preprocess_session_recording_events(events)
+        events = preprocess_session_recording_events_for_clickhouse(events)
     except ValueError as e:
         return cors_response(
             request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")

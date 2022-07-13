@@ -1,13 +1,17 @@
 import { Kafka } from 'kafkajs'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
-import { gunzipSync } from 'zlib'
-import { EventData, Event, SessionData } from '../types'
+import { RecordingEvent, RecordingEventChunkMessage, RecordingEventGroup } from '../types'
 import { s3Client } from '../s3'
 import { meterProvider } from './metrics'
 import { performance } from 'perf_hooks'
+import { getEventGroupDataString } from './utils'
 
-const maxChunkAge = Number.parseInt(process.env.MAX_CHUNK_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000')
-const maxChunkSize = Number.parseInt(process.env.MAX_CHUNK_SIZE || process.env.NODE_ENV === 'dev' ? '1000' : '1000000')
+const maxEventGroupAge = Number.parseInt(
+    process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
+)
+const maxEventGroupSize = Number.parseInt(
+    process.env.MAX_EVENT_GROUP_SIZE || process.env.NODE_ENV === 'dev' ? '1000' : '1000000'
+)
 
 const kafka = new Kafka({
     clientId: 'ingester',
@@ -19,32 +23,19 @@ const consumer = kafka.consumer({
 })
 
 consumer.connect()
-consumer.subscribe({ topic: 'events_plugin_ingestion' })
+consumer.subscribe({ topic: 'recording_events_to_object_storage' })
 
-type Chunk = {
-    teamId: string
-    sessionId: string
-    windowId: string
-    // TODO: replace string[] with a file handle that we can append to
-    events: string[]
-    size: number
-    oldestEventTimestamp: number
-    oldestOffset: string
-    newestOffset: string
-    timer?: NodeJS.Timeout
-}
-
-const eventsBySessionId: { [key: string]: Chunk } = {}
+const eventsBySessionId: { [key: string]: RecordingEventGroup } = {}
 
 // Define the metrics we'll be exposing at /metrics
 const meter = meterProvider.getMeter('ingester')
 const messagesReceived = meter.createCounter('messages_received')
 const nonSnapshotsDiscarded = meter.createCounter('non_snapshots_discarded')
 const snapshotMessagesProcessed = meter.createCounter('snapshot_messages_processed')
-const chunksCommittedCounter = meter.createCounter('chunks_committed')
-const chunksStarted = meter.createCounter('chunks_started')
-const chunksInFlight = meter.createObservableGauge('chunks_in_flight', {
-    description: "Number of chunks that haven't been committed to S3 yet.",
+const eventGroupsCommittedCounter = meter.createCounter('event_groups_committed')
+const eventGroupsStarted = meter.createCounter('event_groups_started')
+const eventGroupsInFlight = meter.createObservableGauge('event_groups_in_flight', {
+    description: "Number of event groups that haven't been committed to S3 yet.",
 })
 const s3PutObjectTime = meter.createHistogram('s3_put_object_time')
 
@@ -59,50 +50,47 @@ consumer.run({
         // OPTIONAL: stream data to S3
         // OPTIONAL: use parquet to reduce reads for e.g. timerange querying
         messagesReceived.add(1)
-        chunksInFlight.addCallback((observableResult) =>
+        eventGroupsInFlight.addCallback((observableResult) =>
             observableResult.observe(Object.keys(eventsBySessionId).length)
         )
-        const eventString = message.value.toString('utf-8')
-        const event: Event = JSON.parse(eventString)
+        const recordingEventChunkString = message.value.toString('utf-8')
+        const recordingEventChunk: RecordingEventChunkMessage = JSON.parse(recordingEventChunkString)
 
-        if (event.event !== '$snapshot') {
-            nonSnapshotsDiscarded.add(1)
-            console.debug({ action: 'skipping', event: event.event, uuid: event.uuid })
-            return
-        }
+        let eventGroup = eventsBySessionId[recordingEventChunk.session_id]
 
-        const eventData: EventData = JSON.parse(event.data)
-        const snapshotData: SessionData = JSON.parse(
-            gunzipSync(Buffer.from(eventData.properties.$snapshot_data.data, 'base64')).toString('utf-8')
-        )
-        const sessionId = eventData.properties.$session_id
-        const windowId = eventData.properties.$window_id
-        let chunk = eventsBySessionId[eventData.properties.$session_id]
+        console.debug({
+            action: 'start',
+            uuid: recordingEventChunk.recording_event_id,
+            session_id: recordingEventChunk.session_id,
+        })
 
-        console.debug({ action: 'start', uuid: event.uuid, event: event.event, session_id: sessionId })
+        const commitEventGroupToS3 = async () => {
+            const dataKey = `team_id/${eventGroup.teamId}/session_id/${eventGroup.sessionId}/data/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
 
-        const commitChunkToS3 = async () => {
-            const key = `team_id/${chunk.teamId}/session_id/${chunk.sessionId}/window_id/${chunk.windowId}/chunks/${chunk.oldestEventTimestamp}-${chunk.oldestOffset}`
+            // TODO: calculate metadata and write it to this key
+            const metaDataKey = `team_id/${eventGroup.teamId}/session_id/${eventGroup.sessionId}/metadata/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
 
-            console.debug({ action: 'committing_chunk', session_id: chunk.sessionId, key: key })
+            console.debug({ action: 'committing_event_group', session_id: eventGroup.sessionId, key: dataKey })
 
             const sendStartTime = performance.now()
             await s3Client.send(
                 new PutObjectCommand({
                     Bucket: 'posthog',
-                    Key: key,
-                    Body: chunk.events.join('\n'),
+                    Key: dataKey,
+                    Body: getEventGroupDataString(eventGroup),
                 })
             )
             const sendEndTime = performance.now()
             s3PutObjectTime.record(sendEndTime - sendStartTime)
 
-            const otherSessions = Object.values(eventsBySessionId).filter((chunk) => sessionId === chunk.sessionId)
+            const otherSessions = Object.values(eventsBySessionId).filter(
+                (otherEventGroup) => eventGroup.sessionId === otherEventGroup.sessionId
+            )
 
             if (otherSessions.length) {
-                // If there are other chunks still in flight, then update the
+                // If there are other event groups still in flight, then update the
                 // offset to the oldest message referenced by them.
-                const offset = otherSessions.map((chunk) => chunk.oldestOffset).sort()[0]
+                const offset = otherSessions.map((eventGroup) => eventGroup.oldestOffset).sort()[0]
 
                 console.debug({ action: 'committing_offset', offset: offset, partition })
 
@@ -114,56 +102,68 @@ consumer.run({
                     },
                 ])
 
-                chunksInFlight.addCallback((observableResult) =>
+                eventGroupsInFlight.addCallback((observableResult) =>
                     observableResult.observe(Object.keys(eventsBySessionId).length)
                 )
             } else {
-                // If we are the only chunk in flight then update to the newest
-                // message in the chunk.
+                // If we are the only event group in flight then update to the newest
+                // message in the event group.
                 consumer.commitOffsets([
                     {
                         topic,
                         partition,
-                        offset: chunk.newestOffset,
+                        offset: eventGroup.newestOffset,
                     },
                 ])
             }
 
-            delete eventsBySessionId[sessionId]
-            chunksCommittedCounter.add(1)
+            delete eventsBySessionId[eventGroup.sessionId]
+            eventGroupsCommittedCounter.add(1)
         }
 
-        const createNewChunk = () => {
-            const chunk: Chunk = {
-                events: [] as string[],
+        const createNewEventGroup = () => {
+            const eventGroup: RecordingEventGroup = {
+                events: {} as Record<string, RecordingEvent>,
                 size: 0,
-                teamId: event.team_id,
-                sessionId: sessionId,
-                windowId: windowId,
-                oldestEventTimestamp: event.timestamp,
+                teamId: recordingEventChunk.team_id,
+                sessionId: recordingEventChunk.session_id,
+                oldestEventTimestamp: recordingEventChunk.unix_timestamp,
                 oldestOffset: message.offset,
                 newestOffset: message.offset,
             }
-            chunk.timer = setTimeout(() => commitChunkToS3(), maxChunkAge)
-            console.debug({ action: 'create_chunk', session_id: chunk.sessionId })
-            return chunk
+            eventGroup.timer = setTimeout(() => commitEventGroupToS3(), maxEventGroupAge)
+            console.debug({ action: 'create_event_group', session_id: eventGroup.sessionId })
+            return eventGroup
         }
 
-        if (!chunk) {
-            chunk = eventsBySessionId[sessionId] = createNewChunk()
-            chunksStarted.add(1, { reason: 'no-existing-chunk' })
+        if (!eventGroup) {
+            eventGroup = eventsBySessionId[recordingEventChunk.session_id] = createNewEventGroup()
+            eventGroupsStarted.add(1, { reason: 'no-existing-event-group' })
         }
 
-        if (chunk.size + eventString.length > maxChunkSize) {
-            clearTimeout(chunk.timer)
-            commitChunkToS3()
-            chunk = eventsBySessionId[sessionId] = createNewChunk()
-            chunksStarted.add(1, { reason: 'max-size-reached' })
+        // TODO: Handle incomplete recording events
+        if (eventGroup.size + recordingEventChunk.recording_event_data_chunk.length > maxEventGroupSize) {
+            clearTimeout(eventGroup.timer)
+            commitEventGroupToS3()
+            eventGroup = eventsBySessionId[eventGroup.sessionId] = createNewEventGroup()
+            eventGroupsStarted.add(1, { reason: 'max-size-reached' })
         }
 
-        chunk.events.push(...snapshotData.map((event) => JSON.stringify(event)))
-        chunk.size += eventString.length
-        chunk.newestOffset = message.offset
+        const event =
+            eventGroup.events[recordingEventChunk.recording_event_id] ??
+            ({
+                eventId: recordingEventChunk.recording_event_id,
+                chunkCount: recordingEventChunk.chunk_count,
+                chunks: {} as Record<number, string>,
+                timestamp: recordingEventChunk.unix_timestamp,
+                eventType: recordingEventChunk.recording_event_type,
+                eventSource: recordingEventChunk.recording_event_source,
+                windowId: recordingEventChunk.window_id,
+            } as RecordingEvent)
+        event.chunks[recordingEventChunk.chunk_index] = recordingEventChunk.recording_event_data_chunk
+        eventGroup.events[event.eventId] = event
+        eventGroup.size += recordingEventChunk.recording_event_data_chunk.length
+        eventGroup.newestOffset = message.offset
 
         snapshotMessagesProcessed.add(1)
     },
