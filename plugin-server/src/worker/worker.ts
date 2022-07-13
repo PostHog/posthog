@@ -50,7 +50,7 @@ export const createTaskRunner =
         }
 
         hub.statsd?.timing(`piscina_task.${task}`, timer)
-        if (task === 'runJob') {
+        if (task === 'runPluginJob') {
             hub.statsd?.timing('plugin_job', timer, {
                 type: String(args.job?.type),
                 pluginConfigId: String(args.job?.pluginConfigId),

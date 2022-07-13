@@ -18,6 +18,8 @@ SQLCOMMENTER_WITH_FRAMEWORK = False
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+JOB_QUEUE_GRAPHILE_URL = os.getenv("JOB_QUEUE_GRAPHILE_URL")
+
 if TEST or DEBUG:
     PG_HOST = os.getenv("PGHOST", "localhost")
     PG_USER = os.getenv("PGUSER", "posthog")
@@ -75,6 +77,9 @@ else:
     raise ImproperlyConfigured(
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
+
+if JOB_QUEUE_GRAPHILE_URL:
+    DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
 # Clickhouse Settings
 CLICKHOUSE_TEST_DB = "posthog_test"

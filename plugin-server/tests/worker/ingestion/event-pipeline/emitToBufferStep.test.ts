@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Person } from '../../../../src/types'
+import { JobName, Person } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
@@ -43,17 +43,26 @@ beforeEach(() => {
         hub: {
             CONVERSION_BUFFER_ENABLED: true,
             BUFFER_CONVERSION_SECONDS: 60,
-            db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson), addEventToBuffer: jest.fn() },
+            db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
             eventsProcessor: {},
+            jobQueueManager: {
+                enqueue: jest.fn(),
+            },
         },
     }
 })
 
 describe('emitToBufferStep()', () => {
-    it('calls `addEventToBuffer` if event should be buffered, stops processing', async () => {
+    it('enqueues graphile job if event should be buffered, stops processing', async () => {
+        const unixNow = 1657710000000
+        Date.now = jest.fn(() => unixNow)
+
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.db.addEventToBuffer).toHaveBeenCalledWith(pluginEvent, expect.any(DateTime))
+        expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(JobName.BUFFER_JOB, {
+            eventPayload: pluginEvent,
+            timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
+        })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })
@@ -63,7 +72,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, existingPerson])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
-        expect(runner.hub.db.addEventToBuffer).not.toHaveBeenCalled()
+        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
     })
 
     it('calls `processPersonsStep` for $snapshot events', async () => {
@@ -73,7 +82,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['processPersonsStep', event, undefined])
         expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
-        expect(runner.hub.db.addEventToBuffer).not.toHaveBeenCalled()
+        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
     })
 })
 

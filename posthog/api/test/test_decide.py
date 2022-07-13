@@ -55,31 +55,6 @@ class TestDecide(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_user_on_own_site_enabled(self):
-        user = self.organization.members.first()
-        user.toolbar_mode = "toolbar"
-        user.save()
-
-        self.team.app_urls = ["https://example.com/maybesubdomain"]
-        self.team.save()
-        response = self.client.get("/decide/", HTTP_ORIGIN="https://example.com").json()
-        self.assertEqual(response["isAuthenticated"], True)
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
-        self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
-
-    def test_user_on_own_site_disabled(self):
-        user = self.organization.members.first()
-        user.toolbar_mode = "disabled"
-        user.save()
-
-        self.team.app_urls = ["https://example.com/maybesubdomain"]
-        self.team.save()
-
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.get("/decide", HTTP_ORIGIN="https://example.com").json()
-        self.assertEqual(response["isAuthenticated"], True)
-        self.assertIsNone(response["editorParams"].get("toolbarVersion"))
-
     def test_user_on_evil_site(self):
         user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
@@ -90,19 +65,6 @@ class TestDecide(BaseTest):
         response = self.client.get("/decide/", HTTP_ORIGIN="https://evilsite.com").json()
         self.assertEqual(response["isAuthenticated"], False)
         self.assertIsNone(response["editorParams"].get("toolbarVersion", None))
-
-    def test_user_on_local_host(self):
-        user = self.organization.members.first()
-        user.toolbar_mode = "toolbar"
-        user.save()
-
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        response = self.client.get("/decide", HTTP_ORIGIN="http://127.0.0.1:8000").json()
-        self.assertEqual(response["isAuthenticated"], True)
-        self.assertEqual(response["sessionRecording"], False)
-        self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching

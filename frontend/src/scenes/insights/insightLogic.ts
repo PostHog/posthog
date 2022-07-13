@@ -14,7 +14,6 @@ import {
     InsightType,
     ItemMode,
     SetInsightOptions,
-    PropertyFilter,
 } from '~/types'
 import { captureInternalMetric } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -630,7 +629,7 @@ export const insightLogic = kea<insightLogicType>({
                     return entity.math_property === '$session_duration'
                 })
                 const using_entity_session_property_filter = entities.some((entity) => {
-                    return entity.properties?.some((property: PropertyFilter) => property.type === 'session')
+                    return parseProperties(entity.properties).some((property) => property.type === 'session')
                 })
                 const using_global_session_property_filter = parseProperties(filters.properties).some(
                     (property) => property.type === 'session'

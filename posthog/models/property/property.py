@@ -262,7 +262,8 @@ class Property:
             from posthog.models.cohort import Cohort
 
             cohort_id = int(cast(Union[str, int], value))
-            cohort = Cohort.objects.get(pk=cohort_id)
+
+            cohort = Cohort.objects.only("version").get(pk=cohort_id)
             return Q(
                 Exists(
                     CohortPeople.objects.filter(

@@ -213,27 +213,27 @@ jobs:
                         "context": ${{ toJson(github) }}
                       }
 
-    # TODO: Bring back once https://github.com/rtCamp/action-slack-notify/issues/126 is resolved
-    # slack:
-    #     name: Notify Slack of start of deploy
-    #     runs-on: ubuntu-20.04
-    #     if: github.repository == 'posthog/posthog'
-    #     steps:
-    #         - name: Notify Platform team on slack
-    #           uses: rtCamp/action-slack-notify@v2
-    #           env:
-    #               SLACK_CHANNEL: platform-bots
-    #               SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
-    #               SLACK_ICON: https://github.com/posthog.png?size=48
-    #               SLACK_MESSAGE: 'Production Cloud Deploy Beginning :rocket: - ${{ github.event.head_commit.message }}'
-    #               SLACK_TITLE: Message
-    #               SLACK_USERNAME: Max Hedgehog
-    #               SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+    slack:
+        name: Notify Slack of start of deploy
+        runs-on: ubuntu-20.04
+        if: github.repository == 'posthog/posthog'
+        steps:
+            - name: Notify Platform team on slack
+              uses: rtCamp/action-slack-notify@v2
+              env:
+                  SLACK_CHANNEL: platform-bots
+                  SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
+                  SLACK_ICON: https://github.com/posthog.png?size=48
+                  SLACK_MESSAGE: 'Production Cloud Deploy Beginning :rocket: - ${{ github.event.head_commit.message }}'
+                  SLACK_TITLE: Message
+                  SLACK_USERNAME: Max Hedgehog
+                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
     sentry:
         name: Notify Sentry of a production release
         runs-on: ubuntu-20.04
         if: github.repository == 'PostHog/posthog'
+        needs: build
         steps:
             - name: Checkout master
               uses: actions/checkout@v2

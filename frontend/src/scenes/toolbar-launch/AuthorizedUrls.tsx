@@ -57,7 +57,11 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             className="AuthorizedURLForm full-width"
         >
             <Field name="url">
-                <LemonInput autoFocus placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)" />
+                <LemonInput
+                    autoFocus
+                    placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
+                    data-attr="url-input"
+                />
             </Field>
             <div className="flex justify-end">
                 <LemonButton type="secondary" onClick={cancelProposingUrl}>
@@ -68,6 +72,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                     type="primary"
                     className="form-submit ml"
                     disabled={isProposedUrlSubmitting}
+                    data-attr="url-save"
                 >
                     Save
                 </LemonButton>
@@ -98,7 +103,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                         autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     />
                 </div>
-                <LemonButton onClick={newUrl} outlined={true} icon={<IconPlus />}>
+                <LemonButton onClick={newUrl} outlined={true} icon={<IconPlus />} data-attr="toolbar-add-url">
                     Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>
             </div>
@@ -150,6 +155,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                     onClick={() => addUrl(keyedAppURL.url)}
                                                     icon={<IconPlus />}
                                                     outlined={false}
+                                                    data-attr="toolbar-apply-suggestion"
                                                 >
                                                     Apply suggestion
                                                 </LemonButton>
@@ -161,6 +167,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         tooltip={'Launch toolbar'}
                                                         center
                                                         className="ActionButton"
+                                                        data-attr="toolbar-open"
                                                     />
 
                                                     <LemonButton
