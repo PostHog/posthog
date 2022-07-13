@@ -1,5 +1,4 @@
 import re
-import secrets
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -83,13 +82,6 @@ def get_decide(request: HttpRequest):
         "isAuthenticated": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
-
-    if request.user.is_authenticated:
-        r, update_user_token = decide_editor_params(request)
-        response.update(r)
-        if update_user_token:
-            request.user.temporary_token = secrets.token_urlsafe(32)
-            request.user.save()
 
     response["featureFlags"] = []
     response["sessionRecording"] = False
