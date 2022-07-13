@@ -58,6 +58,8 @@ describe.concurrent('ingester', () => {
         const windowId = uuidv4()
         const eventUuid = uuidv4()
 
+        const fullEventString = `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`
+
         const [first] = await producer.send({
             topic: RECORDING_EVENTS_TOPIC,
             messages: [
@@ -74,7 +76,7 @@ describe.concurrent('ingester', () => {
                         eventSouce: '1',
                         eventType: '3',
                     },
-                    value: `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, `,
+                    value: fullEventString.slice(0, 100),
                 },
             ],
         })
@@ -96,7 +98,7 @@ describe.concurrent('ingester', () => {
                         eventSouce: '1',
                         eventType: '3',
                     },
-                    value: '"y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}',
+                    value: fullEventString.slice(100),
                 },
             ],
         })
@@ -104,6 +106,103 @@ describe.concurrent('ingester', () => {
         const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
 
         expect(sessionRecording.events.length).toBe(1)
+        expect(sessionRecording.events[0]).toMatchObject(JSON.parse(fullEventString))
+    })
+
+    // TODO: Handle this case and re-enable the test
+    it.skip('handles duplicate parts of chunked events', async ({ producer }) => {
+        const teamId = '1'
+        const sessionId = uuidv4()
+        const windowId = uuidv4()
+        const eventUuid = uuidv4()
+
+        const fullEventString = `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`
+
+        const firstEvent = {
+            partition: 0,
+            headers: {
+                unixTimestamp: '1657682896740',
+                eventId: eventUuid,
+                sessionId: sessionId,
+                windowId: windowId,
+                chunkIndex: '0',
+                chunkCount: '2',
+                teamId: '1',
+                eventSouce: '1',
+                eventType: '3',
+            },
+            value: fullEventString.slice(0, 100),
+        }
+        const [first] = await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [firstEvent],
+        })
+        await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [firstEvent],
+        })
+
+        await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [
+                {
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '1',
+                        chunkCount: '2',
+                        chunkOffset: first.baseOffset,
+                        teamId: '1',
+                        eventSouce: '1',
+                        eventType: '3',
+                    },
+                    value: fullEventString.slice(100),
+                },
+            ],
+        })
+
+        const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
+
+        expect(sessionRecording.events.length).toBe(1)
+        expect(sessionRecording.events[0]).toMatchObject(JSON.parse(fullEventString))
+    })
+
+    // TODO: Handle this case and re-enable the test
+    it.skip('does not write incomplete events', async ({ producer }) => {
+        const teamId = '1'
+        const sessionId = uuidv4()
+        const windowId = uuidv4()
+        const eventUuid = uuidv4()
+
+        const fullEventString = `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`
+
+        await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [
+                {
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '0',
+                        chunkCount: '2',
+                        teamId: '1',
+                        eventSouce: '1',
+                        eventType: '3',
+                    },
+                    value: fullEventString.slice(0, 100),
+                },
+            ],
+        })
+
+        const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
+
+        expect(sessionRecording.events.length).toBe(0)
     })
 
     it('handles event larger than the max chunk limit', async ({ producer }) => {

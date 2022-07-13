@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil import parser
 from django.conf import settings
@@ -63,23 +63,21 @@ def parse_kafka_event_data(
 
 
 def parse_kafka_recording_for_object_storage_event_data(
-    team_id: int, recording_event: RecordingEventForObjectStorage, now: datetime, sent_at: Optional[datetime],
-) -> Dict:
-    return {
-        "unix_timestamp": recording_event.unix_timestamp,
-        "recording_event_id": recording_event.recording_event_id,
-        "session_id": recording_event.session_id,
-        "distinct_id": recording_event.distinct_id,
-        "chunk_count": recording_event.chunk_count,
-        "chunk_index": recording_event.chunk_index,
-        "recording_event_data_chunk": recording_event.recording_event_data_chunk,
-        "recording_event_source": recording_event.recording_event_source,
-        "recording_event_type": recording_event.recording_event_type,
-        "window_id": recording_event.window_id,
-        "now": now.isoformat(),
-        "sent_at": sent_at.isoformat() if sent_at else "",
-        "team_id": team_id,
-    }
+    team_id: int, recording_event: RecordingEventForObjectStorage,
+) -> Tuple[List[Tuple[str, str]], str]:
+    headers = [
+        ("unixTimestamp", str(recording_event.unix_timestamp)),
+        ("eventId", recording_event.recording_event_id),
+        ("sessionId", recording_event.session_id),
+        ("distinctId", recording_event.distinct_id),
+        ("chunkCount", str(recording_event.chunk_count)),
+        ("chunkIndex", str(recording_event.chunk_index)),
+        ("eventSource", str(recording_event.recording_event_source) if recording_event.recording_event_source else "",),
+        ("eventType", str(recording_event.recording_event_type) if recording_event.recording_event_type else ""),
+        ("windowId", recording_event.window_id if recording_event.window_id else ""),
+        ("teamId", str(team_id)),
+    ]
+    return (headers, recording_event.recording_event_data_chunk)
 
 
 def log_event(data: Dict, event_name: str, partition_key: str) -> None:
@@ -96,12 +94,16 @@ def log_event(data: Dict, event_name: str, partition_key: str) -> None:
         raise e
 
 
-def log_session_recording_event(data: Dict, partition_key: str) -> None:
+def log_session_recording_event(headers: List[Tuple[str, bytes]], data: str, partition_key: str) -> None:
     if settings.DEBUG:
         print(f"Logging recording event to Kafka topic {KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC}")
     try:
         KafkaProducer().produce(
-            topic=KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC, data=data, key=partition_key
+            topic=KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC,
+            headers=headers,
+            data=data,
+            key=partition_key,
+            value_serializer=lambda v: v.encode("utf-8"),
         )
         statsd.incr("recording_event_to_object_storage_ingestion")
     except Exception as e:
@@ -255,15 +257,12 @@ def get_event(request):
     if should_write_recordings_to_object_storage(ingestion_context.team_id):
         session_recording_events = get_session_recording_events_for_object_storage(events)
         for recording_event in session_recording_events:
-            print(
-                parse_kafka_recording_for_object_storage_event_data(
-                    ingestion_context.team_id, recording_event, now=now, sent_at=sent_at
-                )
+            headers, data = parse_kafka_recording_for_object_storage_event_data(
+                ingestion_context.team_id, recording_event,
             )
             log_session_recording_event(
-                parse_kafka_recording_for_object_storage_event_data(
-                    ingestion_context.team_id, recording_event, now=now, sent_at=sent_at
-                ),
+                headers,
+                data,
                 # QUESTION: should the session_id be the partition key?
                 partition_key=hashlib.sha256(
                     f"{ingestion_context.team_id}:{recording_event.session_id}".encode()
