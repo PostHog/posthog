@@ -1,4 +1,8 @@
 .AuthorizedUrlRow {
+    &:hover {
+        background-color: var(--yellow-lightest-80);
+    }
+
     .Url {
         span {
             max-width: 80%;
