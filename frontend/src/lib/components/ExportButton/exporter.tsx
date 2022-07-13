@@ -3,6 +3,10 @@ import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ExportedAssetType, ExporterFormat } from '~/types'
 import { lemonToast } from '../lemonToast'
+import { useEffect, useState } from 'react'
+import React from 'react'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 
 const POLL_DELAY_MS = 1000
 const MAX_PNG_POLL = 10
@@ -77,8 +81,24 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
         }
     })
     await lemonToast.promise(poller, {
-        pending: 'Export started...',
+        pending: <PendingWithHedgeHog />,
         success: 'Export complete!',
         error: 'Export failed!',
     })
+}
+
+function PendingWithHedgeHog(): JSX.Element {
+    const [content, setContent] = useState<JSX.Element | string>('Export starting')
+    useEffect(() => {
+        setTimeout(() => {
+            setContent(
+                <>
+                    <div className="flex flex-center">
+                        Waiting for export... <Animation size="small" type={AnimationType.SportsHog} />
+                    </div>
+                </>
+            )
+        }, 30000)
+    }, [])
+    return <>{content}</>
 }

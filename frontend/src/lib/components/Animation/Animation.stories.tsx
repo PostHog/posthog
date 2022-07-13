@@ -1,13 +1,13 @@
 import * as React from 'react'
-import { animations, AnimationType } from '../../animations/animations'
-import { Meta } from '@storybook/react'
-import { LemonTable } from '../LemonTable'
+import { AnimationType } from 'lib/animations/animations'
+import { ComponentStory, Meta } from '@storybook/react'
 import { Animation } from 'lib/components/Animation/Animation'
+
+console.log(Object.keys(AnimationType))
 
 export default {
     title: 'Layout/Animations',
     parameters: {
-        options: { showPanel: false },
         docs: {
             description: {
                 component:
@@ -15,30 +15,22 @@ export default {
             },
         },
     },
-} as Meta
+    argTypes: {
+        size: {
+            options: ['small', 'large'],
+            control: { type: 'radio' },
+        },
+        type: {
+            options: Object.values(AnimationType),
+            mapping: AnimationType,
+            control: { type: 'radio' },
+        },
+    },
+} as Meta<Animation>
 
-export function Animations(): JSX.Element {
-    return (
-        <LemonTable
-            dataSource={Object.keys(animations).map((key) => ({ key }))}
-            columns={[
-                {
-                    title: 'Code',
-                    key: 'code',
-                    dataIndex: 'key',
-                    render: function RenderCode(name) {
-                        return <code>{`<Animation type="${name as string}" />`}</code>
-                    },
-                },
-                {
-                    title: 'Animation',
-                    key: 'animation',
-                    dataIndex: 'key',
-                    render: function RenderAnimation(key) {
-                        return <Animation type={key as AnimationType} />
-                    },
-                },
-            ]}
-        />
-    )
+const Template: ComponentStory<typeof Animation> = ({ size, type }): JSX.Element => {
+    return <Animation type={type} size={size} />
 }
+
+export const Animations = Template.bind({})
+Animations.args = { size: 'large' }
