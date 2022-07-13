@@ -304,7 +304,7 @@ class Migration(AsyncMigrationDefinition):
         for column in columns:
             execute_op_clickhouse(
                 query_id=query_id,
-                sql=f"ALTER TABLE {EVENTS_DATA_TABLE()} MODIFY COLUMN {column} VARCHAR Codec({codec})",
+                sql=f"ALTER TABLE {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY COLUMN {column} VARCHAR Codec({codec})",
             )
 
     def _wait_for_mutation_done(self, query_id):
