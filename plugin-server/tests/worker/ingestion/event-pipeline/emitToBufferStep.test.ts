@@ -54,11 +54,14 @@ beforeEach(() => {
 
 describe('emitToBufferStep()', () => {
     it('enqueues graphile job if event should be buffered, stops processing', async () => {
+        const unixNow = 1657710000000
+        Date.now = jest.fn(() => unixNow)
+
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
         expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(JobName.BUFFER_JOB, {
             eventPayload: pluginEvent,
-            timestamp: expect.any(Number),
+            timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
