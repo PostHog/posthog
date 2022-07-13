@@ -68,7 +68,7 @@
         "antd": "^4.17.1",
         "antd-dayjs-webpack-plugin": "^1.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
-        "chart.js": "^3.6.2",
+        "chart.js": "^3.8.0",
         "chartjs-adapter-dayjs": "^1.0.0",
         "chartjs-plugin-crosshair": "^1.2.0",
         "clsx": "^1.1.1",
