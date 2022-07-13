@@ -144,7 +144,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                 {keyedAppURL.url}
                                             </Typography.Text>
                                         </div>
-                                        <div className="Actions flex flex-row">
+                                        <div className="Actions flex flex-row space-x">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
                                                     onClick={() => addUrl(keyedAppURL.url)}
@@ -160,7 +160,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         href={launchUrl(keyedAppURL.url)}
                                                         tooltip={'Launch toolbar'}
                                                         center
-                                                        className="ActionButton mr"
+                                                        className="ActionButton"
                                                     />
 
                                                     <LemonButton
@@ -168,7 +168,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         onClick={() => setEditUrlIndex(keyedAppURL.originalIndex)}
                                                         tooltip={'Edit'}
                                                         center
-                                                        className="ActionButton mr"
+                                                        className="ActionButton"
                                                     />
                                                     <Popconfirm
                                                         placement="topRight"
@@ -181,7 +181,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                             icon={<IconDelete />}
                                                             tooltip={'Remove URL'}
                                                             center
-                                                            className="ActionButton mr-05"
+                                                            className="ActionButton"
                                                         />
                                                     </Popconfirm>
                                                 </>
