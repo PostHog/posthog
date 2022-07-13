@@ -47,6 +47,8 @@ class AsyncMigration(models.Model):
     posthog_min_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
     posthog_max_version: models.CharField = models.CharField(max_length=20, null=True, blank=True)
 
+    parameters: models.JSONField = models.JSONField(default=dict)
+
 
 def get_all_completed_async_migrations():
     return AsyncMigration.objects.filter(status=MigrationStatus.CompletedSuccessfully)
