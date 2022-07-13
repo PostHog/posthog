@@ -88,7 +88,7 @@ class AsyncMigrationDefinition:
     # optional parameters for this async migration. Shown in the UI when starting the migration
     parameters: Dict[str, Tuple[(int, str, Callable[[Any], Any])]] = {}
 
-    def __init__(self, name):
+    def __init__(self, name: str):
         self.name = name
 
     # run before creating the migration model. Returns a boolean specifying if the instance should
