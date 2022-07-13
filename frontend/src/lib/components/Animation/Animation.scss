@@ -28,6 +28,11 @@
     }
 
     &.Animation--small {
-        width: 50px;
+        overflow: visible;
+
+        svg {
+            width: 45px !important;
+            height: 45px !important;
+        }
     }
 }
