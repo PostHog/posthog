@@ -604,7 +604,7 @@ export function isURL(input: any): boolean {
         return false
     }
     // Regex by regextester.com/115236
-    const regexp = /^(?:http(s)?:\/\/)([\w.-])+(?:[\w\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    const regexp = /^(?:http(s)?:\/\/)([\w*.-])+(?:[\w*\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
     return !!input.trim().match(regexp)
 }
 
