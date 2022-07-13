@@ -1,5 +1,5 @@
 .AuthorizedUrlRow {
-    &:hover {
+    &.highlight-on-hover:hover {
         background: var(--primary-bg-hover);
     }
 
