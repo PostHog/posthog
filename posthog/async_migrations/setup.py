@@ -47,14 +47,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
     first_migration = None
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
-
-        sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
-
-        sm.description = migration.description
-        sm.posthog_max_version = migration.posthog_max_version
-        sm.posthog_min_version = migration.posthog_min_version
-
-        sm.save()
+        setup_model(migration_name, migration)
 
         dependency = migration.depends_on
 
@@ -80,6 +73,20 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
     if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") and first_migration:
         kickstart_migration_if_possible(first_migration, applied_migrations)
+
+
+def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> Optional[AsyncMigration]:
+    if migration.is_shown():
+        sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
+
+        sm.description = migration.description
+        sm.posthog_max_version = migration.posthog_max_version
+        sm.posthog_min_version = migration.posthog_min_version
+
+        sm.save()
+        return sm
+    else:
+        return None
 
 
 def kickstart_migration_if_possible(migration_name: str, applied_migrations: set):

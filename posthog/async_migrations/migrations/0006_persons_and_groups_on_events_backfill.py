@@ -12,6 +12,7 @@ from posthog.async_migrations.disk_util import analyze_enough_disk_space_free_fo
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table, sleep_until_finished
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.instance_setting import get_instance_setting
 
 logger = structlog.get_logger(__name__)
 
@@ -61,10 +62,10 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0005_person_replacing_by_version"
 
-    def precheck(self):
-        if not settings.MULTI_TENANCY:
-            return False, "This async migration is not yet ready for self-hosted users"
+    def is_shown(self) -> bool:
+        return get_instance_setting("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION")
 
+    def precheck(self):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:

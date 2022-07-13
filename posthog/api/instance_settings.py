@@ -89,6 +89,10 @@ class InstanceSettingsSerializer(serializers.Serializer):
             from posthog.tasks.email import send_canary_email
 
             send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
+        elif instance.key.startswith("ASYNC_MIGRATION"):
+            from posthog.async_migrations.setup import setup_async_migrations
+
+            setup_async_migrations()
 
         return instance
 
