@@ -18,10 +18,6 @@ jobs:
         outputs:
             docker_image: ghcr.io/posthog/posthog/session-recordings-ingester@${{ steps.docker_build.outputs.digest }}
 
-        defaults:
-            run:
-                working-directory: session-recordings/
-
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
@@ -73,6 +69,7 @@ jobs:
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  context: ./session-recordings/
                   # load: true # NOTE: this option is not compatible with `push: true`
                   # NOTE: we use inline as suggested here:
                   # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
