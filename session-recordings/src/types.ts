@@ -12,25 +12,10 @@ export type RecordingEventGroup = {
 
 export type RecordingEvent = {
     eventId: string
-    chunkCount: number
-    chunks: Record<number, string>
+    value: string
+    complete: boolean
     timestamp: number
     eventType: number
     eventSource: number
     windowId: string
-    distinctId: string
-}
-
-export type RecordingEventChunkMessage = {
-    unix_timestamp: number
-    recording_event_id: string
-    session_id: string
-    distinct_id: string
-    chunk_count: number
-    chunk_index: number
-    recording_event_data_chunk: string
-    recording_event_source?: number
-    recording_event_type?: number
-    window_id?: string
-    team_id?: number
 }

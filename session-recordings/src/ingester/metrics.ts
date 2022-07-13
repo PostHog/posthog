@@ -21,10 +21,6 @@ const signalTraps = ['SIGTERM', 'SIGINT', 'SIGUSR2']
 
 signalTraps.map((type) => {
     process.once(type, async () => {
-        try {
-            await exporter.stopServer()
-        } finally {
-            process.kill(process.pid, type)
-        }
+        await exporter.stopServer()
     })
 })
