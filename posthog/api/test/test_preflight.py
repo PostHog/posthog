@@ -21,6 +21,48 @@ class TestPreflight(APIBaseTest):
             **kwargs,
         }
 
+    def preflight_dict(self, options={}):
+        preflight = {
+            "django": True,
+            "redis": True,
+            "plugins": True,
+            "celery": True,
+            "db": True,
+            "initiated": True,
+            "cloud": False,
+            "demo": False,
+            "clickhouse": True,
+            "kafka": True,
+            "realm": "hosted-clickhouse",
+            "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
+            "can_create_org": False,
+            "email_service_available": False,
+            "slack_service": {"available": False, "client_id": None},
+            "object_storage": False,
+        }
+
+        preflight.update(options)
+
+        return preflight
+
+    def preflight_authenticated_dict(self, options={}):
+        preflight = {
+            "opt_out_capture": False,
+            "posthog_version": VERSION,
+            "is_debug": False,
+            "is_event_property_usage_enabled": True,
+            "licensed_users_available": None,
+            "site_url": "http://localhost:8000",
+            "can_create_org": False,
+            "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
+            "object_storage": False,
+            "buffer_conversion_seconds": 60,
+        }
+
+        preflight.update(options)
+
+        return self.preflight_dict(preflight)
+
     def test_preflight_request_unauthenticated(self):
         """
         For security purposes, the information contained in an unauthenticated preflight request is minimal.
@@ -30,26 +72,7 @@ class TestPreflight(APIBaseTest):
             response = self.client.get("/_preflight/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "django": True,
-                "redis": True,
-                "plugins": True,
-                "celery": True,
-                "db": True,
-                "initiated": True,
-                "cloud": False,
-                "demo": False,
-                "clickhouse": True,
-                "kafka": True,
-                "realm": "hosted-clickhouse",
-                "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
-                "can_create_org": False,
-                "email_service_available": False,
-                "object_storage": False,
-            },
-        )
+        self.assertEqual(response.json(), self.preflight_dict())
 
     def test_preflight_request(self):
         with self.settings(
@@ -62,34 +85,7 @@ class TestPreflight(APIBaseTest):
             response = response.json()
             available_timezones = cast(dict, response).pop("available_timezones")
 
-            self.assertEqual(
-                response,
-                {
-                    "django": True,
-                    "redis": True,
-                    "plugins": True,
-                    "celery": True,
-                    "db": True,
-                    "initiated": True,
-                    "cloud": False,
-                    "demo": False,
-                    "clickhouse": True,
-                    "kafka": True,
-                    "realm": "hosted-clickhouse",
-                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
-                    "opt_out_capture": False,
-                    "posthog_version": VERSION,
-                    "email_service_available": False,
-                    "is_debug": False,
-                    "is_event_property_usage_enabled": True,
-                    "licensed_users_available": None,
-                    "site_url": "http://localhost:8000",
-                    "can_create_org": False,
-                    "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
-                    "object_storage": False,
-                    "buffer_conversion_seconds": 60,
-                },
-            )
+            self.assertEqual(response, self.preflight_authenticated_dict())
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     @patch("posthog.storage.object_storage._client")
@@ -106,39 +102,13 @@ class TestPreflight(APIBaseTest):
             response = response.json()
             available_timezones = cast(dict, response).pop("available_timezones")
 
-            self.assertEqual(
-                response,
-                {
-                    "django": True,
-                    "redis": True,
-                    "plugins": True,
-                    "celery": True,
-                    "db": True,
-                    "initiated": True,
-                    "cloud": False,
-                    "demo": False,
-                    "clickhouse": True,
-                    "kafka": True,
-                    "realm": "hosted-clickhouse",
-                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
-                    "opt_out_capture": False,
-                    "posthog_version": VERSION,
-                    "email_service_available": False,
-                    "is_debug": False,
-                    "is_event_property_usage_enabled": True,
-                    "licensed_users_available": None,
-                    "site_url": "http://localhost:8000",
-                    "can_create_org": False,
-                    "instance_preferences": {"debug_queries": True, "disable_paid_fs": False,},
-                    "object_storage": True,
-                    "buffer_conversion_seconds": 60,
-                },
-            )
+            self.assertEqual(response, self.preflight_authenticated_dict({"object_storage": True}))
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
     @pytest.mark.ee
     def test_cloud_preflight_request_unauthenticated(self):
         set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("SLACK_APP_CLIENT_ID", "slack-client-id")
 
         self.client.logout()  # make sure it works anonymously
 
@@ -148,23 +118,15 @@ class TestPreflight(APIBaseTest):
 
             self.assertEqual(
                 response.json(),
-                {
-                    "django": True,
-                    "redis": True,
-                    "plugins": True,
-                    "celery": True,
-                    "db": True,
-                    "initiated": True,
-                    "cloud": True,
-                    "demo": False,
-                    "clickhouse": True,
-                    "kafka": True,
-                    "realm": "cloud",
-                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
-                    "can_create_org": True,
-                    "email_service_available": True,
-                    "object_storage": False,
-                },
+                self.preflight_dict(
+                    {
+                        "email_service_available": True,
+                        "slack_service": {"available": True, "client_id": "slack-client-id",},
+                        "can_create_org": True,
+                        "cloud": True,
+                        "realm": "cloud",
+                    }
+                ),
             )
 
     @pytest.mark.ee
@@ -177,31 +139,15 @@ class TestPreflight(APIBaseTest):
 
             self.assertEqual(
                 response,
-                {
-                    "django": True,
-                    "redis": True,
-                    "plugins": True,
-                    "celery": True,
-                    "db": True,
-                    "initiated": True,
-                    "cloud": True,
-                    "demo": False,
-                    "clickhouse": True,
-                    "kafka": True,
-                    "realm": "cloud",
-                    "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
-                    "opt_out_capture": False,
-                    "posthog_version": VERSION,
-                    "email_service_available": False,
-                    "is_debug": False,
-                    "is_event_property_usage_enabled": True,
-                    "licensed_users_available": None,
-                    "site_url": "https://app.posthog.com",
-                    "can_create_org": True,
-                    "instance_preferences": {"debug_queries": False, "disable_paid_fs": False,},
-                    "object_storage": False,
-                    "buffer_conversion_seconds": 60,
-                },
+                self.preflight_authenticated_dict(
+                    {
+                        "can_create_org": True,
+                        "cloud": True,
+                        "realm": "cloud",
+                        "instance_preferences": {"debug_queries": False, "disable_paid_fs": False,},
+                        "site_url": "https://app.posthog.com",
+                    }
+                ),
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
@@ -223,31 +169,17 @@ class TestPreflight(APIBaseTest):
 
             self.assertEqual(
                 response,
-                {
-                    "django": True,
-                    "redis": True,
-                    "plugins": True,
-                    "celery": True,
-                    "db": True,
-                    "initiated": True,
-                    "cloud": True,
-                    "demo": False,
-                    "clickhouse": True,
-                    "kafka": True,
-                    "realm": "cloud",
-                    "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False,},
-                    "opt_out_capture": False,
-                    "posthog_version": VERSION,
-                    "email_service_available": True,
-                    "is_debug": False,
-                    "is_event_property_usage_enabled": True,
-                    "licensed_users_available": None,
-                    "site_url": "http://localhost:8000",
-                    "can_create_org": True,
-                    "instance_preferences": {"debug_queries": False, "disable_paid_fs": True,},
-                    "object_storage": False,
-                    "buffer_conversion_seconds": 60,
-                },
+                self.preflight_authenticated_dict(
+                    {
+                        "can_create_org": True,
+                        "cloud": True,
+                        "realm": "cloud",
+                        "instance_preferences": {"debug_queries": False, "disable_paid_fs": True,},
+                        "site_url": "http://localhost:8000",
+                        "available_social_auth_providers": {"google-oauth2": True, "github": False, "gitlab": False,},
+                        "email_service_available": True,
+                    }
+                ),
             )
             self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
 
@@ -259,26 +191,7 @@ class TestPreflight(APIBaseTest):
             response = self.client.get("/_preflight/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "django": True,
-                "redis": True,
-                "plugins": True,
-                "celery": True,
-                "db": True,
-                "initiated": True,
-                "cloud": False,
-                "demo": True,
-                "clickhouse": True,
-                "kafka": True,
-                "realm": "demo",
-                "available_social_auth_providers": {"google-oauth2": False, "github": False, "gitlab": False,},
-                "can_create_org": True,
-                "email_service_available": False,
-                "object_storage": False,
-            },
-        )
+        self.assertEqual(response.json(), self.preflight_dict({"demo": True, "can_create_org": True, "realm": "demo"}))
 
     @pytest.mark.ee
     @pytest.mark.skip_on_multitenancy
