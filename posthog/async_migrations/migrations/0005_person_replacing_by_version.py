@@ -70,12 +70,6 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0004_replicated_schema"
 
-    def precheck(self):
-        if not settings.MULTI_TENANCY:
-            return False, "This async migration is not yet ready for self-hosted users"
-
-        return True, None
-
     def is_required(self) -> bool:
         person_table_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
@@ -257,6 +251,8 @@ class Migration(AsyncMigrationDefinition):
         result = 0.5 * migration_instance.current_operation_index / len(self.operations)
 
         if migration_instance.current_operation_index == len(self.operations) - 1:
-            result += 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+            result = 0.5 + 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+        else:
+            result = 0.5 * migration_instance.current_operation_index / (len(self.operations) - 1)
 
         return int(100 * result)
