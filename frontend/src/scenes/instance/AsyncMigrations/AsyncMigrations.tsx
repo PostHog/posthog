@@ -140,7 +140,7 @@ export function AsyncMigrations(): JSX.Element {
                                 <Button
                                     type="link"
                                     icon={<PlayCircleOutlined />}
-                                    onClick={() => triggerMigration(asyncMigration.id)}
+                                    onClick={() => triggerMigration(asyncMigration)}
                                 >
                                     Run
                                 </Button>
@@ -174,7 +174,7 @@ export function AsyncMigrations(): JSX.Element {
                                     <>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => resumeMigration(asyncMigration.id)}
+                                            onClick={() => resumeMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Resume
@@ -194,7 +194,7 @@ export function AsyncMigrations(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     icon={<IconReplay />}
-                                    onClick={() => triggerMigration(asyncMigration.id)}
+                                    onClick={() => triggerMigration(asyncMigration)}
                                     fullWidth
                                 />
                             </Tooltip>

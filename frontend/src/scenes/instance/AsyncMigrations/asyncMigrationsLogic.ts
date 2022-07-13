@@ -53,13 +53,15 @@ export interface AsyncMigration {
     posthog_min_version: string
     posthog_max_version: string
     error_count: number
+    parameters: Record<string, number>
+    parameter_definitions: Record<string, [number, string]>
 }
 
 export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
     path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
     actions: {
-        triggerMigration: (migrationId: number) => ({ migrationId }),
-        resumeMigration: (migrationId: number) => ({ migrationId }),
+        triggerMigration: (migration: AsyncMigration) => ({ migration }),
+        resumeMigration: (migration: AsyncMigration) => ({ migration }),
         rollbackMigration: (migrationId: number) => ({ migrationId }),
         forceStopMigration: (migrationId: number) => ({ migrationId }),
         forceStopMigrationWithoutRollback: (migrationId: number) => ({ migrationId }),
@@ -135,8 +137,8 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
     },
 
     listeners: ({ actions }) => ({
-        triggerMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/async_migrations/${migrationId}/trigger`)
+        triggerMigration: async ({ migration }) => {
+            const res = await api.create(`/api/async_migrations/${migration.id}/trigger`)
             if (res.success) {
                 lemonToast.success('Migration triggered successfully')
                 actions.loadAsyncMigrations()
@@ -144,8 +146,8 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                 lemonToast.error(res.error)
             }
         },
-        resumeMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/async_migrations/${migrationId}/resume`)
+        resumeMigration: async ({ migration }) => {
+            const res = await api.create(`/api/async_migrations/${migration.id}/resume`)
             if (res.success) {
                 lemonToast.success('Migration resume triggered successfully')
                 actions.loadAsyncMigrations()
