@@ -265,6 +265,8 @@ class Migration(AsyncMigrationDefinition):
         result = 0.5 * migration_instance.current_operation_index / len(self.operations)
 
         if migration_instance.current_operation_index == len(self.operations) - 1:
-            result += 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+            result = 0.5 + 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+        else:
+            result = 0.5 * migration_instance.current_operation_index / (len(self.operations) - 1)
 
         return int(100 * result)
