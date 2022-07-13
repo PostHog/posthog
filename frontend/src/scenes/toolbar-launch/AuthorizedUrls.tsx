@@ -34,11 +34,11 @@ function EmptyState({
     }
 
     return isSearching ? (
-        <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
+        <LemonRow outlined fullWidth size="large" className="AuthorizedUrlRow">
             There are no authorized URLs that match your search.
         </LemonRow>
     ) : isAddingEntry ? null : (
-        <LemonRow outlined fullWidth size="large" className={clsx('AuthorizedUrlRow')}>
+        <LemonRow outlined fullWidth size="large" className="AuthorizedUrlRow">
             There are no authorized URLs or domains. Add one to get started.
         </LemonRow>
     )
