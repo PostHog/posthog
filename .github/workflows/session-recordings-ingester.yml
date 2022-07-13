@@ -10,11 +10,6 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
 
-defaults:
-    run:
-        shell: bash
-        working-directory: session-recordings
-
 jobs:
     build:
         name: Build docker image
@@ -22,6 +17,10 @@ jobs:
 
         outputs:
             docker_image: ghcr.io/posthog/posthog/session-recordings-ingester@${{ steps.docker_build.outputs.digest }}
+
+        defaults:
+            run:
+                working-directory: session-recordings/
 
         steps:
             - name: Checkout PR branch
@@ -92,6 +91,10 @@ jobs:
     test:
         name: Tests
         runs-on: ubuntu-20.04
+
+        defaults:
+            run:
+                working-directory: session-recordings/
 
         needs: build
 
