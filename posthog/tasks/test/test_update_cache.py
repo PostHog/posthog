@@ -680,6 +680,64 @@ class TestUpdateCache(APIBaseTest):
         assert tile.filters_hash != test_hash
         assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
 
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cache_key_that_matches_no_assets_still_counts_as_a_refresh_attempt_for_dashboard_tiles(self) -> None:
+        test_hash = "märg koer lamab parimal tekil"
+        insight = self._create_insight_with_known_cache_key(test_hash)
+        dashboard, tile = self._create_dashboard_tile_with_known_cache_key(
+            insight, test_hash, dashboard_filters={"date_from": "-30d"}
+        )
+
+        assert insight.refresh_attempt is None
+        assert tile.refresh_attempt is None
+
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        update_cache_item(
+            key="a key that does not match",
+            cache_type=CacheType.TRENDS,
+            payload={
+                "filter": Filter(data=filter_dict).toJSON(),
+                "team_id": self.team.id,
+                "insight_id": insight.id,
+                "dashboard_id": dashboard.id,
+            },
+        )
+
+        insight.refresh_from_db()
+        tile.refresh_from_db()
+        assert insight.refresh_attempt is None
+        assert tile.refresh_attempt == 1
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cache_key_that_matches_no_assets_still_counts_as_a_refresh_attempt_for_insights(self) -> None:
+        test_hash = "märg koer lamab parimal tekil"
+        insight = self._create_insight_with_known_cache_key(test_hash)
+
+        assert insight.refresh_attempt is None
+
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        update_cache_item(
+            key="a key that does not match",
+            cache_type=CacheType.TRENDS,
+            payload={
+                "filter": Filter(data=filter_dict).toJSON(),
+                "team_id": self.team.id,
+                "insight_id": insight.id,
+                "dashboard_id": None,
+            },
+        )
+
+        insight.refresh_from_db()
+        assert insight.refresh_attempt == 1
+
     def _create_insight_with_known_cache_key(self, test_hash: str) -> Insight:
         filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
