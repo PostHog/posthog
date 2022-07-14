@@ -134,7 +134,7 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 10_000,) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500,) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
@@ -210,7 +210,7 @@ def _write_to_object_storage(exported_asset: ExportedAsset, rendered_csv_content
 
 
 @timed("csv_exporter")
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 10_000,) -> None:
+def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500,) -> None:
     if not limit:
         limit = 1000
 
