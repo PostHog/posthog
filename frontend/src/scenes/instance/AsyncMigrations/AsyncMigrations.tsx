@@ -151,14 +151,14 @@ export function AsyncMigrations(): JSX.Element {
                                     <>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => forceStopMigration(asyncMigration.id)}
+                                            onClick={() => forceStopMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Stop and rollback
                                         </LemonButton>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => forceStopMigrationWithoutRollback(asyncMigration.id)}
+                                            onClick={() => forceStopMigrationWithoutRollback(asyncMigration)}
                                             fullWidth
                                         >
                                             Stop
@@ -181,7 +181,7 @@ export function AsyncMigrations(): JSX.Element {
                                         </LemonButton>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => rollbackMigration(asyncMigration.id)}
+                                            onClick={() => rollbackMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Rollback
