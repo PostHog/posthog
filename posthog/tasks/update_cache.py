@@ -244,7 +244,15 @@ def update_cached_items() -> Tuple[int, int]:
     oldest_previously_refreshed_tile: Optional[DashboardTile] = dashboard_tiles.exclude(last_refresh=None).first()
     if oldest_previously_refreshed_tile and oldest_previously_refreshed_tile.last_refresh:
         dashboard_cache_age = (datetime.datetime.now() - oldest_previously_refreshed_tile.last_refresh).total_seconds()
-        statsd.gauge("update_cache_queue.dashboards_lag", round(dashboard_cache_age))
+        statsd.gauge(
+            "update_cache_queue.dashboards_lag",
+            round(dashboard_cache_age),
+            tags={
+                "insight_id": oldest_previously_refreshed_tile.insight_id,
+                "dashboard_id": oldest_previously_refreshed_tile.dashboard_id,
+                "cache_key": oldest_previously_refreshed_tile.filters_hash,
+            },
+        )
 
     return len(tasks), queue_depth
 
