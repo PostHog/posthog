@@ -277,6 +277,9 @@ describe.concurrent('ingester', () => {
             messages.map((message) => message.headers.eventId.toString())
         )
     })
+
+    // TODO: implement producing messages for ClickHouse to read
+    it.skip('produces messages to Kafka for the purposes of analytics, e.g. ClickHouse queries', () => {})
 })
 
 const getSessionRecording = async (teamId: string, sessionId: string): Promise<{ events: any[] }> => {
