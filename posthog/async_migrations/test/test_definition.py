@@ -8,7 +8,6 @@ from posthog.async_migrations.setup import (
     setup_async_migrations,
 )
 from posthog.models.async_migration import AsyncMigration
-from posthog.models.instance_setting import set_instance_setting
 from posthog.test.base import BaseTest
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -31,7 +30,6 @@ class TestAsyncMigrationDefinition(BaseTest):
         self.assertTrue(isinstance(example_migration.service_version_requirements[0], ServiceVersionRequirement))
 
     def test_get_migration_instance_and_parameters(self):
-        set_instance_setting("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION", True)
         setup_async_migrations(ignore_posthog_version=True)
 
         MIGRATION_NAME = "0006_persons_and_groups_on_events_backfill"
