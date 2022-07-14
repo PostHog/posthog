@@ -202,57 +202,7 @@ class Migration(AsyncMigrationDefinition):
                 rollback=None,
                 per_shard=True,
             ),
-            AsyncMigrationOperationSQL(
-                sql=f"""
-                    CREATE DICTIONARY IF NOT EXISTS person_dict {{on_cluster_clause}}
-                    (
-                        team_id Int64,
-                        id UUID,
-                        properties String,
-                        created_at DateTime
-                    )
-                    PRIMARY KEY team_id, id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} {self._dictionary_connection_string()}))
-                    LAYOUT(complex_key_cache(size_in_cells 5000000 max_threads_for_updates 6 allow_read_expired_keys 1))
-                    Lifetime(60000)
-                """,
-                rollback=f"DROP DICTIONARY IF EXISTS person_dict {{on_cluster_clause}}",
-                per_shard=True,
-            ),
-            AsyncMigrationOperationSQL(
-                sql=f"""
-                    CREATE DICTIONARY IF NOT EXISTS person_distinct_id2_dict {{on_cluster_clause}}
-                    (
-                        team_id Int64,
-                        distinct_id String,
-                        person_id UUID
-                    )
-                    PRIMARY KEY team_id, distinct_id
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} {self._dictionary_connection_string()}))
-                    LAYOUT(complex_key_cache(size_in_cells 50000000 max_threads_for_updates 6 allow_read_expired_keys 1))
-                    Lifetime(60000)
-                """,
-                rollback=f"DROP DICTIONARY IF EXISTS person_distinct_id2_dict {{on_cluster_clause}}",
-                per_shard=True,
-            ),
-            AsyncMigrationOperationSQL(
-                sql=f"""
-                    CREATE DICTIONARY IF NOT EXISTS groups_dict {{on_cluster_clause}}
-                    (
-                        team_id Int64,
-                        group_type_index UInt8,
-                        group_key String,
-                        group_properties String,
-                        created_at DateTime
-                    )
-                    PRIMARY KEY team_id, group_type_index, group_key
-                    SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} {self._dictionary_connection_string()}))
-                    LAYOUT(complex_key_cache(size_in_cells 1000000 max_threads_for_updates 6 allow_read_expired_keys 1))
-                    Lifetime(60000)
-                """,
-                rollback=f"DROP DICTIONARY IF EXISTS groups_dict {{on_cluster_clause}}",
-                per_shard=True,
-            ),
+            AsyncMigrationOperation(fn=self._create_dictionaries, rollback_fn=self._clear_temporary_tables),
             AsyncMigrationOperationSQL(
                 sql=f"""
                     ALTER TABLE {EVENTS_DATA_TABLE()}
@@ -317,6 +267,62 @@ class Migration(AsyncMigrationDefinition):
                 query_id=query_id,
                 sql=f"ALTER TABLE {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY COLUMN {column} VARCHAR Codec({codec})",
             )
+
+    def _create_dictionaries(self, query_id):
+        execute_op_clickhouse(
+            f"""
+                CREATE DICTIONARY IF NOT EXISTS person_dict {{on_cluster_clause}}
+                (
+                    team_id Int64,
+                    id UUID,
+                    properties String,
+                    created_at DateTime
+                )
+                PRIMARY KEY team_id, id
+                SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PERSONS_TABLE_NAME} {self._dictionary_connection_string()}))
+                LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
+                Lifetime(60000)
+            """,
+            {"cache_size": self.get_parameter("PERSON_DICT_CACHE_SIZE")},
+            per_shard=True,
+            query_id=query_id,
+        ),
+        execute_op_clickhouse(
+            f"""
+                CREATE DICTIONARY IF NOT EXISTS person_distinct_id2_dict {{on_cluster_clause}}
+                (
+                    team_id Int64,
+                    distinct_id String,
+                    person_id UUID
+                )
+                PRIMARY KEY team_id, distinct_id
+                SOURCE(CLICKHOUSE(TABLE {TEMPORARY_PDI2_TABLE_NAME} {self._dictionary_connection_string()}))
+                LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
+                Lifetime(60000)
+            """,
+            {"cache_size": self.get_parameter("PERSON_DISTINCT_ID_DICT_CACHE_SIZE")},
+            per_shard=True,
+            query_id=query_id,
+        ),
+        execute_op_clickhouse(
+            f"""
+                CREATE DICTIONARY IF NOT EXISTS groups_dict {{on_cluster_clause}}
+                (
+                    team_id Int64,
+                    group_type_index UInt8,
+                    group_key String,
+                    group_properties String,
+                    created_at DateTime
+                )
+                PRIMARY KEY team_id, group_type_index, group_key
+                SOURCE(CLICKHOUSE(TABLE {TEMPORARY_GROUPS_TABLE_NAME} {self._dictionary_connection_string()}))
+                LAYOUT(complex_key_cache(size_in_cells %(cache_size)s max_threads_for_updates 6 allow_read_expired_keys 1))
+                Lifetime(60000)
+            """,
+            {"cache_size": self.get_parameter("GROUPS_DICT_CACHE_SIZE")},
+            per_shard=True,
+            query_id=query_id,
+        )
 
     def _wait_for_mutation_done(self, query_id):
         # :KLUDGE: mutations_sync does not work with ON CLUSTER queries, causing race conditions with subsequent steps
