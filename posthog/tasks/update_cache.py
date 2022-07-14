@@ -231,6 +231,8 @@ def update_cached_items() -> Tuple[int, int]:
     taskset = group(tasks)
     taskset.apply_async()
     queue_depth = dashboard_tiles.count() + shared_insights.count()
+    statsd.gauge("update_cache_queue_depth.shared_insights", shared_insights.count())
+    statsd.gauge("update_cache_queue_depth.dashboards", dashboard_tiles.count())
     statsd.gauge("update_cache_queue_depth", queue_depth)
 
     return len(tasks), queue_depth
