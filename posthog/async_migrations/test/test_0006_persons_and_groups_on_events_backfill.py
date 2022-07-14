@@ -289,7 +289,6 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
     def test_rollback(self):
         migration = get_async_migration_definition(MIGRATION_NAME)
 
-        self.assertEqual(len(migration.operations), 18)
         migration.operations[-1].fn = lambda _: 0 / 0  # type: ignore
 
         migration_successful = run_migration()
