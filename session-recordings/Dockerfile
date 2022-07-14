@@ -1,9 +1,5 @@
 FROM node:16-alpine3.15 AS build
 
-RUN apk update && apk add yarn curl && rm -rf /var/cache/apk/*
-
-RUN curl -sf https://gobinaries.com/tj/node-prune | sh
-
 COPY package.json yarn.lock ./
 
 RUN yarn --frozen-lockfile
@@ -14,17 +10,13 @@ COPY src ./src
 
 RUN yarn build
 
-# RUN npm prune --production
-
-# RUN node-prune
-
+RUN npm prune --production
 
 FROM node:16-alpine3.15
 
-COPY package.json ./
-
 COPY --from=build node_modules ./node_modules
 COPY --from=build dist ./dist
+COPY bin/start.sh /
 
-CMD ["yarn", "start:api:prod"]
+CMD ["/start.sh"]
 EXPOSE 3000

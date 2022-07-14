@@ -109,16 +109,4 @@ jobs:
 
             - name: Test
               run: |
-                  docker-compose up -d
-                  export OBJECT_STORAGE_ACCESS_KEY_ID=root
-                  export OBJECT_STORAGE_SECRET_ACCESS_KEY=password
-                  export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
-                  docker run --rm ${{ needs.build.outputs.docker_image }} -- yarn start:prod &
-
-                  until (curl http://localhost:3001/metrics);
-                  do
-                    echo "Waiting for instance to come up"
-                    sleep 5
-                  done
-
-                  yarn test
+                  bin/test.sh ${{ needs.build.outputs.docker_image }}
