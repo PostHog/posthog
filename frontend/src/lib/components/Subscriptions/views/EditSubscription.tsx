@@ -199,7 +199,6 @@ export function EditSubscription({
                                             <LemonSelectMultiple
                                                 onChange={(val) => onChange(val.join(','))}
                                                 value={value?.split(',').filter(Boolean)}
-                                                filterOption={false}
                                                 disabled={emailDisabled}
                                                 mode="multiple-custom"
                                                 data-attr="subscribed-emails"
@@ -270,7 +269,6 @@ export function EditSubscription({
                                                     <LemonSelectMultiple
                                                         onChange={(val) => onChange(val)}
                                                         value={value}
-                                                        filterOption={true}
                                                         disabled={slackDisabled}
                                                         mode="single"
                                                         data-attr="select-slack-channel"
