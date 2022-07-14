@@ -96,18 +96,19 @@ export const getSlackChannelOptions = (
     return slackChannels
         ? slackChannels.map((x) => ({
               key: `${x.id}|#${x.name}`,
-              label: (
+              labelComponent: (
                   <span className="flex items-center">
                       {x.is_private ? `🔒${x.name}` : `#${x.name}`}
                       {x.is_ext_shared ? <IconSlackExternal className="ml-05" /> : null}
                   </span>
               ),
+              label: `${x.id} #${x.name}`,
           }))
         : value
         ? [
               {
                   key: value,
-                  label: value?.split('|')?.pop(),
+                  label: value?.split('|')?.pop() || value,
               },
           ]
         : []
