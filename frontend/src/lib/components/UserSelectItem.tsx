@@ -24,6 +24,7 @@ export function usersLemonSelectOptions(
 ): LemonSelectMultipleOptionItem[] {
     return users.map((user) => ({
         key: user[key],
-        label: <UserSelectItem user={user} />,
+        label: `${user.first_name} ${user.email}`,
+        labelComponent: <UserSelectItem user={user} />,
     }))
 }

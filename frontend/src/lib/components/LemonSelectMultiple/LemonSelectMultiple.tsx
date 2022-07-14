@@ -5,9 +5,10 @@ import { LemonSnack } from '../LemonSnack/LemonSnack'
 import './LemonSelectMultiple.scss'
 
 export interface LemonSelectMultipleOption {
-    label: string | React.ReactNode
+    label: string
     disabled?: boolean
     'data-attr'?: string
+    labelComponent?: React.ReactNode
 }
 
 export interface LemonSelectMultipleOptionItem extends LemonSelectMultipleOption {
@@ -51,7 +52,8 @@ export function LemonSelectMultiple({
     const antOptions = optionsAsList.map((option) => ({
         key: option.key,
         value: option.key,
-        label: option.label,
+        label: option.labelComponent || option.label,
+        labelString: option.label || option.key,
     }))
 
     return (
@@ -66,6 +68,7 @@ export function LemonSelectMultiple({
                 tokenSeparators={[',']}
                 value={value ? value : []}
                 dropdownRender={(menu) => <div className="LemonSelectMultipleDropdown">{menu}</div>}
+                optionFilterProp="labelString"
                 options={antOptions}
                 placeholder={placeholder}
                 notFoundContent={
