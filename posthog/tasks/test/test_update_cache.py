@@ -205,7 +205,7 @@ class TestUpdateCache(APIBaseTest):
     @freeze_time("2012-01-15")
     def test_update_cache_item_calls_right_class(self) -> None:
         filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
-        insight, dashboard = self._create_dashboard(filter)
+        insight, _ = self._create_dashboard(filter)
 
         update_cache_item(
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
@@ -327,7 +327,7 @@ class TestUpdateCache(APIBaseTest):
         item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
         self.assertIsNotNone(get_safe_cache(item_key))
 
-    def _create_dashboard(self, filter: FilterType, item_refreshing: bool = False) -> Tuple[Insight, Dashboard]:
+    def _create_dashboard(self, filter: FilterType) -> Tuple[Insight, Dashboard]:
         dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
 
         insight = Insight.objects.create(
