@@ -644,7 +644,7 @@ class TestUpdateCache(APIBaseTest):
         update_insight_cache(insight, None)
 
         insight.refresh_from_db()
-        assert insight.filters_hash is not None and insight.filters_hash != test_hash
+        assert insight.filters_hash != test_hash
         assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -657,9 +657,9 @@ class TestUpdateCache(APIBaseTest):
 
         insight.refresh_from_db()
         tile.refresh_from_db()
-        assert insight.filters_hash is not None and insight.filters_hash != test_hash
+        assert insight.filters_hash != test_hash
         assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
-        assert tile.filters_hash is not None and tile.filters_hash != test_hash
+        assert tile.filters_hash != test_hash
         assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -677,7 +677,7 @@ class TestUpdateCache(APIBaseTest):
 
         assert insight.filters_hash == test_hash
         assert insight.last_refresh is None
-        assert tile.filters_hash is not None and tile.filters_hash != test_hash
+        assert tile.filters_hash != test_hash
         assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
 
     def _create_insight_with_known_cache_key(self, test_hash: str) -> Insight:
