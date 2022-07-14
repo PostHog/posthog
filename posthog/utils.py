@@ -990,3 +990,7 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     except Exception as err:
         capture_exception(err)
         return None
+
+
+def should_write_recordings_to_object_storage(team_id: int) -> bool:
+    return settings.OBJECT_STORAGE_ENABLED and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM

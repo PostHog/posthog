@@ -1,6 +1,6 @@
 import json
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import kafka.errors
 from kafka import KafkaConsumer as KC
@@ -98,13 +98,22 @@ class _KafkaProducer:
         b = json.dumps(d).encode("utf-8")
         return b
 
-    def produce(self, topic: str, data: Any, key: Any = None, value_serializer: Optional[Callable[[Any], Any]] = None):
+    def produce(
+        self,
+        topic: str,
+        data: Any,
+        key: Any = None,
+        value_serializer: Optional[Callable[[Any], Any]] = None,
+        headers: Optional[List[Tuple[str, str]]] = None,
+    ):
         if not value_serializer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        self.producer.send(topic, value=b, key=key)
+        if headers is not None:
+            headers = [(header[0], header[1].encode("utf-8")) for header in headers]
+        self.producer.send(topic, value=b, key=key, headers=headers)
 
     def close(self):
         self.producer.flush()

@@ -1,17 +1,21 @@
-export type Event = {
-    uuid: string
-    team_id: string
+export type RecordingEventGroup = {
+    teamId: number
+    sessionId: string
+    // TODO: replace string[] with a file handle that we can append to
+    events: Record<string, RecordingEvent>
+    size: number
+    oldestEventTimestamp: number
+    oldestOffset: string
+    newestOffset: string
+    timer?: NodeJS.Timeout
+}
+
+export type RecordingEvent = {
+    eventId: string
+    value: string
+    complete: boolean
     timestamp: number
-    event: string
-    data: string
+    eventType: number
+    eventSource: number
+    windowId: string
 }
-
-export type EventData = {
-    properties: {
-        $session_id: string
-        $window_id: string
-        $snapshot_data: { data: string }
-    }
-}
-
-export type SessionData = any[]

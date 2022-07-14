@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, beforeAll, expect, it, describe } from 'vitest'
+import { beforeEach, afterEach, expect, it, describe } from 'vitest'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
 import http from 'http'
 import { v4 as uuidv4 } from 'uuid'
@@ -10,34 +10,39 @@ declare module 'vitest' {
     }
 }
 
+const RECORDING_EVENTS_TOPIC = 'recording_events'
+
 describe.concurrent('ingester', () => {
+    // TODO: add tests for:
+    //
+    //  * ensuring chunks are complete before committing them
+    //  * ensure we seek to first chunk if the offset is already passed it (I
+    //    think we might actually get away with that the way we are handling
+    //    manually committing the offsets.)
+
     it('handles one event', async ({ producer }) => {
-        const teamId = uuidv4()
+        const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
         const eventUuid = uuidv4()
 
         await producer.send({
-            topic: 'events_plugin_ingestion',
+            topic: RECORDING_EVENTS_TOPIC,
             messages: [
                 {
-                    value: JSON.stringify({
-                        event: '$snapshot',
-                        team_id: teamId,
-                        uuid: eventUuid,
-                        timestamp: 1234,
-                        data: JSON.stringify({
-                            properties: {
-                                $session_id: sessionId,
-                                $window_id: windowId,
-                                $snapshot_data: {
-                                    data: gzipSync(JSON.stringify([{ uuid: eventUuid, timestamp: 123 }])).toString(
-                                        'base64'
-                                    ),
-                                },
-                            },
-                        }),
-                    }),
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '0',
+                        chunkCount: '1',
+                        teamId: '1',
+                        eventSource: '1',
+                        eventType: '3',
+                    },
+                    value: `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`,
                 },
             ],
         })
@@ -45,41 +50,186 @@ describe.concurrent('ingester', () => {
         const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
 
         expect(sessionRecording.events.length).toBe(1)
+    })
+
+    it('handles chunked events', async ({ producer }) => {
+        const teamId = '1'
+        const sessionId = uuidv4()
+        const windowId = uuidv4()
+        const eventUuid = uuidv4()
+
+        const fullEventString = `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`
+
+        const [first] = await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [
+                {
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '0',
+                        chunkCount: '2',
+                        teamId: '1',
+                        eventSource: '1',
+                        eventType: '3',
+                    },
+                    value: fullEventString.slice(0, 100),
+                },
+            ],
+        })
+
+        await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [
+                {
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '1',
+                        chunkCount: '2',
+                        chunkOffset: first.baseOffset,
+                        teamId: '1',
+                        eventSource: '1',
+                        eventType: '3',
+                    },
+                    value: fullEventString.slice(100),
+                },
+            ],
+        })
+
+        const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
+
+        expect(sessionRecording.events.length).toBe(1)
+        expect(sessionRecording.events[0]).toMatchObject(JSON.parse(fullEventString))
+    })
+
+    // TODO: Handle this case and re-enable the test
+    it.skip('handles duplicate parts of chunked events', async ({ producer }) => {
+        const teamId = '1'
+        const sessionId = uuidv4()
+        const windowId = uuidv4()
+        const eventUuid = uuidv4()
+
+        const fullEventString = `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`
+
+        const firstEvent = {
+            partition: 0,
+            headers: {
+                unixTimestamp: '1657682896740',
+                eventId: eventUuid,
+                sessionId: sessionId,
+                windowId: windowId,
+                chunkIndex: '0',
+                chunkCount: '2',
+                teamId: '1',
+                eventSource: '1',
+                eventType: '3',
+            },
+            value: fullEventString.slice(0, 100),
+        }
+        const [first] = await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [firstEvent],
+        })
+        await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [firstEvent],
+        })
+
+        await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [
+                {
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '1',
+                        chunkCount: '2',
+                        chunkOffset: first.baseOffset,
+                        teamId: '1',
+                        eventSource: '1',
+                        eventType: '3',
+                    },
+                    value: fullEventString.slice(100),
+                },
+            ],
+        })
+
+        const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
+
+        expect(sessionRecording.events.length).toBe(1)
+        expect(sessionRecording.events[0]).toMatchObject(JSON.parse(fullEventString))
+    })
+
+    // TODO: Handle this case and re-enable the test
+    it.skip('does not write incomplete events', async ({ producer }) => {
+        const teamId = '1'
+        const sessionId = uuidv4()
+        const windowId = uuidv4()
+        const eventUuid = uuidv4()
+
+        const fullEventString = `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`
+
+        await producer.send({
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: [
+                {
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '0',
+                        chunkCount: '2',
+                        teamId: '1',
+                        eventSource: '1',
+                        eventType: '3',
+                    },
+                    value: fullEventString.slice(0, 100),
+                },
+            ],
+        })
+
+        const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
+
+        expect(sessionRecording.events.length).toBe(0)
     })
 
     it('handles event larger than the max chunk limit', async ({ producer }) => {
-        const teamId = uuidv4()
+        const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
         const eventUuid = uuidv4()
 
         await producer.send({
-            topic: 'events_plugin_ingestion',
+            topic: RECORDING_EVENTS_TOPIC,
             messages: [
                 {
-                    value: JSON.stringify({
-                        event: '$snapshot',
-                        team_id: teamId,
-                        uuid: eventUuid,
-                        timestamp: 1234,
-                        data: JSON.stringify({
-                            properties: {
-                                $session_id: sessionId,
-                                $window_id: windowId,
-                                $snapshot_data: {
-                                    data: gzipSync(
-                                        JSON.stringify([
-                                            {
-                                                uuid: eventUuid,
-                                                timestamp: 123,
-                                                data: Array.from(new Array(10000).keys()),
-                                            },
-                                        ])
-                                    ).toString('base64'),
-                                },
-                            },
-                        }),
-                    }),
+                    partition: 0,
+                    headers: {
+                        unixTimestamp: '1657682896740',
+                        eventId: eventUuid,
+                        sessionId: sessionId,
+                        windowId: windowId,
+                        chunkIndex: '0',
+                        chunkCount: '1',
+                        teamId: teamId,
+                        eventSource: '1',
+                        eventType: '3',
+                    },
+                    value: `{"uuid": "${eventUuid}", "type": 3, "data": ${JSON.stringify(
+                        Array.from(new Array(100000).keys())
+                    )}, "timestamp": 1657682896740}`,
                 },
             ],
         })
@@ -89,103 +239,47 @@ describe.concurrent('ingester', () => {
         expect(sessionRecording.events.length).toBe(1)
     })
 
-    it('handles lots of events', async ({ producer }) => {
-        const teamId = uuidv4()
+    it.skip('handles lots of events', async ({ producer }) => {
+        const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
 
-        const events = Array.from(new Array(30).keys()).map((_) => {
+        const messages = Array.from(new Array(30).keys()).map((_) => {
             const eventUuid = uuidv4()
             return {
-                event: '$snapshot',
-                team_id: teamId,
-                uuid: eventUuid,
-                timestamp: 1234,
-                data: JSON.stringify({
-                    properties: {
-                        $session_id: sessionId,
-                        $window_id: windowId,
-                        $snapshot_data: {
-                            data: gzipSync(JSON.stringify([{ uuid: eventUuid, timestamp: 123 }])).toString('base64'),
-                        },
-                    },
-                }),
+                partition: 0,
+                headers: {
+                    unixTimestamp: '1657682896740',
+                    eventId: eventUuid,
+                    sessionId: sessionId,
+                    windowId: windowId,
+                    chunkIndex: '0',
+                    chunkCount: '1',
+                    teamId: teamId,
+                    eventSource: '1',
+                    eventType: '3',
+                },
+                value: `{"uuid": "${eventUuid}", "type": 3, "data": {"source": 1, "positions": [{"x": 829, "y": 154, "id": 367, "timeOffset": 0}]}, "timestamp": 1657682896740}`,
             }
         })
 
         await producer.send({
-            topic: 'events_plugin_ingestion',
-            messages: events.map((event) => ({
-                value: JSON.stringify(event),
-            })),
+            topic: RECORDING_EVENTS_TOPIC,
+            messages: messages,
         })
 
-        const sessionRecording = await waitForSessionRecording(teamId, sessionId, events.slice(-1)[0].uuid)
-        expect(sessionRecording.events.map((event) => event.uuid)).toStrictEqual(events.map((event) => event.uuid))
+        const sessionRecording = await waitForSessionRecording(
+            teamId,
+            sessionId,
+            messages.slice(-1)[0].headers.eventId.toString()
+        )
+        expect(sessionRecording.events.map((event) => event.uuid)).toStrictEqual(
+            messages.map((message) => message.headers.eventId.toString())
+        )
     })
 
-    it('ignores non $snapshot events', async ({ producer }) => {
-        const teamId = uuidv4()
-        const sessionId = uuidv4()
-        const windowId = uuidv4()
-        const eventUuid = uuidv4()
-
-        await producer.send({
-            topic: 'events_plugin_ingestion',
-            messages: [
-                {
-                    value: JSON.stringify({
-                        event: '$notasnapshot',
-                        team_id: teamId,
-                        uuid: eventUuid,
-                        timestamp: 1234,
-                        data: JSON.stringify({
-                            properties: {
-                                $session_id: sessionId,
-                                $window_id: windowId,
-                                $snapshot_data: {
-                                    data: gzipSync(JSON.stringify([{ uuid: eventUuid, timestamp: 123 }])).toString(
-                                        'base64'
-                                    ),
-                                },
-                            },
-                        }),
-                    }),
-                },
-            ],
-        })
-
-        const snapshotEventUuid = uuidv4()
-
-        await producer.send({
-            topic: 'events_plugin_ingestion',
-            messages: [
-                {
-                    value: JSON.stringify({
-                        event: '$snapshot',
-                        team_id: teamId,
-                        uuid: snapshotEventUuid,
-                        timestamp: 1234,
-                        data: JSON.stringify({
-                            properties: {
-                                $session_id: sessionId,
-                                $window_id: windowId,
-                                $snapshot_data: {
-                                    data: gzipSync(
-                                        JSON.stringify([{ uuid: snapshotEventUuid, timestamp: 123 }])
-                                    ).toString('base64'),
-                                },
-                            },
-                        }),
-                    }),
-                },
-            ],
-        })
-
-        const sessionRecording = await waitForSessionRecording(teamId, sessionId, snapshotEventUuid)
-
-        expect(sessionRecording.events.length).toBe(1)
-    })
+    // TODO: implement producing messages for ClickHouse to read
+    it.skip('produces messages to Kafka for the purposes of analytics, e.g. ClickHouse queries', () => {})
 })
 
 const getSessionRecording = async (teamId: string, sessionId: string): Promise<{ events: any[] }> => {

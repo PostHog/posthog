@@ -15,10 +15,11 @@
         "build": "swc ./src/ --out-dir ./dist",
         "test": "vitest",
         "start:ingester:dev": "NODE_ENV=dev nodemon -w src/ src/ingester/index.ts",
-        "start:ingester:prod": "nodemon dist/api.js",
+        "start:ingester:prod": "NODE_ENV=production node dist/ingester/index.js",
         "start:api:dev": "NODE_ENV=dev nodemon -w src/ src/api.ts",
-        "start:api:prod": "node dist/api.js",
-        "start": "yarn start:api:dev & yarn start:ingester:dev"
+        "start:api:prod": "NODE_ENV=production node dist/api.js",
+        "start": "trap 'kill $(jobs -p)' EXIT; yarn start:api:dev & yarn start:ingester:dev",
+        "start:prod": "trap 'kill $(jobs -p)' EXIT; yarn start:api:prod & yarn start:ingester:prod"
     },
     "devDependencies": {
         "@swc/cli": "^0.1.57",

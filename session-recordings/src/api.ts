@@ -11,7 +11,7 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
     // Fetch events for the specified session recording
     // TODO: habdle time range querying, list pagination
 
-    const prefix = `team_id/${teamId}/session_id/${sessionId}/window_id/`
+    const prefix = `team_id/${teamId}/session_id/${sessionId}/data/`
 
     console.debug({ action: 'fetch_session', teamId, sessionId, prefix })
 
@@ -39,11 +39,11 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
 
     // TODO: we probably don't need to parse JSON here if we're careful and
     // construct the JSON progressively
-    const events = blobs.flatMap((blob) => blob.split('\n').map((line) => JSON.parse(line)))
+    const events = blobs.flatMap((blob) => blob.split('\n'))
 
-    console.debug({ action: 'returning_session', events })
+    console.debug({ action: 'returning_session', events: '[' + events.join(',') + ']' })
 
-    return res.json({ events })
+    return res.send(`{"events": [${events.join(',')}]}`)
 })
 
 const app = express()
