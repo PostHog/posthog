@@ -53,7 +53,7 @@ export function LemonSelectMultiple({
         key: option.key,
         value: option.key,
         label: option.labelComponent || option.label,
-        labelString: option.label || option.key,
+        labelString: option.label,
     }))
 
     return (
