@@ -108,15 +108,16 @@ class TestCSVExporter(APIBaseTest):
             )
             assert self.exported_asset.content_location is None
 
-    @patch("posthog.tasks.exports.csv_exporter.UUIDT")
+    @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt) -> None:
         mocked_uuidt.return_value = "a-guid"
+
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_csv(self.exported_asset)
 
             assert (
                 self.exported_asset.content_location
-                == f"/{TEST_BUCKET}/csvs/team-{self.team.id}/task-{self.exported_asset.id}/a-guid"
+                == f"/{TEST_BUCKET}/csv/team-{self.team.id}/task-{self.exported_asset.id}/a-guid"
             )
 
             content = object_storage.read(self.exported_asset.content_location)
@@ -127,10 +128,10 @@ class TestCSVExporter(APIBaseTest):
 
             assert self.exported_asset.content is None
 
-    @patch("posthog.tasks.exports.csv_exporter.UUIDT")
-    @patch("posthog.tasks.exports.csv_exporter.object_storage.write")
-    def test_csv_exporter_writes_to_object_storage_when_object_storage_write_fails(
-        self, mocked_uuidt, mocked_object_storage_write
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_writes_to_asset_when_object_storage_write_fails(
+        self, mocked_object_storage_write, mocked_uuidt
     ) -> None:
         mocked_uuidt.return_value = "a-guid"
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
