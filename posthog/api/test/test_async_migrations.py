@@ -41,26 +41,28 @@ class TestAsyncMigration(APIBaseTest):
         self.assertEqual(response["detail"], "You are not a staff user, contact your instance admin.")
 
     def test_get_async_migrations(self):
-        create_async_migration()
-        create_async_migration(name="test2")
+        create_async_migration(name="0002_events_sample_by")
+        create_async_migration(name="0003_fill_person_distinct_id2")
 
         response = self.client.get(f"/api/async_migrations/").json()
 
         self.assertEqual(len(response["results"]), 2)
-        self.assertEqual(response["results"][0]["name"], "test1")
-        self.assertEqual(response["results"][1]["name"], "test2")
+        self.assertEqual(response["results"][0]["name"], "0002_events_sample_by")
+        self.assertEqual(response["results"][1]["name"], "0003_fill_person_distinct_id2")
 
     @patch("posthog.tasks.async_migrations.run_async_migration.delay")
     def test_trigger_endpoint(self, mock_run_async_migration):
         sm1 = create_async_migration()
-        # sm2 = create_async_migration(name="test2")
 
-        response = self.client.post(f"/api/async_migrations/{sm1.id}/trigger").json()
+        response = self.client.post(
+            f"/api/async_migrations/{sm1.id}/trigger", {"parameters": {"SOME_KEY": 1234}}
+        ).json()
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_called_once()
         self.assertEqual(response["success"], True)
         self.assertEqual(sm1.status, MigrationStatus.Starting)
+        self.assertEqual(sm1.parameters, {"SOME_KEY": 1234})
 
     @patch("posthog.tasks.async_migrations.run_async_migration.delay")
     def test_trigger_with_another_migration_running(self, mock_run_async_migration):
