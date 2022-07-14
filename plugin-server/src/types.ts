@@ -201,13 +201,12 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
-    processPluginJobs?: boolean
+    processJobs?: boolean
     processAsyncHandlers?: boolean
     http?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
-export interface EnqueuedPluginJob {
+export interface EnqueuedJob {
     type: string
     payload: Record<string, any>
     timestamp: number
@@ -215,14 +214,8 @@ export interface EnqueuedPluginJob {
     pluginConfigTeam: number
 }
 
-export interface EnqueuedBufferJob {
-    eventPayload: PluginEvent
-    timestamp: number
-}
-
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
-    BUFFER_JOB = 'bufferJob',
 }
 
 export interface JobQueue {
