@@ -298,6 +298,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 object: { name: featureFlag.name, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
+                    featureFlagsLogic.findMounted()?.actions.loadFeatureFlags()
                     router.actions.push(urls.featureFlags())
                 },
             })
