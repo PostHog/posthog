@@ -76,17 +76,17 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
 
 def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> Optional[AsyncMigration]:
-    if migration.is_shown():
-        sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
-
-        sm.description = migration.description
-        sm.posthog_max_version = migration.posthog_max_version
-        sm.posthog_min_version = migration.posthog_min_version
-
-        sm.save()
-        return sm
-    else:
+    if not migration.is_hidden():
         return None
+
+    sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
+
+    sm.description = migration.description
+    sm.posthog_max_version = migration.posthog_max_version
+    sm.posthog_min_version = migration.posthog_min_version
+
+    sm.save()
+    return sm
 
 
 def kickstart_migration_if_possible(migration_name: str, applied_migrations: set):

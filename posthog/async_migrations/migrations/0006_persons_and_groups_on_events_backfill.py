@@ -62,8 +62,8 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0005_person_replacing_by_version"
 
-    def is_shown(self) -> bool:
-        return get_instance_setting("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION")
+    def is_hidden(self) -> bool:
+        return not (get_instance_setting("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION") or settings.TEST)
 
     def precheck(self):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)

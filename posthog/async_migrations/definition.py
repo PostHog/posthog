@@ -98,10 +98,10 @@ class AsyncMigrationDefinition:
     # name of async migration this migration depends on
     depends_on: Optional[str] = None
 
-    # run before 'registering' the migration in the UI. Returns a boolean specifying if the instance should
-    # show this migration in the UI
-    def is_shown(self) -> bool:
-        return True
+    # run before creating the migration model. Returns a boolean specifying if the instance should
+    # set up the AsyncMigration model and show this migration in the UI
+    def is_hidden(self) -> bool:
+        return False
 
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
     # e.g. instances where fresh setups are already set up correctly

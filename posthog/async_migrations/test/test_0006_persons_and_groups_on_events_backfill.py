@@ -11,7 +11,6 @@ from posthog.models import Person
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.instance_setting import set_instance_setting
 from posthog.models.person.util import create_person, create_person_distinct_id, delete_person
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
@@ -62,7 +61,6 @@ def query_events() -> List[Dict]:
 @pytest.mark.async_migrations
 class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
-        set_instance_setting("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION", True)
         self.clear_tables()
         super().setUp()
 
