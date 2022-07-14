@@ -57,6 +57,12 @@ export interface AsyncMigration {
     parameter_definitions: Record<string, [number, string]>
 }
 
+export interface AsyncMigrationModalProps {
+    migration: AsyncMigration
+    endpoint: string
+    message: string
+}
+
 export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
     path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
     actions: {
@@ -78,6 +84,12 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
             errors,
         }),
         loadAsyncMigrationErrorsFailure: (migrationId: number, error: any) => ({ migrationId, error }),
+        openAsyncMigrationsModal: (migration: AsyncMigration, endpoint: string, message: string) => ({
+            migration,
+            endpoint,
+            message,
+        }),
+        closeAsyncMigrationsModal: true,
     },
 
     reducers: {
@@ -102,6 +114,14 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                 loadAsyncMigrationErrorsFailure: (state, { migrationId }) => {
                     return { ...state, [migrationId]: false }
                 },
+            },
+        ],
+        activeAsyncMigrationModal: [
+            null as AsyncMigrationModalProps | null,
+            {
+                openAsyncMigrationsModal: (_, payload) => payload,
+                closeAsyncMigrationsModal: () => null,
+                updateMigrationStatus: () => null,
             },
         ],
     },
@@ -143,10 +163,18 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
 
     listeners: ({ actions }) => ({
         triggerMigration: async ({ migration }) => {
-            actions.updateMigrationStatus(migration, 'trigger', 'Migration triggered successfully')
+            if (Object.keys(migration.parameter_definitions).length > 0) {
+                actions.openAsyncMigrationsModal(migration, 'trigger', 'Migration triggered successfully')
+            } else {
+                actions.updateMigrationStatus(migration, 'trigger', 'Migration triggered successfully')
+            }
         },
         resumeMigration: async ({ migration }) => {
-            actions.updateMigrationStatus(migration, 'resume', 'Migration resume triggered successfully')
+            if (Object.keys(migration.parameter_definitions).length > 0) {
+                actions.openAsyncMigrationsModal(migration, 'resume', 'Migration resume triggered successfully')
+            } else {
+                actions.updateMigrationStatus(migration, 'resume', 'Migration resume triggered successfully')
+            }
         },
         rollbackMigration: async ({ migration }) => {
             actions.updateMigrationStatus(migration, 'rollback', 'Migration rollback triggered successfully')
@@ -162,7 +190,9 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
             )
         },
         updateMigrationStatus: async ({ migration, endpoint, message }) => {
-            const res = await api.create(`/api/async_migrations/${migration.id}/${endpoint}`)
+            const res = await api.create(`/api/async_migrations/${migration.id}/${endpoint}`, {
+                parameters: migration.parameters,
+            })
             if (res.success) {
                 lemonToast.success(message)
                 actions.loadAsyncMigrations()

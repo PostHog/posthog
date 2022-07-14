@@ -63,13 +63,13 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0005_person_replacing_by_version"
 
     parameters = {
-        "PERSON_DICT_CACHE_SIZE": (5000000, "(Advanced) How big of a in-memory cache to use for persons data.", int),
+        "PERSON_DICT_CACHE_SIZE": (5000000, "ClickHouse cache size (in rows) for persons data.", int),
         "PERSON_DISTINCT_ID_DICT_CACHE_SIZE": (
             5000000,
-            "(Advanced) How big of a in-memory cache to use for person distinct id data.",
+            "ClickHouse cache size (in rows) for person distinct id data.",
             int,
         ),
-        "GROUPS_DICT_CACHE_SIZE": (1000000, "(Advanced) How big of a in-memory cache to use for groups data.", int),
+        "GROUPS_DICT_CACHE_SIZE": (1000000, "ClickHouse cache size (in rows) for groups data.", int),
     }
 
     def is_hidden(self) -> bool:

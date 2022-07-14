@@ -101,6 +101,7 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         migration_instance.status = MigrationStatus.Starting
+        migration_instance.parameters = request.data.get("parameters", {})
         migration_instance.save()
 
         trigger_migration(migration_instance)
@@ -115,6 +116,7 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         migration_instance.status = MigrationStatus.Running
+        migration_instance.parameters = request.data.get("parameters", {})
         migration_instance.save()
 
         trigger_migration(migration_instance, fresh_start=False)

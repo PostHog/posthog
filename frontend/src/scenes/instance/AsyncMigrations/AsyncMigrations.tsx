@@ -22,6 +22,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
 import { IconRefresh, IconReplay } from 'lib/components/icons'
+import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 
 const { TabPane } = Tabs
 
@@ -34,8 +35,14 @@ const STATUS_RELOAD_INTERVAL_MS = 3000
 
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { asyncMigrations, asyncMigrationsLoading, activeTab, asyncMigrationSettings, isAnyMigrationRunning } =
-        useValues(asyncMigrationsLogic)
+    const {
+        asyncMigrations,
+        asyncMigrationsLoading,
+        activeTab,
+        asyncMigrationSettings,
+        isAnyMigrationRunning,
+        activeAsyncMigrationModal,
+    } = useValues(asyncMigrationsLogic)
     const {
         triggerMigration,
         resumeMigration,
@@ -260,6 +267,9 @@ export function AsyncMigrations(): JSX.Element {
                                 dataSource={asyncMigrations}
                                 expandable={rowExpansion}
                             />
+                            {activeAsyncMigrationModal ? (
+                                <AsyncMigrationParametersModal {...activeAsyncMigrationModal} />
+                            ) : null}
                         </>
                     ) : activeTab === AsyncMigrationsTab.Settings ? (
                         <>
