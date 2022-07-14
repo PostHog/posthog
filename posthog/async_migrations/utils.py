@@ -137,7 +137,7 @@ def _get_number_running_on_cluster(query_pattern: str) -> int:
         """
         SELECT count()
         FROM clusterAllReplicas(%(cluster)s, system, 'processes')
-        WHERE query LIKE %(query_pattern)s
+        WHERE query LIKE %(query_pattern)s AND query NOT LIKE '%%clusterAllReplicas%%'
         """,
         {"cluster": CLICKHOUSE_CLUSTER, "query_pattern": query_pattern},
     )[0][0]
