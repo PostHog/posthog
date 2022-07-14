@@ -41,7 +41,7 @@ function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, plu
     if (serverCapability === 'pluginScheduledTasks') {
         return (pluginCapabilities.scheduled_tasks || []).length > 0
     }
-    if (serverCapability === 'processPluginJobs') {
+    if (serverCapability === 'processJobs') {
         return (pluginCapabilities.jobs || []).length > 0
     }
     if (serverCapability === 'processAsyncHandlers') {

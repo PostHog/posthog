@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 
-import { Hub, IngestionPersonData, JobName, TeamId } from '../../../types'
+import { Hub, IngestionPersonData, TeamId } from '../../../types'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function emitToBufferStep(
@@ -20,12 +21,8 @@ export async function emitToBufferStep(
     const person = await runner.hub.db.fetchPerson(event.team_id, event.distinct_id)
 
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
-        const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
-        await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, {
-            eventPayload: event,
-            timestamp: processEventAt,
-        })
-        runner.hub.statsd?.increment('events_sent_to_buffer')
+        const processEventAt = DateTime.now().plus({ seconds: runner.hub.BUFFER_CONVERSION_SECONDS })
+        await runner.hub.db.addEventToBuffer(event, processEventAt)
         return null
     } else {
         return runner.nextStep('pluginsProcessEventStep', event, person)

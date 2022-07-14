@@ -72,12 +72,7 @@ describe('capabilities', () => {
 
             it('returns false if the plugin has no capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
-                    {
-                        ingestion: true,
-                        processAsyncHandlers: true,
-                        processPluginJobs: true,
-                        pluginScheduledTasks: true,
-                    },
+                    { ingestion: true, processAsyncHandlers: true, processJobs: true, pluginScheduledTasks: true },
                     {}
                 )
                 expect(shouldSetupPlugin).toEqual(false)
@@ -122,13 +117,13 @@ describe('capabilities', () => {
         })
 
         describe('jobs', () => {
-            it('returns true if plugin has any jobs and the server has processPluginJobs capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer({ processPluginJobs: true }, { jobs: ['someJob'] })
+            it('returns true if plugin has any jobs and the server has processJobs capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer({ processJobs: true }, { jobs: ['someJob'] })
                 expect(shouldSetupPlugin).toEqual(true)
             })
 
-            it('returns false if plugin has no jobs and the server has only processPluginJobs capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer({ processPluginJobs: true }, { jobs: [] })
+            it('returns false if plugin has no jobs and the server has only processJobs capability', () => {
+                const shouldSetupPlugin = shouldSetupPluginInServer({ processJobs: true }, { jobs: [] })
                 expect(shouldSetupPlugin).toEqual(false)
             })
         })
