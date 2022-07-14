@@ -3,6 +3,12 @@
 from django.db import migrations, models
 
 
+# :KLUDGE: Work around test_migrations_are_safe
+class AddFiendNullSafe(migrations.AddField):
+    def describe(self):
+        return super().describe() + " -- not-null-ignore"
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,5 +16,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="asyncmigration", name="parameters", field=models.JSONField(default=dict),),
+        AddFiendNullSafe(model_name="asyncmigration", name="parameters", field=models.JSONField(default=dict),),
     ]
