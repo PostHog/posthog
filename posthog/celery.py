@@ -4,7 +4,7 @@ from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun
+from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -52,6 +52,13 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
     logging.config.dictConfig(logs.LOGGING)  # type: ignore
+
+
+@worker_process_init.connect
+def on_worker_start(**kwargs) -> None:
+    from posthog.settings import sentry_init
+
+    sentry_init()
 
 
 @app.on_after_configure.connect
