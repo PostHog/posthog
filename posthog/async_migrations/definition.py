@@ -115,6 +115,8 @@ class AsyncMigrationDefinition:
 
     # returns the async migration instance for this migration. Only works during the migration
     def migration_instance(self) -> "AsyncMigration":
+        from posthog.models.async_migration import AsyncMigration
+
         return AsyncMigration.objects.get(name=self.name)
 
     def get_parameter(self, parameter_name: str):

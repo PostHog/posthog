@@ -102,7 +102,7 @@ class TestAsyncMigration(APIBaseTest):
 
     @patch("posthog.async_migrations.runner.get_async_migration_definition")
     def test_force_rollback_endpoint(self, mock_get_migration_definition):
-        mock_get_migration_definition.return_value = AsyncMigrationDefinition()
+        mock_get_migration_definition.return_value = AsyncMigrationDefinition(name="foo")
         sm1 = create_async_migration(status=MigrationStatus.CompletedSuccessfully)
 
         response = self.client.post(f"/api/async_migrations/{sm1.id}/force_rollback").json()
