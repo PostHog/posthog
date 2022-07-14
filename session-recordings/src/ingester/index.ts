@@ -4,7 +4,7 @@ import { RecordingEvent, RecordingEventGroup } from '../types'
 import { s3Client } from '../s3'
 import { meterProvider } from './metrics'
 import { performance } from 'perf_hooks'
-import { getEventGroupDataString } from './utils'
+import { getEventGroupDataString, getEventGroupMetadata } from './utils'
 
 const maxEventGroupAge = Number.parseInt(
     process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
@@ -59,9 +59,8 @@ consumer.run({
         const sessionId = message.headers.sessionId.toString()
         const windowId = message.headers.windowId.toString()
         const eventId = message.headers.eventId.toString()
-        const eventSource = Number.parseInt(message.headers.eventId.toString())
-        const eventType = Number.parseInt(message.headers.eventId.toString())
-
+        const eventSource = Number.parseInt(message.headers.eventSource.toString())
+        const eventType = Number.parseInt(message.headers.eventType.toString())
         const teamId = Number.parseInt(message.headers.teamId.toString())
         const unixTimestamp = Number.parseInt(message.headers.unixTimestamp.toString())
         const chunkCount = Number.parseInt(message.headers.chunkCount.toString())
@@ -84,6 +83,13 @@ consumer.run({
             console.debug({ action: 'committing_event_group', sessionId: eventGroup.sessionId, key: dataKey })
 
             const sendStartTime = performance.now()
+            await s3Client.send(
+                new PutObjectCommand({
+                    Bucket: 'posthog',
+                    Key: metaDataKey,
+                    Body: getEventGroupMetadata(eventGroup),
+                })
+            )
             await s3Client.send(
                 new PutObjectCommand({
                     Bucket: 'posthog',
