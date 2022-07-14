@@ -16,6 +16,7 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlagMatcher
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -203,12 +204,13 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         )
         groups = json.loads(request.GET.get("groups", "{}"))
         flags = []
+        matches = FeatureFlagMatcher(list(feature_flags), request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
-            match = feature_flag.matches(request.user.distinct_id, groups)
-            value = (match.variant or True) if match else False
-
             flags.append(
-                {"feature_flag": FeatureFlagSerializer(feature_flag).data, "value": value,}
+                {
+                    "feature_flag": FeatureFlagSerializer(feature_flag).data,
+                    "value": matches.get(feature_flag.key, False),
+                }
             )
         return Response(flags)
 

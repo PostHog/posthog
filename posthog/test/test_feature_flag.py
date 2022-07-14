@@ -17,26 +17,26 @@ class TestFeatureFlagMatcher(BaseTest):
     def test_blank_flag(self):
         # Blank feature flags now default to be released for everyone
         feature_flag = self.create_feature_flag()
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "another_id").get_match(), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag), FeatureFlagMatch())
 
     def test_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"rollout_percentage": 50}]})
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
     def test_empty_group(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{}]})
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "another_id").get_match(), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag), FeatureFlagMatch())
 
     def test_null_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": None}]})
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
 
     def test_zero_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": 0}]})
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), None)
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), None)
 
     def test_complicated_flag(self):
         Person.objects.create(
@@ -57,9 +57,76 @@ class TestFeatureFlagMatcher(BaseTest):
             }
         )
 
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "test_id").get_match(), FeatureFlagMatch())
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag), FeatureFlagMatch())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
+
+    def test_multiple_flags(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},
+        )
+        self.create_groups()
+        feature_flag_one = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                    {"rollout_percentage": 50},
+                ]
+            },
+            key="one",
+        )
+        feature_flag_always_match = self.create_feature_flag(
+            filters={"groups": [{"rollout_percentage": 100}]}, key="always_match"
+        )
+        feature_flag_never_match = self.create_feature_flag(
+            filters={"groups": [{"rollout_percentage": 0}]}, key="never_match"
+        )
+        feature_flag_group_match = self.create_feature_flag(
+            filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 100}],}, key="group_match"
+        )
+        feature_flag_group_no_match = self.create_feature_flag(
+            filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 0}],}, key="group_no_match"
+        )
+        feature_flag_variant = self.create_feature_flag(
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ],
+                },
+            },
+            key="variant",
+        )
+        with self.assertNumQueries(1):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [
+                        feature_flag_one,
+                        feature_flag_always_match,
+                        feature_flag_never_match,
+                        feature_flag_group_match,
+                        feature_flag_group_no_match,
+                        feature_flag_variant,
+                    ],
+                    "test_id",
+                    {"project": "group_key"},
+                ).get_matches(),
+                {
+                    "one": True,
+                    "always_match": True,
+                    "group_match": True,
+                    "variant": "first-variant"
+                    # never_match and group_no_match don't match
+                },
+            )
 
     def test_multi_property_filters(self):
         Person.objects.create(
@@ -77,10 +144,14 @@ class TestFeatureFlagMatcher(BaseTest):
             }
         )
         with self.assertNumQueries(1):
-            self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch()
+            )
         with self.assertNumQueries(1):
-            self.assertEqual(FeatureFlagMatcher(feature_flag, "another_id").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "false_id").get_match())
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag), FeatureFlagMatch()
+            )
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "false_id").get_match(feature_flag))
 
     def test_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
@@ -97,13 +168,13 @@ class TestFeatureFlagMatcher(BaseTest):
 
         feature_flag.update_cohorts()
 
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_1").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
     def test_legacy_property_filters(self):
         Person.objects.create(
@@ -113,8 +184,8 @@ class TestFeatureFlagMatcher(BaseTest):
             team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"},
         )
         feature_flag = self.create_feature_flag(filters={"properties": [{"key": "email", "value": "tim@posthog.com"}]},)
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
     def test_legacy_rollout_and_property_filter(self):
         Person.objects.create(
@@ -131,9 +202,11 @@ class TestFeatureFlagMatcher(BaseTest):
             filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
         )
         with self.assertNumQueries(1):
-            self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "id_number_3").get_match())
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch()
+            )
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "id_number_3").get_match(feature_flag))
 
     def test_legacy_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_2"], properties={"$some_prop_2": "something_2"})
@@ -150,8 +223,8 @@ class TestFeatureFlagMatcher(BaseTest):
 
         feature_flag.update_cohorts()
 
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "example_id_2").get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "another_id").get_match())
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id_2").get_match(feature_flag), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
     def test_variants(self):
         feature_flag = self.create_feature_flag(
@@ -167,11 +240,16 @@ class TestFeatureFlagMatcher(BaseTest):
             }
         )
 
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "11").get_match(), FeatureFlagMatch(variant="first-variant"))
         self.assertEqual(
-            FeatureFlagMatcher(feature_flag, "example_id").get_match(), FeatureFlagMatch(variant="second-variant")
+            FeatureFlagMatcher([feature_flag], "11").get_match(feature_flag), FeatureFlagMatch(variant="first-variant")
         )
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "3").get_match(), FeatureFlagMatch(variant="third-variant"))
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(variant="second-variant"),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "3").get_match(feature_flag), FeatureFlagMatch(variant="third-variant")
+        )
 
     def test_flag_by_groups_with_rollout_100(self):
         self.create_groups()
@@ -179,10 +257,12 @@ class TestFeatureFlagMatcher(BaseTest):
             filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 100}],}
         )
 
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "").get_match())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "", {"unknown": "group_key"}).get_match())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "", {"organization": "group_key"}).get_match())
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "", {"project": "group_key"}).get_match(), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "").get_match(feature_flag))
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "", {"unknown": "group_key"}).get_match(feature_flag))
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "", {"organization": "group_key"}).get_match(feature_flag))
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "", {"project": "group_key"}).get_match(feature_flag), FeatureFlagMatch()
+        )
 
     def test_flag_by_groups_with_rollout_50(self):
         self.create_groups()
@@ -190,8 +270,10 @@ class TestFeatureFlagMatcher(BaseTest):
             filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 50}],}
         )
 
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "", {"project": "1"}).get_match())
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "", {"project": "4"}).get_match(), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "", {"project": "1"}).get_match(feature_flag))
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "", {"project": "4"}).get_match(feature_flag), FeatureFlagMatch()
+        )
 
     def test_flag_by_group_properties(self):
         self.create_groups()
@@ -203,8 +285,10 @@ class TestFeatureFlagMatcher(BaseTest):
                 ],
             }
         )
-        self.assertEqual(FeatureFlagMatcher(feature_flag, "", {"organization": "foo"}).get_match(), FeatureFlagMatch())
-        self.assertIsNone(FeatureFlagMatcher(feature_flag, "", {"organization": "bar"}).get_match())
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "", {"organization": "foo"}).get_match(feature_flag), FeatureFlagMatch()
+        )
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "", {"organization": "bar"}).get_match(feature_flag))
 
     def create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -216,10 +300,8 @@ class TestFeatureFlagMatcher(BaseTest):
             team=self.team, group_type_index=0, group_key="bar", group_properties={"name": "var.inc"}, version=1
         )
 
-    def create_feature_flag(self, **kwargs):
-        return FeatureFlag.objects.create(
-            team=self.team, name="Beta feature", key="beta-feature", created_by=self.user, **kwargs
-        )
+    def create_feature_flag(self, key="beta-feature", **kwargs):
+        return FeatureFlag.objects.create(team=self.team, name="Beta feature", key=key, created_by=self.user, **kwargs)
 
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
