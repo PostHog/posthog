@@ -1,0 +1,19 @@
+{
+    "jsc": {
+        "parser": {
+            "syntax": "typescript",
+            "tsx": false,
+            "decorators": true,
+            "dynamicImport": true
+        },
+        "target": "es2020",
+        "paths": {
+            "@routes/*": ["./src/routes/*"],
+            "@middlewares/*": ["./src/middlewares/*"]
+        },
+        "baseUrl": "."
+    },
+    "module": {
+        "type": "commonjs"
+    }
+}
