@@ -6,7 +6,13 @@ from rest_framework import exceptions, mixins, permissions, serializers, viewset
 from posthog.models.instance_setting import get_instance_setting as get_instance_setting_raw
 from posthog.models.instance_setting import set_instance_setting as set_instance_setting_raw
 from posthog.permissions import IsStaffUser
-from posthog.settings import CONSTANCE_CONFIG, MULTI_TENANCY, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
+from posthog.settings import (
+    CONSTANCE_CONFIG,
+    MULTI_TENANCY,
+    SECRET_SETTINGS,
+    SETTINGS_ALLOWING_API_OVERRIDE,
+    SKIP_ASYNC_MIGRATIONS_SETUP,
+)
 from posthog.utils import str_to_bool
 
 
@@ -92,7 +98,8 @@ class InstanceSettingsSerializer(serializers.Serializer):
         elif instance.key.startswith("ASYNC_MIGRATION"):
             from posthog.async_migrations.setup import setup_async_migrations
 
-            setup_async_migrations()
+            if not SKIP_ASYNC_MIGRATIONS_SETUP:
+                setup_async_migrations()
 
         return instance
 
