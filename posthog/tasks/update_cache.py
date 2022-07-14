@@ -251,6 +251,7 @@ def insight_update_task_params(insight: Insight, dashboard: Optional[Dashboard] 
     return cache_key, cache_type, payload
 
 
+@timed("update_cache_item_timer.calculate_by_filter")
 def _calculate_by_filter(filter: FilterType, key: str, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
@@ -261,6 +262,7 @@ def _calculate_by_filter(filter: FilterType, key: str, team: Team, cache_type: C
     return result
 
 
+@timed("update_cache_item_timer.calculate_funnel")
 def _calculate_funnel(filter: Filter, key: str, team: Team) -> List[Dict[str, Any]]:
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         result = ClickhouseFunnelTrends(team=team, filter=filter).run()
