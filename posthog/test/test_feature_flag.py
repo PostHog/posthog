@@ -5,6 +5,7 @@ from posthog.models.feature_flag import (
     FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
     FeatureFlagMatcher,
+    FlagsMatcherCache,
     get_active_feature_flags,
     hash_key_overrides,
     set_feature_flag_hash_key_overrides,
@@ -105,7 +106,7 @@ class TestFeatureFlagMatcher(BaseTest):
             },
             key="variant",
         )
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(3):  # 2 to fill group cache, only 1 to match all feature flags
             self.assertEqual(
                 FeatureFlagMatcher(
                     [
@@ -118,6 +119,7 @@ class TestFeatureFlagMatcher(BaseTest):
                     ],
                     "test_id",
                     {"project": "group_key"},
+                    FlagsMatcherCache(self.team.id),
                 ).get_matches(),
                 {
                     "one": True,
