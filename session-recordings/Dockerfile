@@ -9,6 +9,7 @@ COPY package.json yarn.lock ./
 RUN yarn --frozen-lockfile
 
 COPY tsconfig.json ./
+COPY .swcrc ./
 COPY src ./src
 
 RUN yarn build
