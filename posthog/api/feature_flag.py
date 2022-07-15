@@ -204,7 +204,13 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         )
         groups = json.loads(request.GET.get("groups", "{}"))
         flags = []
-        matches = FeatureFlagMatcher(list(feature_flags), request.user.distinct_id, groups).get_matches()
+
+        feature_flag_list = list(feature_flags)
+
+        if not feature_flag_list:
+            return Response(flags)
+
+        matches = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
             flags.append(
                 {
