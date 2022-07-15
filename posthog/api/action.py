@@ -16,7 +16,7 @@ from rest_hooks.signals import raw_hook_event
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
@@ -159,6 +159,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [
+        JwtAuthentication,
         TemporaryTokenAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
