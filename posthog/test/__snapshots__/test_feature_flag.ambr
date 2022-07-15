@@ -72,11 +72,11 @@
 ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.3
   '
-  SELECT ("posthog_person"."properties" -> 'email') = '"test@posthog.com"' AS "flag_43_condition_0",
-         (true) AS "flag_43_condition_1",
-         (true) AS "flag_44_condition_0",
-         (true) AS "flag_45_condition_0",
-         (true) AS "flag_49_condition_0"
+  SELECT ("posthog_person"."properties" -> 'email') = '"test@posthog.com"' AS "flag_87_condition_0",
+         (true) AS "flag_87_condition_1",
+         (true) AS "flag_88_condition_0",
+         (true) AS "flag_89_condition_0",
+         (true) AS "flag_93_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'test_id'
@@ -87,12 +87,12 @@
 # name: TestFeatureFlagMatcher.test_multiple_flags.4
   '
   SELECT ("posthog_group"."group_key" = 'group_key'
-          AND "posthog_group"."group_type_index" = 2) AS "flag_46_condition_0",
+          AND "posthog_group"."group_type_index" = 2) AS "flag_90_condition_0",
          ("posthog_group"."group_key" = 'group_key'
-          AND "posthog_group"."group_type_index" = 2) AS "flag_47_condition_0",
+          AND "posthog_group"."group_type_index" = 2) AS "flag_91_condition_0",
          (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"')
           AND "posthog_group"."group_key" = 'foo'
-          AND "posthog_group"."group_type_index" = 2) AS "flag_48_condition_0"
+          AND "posthog_group"."group_type_index" = 2) AS "flag_92_condition_0"
   FROM "posthog_group"
   WHERE "posthog_group"."team_id" = 2
   '
