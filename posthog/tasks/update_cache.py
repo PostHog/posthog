@@ -71,15 +71,22 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     elif insight_result is not None:
         result = insight_result
     else:
+        dashboard_id = payload.get("dashboard_id", None)
+        insight_id = payload.get("insight_id", "unknown")
         statsd.incr(
             "update_cache_item_no_results",
-            tags={
-                "team": team_id,
-                "cache_key": key,
-                "insight_id": payload.get("insight_id", "unknown"),
-                "dashboard_id": payload.get("dashboard_id", None),
-            },
+            tags={"team": team_id, "cache_key": key, "insight_id": insight_id, "dashboard_id": dashboard_id,},
         )
+        # there is strong likelihood these querysets match no insights or dashboard tiles
+        _mark_refresh_attempt_for(insights_queryset)
+        _mark_refresh_attempt_for(dashboard_tiles_queryset)
+        # so mark the item that triggered the update
+        if insight_id != "unknown":
+            _mark_refresh_attempt_for(
+                Insight.objects.filter(id=insight_id)
+                if not dashboard_id
+                else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
+            )
         return []
 
     return result
@@ -102,13 +109,21 @@ def _update_cache_for_queryset(
         )
     except Exception as e:
         statsd.incr("update_cache_item_error", tags={"team": team.id})
-        queryset.filter(refresh_attempt=None).update(refresh_attempt=0)
-        queryset.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
+        _mark_refresh_attempt_for(queryset)
         raise e
 
-    statsd.incr("update_cache_item_success", tags={"team": team.id})
-    queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+    if result:
+        statsd.incr("update_cache_item_success", tags={"team": team.id})
+        queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+    else:
+        queryset.update(last_refresh=timezone.now(), refreshing=False)
+
     return result
+
+
+def _mark_refresh_attempt_for(queryset: QuerySet) -> None:
+    queryset.filter(refresh_attempt=None).update(refresh_attempt=0)
+    queryset.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
 
 
 def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:

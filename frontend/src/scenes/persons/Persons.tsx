@@ -35,7 +35,8 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
 
 export function PersonsScene(): JSX.Element {
     const { loadPersons, setListFilters, exportCsv } = useActions(personsLogic)
-    const { cohortId, persons, listFilters, personsLoading, exportUrl, exporterProps } = useValues(personsLogic)
+    const { cohortId, persons, listFilters, personsLoading, exportUrl, exporterProps, apiDocsURL } =
+        useValues(personsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const newExportButtonActive = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
 
@@ -53,9 +54,8 @@ export function PersonsScene(): JSX.Element {
                                 <>
                                     Exporting by csv is limited to 10,000 users.
                                     <br />
-                                    To return more, please use{' '}
-                                    <a href="https://posthog.com/docs/api/persons">the API</a>. Do you want to export by
-                                    CSV?
+                                    To return more, please use <a href={apiDocsURL}>the API</a>. Do you want to export
+                                    by CSV?
                                 </>
                             }
                             onConfirm={() => (newExportButtonActive ? triggerExport(exporterProps[0]) : exportCsv())}

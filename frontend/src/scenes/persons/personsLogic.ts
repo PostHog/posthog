@@ -97,6 +97,13 @@ export const personsLogic = kea<personsLogicType>({
         },
     },
     selectors: () => ({
+        apiDocsURL: [
+            () => [(_, props) => props.cohort],
+            (cohort: PersonLogicProps['cohort']) =>
+                !!cohort
+                    ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
+                    : 'https://posthog.com/docs/api/persons',
+        ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
         showSessionRecordings: [
             (s) => [s.currentTeam],
