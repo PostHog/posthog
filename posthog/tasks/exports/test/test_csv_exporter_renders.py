@@ -23,7 +23,7 @@ for file in os.listdir(directory):
 @pytest.mark.parametrize("filename", fixtures)
 @pytest.mark.django_db
 @patch("posthog.tasks.exports.csv_exporter.requests.request")
-@patch("posthog.tasks.exports.csv_exporter.settings")
+@patch("posthog.models.exported_asset.settings")
 def test_csv_rendering(mock_settings, mock_request, filename):
     mock_settings.OBJECT_STORAGE_ENABLED = False
     org = Organization.objects.create(name="org")
