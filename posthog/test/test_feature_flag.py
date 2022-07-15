@@ -77,7 +77,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                         ],
                         "rollout_percentage": 100,
                     },
-                    {"rollout_percentage": 100},
+                    {"rollout_percentage": 50},
                 ]
             },
             key="one",
@@ -132,22 +132,22 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(3):  # 2 to fill group cache, only 1 to match all feature flags
 
-            matches = (
-                FeatureFlagMatcher(
-                    [
-                        feature_flag_one,
-                        feature_flag_always_match,
-                        feature_flag_never_match,
-                        feature_flag_group_match,
-                        feature_flag_group_no_match,
-                        feature_flag_variant,
-                        feature_flag_group_property_match,
-                    ],
-                    "test_id",
-                    {"project": "group_key", "organization": "foo"},
-                    FlagsMatcherCache(self.team.id),
-                ).get_matches(),
-            )
+            matches = FeatureFlagMatcher(
+                [
+                    feature_flag_one,
+                    feature_flag_always_match,
+                    feature_flag_never_match,
+                    feature_flag_group_match,
+                    feature_flag_group_no_match,
+                    feature_flag_variant,
+                    feature_flag_group_property_match,
+                ],
+                "test_id",
+                {"project": "group_key", "organization": "foo"},
+                FlagsMatcherCache(self.team.id),
+            ).get_matches()
+
+            print(matches)  # noqa
 
             from django.db import connection
 

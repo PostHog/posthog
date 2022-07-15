@@ -267,7 +267,7 @@ class FeatureFlagMatcher:
                     person_fields.append(key)
                 else:
                     group_filter = Q(
-                        group_type_index=self.feature_flags[0].aggregation_group_type_index,
+                        group_type_index=feature_flag.aggregation_group_type_index,
                         group_key=self.hashed_identifier(feature_flag),
                     )
                     if expr:
