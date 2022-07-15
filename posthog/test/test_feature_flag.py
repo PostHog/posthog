@@ -11,10 +11,10 @@ from posthog.models.feature_flag import (
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
-from posthog.test.base import BaseTest, QueryMatchingTest
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
-class TestFeatureFlagMatcher(BaseTest):
+class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     def test_blank_flag(self):
         # Blank feature flags now default to be released for everyone
         feature_flag = self.create_feature_flag()
@@ -62,6 +62,7 @@ class TestFeatureFlagMatcher(BaseTest):
         self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
+    @snapshot_postgres_queries
     def test_multiple_flags(self):
         Person.objects.create(
             team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},
@@ -76,7 +77,7 @@ class TestFeatureFlagMatcher(BaseTest):
                         ],
                         "rollout_percentage": 100,
                     },
-                    {"rollout_percentage": 50},
+                    {"rollout_percentage": 100},
                 ]
             },
             key="one",
@@ -93,6 +94,24 @@ class TestFeatureFlagMatcher(BaseTest):
         feature_flag_group_no_match = self.create_feature_flag(
             filters={"aggregation_group_type_index": 1, "groups": [{"rollout_percentage": 0}],}, key="group_no_match"
         )
+        feature_flag_group_property_match = self.create_feature_flag(
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": {
+                            "key": "name",
+                            "value": ["foo.inc"],
+                            "operator": "exact",
+                            "type": "group",
+                            "group_type_index": 0,
+                        },
+                    }
+                ],
+            },
+            key="group_property_match",
+        )
         feature_flag_variant = self.create_feature_flag(
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
@@ -106,8 +125,14 @@ class TestFeatureFlagMatcher(BaseTest):
             },
             key="variant",
         )
+
+        from django.db import reset_queries
+
+        reset_queries()
+
         with self.assertNumQueries(3):  # 2 to fill group cache, only 1 to match all feature flags
-            self.assertEqual(
+
+            matches = (
                 FeatureFlagMatcher(
                     [
                         feature_flag_one,
@@ -116,16 +141,27 @@ class TestFeatureFlagMatcher(BaseTest):
                         feature_flag_group_match,
                         feature_flag_group_no_match,
                         feature_flag_variant,
+                        feature_flag_group_property_match,
                     ],
                     "test_id",
-                    {"project": "group_key"},
+                    {"project": "group_key", "organization": "foo"},
                     FlagsMatcherCache(self.team.id),
                 ).get_matches(),
+            )
+
+            from django.db import connection
+
+            for query in connection.queries:
+                print(query["sql"])  # noqa
+
+            self.assertEqual(
+                matches,
                 {
                     "one": True,
                     "always_match": True,
                     "group_match": True,
-                    "variant": "first-variant"
+                    "variant": "first-variant",
+                    "group_property_match": True,
                     # never_match and group_no_match don't match
                 },
             )
@@ -300,6 +336,9 @@ class TestFeatureFlagMatcher(BaseTest):
         )
         Group.objects.create(
             team=self.team, group_type_index=0, group_key="bar", group_properties={"name": "var.inc"}, version=1
+        )
+        Group.objects.create(
+            team=self.team, group_type_index=1, group_key="group_key", group_properties={"name": "var.inc"}, version=1
         )
 
     def create_feature_flag(self, key="beta-feature", **kwargs):
