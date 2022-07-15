@@ -100,13 +100,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [
                     {
                         "rollout_percentage": 100,
-                        "properties": {
-                            "key": "name",
-                            "value": ["foo.inc"],
-                            "operator": "exact",
-                            "type": "group",
-                            "group_type_index": 0,
-                        },
+                        "properties": [
+                            {
+                                "key": "name",
+                                "value": ["foo.inc"],
+                                "operator": "exact",
+                                "type": "group",
+                                "group_type_index": 0,
+                            }
+                        ],
                     }
                 ],
             },
@@ -126,10 +128,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="variant",
         )
 
-        from django.db import reset_queries
-
-        reset_queries()
-
         with self.assertNumQueries(3):  # 2 to fill group cache, only 1 to match all feature flags
 
             matches = FeatureFlagMatcher(
@@ -146,13 +144,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 {"project": "group_key", "organization": "foo"},
                 FlagsMatcherCache(self.team.id),
             ).get_matches()
-
-            print(matches)  # noqa
-
-            from django.db import connection
-
-            for query in connection.queries:
-                print(query["sql"])  # noqa
 
             self.assertEqual(
                 matches,
@@ -319,7 +310,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={
                 "aggregation_group_type_index": 0,
                 "groups": [
-                    {"properties": [{"key": "name", "value": "foo.inc", "type": "group", "group_type_index": 0}],}
+                    {"properties": [{"key": "name", "value": ["foo.inc"], "type": "group", "group_type_index": 0}],}
                 ],
             }
         )
