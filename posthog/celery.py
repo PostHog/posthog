@@ -58,7 +58,7 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 def on_worker_start(**kwargs) -> None:
     from posthog.settings import sentry_init
 
-    sentry_init(traces_sample_rate=0.5)
+    sentry_init(traces_sample_rate=0.05)
 
 
 @app.on_after_configure.connect
