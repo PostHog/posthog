@@ -151,6 +151,9 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
+        if not response.ok:
+            raise Exception(f"export API call failed with status_code: {response.status_code}")
+
         # Figure out how to handle funnel polling....
         data = response.json()
         csv_rows = _convert_response_to_csv_data(data)
