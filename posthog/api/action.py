@@ -159,8 +159,8 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     queryset = Action.objects.all()
     serializer_class = ActionSerializer
     authentication_classes = [
-        JwtAuthentication,
         TemporaryTokenAuthentication,
+        JwtAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,

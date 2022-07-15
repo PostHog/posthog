@@ -103,9 +103,11 @@ export function PersonsModal({
     )
 
     const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
-    // TODO: Re-enable CSV downloads when frontend can support new entity properties
-    // const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
-    const isDownloadCsvAvailable: boolean = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
+    const isDownloadCsvAvailable: boolean =
+        !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS] &&
+        InsightType.TRENDS &&
+        showModalActions &&
+        !!people?.action
     const isSaveAsCohortAvailable =
         (view === InsightType.TRENDS ||
             view === InsightType.STICKINESS ||
