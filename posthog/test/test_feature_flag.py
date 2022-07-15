@@ -128,7 +128,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="variant",
         )
 
-        with self.assertNumQueries(3):  # 2 to fill group cache, only 1 to match all feature flags
+        with self.assertNumQueries(3):  # 1 to fill group cache, 1 to match feature flags with group properties, 1 to match feature flags with person properties
 
             matches = FeatureFlagMatcher(
                 [
