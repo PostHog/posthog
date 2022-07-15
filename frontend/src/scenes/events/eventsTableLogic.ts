@@ -301,6 +301,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                     export_format: ExporterFormat.CSV,
                     export_context: {
                         path: values.eventsUrl(),
+                        max_limit: 3500,
                     },
                 })
             } else {
