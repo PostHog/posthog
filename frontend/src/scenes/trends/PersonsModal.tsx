@@ -141,7 +141,8 @@ export function PersonsModal({
                                                         date_to: people.day,
                                                         breakdown_value: people.breakdown_value,
                                                     },
-                                                    filters
+                                                    filters,
+                                                    !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
                                                 ),
                                             },
                                         })
