@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import models
 from django.http import HttpResponse
 from django.utils.text import slugify
+from rest_framework.exceptions import NotFound
 from sentry_sdk import capture_exception
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
@@ -102,6 +103,9 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
     content = asset.content
     if not content and asset.content_location:
         content = object_storage.read_bytes(asset.content_location)
+
+    if not content:
+        raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)
     if download:
