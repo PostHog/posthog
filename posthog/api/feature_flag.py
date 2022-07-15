@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
@@ -203,7 +203,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             .order_by("-created_at")
         )
         groups = json.loads(request.GET.get("groups", "{}"))
-        flags = []
+        flags: List[dict] = []
 
         feature_flag_list = list(feature_flags)
 
