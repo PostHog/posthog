@@ -344,7 +344,10 @@ def _get_active_feature_flags(
     else:
         overrides = {}
 
-    return FeatureFlagMatcher(feature_flags, distinct_id, groups, cache, overrides).get_matches()
+    if feature_flags:
+        return FeatureFlagMatcher(feature_flags, distinct_id, groups, cache, overrides).get_matches()
+
+    return {}
 
 
 # Return feature flags

@@ -38,6 +38,7 @@ def test_csv_rendering(mock_settings, mock_request, filename):
     asset.save()
 
     mock = Mock()
+    mock.status_code = 200
     mock.json.return_value = fixture["response"]
     mock_request.return_value = mock
     csv_exporter.export_csv(asset)
