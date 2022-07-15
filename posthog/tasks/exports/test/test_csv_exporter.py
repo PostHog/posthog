@@ -24,6 +24,7 @@ class TestCSVExporter(APIBaseTest):
     def patched_request(self):
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             mock_response = Mock()
+            mock_response.status_code = 200
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
             mock_response.json.side_effect = [
                 {
