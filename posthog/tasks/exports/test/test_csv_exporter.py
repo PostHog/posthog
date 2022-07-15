@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from boto3 import resource
@@ -146,3 +146,16 @@ class TestCSVExporter(APIBaseTest):
                 exported_asset.content
                 == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
             )
+
+    @patch("posthog.tasks.exports.csv_exporter.logger")
+    @patch("posthog.tasks.exports.csv_exporter.statsd")
+    def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
+        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            exported_asset = self._create_asset()
+            mock_response = MagicMock()
+            mock_response.status_code = 403
+            mock_response.ok = False
+            patched_request.return_value = mock_response
+
+            with pytest.raises(Exception, match="export API call failed with status_code: 403"):
+                csv_exporter.export_csv(exported_asset)
