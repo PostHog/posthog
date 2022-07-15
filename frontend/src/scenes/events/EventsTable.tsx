@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
-import { Button } from 'antd'
+import { Button, Popconfirm } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -448,15 +448,26 @@ export function EventsTable({
                                 />
                             )}
                             {showExport && exportUrl && (
-                                <Tooltip title="Export up to 10,000 latest events." placement="left">
+                                <Popconfirm
+                                    placement="topRight"
+                                    title={
+                                        <>
+                                            Exporting by csv is limited to 3,500 events.
+                                            <br />
+                                            To return more, please use{' '}
+                                            <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
+                                            export by CSV?
+                                        </>
+                                    }
+                                    onConfirm={startDownload}
+                                >
                                     <LemonButton
                                         type="secondary"
                                         icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                        onClick={startDownload}
                                     >
                                         Export
                                     </LemonButton>
-                                </Tooltip>
+                                </Popconfirm>
                             )}
                         </div>
                     </div>
