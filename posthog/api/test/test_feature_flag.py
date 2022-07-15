@@ -876,6 +876,16 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
         self.assertEqual(first_flag["value"], False)
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_my_flags_empty_flags(self, mock_capture):
+        # Ensure empty feature flag list
+        FeatureFlag.objects.all().delete()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data), 0)
+
     @patch("posthoganalytics.capture")
     def test_my_flags_groups(self, mock_capture):
         self.client.post(
