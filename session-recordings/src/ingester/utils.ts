@@ -1,4 +1,4 @@
-import { RecordingEvent, RecordingEventGroup } from '../types'
+import { RecordingEventGroup } from '../types'
 
 export const getEventGroupDataString = (recordingEventGroup: RecordingEventGroup) => {
     const events = Object.values(recordingEventGroup.events)
@@ -6,14 +6,14 @@ export const getEventGroupDataString = (recordingEventGroup: RecordingEventGroup
     return eventDataStrings.join('\n')
 }
 
-export const getEventGroupMetadata = (recordingEventGroup: RecordingEventGroup) => {
+export const getEventSummaryMetadata = (recordingEventGroup: RecordingEventGroup) => {
     const eventSummaries = Object.values(recordingEventGroup.events)
         .filter((event) => event.complete)
         .sort((a, b) => a.timestamp - b.timestamp)
         .map((event) =>
             JSON.stringify({
-                eventSource: event.eventSource,
-                eventType: event.eventType,
+                source: event.eventSource,
+                type: event.eventType,
                 windowId: event.windowId,
                 timestamp: event.timestamp,
             })

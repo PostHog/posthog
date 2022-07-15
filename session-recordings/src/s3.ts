@@ -1,7 +1,9 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
-const ACCESS_KEY_ID = process.env.NODE_ENV === 'dev' ? 'root' : process.env.OBJECT_STORAGE_ACCESS_KEY_ID
-const SECRET_ACCESS_KEY = process.env.NODE_ENV === 'dev' ? 'password' : process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY
+const ACCESS_KEY_ID =
+    process.env.NODE_ENV === 'dev' ? 'object_storage_root_user' : process.env.OBJECT_STORAGE_ACCESS_KEY_ID
+const SECRET_ACCESS_KEY =
+    process.env.NODE_ENV === 'dev' ? 'object_storage_root_password' : process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY
 const ENDPOINT = process.env.NODE_ENV === 'dev' ? 'http://localhost:19000' : process.env.OBJECT_STORAGE_ENDPOINT
 
 const credentials = ACCESS_KEY_ID
