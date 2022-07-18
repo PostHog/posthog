@@ -33,8 +33,6 @@ const makeEvent = (id: string = '1', timestamp: string = randomString()): EventT
     properties: {},
 })
 
-// TODO test interactions with userLogic
-
 const makePropertyFilter = (value: string = randomString()): PropertyFilter => ({
     key: value,
     operator: PropertyOperator.Exact,
@@ -410,7 +408,6 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(logic.values.exportUrl)).toEqual({
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
                     })
                 })
 
@@ -423,7 +420,6 @@ describe('eventsTableLogic', () => {
                     expect(getUrlParameters(logic.values.exportUrl)).toEqual({
                         properties: propertiesWithFilterValue,
                         orderBy: orderByTimestamp,
-                        after: afterOneYearAgo,
                     })
                 })
 

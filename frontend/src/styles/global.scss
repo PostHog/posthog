@@ -476,14 +476,29 @@ code.code {
     margin-left: 0.25rem;
 }
 
+.mx-auto {
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .mx-0 {
     margin-left: 0 !important;
     margin-right: 0 !important;
 }
 
+.mx-05 {
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+}
+
 .my-0 {
     margin-top: 0 !important;
     margin-bottom: 0 !important;
+}
+
+.my-05 {
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .pa {
@@ -599,6 +614,10 @@ code.code {
     justify-content: center;
 }
 
+.justify-end {
+    justify-content: end;
+}
+
 .flex {
     display: flex;
 }
@@ -608,12 +627,20 @@ code.code {
     flex-direction: column;
 }
 
+.flex-row {
+    flex-direction: row;
+}
+
 .flex-wrap {
     flex-wrap: wrap;
 }
 
 .flex-auto {
     flex: auto;
+}
+
+.flex-grow {
+    flex-grow: 1;
 }
 
 .flex-center {
@@ -659,6 +686,14 @@ input::-ms-clear {
 
 .text-warning {
     color: var(--warning) !important;
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
+.text-muted-alt {
+    color: var(--text-muted-alt) !important;
 }
 
 // Random general styles
@@ -1192,6 +1227,15 @@ body {
         &:last-child {
             margin-bottom: 0;
         }
+    }
+
+    // Tooltip styles
+    .ant-tooltip-inner {
+        background-color: var(--bg-charcoal);
+    }
+
+    .ant-tooltip {
+        max-width: 350px;
     }
 }
 

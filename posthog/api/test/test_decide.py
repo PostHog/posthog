@@ -6,7 +6,6 @@ from django.test.client import Client
 from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey
-from posthog.models.feature_flag import FeatureFlagOverride
 from posthog.test.base import BaseTest
 
 
@@ -18,7 +17,8 @@ class TestDecide(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.client = Client()
+        # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
+        self.client = Client(enforce_csrf_checks=True)
         self.client.force_login(self.user)
 
     def _dict_to_b64(self, data: dict) -> str:
@@ -55,31 +55,6 @@ class TestDecide(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_user_on_own_site_enabled(self):
-        user = self.organization.members.first()
-        user.toolbar_mode = "toolbar"
-        user.save()
-
-        self.team.app_urls = ["https://example.com/maybesubdomain"]
-        self.team.save()
-        response = self.client.get("/decide/", HTTP_ORIGIN="https://example.com").json()
-        self.assertEqual(response["isAuthenticated"], True)
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
-        self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
-
-    def test_user_on_own_site_disabled(self):
-        user = self.organization.members.first()
-        user.toolbar_mode = "disabled"
-        user.save()
-
-        self.team.app_urls = ["https://example.com/maybesubdomain"]
-        self.team.save()
-
-        # Make sure the endpoint works with and without the trailing slash
-        response = self.client.get("/decide", HTTP_ORIGIN="https://example.com").json()
-        self.assertEqual(response["isAuthenticated"], True)
-        self.assertIsNone(response["editorParams"].get("toolbarVersion"))
-
     def test_user_on_evil_site(self):
         user = self.organization.members.first()
         user.toolbar_mode = "toolbar"
@@ -90,19 +65,6 @@ class TestDecide(BaseTest):
         response = self.client.get("/decide/", HTTP_ORIGIN="https://evilsite.com").json()
         self.assertEqual(response["isAuthenticated"], False)
         self.assertIsNone(response["editorParams"].get("toolbarVersion", None))
-
-    def test_user_on_local_host(self):
-        user = self.organization.members.first()
-        user.toolbar_mode = "toolbar"
-        user.save()
-
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        response = self.client.get("/decide", HTTP_ORIGIN="http://127.0.0.1:8000").json()
-        self.assertEqual(response["isAuthenticated"], True)
-        self.assertEqual(response["sessionRecording"], False)
-        self.assertEqual(response["editorParams"]["toolbarVersion"], "toolbar")
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching
@@ -177,14 +139,14 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(3):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
         self.assertIn("beta-feature", response.json()["featureFlags"])
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(3):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
@@ -221,13 +183,13 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             response = self._post_decide(api_version=1)  # v1 functionality should not break
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertIn("beta-feature", response.json()["featureFlags"])
             self.assertIn("default-flag", response.json()["featureFlags"])
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -235,7 +197,7 @@ class TestDecide(BaseTest):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             response = self._post_decide(api_version=2, distinct_id="other_id")
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -283,7 +245,7 @@ class TestDecide(BaseTest):
             ensure_experience_continuity=True,
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -296,7 +258,7 @@ class TestDecide(BaseTest):
         # person2 = Person.objects.create(team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"})
         person.add_distinct_id("other_id")
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(6):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -347,7 +309,7 @@ class TestDecide(BaseTest):
             ensure_experience_continuity=True,
         )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -358,7 +320,7 @@ class TestDecide(BaseTest):
         # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
         # person.add_distinct_id("other_id")
         # in which case, we're pretty much trashed
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -409,7 +371,7 @@ class TestDecide(BaseTest):
             ensure_experience_continuity=True,
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -424,7 +386,7 @@ class TestDecide(BaseTest):
             team=self.team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com"}
         )
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(6):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -451,7 +413,7 @@ class TestDecide(BaseTest):
         person2.delete()
         person.add_distinct_id("other_id")
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -499,7 +461,7 @@ class TestDecide(BaseTest):
             ensure_experience_continuity=True,
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -509,7 +471,7 @@ class TestDecide(BaseTest):
 
         # new person with "other_id" is yet to be created
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(7):
             # one extra query to find person_id for $anon_distinct_id
             response = self._post_decide(
                 api_version=2,
@@ -525,7 +487,7 @@ class TestDecide(BaseTest):
         # In this case, we are over our grace period for ingestion, and there's
         # no quick decent way to find how 'other_id' is to be treated.
         # So, things appear like a completely new person with distinct-id = other_id.
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
             # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -534,7 +496,7 @@ class TestDecide(BaseTest):
         person.add_distinct_id("other_id")
         # Finally, 'other_id' is merged. The result goes back to its overridden values
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"},)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -579,7 +541,7 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
                 (response.json()["featureFlags"]).get("multivariate-flag", None)
@@ -588,7 +550,7 @@ class TestDecide(BaseTest):
                 (response.json()["featureFlags"]).get("default-flag")
             )  # User still receives the default flag
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertIsNotNone(
                 response.json()["featureFlags"]["multivariate-flag"]
@@ -603,139 +565,6 @@ class TestDecide(BaseTest):
             # second-variant: 20 (100 * 80% * 25% = 20 users)
             # third-variant:  20 (100 * 80% * 25% = 20 users)
             # fourth-variant: 20 (100 * 80% * 25% = 20 users)
-
-    def test_feature_flags_v2_override(self):
-        self.user.distinct_id = "static-distinct-id"
-        self.user.save()
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=[self.user.distinct_id, "not-canonical-distinct-id"],
-            properties={"email": self.user.email},
-        )
-        ff_1 = FeatureFlag.objects.create(
-            team=self.team,
-            name="Full rollout feature",
-            rollout_percentage=100,
-            key="bool-key-overridden-to-false",
-            created_by=self.user,
-        )  # Overriden to False
-
-        ff_2 = FeatureFlag.objects.create(
-            team=self.team,
-            name="Zero rollout feature",
-            rollout_percentage=0,
-            key="bool-key-overridden-to-true",
-            created_by=self.user,
-        )  # Overriden to True
-
-        ff_3 = FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 100},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 0},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
-                    ],
-                },
-            },
-            name="This is a multi var feature flag that gets overriden.",
-            key="multivariate-flag-overridden",
-            created_by=self.user,
-        )  # Multi-var overriden to diff variant
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 0},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 100},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
-                    ],
-                },
-            },
-            name="This is a multi var feature flag that doens't get overriden.",
-            key="multivariate-flag-not-overridden",
-            created_by=self.user,
-        )  # Multi-var not overriden
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            name="This is a feature flag with default params, no filters.",
-            key="flag-rollout-100",
-            rollout_percentage=100,
-            created_by=self.user,
-        )  # True feature flag, not overriden
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            name="This is a feature flag with default params, no filters.",
-            key="flag-rollout-0",
-            rollout_percentage=0,
-            created_by=self.user,
-        )  # False feature flag, not overriden
-
-        FeatureFlagOverride.objects.create(
-            team=self.team, user=self.user, feature_flag=ff_1, override_value=False,
-        )
-        FeatureFlagOverride.objects.create(
-            team=self.team, user=self.user, feature_flag=ff_2, override_value=True,
-        )
-        FeatureFlagOverride.objects.create(
-            team=self.team, user=self.user, feature_flag=ff_3, override_value="third-variant",
-        )
-
-        with self.assertNumQueries(3):
-            response = self._post_decide(api_version=1, distinct_id=str(self.user.distinct_id))
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(
-                response.json()["featureFlags"],
-                [
-                    "multivariate-flag-overridden",
-                    "multivariate-flag-not-overridden",
-                    "flag-rollout-100",
-                    "bool-key-overridden-to-true",
-                ],
-            )
-
-        with self.assertNumQueries(3):
-            response = self._post_decide(api_version=2, distinct_id=str(self.user.distinct_id))
-            feature_flags_for_canonical_distinct_id = response.json()["featureFlags"]
-            self.assertEqual(
-                feature_flags_for_canonical_distinct_id,
-                {
-                    "bool-key-overridden-to-true": True,
-                    "multivariate-flag-overridden": "third-variant",
-                    "multivariate-flag-not-overridden": "second-variant",
-                    "flag-rollout-100": True,
-                },
-            )
-        # Ensure we get the same response from both of the user's distinct_ids
-        with self.assertNumQueries(3):
-            response_non_canonical_distinct_id = self._post_decide(
-                api_version=2, distinct_id="not-canonical-distinct-id"
-            )
-            self.assertEqual(
-                response_non_canonical_distinct_id.json()["featureFlags"], feature_flags_for_canonical_distinct_id,
-            )
-
-        with self.assertNumQueries(3):
-            response = self._post_decide(api_version=2, distinct_id="user-with-no-overriden-flags")
-            self.assertEqual(
-                response.json()["featureFlags"],
-                {
-                    "bool-key-overridden-to-false": True,
-                    "multivariate-flag-overridden": "first-variant",
-                    "multivariate-flag-not-overridden": "second-variant",
-                    "flag-rollout-100": True,
-                },
-            )
 
     def test_feature_flags_v2_with_groups(self):
         # More in-depth tests in posthog/api/test/test_feature_flag.py
@@ -755,11 +584,11 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertEqual(response.json()["featureFlags"], {})
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="example_id", groups={"organization": "foo"})
             self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
 

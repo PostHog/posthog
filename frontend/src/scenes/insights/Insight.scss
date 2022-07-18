@@ -137,6 +137,8 @@
 
                 span.filter {
                     font-size: 14px;
+                    display: flex;
+                    align-items: center;
 
                     &:not(:last-child) {
                         margin-right: 0.5rem;
@@ -251,13 +253,8 @@
 }
 
 .funnel-insights-container {
-    padding: 24px;
     background-color: var(--funnel-canvas-background);
     border-radius: 0 0 var(--radius) var(--radius);
-
-    &.no-padding {
-        padding: 0;
-    }
 
     &.non-empty-state {
         min-height: 26rem;

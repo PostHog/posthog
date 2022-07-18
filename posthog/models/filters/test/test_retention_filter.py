@@ -17,6 +17,7 @@ class TestFilter(BaseTest):
             filter.to_dict(),
             {
                 "display": "RetentionTable",
+                "date_from": "-7d",
                 "insight": "RETENTION",
                 "period": "Day",
                 "retention_type": "retention_recurring",
@@ -87,6 +88,7 @@ class TestFilter(BaseTest):
                     "type": "events",
                 },
                 "breakdown_attribution_type": "first_touch",
+                "date_from": "-7d",
             },
         )
 

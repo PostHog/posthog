@@ -1,5 +1,8 @@
 import {
     ActionFilter,
+    BreakdownKeyType,
+    BreakdownType,
+    CohortType,
     EntityFilter,
     FilterType,
     FunnelVizType,
@@ -24,6 +27,7 @@ import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -293,4 +297,46 @@ export function summarizeInsightFilters(
             }
     }
     return summary
+}
+
+export function formatBreakdownLabel(
+    cohorts?: CohortType[],
+    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction,
+    breakdown_value?: BreakdownKeyType,
+    breakdown?: BreakdownKeyType,
+    breakdown_type?: BreakdownType | null,
+    isHistogram?: boolean
+): string {
+    if (isHistogram && typeof breakdown_value === 'string') {
+        const [bucketStart, bucketEnd] = JSON.parse(breakdown_value)
+        const formattedBucketStart = formatBreakdownLabel(
+            cohorts,
+            formatPropertyValueForDisplay,
+            bucketStart,
+            breakdown,
+            breakdown_type
+        )
+        const formattedBucketEnd = formatBreakdownLabel(
+            cohorts,
+            formatPropertyValueForDisplay,
+            bucketEnd,
+            breakdown,
+            breakdown_type
+        )
+        return `${formattedBucketStart} – ${formattedBucketEnd}`
+    }
+    if (typeof breakdown_value == 'number') {
+        if (breakdown_type === 'cohort') {
+            return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? breakdown_value.toString()
+        }
+        return formatPropertyValueForDisplay
+            ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
+            : breakdown_value.toString()
+    } else if (typeof breakdown_value == 'string') {
+        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
+    } else if (Array.isArray(breakdown_value)) {
+        return breakdown_value.join('::')
+    } else {
+        return ''
+    }
 }

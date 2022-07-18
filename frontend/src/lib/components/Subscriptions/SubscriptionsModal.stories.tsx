@@ -13,7 +13,7 @@ import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/te
 export default {
     title: 'Components/Subscriptions',
     component: Subscriptions,
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'canvas' },
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as ComponentMeta<typeof Subscriptions>
 
 const Template = (
@@ -32,6 +32,7 @@ const Template = (
                 ...preflightJson,
                 realm: Realm.Cloud,
                 email_service_available: noIntegrations ? false : true,
+                slack_service: noIntegrations ? { available: false } : { available: true, client_id: 'test-client-id' },
                 site_url: noIntegrations ? 'bad-value' : window.location.origin,
             },
             '/api/projects/:id/subscriptions': {

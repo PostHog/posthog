@@ -53,19 +53,25 @@ export const frequencyOptions: LemonSelectOptions = {
 }
 
 export const weekdayOptions: LemonSelectOptions = {
-    monday: { label: 'monday' },
-    tuesday: { label: 'tuesday' },
-    wednesday: { label: 'wednesday' },
-    thursday: { label: 'thursday' },
-    friday: { label: 'friday' },
-    saturday: { label: 'saturday' },
-    sunday: { label: 'sunday' },
+    monday: { label: 'Monday' },
+    tuesday: { label: 'Tuesday' },
+    wednesday: { label: 'Wednesday' },
+    thursday: { label: 'Thursday' },
+    friday: { label: 'Friday' },
+    saturday: { label: 'Saturday' },
+    sunday: { label: 'Sunday' },
 }
 
-export const monthlyWeekdayOptions: LemonSelectOptions = {
-    day: { label: 'day' },
-    ...weekdayOptions,
-}
+export const monthlyWeekdayOptions = [
+    {
+        options: weekdayOptions,
+    },
+    {
+        options: {
+            day: { label: 'day' },
+        },
+    },
+]
 
 export const bysetposOptions: LemonSelectOptions = {
     '1': { label: 'first' },
@@ -90,18 +96,19 @@ export const getSlackChannelOptions = (
     return slackChannels
         ? slackChannels.map((x) => ({
               key: `${x.id}|#${x.name}`,
-              label: (
+              labelComponent: (
                   <span className="flex items-center">
                       {x.is_private ? `🔒${x.name}` : `#${x.name}`}
                       {x.is_ext_shared ? <IconSlackExternal className="ml-05" /> : null}
                   </span>
               ),
+              label: `${x.id} #${x.name}`,
           }))
         : value
         ? [
               {
                   key: value,
-                  label: value?.split('|')?.pop(),
+                  label: value?.split('|')?.pop() || value,
               },
           ]
         : []

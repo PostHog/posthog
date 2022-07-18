@@ -164,7 +164,7 @@ export function EditSubscription({
                         )}
 
                         <Field name={'title'} label={'Name'}>
-                            <LemonInput placeholder="e.g. Weekly team report" disabled={emailDisabled} />
+                            <LemonInput placeholder="e.g. Weekly team report" />
                         </Field>
 
                         {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
@@ -199,7 +199,6 @@ export function EditSubscription({
                                             <LemonSelectMultiple
                                                 onChange={(val) => onChange(val.join(','))}
                                                 value={value?.split(',').filter(Boolean)}
-                                                filterOption={false}
                                                 disabled={emailDisabled}
                                                 mode="multiple-custom"
                                                 data-attr="subscribed-emails"
@@ -270,7 +269,6 @@ export function EditSubscription({
                                                     <LemonSelectMultiple
                                                         onChange={(val) => onChange(val)}
                                                         value={value}
-                                                        filterOption={true}
                                                         disabled={slackDisabled}
                                                         mode="single"
                                                         data-attr="select-slack-channel"
@@ -280,7 +278,7 @@ export function EditSubscription({
                                                     <div className="text-small text-muted mt-05">
                                                         Private channels are only shown if you have{' '}
                                                         <a
-                                                            href="https://posthog.com/docs/integrations/slack"
+                                                            href="https://posthog.com/docs/integrate/third-party/slack"
                                                             target="_blank"
                                                             rel="noopener"
                                                         >
@@ -301,7 +299,7 @@ export function EditSubscription({
                                                             to the channel otherwise Subscriptions will fail to be
                                                             delivered.{' '}
                                                             <a
-                                                                href="https://posthog.com/docs/integrations/slack"
+                                                                href="https://posthog.com/docs/integrate/third-party/slack"
                                                                 target="_blank"
                                                                 rel="noopener"
                                                             >

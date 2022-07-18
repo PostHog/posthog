@@ -29,7 +29,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
@@ -266,7 +266,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
-                <AuthorizedUrlsTable />
+                <AuthorizedUrls />
                 <Divider />
                 <h2 className="subtitle" id="attributes">
                     Data attributes

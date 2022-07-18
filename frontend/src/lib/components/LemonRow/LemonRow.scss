@@ -103,10 +103,9 @@
     padding: 0;
 }
 
-.LemonRow--large {
+.LemonRow--tall {
     min-height: 3.5rem;
     padding: 0.5rem 1rem;
-    font-size: 1rem;
 
     &.LemonRow--symbolic {
         min-height: 0;
@@ -114,6 +113,11 @@
         width: 1.75rem;
         padding: 0;
     }
+}
+
+.LemonRow--large {
+    @extend .LemonRow--tall;
+    font-size: 1rem;
 
     .LemonRow__icon {
         font-size: 1.75rem;

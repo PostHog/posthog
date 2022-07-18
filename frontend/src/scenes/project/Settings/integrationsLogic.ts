@@ -3,7 +3,6 @@ import { kea, path, listeners, selectors, connect, afterMount, actions } from 'k
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { IntegrationType, SlackChannelType } from '~/types'
@@ -17,6 +16,9 @@ export const getSlackRedirectUri = (next: string = ''): string =>
         next ? '?next=' + encodeURIComponent(next) : ''
     }`
 
+export const getSlackEventsUri = (): string =>
+    `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`
+
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
 export const getSlackAppManifest = (): any => ({
     display_information: {
@@ -26,7 +28,7 @@ export const getSlackAppManifest = (): any => ({
     },
     features: {
         app_home: {
-            home_tab_enabled: true,
+            home_tab_enabled: false,
             messages_tab_enabled: false,
             messages_tab_read_only_enabled: true,
         },
@@ -34,14 +36,19 @@ export const getSlackAppManifest = (): any => ({
             display_name: 'PostHog',
             always_online: false,
         },
+        unfurl_domains: [window.location.hostname],
     },
     oauth_config: {
         redirect_urls: [getSlackRedirectUri()],
         scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read'],
+            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
         },
     },
     settings: {
+        event_subscriptions: {
+            request_url: getSlackEventsUri(),
+            bot_events: ['link_shared'],
+        },
         org_deploy_enabled: false,
         socket_mode_enabled: false,
         token_rotation_enabled: false,
@@ -51,8 +58,7 @@ export const getSlackAppManifest = (): any => ({
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['scenes', 'project', 'Settings', 'integrationsLogic']),
     connect({
-        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight'], systemStatusLogic, ['instanceSettings']],
-        actions: [systemStatusLogic, ['loadInstanceSettings']],
+        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     }),
 
     actions({
@@ -126,7 +132,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadIntegrations()
-        actions.loadInstanceSettings()
     }),
 
     urlToAction(({ actions }) => ({
@@ -157,10 +162,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         addToSlackButtonUrl: [
-            (s) => [s.instanceSettings],
-            (instanceSettings) => {
+            (s) => [s.preflight],
+            (preflight) => {
                 return (next: string = '') => {
-                    const clientId = instanceSettings.find((item) => item.key === 'SLACK_APP_CLIENT_ID')?.value
+                    const clientId = preflight?.slack_service?.client_id
 
                     return clientId
                         ? `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=channels:read,groups:read,chat:write&redirect_uri=${encodeURIComponent(

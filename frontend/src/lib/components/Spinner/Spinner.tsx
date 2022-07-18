@@ -10,13 +10,20 @@ export interface SpinnerProps {
     /** Whether the trace of the spinner should be hidden. */
     traceless?: boolean
     style?: React.CSSProperties
+    className?: string
 }
 
 /** Smoothly animated spinner for loading states. It does not indicate progress, only that something's happening. */
-export function Spinner({ size = 'md', type = 'primary', traceless = false, style }: SpinnerProps): JSX.Element {
+export function Spinner({
+    size = 'md',
+    type = 'primary',
+    traceless = false,
+    style,
+    className,
+}: SpinnerProps): JSX.Element {
     return (
         <svg
-            className={clsx('Spinner', size && `Spinner--${size}`, type && `Spinner--${type}`)}
+            className={clsx('Spinner', size && `Spinner--${size}`, type && `Spinner--${type}`, className)}
             style={style}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"

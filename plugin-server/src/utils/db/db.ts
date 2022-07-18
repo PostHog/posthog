@@ -1058,7 +1058,7 @@ export class DB {
                     person.team_id,
                     person.is_identified,
                     person.uuid,
-                    Number(result.rows[0].version || 0) + 100,
+                    Number(result.rows[0].version || 0) + 100, // keep in sync with delete_person in posthog/models/person/util.py
                     1
                 ),
             ]
@@ -2040,5 +2040,14 @@ export class DB {
             'getPluginTranspilationLock'
         )
         return response.rowCount > 0
+    }
+
+    public async addEventToBuffer(event: Record<string, any>, processAt: DateTime): Promise<void> {
+        await this.postgresQuery(
+            `INSERT INTO posthog_eventbuffer (event, process_at, locked) VALUES ($1, $2, $3)`,
+            [event, processAt.toISO(), false],
+            'addEventToBuffer'
+        )
+        this.statsd?.increment('events_sent_to_buffer')
     }
 }

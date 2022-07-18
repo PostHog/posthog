@@ -42,16 +42,18 @@ def process_math(
 
         aggregate_operation = f"count(DISTINCT $group_{entity.math_group_type_index})"
     elif entity.math == "unique_session":
-        aggregate_operation = "count(DISTINCT $session_id)"
+        aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}$session_id)"
     elif entity.math in MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError({"math_property": "This field is required when `math` is set."}, code="required")
 
-        key = f"e_{entity.index}_math_prop"
-        value, _ = get_property_string_expr("events", entity.math_property, f"%({key})s", "properties")
-        aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
-        params["join_property_key"] = entity.math_property
-        params[key] = entity.math_property
+        if entity.math_property == "$session_duration":
+            aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(session_duration)"
+        else:
+            key = f"e_{entity.index}_math_prop"
+            value, _ = get_property_string_expr("events", entity.math_property, f"%({key})s", "properties")
+            aggregate_operation = f"{MATH_FUNCTIONS[entity.math]}(toFloat64OrNull({value}))"
+            params[key] = entity.math_property
 
     return aggregate_operation, join_condition, params
 

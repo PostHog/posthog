@@ -17,16 +17,27 @@ export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
     onChange: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
     onlyCohorts?: boolean
+    includeSessions?: boolean
 }
 
 export function TaxonomicBreakdownButton({
     breakdownType,
     onChange,
     onlyCohorts,
+    includeSessions,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
+
+    const taxonomicGroupTypes = onlyCohorts
+        ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
+        : [
+              TaxonomicFilterGroupType.EventProperties,
+              TaxonomicFilterGroupType.PersonProperties,
+              ...groupsTaxonomicTypes,
+              TaxonomicFilterGroupType.CohortsWithAllUsers,
+          ].concat(includeSessions ? [TaxonomicFilterGroupType.Sessions] : [])
 
     return (
         <Popup
@@ -40,16 +51,7 @@ export function TaxonomicBreakdownButton({
                         }
                     }}
                     eventNames={allEventNames}
-                    taxonomicGroupTypes={
-                        onlyCohorts
-                            ? [TaxonomicFilterGroupType.CohortsWithAllUsers]
-                            : [
-                                  TaxonomicFilterGroupType.EventProperties,
-                                  TaxonomicFilterGroupType.PersonProperties,
-                                  ...groupsTaxonomicTypes,
-                                  TaxonomicFilterGroupType.CohortsWithAllUsers,
-                              ]
-                    }
+                    taxonomicGroupTypes={taxonomicGroupTypes}
                 />
             }
             visible={open}

@@ -10,6 +10,7 @@ import {
     CohortCriteriaType,
     CohortType,
     FilterLogicalOperator,
+    PropertyOperator,
     TimeUnitType,
 } from '~/types'
 import { ENTITY_MATCH_TYPE, PROPERTY_MATCH_TYPE } from 'lib/constants'
@@ -256,9 +257,20 @@ export function validateGroup(
     // Generic criteria values cannot be empty
     return {
         values: criteria.map((c) => {
-            const requiredFields = ROWS[criteriaToBehavioralFilterType(c)].fields.filter(
-                (f) => !!f.fieldKey
-            ) as FieldWithFieldKey[]
+            const behavioralFilterType = criteriaToBehavioralFilterType(c)
+            let requiredFields = ROWS[behavioralFilterType].fields.filter((f) => !!f.fieldKey) as FieldWithFieldKey[]
+
+            // Edge case where property value is not required if operator is "is set" or "is not set"
+            if (
+                [BehavioralEventType.HaveProperty, BehavioralEventType.NotHaveProperty].includes(
+                    behavioralFilterType as BehavioralEventType
+                ) &&
+                'operator' in c &&
+                c['operator'] &&
+                [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(c['operator'])
+            ) {
+                requiredFields = requiredFields.filter((f) => f.fieldKey !== 'value_property')
+            }
 
             const criteriaErrors = Object.fromEntries(
                 requiredFields.map(({ fieldKey, type }) => [

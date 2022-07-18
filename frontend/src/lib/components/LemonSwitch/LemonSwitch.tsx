@@ -5,7 +5,7 @@ import { Spinner } from '../Spinner/Spinner'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps extends Omit<LemonRowProps<'div'>, 'alt' | 'label' | 'onChange' | 'outlined'> {
-    onChange: (newChecked: boolean) => void
+    onChange?: (newChecked: boolean) => void
     checked: boolean
     label?: string | JSX.Element
     /** Whether the switch should use the alternative primary color. */
@@ -40,13 +40,12 @@ export function LemonSwitch({
     return (
         <LemonRow
             outlined={type === 'primary'}
-            className={clsx(
-                'LemonSwitch',
-                checked && 'LemonSwitch--checked',
-                !disabled && isActive && 'LemonSwitch--active',
-                alt && 'LemonSwitch--alt',
-                className
-            )}
+            className={clsx('LemonSwitch', className, {
+                'LemonSwitch--checked': checked,
+                'LemonSwitch--active': !disabled && isActive,
+                'LemonSwitch--alt': alt,
+                'LemonSwitch--full-width': rowProps.fullWidth,
+            })}
             disabled={disabled}
             sideIcon={
                 <button
@@ -54,7 +53,11 @@ export function LemonSwitch({
                     className="LemonSwitch__button"
                     type="button"
                     role="switch"
-                    onClick={() => onChange(!checked)}
+                    onClick={() => {
+                        if (onChange) {
+                            onChange(!checked)
+                        }
+                    }}
                     onMouseDown={() => setIsActive(true)}
                     onMouseUp={() => setIsActive(false)}
                     onMouseOut={() => setIsActive(false)}

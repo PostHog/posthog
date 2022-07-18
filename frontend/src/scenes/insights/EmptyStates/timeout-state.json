@@ -189,6 +189,9 @@
                     },
                     "can_create_org": true,
                     "email_service_available": false,
+                    "slack_service": {
+                        "available": false
+                    },
                     "ee_available": true,
                     "db_backend": "clickhouse",
                     "available_timezones": {
@@ -1298,7 +1301,6 @@
                     "created_at": "2021-11-12T20:30:02.798795Z",
                     "created_by": null,
                     "is_shared": false,
-                    "share_token": "PSF6rewcq76I_bP07eRB4QV5fx3XSA",
                     "deleted": false,
                     "creation_mode": "default",
                     "filters": {},
@@ -1313,7 +1315,6 @@
                     "created_at": "2021-11-12T20:30:03.292080Z",
                     "created_by": null,
                     "is_shared": false,
-                    "share_token": "PP8vvl1ywSmrogQlX8P0uNsqZ2moqw",
                     "deleted": false,
                     "creation_mode": "default",
                     "filters": {},
@@ -1328,7 +1329,6 @@
                     "created_at": "2021-11-12T20:30:03.739938Z",
                     "created_by": null,
                     "is_shared": false,
-                    "share_token": "yXKUan54_W5teydFHVSwH6lkDFNxVw",
                     "deleted": false,
                     "creation_mode": "default",
                     "filters": {},
@@ -1336,8 +1336,6 @@
                 }
             },
             "rawDashboardsLoading": false,
-            "sharedDashboard": null,
-            "sharedDashboardLoading": false,
             "dashboard": null,
             "dashboardLoading": false,
             "redirect": true,

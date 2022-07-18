@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
-import { LemonInput, LemonInputProps } from './LemonInput'
+import { LemonInput } from './LemonInput'
 import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
 import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 
@@ -13,8 +13,9 @@ export default {
     },
 } as ComponentMeta<typeof LemonInput>
 
-const Template: ComponentStory<typeof LemonInput> = (props: LemonInputProps) => {
+const Template: ComponentStory<typeof LemonInput> = (props) => {
     const [value, setValue] = useState(props.value)
+    // @ts-expect-error – union variant inference around the `type` prop doesn't work here as `type` comes from above
     return <LemonInput {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
@@ -42,3 +43,6 @@ Embedded.args = { embedded: true }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }
+
+export const Numeric = Template.bind({})
+Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }

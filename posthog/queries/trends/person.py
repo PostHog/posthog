@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -65,22 +66,44 @@ class TrendsActors(ActorBaseQuery):
             and isinstance(self._filter.breakdown, str)
             and isinstance(self._filter.breakdown_value, str)
         ):
-            if self._filter.breakdown_type == "group":
-                breakdown_prop = Property(
-                    key=self._filter.breakdown,
-                    value=self._filter.breakdown_value,
-                    type=self._filter.breakdown_type,
-                    group_type_index=self._filter.breakdown_group_type_index,
-                )
+            if self._filter.using_histogram:
+                lower_bound, upper_bound = json.loads(self._filter.breakdown_value)
+                breakdown_props = [
+                    Property(
+                        key=self._filter.breakdown,
+                        value=lower_bound,
+                        operator="gte",
+                        type=self._filter.breakdown_type,
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
+                    ),
+                    Property(
+                        key=self._filter.breakdown,
+                        value=upper_bound,
+                        operator="lt",
+                        type=self._filter.breakdown_type,
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
+                    ),
+                ]
             else:
-                breakdown_prop = Property(
-                    key=self._filter.breakdown, value=self._filter.breakdown_value, type=self._filter.breakdown_type
-                )
+                breakdown_props = [
+                    Property(
+                        key=self._filter.breakdown,
+                        value=self._filter.breakdown_value,
+                        type=self._filter.breakdown_type,
+                        group_type_index=self._filter.breakdown_group_type_index
+                        if self._filter.breakdown_type == "group"
+                        else None,
+                    )
+                ]
 
             self._filter = self._filter.with_data(
                 {
                     "properties": self._filter.property_groups.combine_properties(
-                        PropertyOperatorType.AND, [breakdown_prop]
+                        PropertyOperatorType.AND, breakdown_props
                     ).to_dict()
                 }
             )

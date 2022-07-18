@@ -42,6 +42,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
+import { CalendarOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -395,10 +396,9 @@ export function SavedInsights(): JSX.Element {
                                     ))}
                                 </Select>
                             </Col>
-                            <Col>
-                                Last modified:
+                            <div className="flex-center gap-05">
+                                <span>Last modified:</span>
                                 <DateFilter
-                                    style={{ paddingLeft: 8 }}
                                     defaultValue="All time"
                                     disabled={false}
                                     bordered={true}
@@ -407,8 +407,14 @@ export function SavedInsights(): JSX.Element {
                                     onChange={(fromDate, toDate) =>
                                         setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
                                     }
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
                                 />
-                            </Col>
+                            </div>
                             {tab !== SavedInsightsTabs.Yours ? (
                                 <Col>
                                     Created by:

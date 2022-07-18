@@ -10,13 +10,22 @@ from django.utils.timezone import now
 from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
+from posthog.client import make_ch_pool, sync_execute
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.user import User
+from posthog.settings import (
+    ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
+    CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION,
+    CLICKHOUSE_CLUSTER,
+    TEST,
+)
 from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
+
+SLEEP_TIME_SECONDS = 20
 
 
 def send_analytics_to_posthog(event, data):
@@ -45,15 +54,65 @@ def execute_op_clickhouse(
     query_id: str,
     timeout_seconds: int = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
     settings=None,
+    # If True, query is run on each shard.
+    per_shard=False,
 ):
-    from posthog.client import sync_execute
+    from posthog import client
 
+    client._request_information = {"kind": "async_migration", "id": query_id}
     settings = settings if settings else {"max_execution_time": timeout_seconds}
 
     try:
-        sync_execute(f"/* {query_id} */ " + sql, args, settings=settings)
+        if per_shard:
+            execute_on_each_shard(sql, args, settings=settings)
+        else:
+            client.sync_execute(sql, args, settings=settings)
     except Exception as e:
+        client._request_information = None
         raise Exception(f"Failed to execute ClickHouse op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
+
+    client._request_information = None
+
+
+def execute_on_each_shard(sql, args, settings=None) -> None:
+    """
+    Executes query on each shard separately (if enabled) or on the cluster as a whole (if not enabled).
+
+    Note that the shard selection is stable - subsequent queries are guaranteed to hit the same shards!
+    """
+    if "{on_cluster_clause}" not in sql:
+        raise Exception("SQL must include {on_cluster_clause} to allow execution on each shard")
+
+    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+        sql = sql.format(on_cluster_clause="")
+    else:
+        sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+
+    for _, _, connection in _get_all_shard_connections():
+        connection.execute(sql, args, settings=settings)
+
+
+def _get_all_shard_connections():
+    from posthog.client import ch_pool as default_ch_pool
+
+    if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
+        rows = sync_execute(
+            """
+            SELECT shard_num, min(host_name) as host_name
+            FROM system.clusters
+            WHERE cluster = %(cluster)s
+            GROUP BY shard_num
+            ORDER BY shard_num
+            """,
+            {"cluster": CLICKHOUSE_CLUSTER},
+        )
+        for shard, host in rows:
+            ch_pool = make_ch_pool(host=host)
+            with ch_pool.get_client() as connection:
+                yield shard, host, connection
+    else:
+        with default_ch_pool.get_client() as connection:
+            yield None, None, connection
 
 
 def execute_op_postgres(sql: str, query_id: str):
@@ -64,6 +123,47 @@ def execute_op_postgres(sql: str, query_id: str):
             cursor.execute(f"/* {query_id} */ " + sql)
     except Exception as e:
         raise Exception(f"Failed to execute postgres op: sql={sql},\nquery_id={query_id},\nexception={str(e)}")
+
+
+def _get_number_running_on_cluster(query_pattern: str) -> int:
+    return sync_execute(
+        """
+        SELECT count()
+        FROM clusterAllReplicas(%(cluster)s, system, 'processes')
+        WHERE query LIKE %(query_pattern)s
+        """,
+        {"cluster": CLICKHOUSE_CLUSTER, "query_pattern": query_pattern},
+    )[0][0]
+
+
+def _sleep_until_finished(query_pattern: str) -> None:
+    from time import sleep
+
+    while _get_number_running_on_cluster(query_pattern) > 0:
+        logger.debug("Query still running, waiting until it's complete", query_pattern=query_pattern)
+        sleep(SLEEP_TIME_SECONDS)
+
+
+def run_optimize_table(unique_name: str, query_id: str, table_name: str, deduplicate=False, final=False):
+    """
+    Runs the passed OPTIMIZE TABLE query.
+
+    Note that this handles process restarts gracefully: If the query is still running on the cluster,
+    we'll wait for that to complete first.
+    """
+    if not TEST and _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
+        _sleep_until_finished(f"%%optimize:{unique_name}%%")
+    else:
+        final_clause = "FINAL" if final else ""
+        deduplicate_clause = "DEDUPLICATE" if deduplicate else ""
+        on_cluster_clause = "{on_cluster_clause}"
+        sql = f"OPTIMIZE TABLE {table_name} {on_cluster_clause} {final_clause} {deduplicate_clause}"
+        execute_op_clickhouse(
+            sql,
+            query_id=f"optimize:{unique_name}/{query_id}",
+            settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS, "mutations_sync": 2},
+            per_shard=True,
+        )
 
 
 def process_error(

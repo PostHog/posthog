@@ -12,6 +12,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -43,15 +44,8 @@ from posthog.constants import (
 from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.models import DashboardTile, Filter, Insight, Team, User
-from posthog.models.activity_logging.activity_log import (
-    ActivityPage,
-    Change,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
-from posthog.models.activity_logging.serializers import ActivityLogSerializer
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
 from posthog.models.filters.path_filter import PathFilter
@@ -68,13 +62,7 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
 from posthog.tasks.update_cache import update_insight_cache
-from posthog.utils import (
-    format_query_params_absolute_url,
-    get_safe_cache,
-    relative_date_parse,
-    should_refresh,
-    str_to_bool,
-)
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -140,7 +128,13 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["filters"] = instance.dashboard_filters()
+        filters = instance.dashboard_filters()
+
+        if not filters.get("date_from"):
+            filters.update(
+                {"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d",}
+            )
+        representation["filters"] = filters
         return representation
 
 
@@ -280,6 +274,18 @@ class InsightSerializer(InsightBasicSerializer):
 
                 ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
                 ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+
+                # does this user have permission on dashboards to add... if they are restricted
+                # it will mean this dashboard becomes restricted because of the patch
+                dashboard: Dashboard
+                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                    if (
+                        dashboard.get_effective_privilege_level(self.context["request"].user)
+                        == Dashboard.PrivilegeLevel.CAN_VIEW
+                    ):
+                        raise PermissionDenied(
+                            f"You don't have permission to add insights to dashboard: {dashboard.id}"
+                        )
 
                 for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
                     if dashboard.team != instance.team:
@@ -712,7 +718,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         page = int(request.query_params.get("page", "1"))
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
+        return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
@@ -724,23 +730,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
-        return self._return_activity_page(activity_page, limit, page, request)
-
-    @staticmethod
-    def _return_activity_page(activity_page: ActivityPage, limit: int, page: int, request: request.Request) -> Response:
-        return Response(
-            {
-                "results": ActivityLogSerializer(activity_page.results, many=True,).data,
-                "next": format_query_params_absolute_url(request, page + 1, limit, offset_alias="page")
-                if activity_page.has_next
-                else None,
-                "previous": format_query_params_absolute_url(request, page - 1, limit, offset_alias="page")
-                if activity_page.has_previous
-                else None,
-                "total_count": activity_page.total_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return activity_page_response(activity_page, limit, page, request)
 
 
 class LegacyInsightViewSet(InsightViewSet):

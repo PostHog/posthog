@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import json
 import time
@@ -17,8 +16,6 @@ from typing import (
 )
 
 import sqlparse
-from aioch import Client
-from asgiref.sync import async_to_sync
 from celery.task.control import revoke
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
@@ -33,7 +30,6 @@ from posthog.celery import enqueue_clickhouse_execute_with_progress
 from posthog.errors import wrap_query_error
 from posthog.internal_metrics import incr, timing
 from posthog.settings import (
-    CLICKHOUSE_ASYNC,
     CLICKHOUSE_CA,
     CLICKHOUSE_CONN_POOL_MAX,
     CLICKHOUSE_CONN_POOL_MIN,
@@ -57,12 +53,6 @@ SLOW_QUERY_THRESHOLD_MS = 15000
 QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_MS)
 
 _request_information: Optional[Dict] = None
-
-
-# Optimize_move_to_prewhere setting is set because of this regression test
-# test_ilike_regression_with_current_clickhouse_version
-# https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/test/test_trends.py#L1566
-settings_override = {"optimize_move_to_prewhere": 0}
 
 
 def default_client():
@@ -99,49 +89,30 @@ def make_ch_pool(**overrides) -> ChPool:
         "connections_min": CLICKHOUSE_CONN_POOL_MIN,
         "connections_max": CLICKHOUSE_CONN_POOL_MAX,
         "settings": {"mutations_sync": "1"} if TEST else {},
+        # Without this, OPTIMIZE table and other queries will regularly run into timeouts
+        "send_receive_timeout": 30 if TEST else 999_999_999,
         **overrides,
     }
 
     return ChPool(**kwargs)
 
 
-if not TEST and CLICKHOUSE_ASYNC:
-    ch_client = Client(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-    )
+ch_client = SyncClient(
+    host=CLICKHOUSE_HOST,
+    database=CLICKHOUSE_DATABASE,
+    secure=CLICKHOUSE_SECURE,
+    user=CLICKHOUSE_USER,
+    password=CLICKHOUSE_PASSWORD,
+    ca_certs=CLICKHOUSE_CA,
+    verify=CLICKHOUSE_VERIFY,
+    settings={"mutations_sync": "1"} if TEST else {},
+)
 
-    ch_pool = make_ch_pool()
-
-    @async_to_sync
-    async def async_execute(query, args=None, settings=None, with_column_types=False):
-        loop = asyncio.get_event_loop()
-        task = loop.create_task(ch_client.execute(query, args, settings=settings, with_column_types=with_column_types))
-        return task
+ch_pool = make_ch_pool()
 
 
-else:
-    # if this is a test use the sync client
-    ch_client = SyncClient(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        settings={"mutations_sync": "1"} if TEST else {},
-    )
-
-    ch_pool = make_ch_pool()
-
-    def async_execute(query, args=None, settings=None, with_column_types=False):  # type: ignore
-        return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
+def async_execute(query, args=None, settings=None, with_column_types=False):
+    return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
 
 
 def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None, with_column_types=False):
@@ -172,8 +143,6 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
 
         timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
-
-        settings = {**settings_override, **(settings or {})}
 
         try:
             result = client.execute(

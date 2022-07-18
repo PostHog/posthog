@@ -1,9 +1,9 @@
 from copy import copy
-from datetime import timedelta
-from typing import Any, Dict
-from unittest import skip
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional, Tuple
 from unittest.mock import MagicMock, patch
 
+import pytz
 from django.utils.timezone import now
 from freezegun import freeze_time
 
@@ -13,11 +13,32 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.team.team import Team
 from posthog.queries.util import get_earliest_timestamp
-from posthog.tasks.update_cache import update_cache_item, update_cached_items
+from posthog.tasks.update_cache import (
+    PARALLEL_INSIGHT_CACHE,
+    update_cache_item,
+    update_cached_items,
+    update_insight_cache,
+)
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
+
+
+def create_shared_dashboard(team: Team, is_shared: bool = False, **kwargs: Any) -> Dashboard:
+    dashboard = Dashboard.objects.create(team=team, **kwargs)
+    SharingConfiguration.objects.create(team=team, dashboard=dashboard, enabled=is_shared)
+
+    return dashboard
+
+
+def create_shared_insight(team: Team, is_shared: bool = False, **kwargs: Any) -> Insight:
+    insight = Insight.objects.create(team=team, **kwargs)
+    SharingConfiguration.objects.create(team=team, insight=insight, enabled=is_shared)
+
+    return insight
 
 
 class TestUpdateCache(APIBaseTest):
@@ -32,7 +53,7 @@ class TestUpdateCache(APIBaseTest):
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
         filter = Filter(data=filter_dict)
-        shared_dashboard_with_no_filters = Dashboard.objects.create(
+        shared_dashboard_with_no_filters = create_shared_dashboard(
             team=self.team, is_shared=True, last_accessed_at="2020-01-01T12:00:00Z"
         )
         funnel_filter = Filter(data={"events": [{"id": "user signed up", "type": "events", "order": 0},],})
@@ -60,7 +81,7 @@ class TestUpdateCache(APIBaseTest):
             insight=cached_funnel_item, dashboard=shared_dashboard_with_no_filters
         )
 
-        another_shared_dashboard_to_cache = Dashboard.objects.create(
+        another_shared_dashboard_to_cache = create_shared_dashboard(
             team=self.team, is_shared=True, last_accessed_at=now()
         )
         insight_not_cached_because_dashboard_has_filters = Insight.objects.create(
@@ -72,10 +93,10 @@ class TestUpdateCache(APIBaseTest):
             insight=insight_not_cached_because_dashboard_has_filters, dashboard=another_shared_dashboard_to_cache
         )
         # filters changed after dashboard linked to insight but should still affect filters hash
-        another_shared_dashboard_to_cache.filters = {"date_from": "-7d"}
+        another_shared_dashboard_to_cache.filters = {"date_from": "-14d"}
         another_shared_dashboard_to_cache.save()
 
-        dashboard_do_not_cache = Dashboard.objects.create(
+        dashboard_do_not_cache = create_shared_dashboard(
             team=self.team, is_shared=False, last_accessed_at="2020-01-01T12:00:00Z"
         )
         insight_not_cached_because_dashboard_unshared_and_not_recently_accessed = Insight.objects.create(
@@ -89,7 +110,7 @@ class TestUpdateCache(APIBaseTest):
             dashboard=dashboard_do_not_cache,
         )
 
-        recently_accessed_unshared_dashboard_should_cache = Dashboard.objects.create(
+        recently_accessed_unshared_dashboard_should_cache = create_shared_dashboard(
             team=self.team, is_shared=False, last_accessed_at=now()
         )
         item_cached_because_on_recently_shared_dashboard_with_no_filter = Insight.objects.create(
@@ -184,7 +205,7 @@ class TestUpdateCache(APIBaseTest):
     @freeze_time("2012-01-15")
     def test_update_cache_item_calls_right_class(self) -> None:
         filter = Filter(data={"insight": "TRENDS", "events": [{"id": "$pageview"}]})
-        dashboard_item = self._create_dashboard(filter)
+        insight, _ = self._create_dashboard(filter)
 
         update_cache_item(
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
@@ -192,7 +213,7 @@ class TestUpdateCache(APIBaseTest):
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
 
-        updated_dashboard_item = Insight.objects.get(pk=dashboard_item.pk)
+        updated_dashboard_item = Insight.objects.get(pk=insight.pk)
         self.assertEqual(updated_dashboard_item.refreshing, False)
         self.assertEqual(updated_dashboard_item.last_refresh, now())
 
@@ -220,7 +241,7 @@ class TestUpdateCache(APIBaseTest):
                 ],
             }
         )
-        dashboard = Dashboard.objects.create(is_shared=True, team=self.team)
+        dashboard = create_shared_dashboard(is_shared=True, team=self.team)
         insight = Insight.objects.create(name="to be found by filter", team=self.team, filters=base_filter.to_dict())
         DashboardTile.objects.create(insight=insight, dashboard=dashboard)
 
@@ -284,31 +305,36 @@ class TestUpdateCache(APIBaseTest):
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,
     ) -> None:
-        self._create_dashboard(filter)
+        insight, dashboard = self._create_dashboard(filter)
 
         update_cached_items()
 
         expected_args = [
             generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk)),
             cache_type,
-            {"filter": filter.toJSON(), "team_id": self.team.pk,},
+            {
+                "filter": filter.toJSON(),
+                "team_id": self.team.pk,
+                "insight_id": insight.id,
+                "dashboard_id": dashboard.id,
+            },
         ]
 
         patch_update_cache_item.assert_any_call(*expected_args)
 
-        update_cache_item(*expected_args)  # type: ignore
+        update_cache_item(*expected_args)
 
         item_key = generate_cache_key("{}_{}".format(filter.toJSON(), self.team.pk))
         self.assertIsNotNone(get_safe_cache(item_key))
 
-    def _create_dashboard(self, filter: FilterType, item_refreshing: bool = False) -> Insight:
-        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
+    def _create_dashboard(self, filter: FilterType) -> Tuple[Insight, Dashboard]:
+        dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
 
         insight = Insight.objects.create(
             filters=filter.to_dict(), team=self.team, last_refresh=now() - timedelta(days=30),
         )
         DashboardTile.objects.create(insight=insight, dashboard=dashboard_to_cache)
-        return insight
+        return insight, dashboard_to_cache
 
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
@@ -336,7 +362,7 @@ class TestUpdateCache(APIBaseTest):
                 "date_to": "2012-01-15",
             }
         )
-        shared_dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        shared_dashboard = create_shared_dashboard(team=self.team, is_shared=True)
 
         insight = Insight.objects.create(filters=filter_stickiness.to_dict(), team=self.team)
         DashboardTile.objects.create(insight=insight, dashboard=shared_dashboard)
@@ -365,7 +391,7 @@ class TestUpdateCache(APIBaseTest):
         When there are no filters on the dashboard the tile and insight cache key match
         the cache only updates cache counts on the Insight not the dashboard tile
         """
-        dashboard_to_cache = Dashboard.objects.create(team=self.team, is_shared=True, last_accessed_at=now())
+        dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
         item_to_cache = Insight.objects.create(
             filters=Filter(
                 data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
@@ -392,7 +418,7 @@ class TestUpdateCache(APIBaseTest):
 
         # Magically succeeds, reset counter
         patch_calculate_by_filter.side_effect = None
-        patch_calculate_by_filter.return_value = {}
+        patch_calculate_by_filter.return_value = {"some": "exciting results"}
         _update_cached_items()
         self.assertEqual(Insight.objects.get().refresh_attempt, 0)
         self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
@@ -420,8 +446,8 @@ class TestUpdateCache(APIBaseTest):
         When a filters_hash matches the dashboard tile and not the insight the cache update doesn't touch the Insight
         but does touch the tile
         """
-        dashboard_to_cache = Dashboard.objects.create(
-            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-7d"}
+        dashboard_to_cache = create_shared_dashboard(
+            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-14d"}
         )
         item_to_cache = Insight.objects.create(
             filters=Filter(
@@ -449,7 +475,7 @@ class TestUpdateCache(APIBaseTest):
 
         # Magically succeeds, reset counter
         patch_calculate_by_filter.side_effect = None
-        patch_calculate_by_filter.return_value = {}
+        patch_calculate_by_filter.return_value = {"some": "exciting results"}
         _update_cached_items()
         self.assertEqual(Insight.objects.get().refresh_attempt, None)
         self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
@@ -476,9 +502,13 @@ class TestUpdateCache(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:
         # Regression test. Previously if we had insights with the same filter, but different dashboard filters, we would only update one of those
-        dashboard1: Dashboard = Dashboard.objects.create(filters={"date_from": "-14d"}, team=self.team, is_shared=True)
-        dashboard2: Dashboard = Dashboard.objects.create(filters={"date_from": "-30d"}, team=self.team, is_shared=True)
-        dashboard3: Dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        dashboard_14_days: Dashboard = create_shared_dashboard(
+            filters={"date_from": "-14d"}, team=self.team, is_shared=True
+        )
+        dashboard_30_days: Dashboard = create_shared_dashboard(
+            filters={"date_from": "-30d"}, team=self.team, is_shared=True
+        )
+        dashboard_no_filter: Dashboard = create_shared_dashboard(team=self.team, is_shared=True)
 
         filter = {"events": [{"id": "$pageview"}]}
         filters_hash_with_no_dashboard = generate_cache_key(
@@ -488,29 +518,29 @@ class TestUpdateCache(APIBaseTest):
         item1 = Insight.objects.create(filters=filter, team=self.team)
         self.assertEqual(item1.filters_hash, filters_hash_with_no_dashboard)
 
-        DashboardTile.objects.create(insight=item1, dashboard=dashboard1)
+        DashboardTile.objects.create(insight=item1, dashboard=dashboard_14_days)
 
         # link another insight to a dashboard with a filter
         item2 = Insight.objects.create(filters=filter, team=self.team)
-        DashboardTile.objects.create(insight=item2, dashboard=dashboard2)
-        dashboard2.save()
+        DashboardTile.objects.create(insight=item2, dashboard=dashboard_30_days)
+        dashboard_30_days.save()
 
         # link an insight to a dashboard with no filters
         item3 = Insight.objects.create(filters=filter, team=self.team)
-        DashboardTile.objects.create(insight=item3, dashboard=dashboard3)
-        dashboard3.save()
+        DashboardTile.objects.create(insight=item3, dashboard=dashboard_no_filter)
+        dashboard_no_filter.save()
 
         update_cached_items()
 
         self._assert_number_of_days_in_results(
-            DashboardTile.objects.get(insight=item1, dashboard=dashboard1), number_of_days_in_results=15
+            DashboardTile.objects.get(insight=item1, dashboard=dashboard_14_days), number_of_days_in_results=15
         )
 
         self._assert_number_of_days_in_results(
-            DashboardTile.objects.get(insight=item2, dashboard=dashboard2), number_of_days_in_results=31
+            DashboardTile.objects.get(insight=item2, dashboard=dashboard_30_days), number_of_days_in_results=31
         )
         self._assert_number_of_days_in_results(
-            DashboardTile.objects.get(insight=item3, dashboard=dashboard3), number_of_days_in_results=8
+            DashboardTile.objects.get(insight=item3, dashboard=dashboard_no_filter), number_of_days_in_results=8
         )
 
         self.assertEqual(
@@ -529,35 +559,10 @@ class TestUpdateCache(APIBaseTest):
         self.assertEqual(number_of_results, number_of_days_in_results)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @skip(
-        """
-        This makes an assumption that the insight's filters_hash can be set without knowledge of the dashboard context
-        but that is no longer true,
-        will need a different solution to this
-        """
-    )
-    def test_insights_old_filter(self) -> None:
-        # Some filters hashes are wrong (likely due to changes in our filters models) and previously we would not save changes to those insights and constantly retry them.
-        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
-        filter = {"events": [{"id": "$pageview"}]}
-        item = Insight.objects.create(filters=filter, filters_hash="cache_thisiswrong", team=self.team)
-        DashboardTile.objects.create(insight=item, dashboard=dashboard)
-        Insight.objects.all().update(filters_hash="cache_thisiswrong")
-        self.assertEquals(Insight.objects.get().filters_hash, "cache_thisiswrong")
-
-        update_cached_items()
-
-        self.assertEquals(
-            Insight.objects.get().filters_hash,
-            generate_cache_key("{}_{}".format(Filter(data=filter).toJSON(), self.team.pk)),
-        )
-        self.assertEquals(Insight.objects.get().last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00")
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.tasks.update_cache.insight_update_task_params")
     def test_broken_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
         # sometimes we have broken insights, add a test to catch
-        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        dashboard = create_shared_dashboard(team=self.team, is_shared=True)
         item = Insight.objects.create(filters={}, team=self.team)
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
 
@@ -568,7 +573,7 @@ class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache.insight_update_task_params")
     def test_broken_exception_insights(self, dashboard_item_update_task_params: MagicMock) -> None:
         dashboard_item_update_task_params.side_effect = Exception()
-        dashboard = Dashboard.objects.create(team=self.team, is_shared=True)
+        dashboard = create_shared_dashboard(team=self.team, is_shared=True)
         filter = {"events": [{"id": "$pageview"}]}
         item = Insight.objects.create(filters=filter, team=self.team)
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
@@ -576,3 +581,230 @@ class TestUpdateCache(APIBaseTest):
         update_cached_items()
 
         self.assertEquals(Insight.objects.get().refresh_attempt, 1)
+
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    @freeze_time("2022-01-03T00:00:00.000Z")
+    def test_refresh_insight_cache(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        shared_insight = create_shared_insight(team=self.team, is_shared=True, filters=filter_dict)
+        shared_insight_without_filters = create_shared_insight(team=self.team, is_shared=True, filters={})
+        shared_insight_deleted = create_shared_insight(team=self.team, is_shared=True, deleted=True)
+        shared_insight_refreshing = create_shared_insight(team=self.team, is_shared=True, refreshing=True)
+
+        # Valid insights within the PARALLEL_INSIGHT_CACHE count
+        other_insights_in_range = [
+            create_shared_insight(
+                team=self.team,
+                is_shared=True,
+                filters=filter_dict,
+                last_refresh=datetime(2022, 1, 1).replace(tzinfo=pytz.utc),
+            )
+            for i in range(PARALLEL_INSIGHT_CACHE - 1)
+        ]
+
+        # Valid insights outside of the PARALLEL_INSIGHT_CACHE count with later refresh date to ensure order
+        other_insights_out_of_range = [
+            create_shared_insight(
+                team=self.team,
+                is_shared=True,
+                filters=filter_dict,
+                last_refresh=datetime(2022, 1, 2).replace(tzinfo=pytz.utc),
+            )
+            for i in range(5)
+        ]
+
+        tasks, queue_length = update_cached_items()
+
+        assert tasks == 5
+        assert queue_length == PARALLEL_INSIGHT_CACHE + 5
+
+        for call_item in patch_update_cache_item.call_args_list:
+            update_cache_item(*call_item[0])
+
+        assert Insight.objects.get(pk=shared_insight.pk).last_refresh
+        assert not Insight.objects.get(pk=shared_insight_without_filters.pk).last_refresh
+        assert not Insight.objects.get(pk=shared_insight_deleted.pk).last_refresh
+        assert not Insight.objects.get(pk=shared_insight_refreshing.pk).last_refresh
+
+        for insight in other_insights_in_range:
+            assert Insight.objects.get(pk=insight.pk).last_refresh == now()
+        for insight in other_insights_out_of_range:
+            assert not Insight.objects.get(pk=insight.pk).last_refresh == datetime(2022, 1, 2).replace(tzinfo=pytz.utc)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_update_insight_filters_hash(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = self._create_insight_with_known_cache_key(test_hash)
+
+        update_insight_cache(insight, None)
+
+        insight.refresh_from_db()
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_update_dashboard_tile_updates_tile_and_insight_filters_hash_when_dashboard_has_no_filters(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = self._create_insight_with_known_cache_key(test_hash)
+        dashboard, tile = self._create_dashboard_tile_with_known_cache_key(insight, test_hash)
+
+        update_insight_cache(insight, dashboard)
+
+        insight.refresh_from_db()
+        tile.refresh_from_db()
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+        assert tile.filters_hash != test_hash
+        assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_update_dashboard_tile_updates_only_tile_when_different_filters(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = self._create_insight_with_known_cache_key(test_hash)
+        dashboard, tile = self._create_dashboard_tile_with_known_cache_key(
+            insight, test_hash, dashboard_filters={"date_from": "-30d"}
+        )
+
+        update_insight_cache(insight, dashboard)
+
+        tile.refresh_from_db()
+        insight.refresh_from_db()
+
+        assert insight.filters_hash == test_hash
+        assert insight.last_refresh is None
+        assert tile.filters_hash != test_hash
+        assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cache_key_that_matches_no_assets_still_counts_as_a_refresh_attempt_for_dashboard_tiles(self) -> None:
+        test_hash = "märg koer lamab parimal tekil"
+        insight = self._create_insight_with_known_cache_key(test_hash)
+        dashboard, tile = self._create_dashboard_tile_with_known_cache_key(
+            insight, test_hash, dashboard_filters={"date_from": "-30d"}
+        )
+
+        assert insight.refresh_attempt is None
+        assert tile.refresh_attempt is None
+
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        update_cache_item(
+            key="a key that does not match",
+            cache_type=CacheType.TRENDS,
+            payload={
+                "filter": Filter(data=filter_dict).toJSON(),
+                "team_id": self.team.id,
+                "insight_id": insight.id,
+                "dashboard_id": dashboard.id,
+            },
+        )
+
+        insight.refresh_from_db()
+        tile.refresh_from_db()
+        assert insight.refresh_attempt is None
+        assert tile.refresh_attempt == 1
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_cache_key_that_matches_no_assets_still_counts_as_a_refresh_attempt_for_insights(self) -> None:
+        test_hash = "märg koer lamab parimal tekil"
+        insight = self._create_insight_with_known_cache_key(test_hash)
+
+        assert insight.refresh_attempt is None
+
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        update_cache_item(
+            key="a key that does not match",
+            cache_type=CacheType.TRENDS,
+            payload={
+                "filter": Filter(data=filter_dict).toJSON(),
+                "team_id": self.team.id,
+                "insight_id": insight.id,
+                "dashboard_id": None,
+            },
+        )
+
+        insight.refresh_from_db()
+        assert insight.refresh_attempt == 1
+
+    @patch("posthog.tasks.update_cache.statsd.gauge")
+    def test_never_refreshed_tiles_are_gauged(self, statsd_gauge: MagicMock) -> None:
+        dashboard = create_shared_dashboard(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(filters=filter, team=self.team)
+        tile: DashboardTile = DashboardTile.objects.create(insight=item, dashboard=dashboard)
+
+        assert tile.last_refresh is None
+
+        update_cached_items()
+
+        statsd_gauge.assert_any_call("update_cache_queue.never_refreshed", 1)
+
+    @freeze_time("2022-12-01T13:54:00.000Z")
+    @patch("posthog.tasks.update_cache.statsd.gauge")
+    def test_refresh_age_of_tiles_is_gauged(self, statsd_gauge: MagicMock) -> None:
+        tile_one = self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=1))
+        self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=0.5))
+
+        update_cached_items()
+
+        statsd_gauge.assert_any_call(
+            "update_cache_queue.dashboards_lag",
+            3600,
+            tags={
+                "insight_id": tile_one.insight_id,
+                "dashboard_id": tile_one.dashboard_id,
+                "cache_key": tile_one.filters_hash,
+            },
+        )
+
+    def _a_dashboard_tile_with_known_last_refresh(self, last_refresh_date: datetime) -> DashboardTile:
+        dashboard = create_shared_dashboard(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(filters=filter, team=self.team)
+        tile: DashboardTile = DashboardTile.objects.create(insight=item, dashboard=dashboard)
+        tile.last_refresh = last_refresh_date
+        tile.save(update_fields=["last_refresh"])
+        return tile
+
+    def _create_insight_with_known_cache_key(self, test_hash: str) -> Insight:
+        filter_dict: Dict[str, Any] = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+        insight: Insight = Insight.objects.create(team=self.team, filters=filter_dict)
+        insight.filters_hash = test_hash
+        insight.save(update_fields=["filters_hash"])
+
+        insight.refresh_from_db()
+        assert insight.filters_hash == test_hash
+
+        return insight
+
+    def _create_dashboard_tile_with_known_cache_key(
+        self, insight: Insight, test_hash: str, dashboard_filters: Optional[Dict] = None
+    ) -> Tuple[Dashboard, DashboardTile]:
+        dashboard: Dashboard = Dashboard.objects.create(
+            team=self.team, filters=dashboard_filters if dashboard_filters else {}
+        )
+        tile: DashboardTile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        tile.filters_hash = test_hash
+        tile.save(update_fields=["filters_hash"])
+
+        tile.refresh_from_db()
+        insight.refresh_from_db()
+        assert tile.filters_hash == test_hash
+        assert insight.filters_hash == test_hash
+
+        return dashboard, tile

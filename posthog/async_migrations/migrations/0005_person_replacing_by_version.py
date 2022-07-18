@@ -13,7 +13,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
     AsyncMigrationType,
 )
-from posthog.async_migrations.utils import execute_op_clickhouse
+from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.client import sync_execute
@@ -65,32 +65,10 @@ PG_COPY_BATCH_SIZE = 1000
 PG_COPY_INSERT_TIMESTAMP = "2020-01-01 00:00:00"
 
 
-def optimize_table_fn(query_id):
-    default_timeout = settings.ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS
-    try:
-        execute_op_clickhouse(
-            f"OPTIMIZE TABLE {PERSON_TABLE} FINAL",
-            query_id=query_id,
-            settings={
-                "max_execution_time": default_timeout,
-                "send_timeout": default_timeout,
-                "receive_timeout": default_timeout,
-            },
-        )
-    except:  # TODO: we should only pass the timeout one here
-        pass
-
-
 class Migration(AsyncMigrationDefinition):
     description = "Move `person` table over to a improved schema from a correctness standpoint"
 
     depends_on = "0004_replicated_schema"
-
-    def precheck(self):
-        if not settings.MULTI_TENANCY:
-            return False, "This async migration is not yet ready for self-hosted users"
-
-        return True, None
 
     def is_required(self) -> bool:
         person_table_engine = sync_execute(
@@ -213,7 +191,9 @@ class Migration(AsyncMigrationDefinition):
             while should_continue:
                 should_continue = self._copy_batch_from_postgres(query_id)
             self.unset_highwatermark()
-            optimize_table_fn(query_id)
+            run_optimize_table(
+                unique_name="0005_person_replacing_by_version", query_id=query_id, table_name=PERSON_TABLE, final=True
+            )
         except Exception as err:
             logger.warn("Re-copying persons from postgres failed. Marking async migration as complete.", error=err)
             capture_exception(err)
@@ -271,6 +251,8 @@ class Migration(AsyncMigrationDefinition):
         result = 0.5 * migration_instance.current_operation_index / len(self.operations)
 
         if migration_instance.current_operation_index == len(self.operations) - 1:
-            result += 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+            result = 0.5 + 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+        else:
+            result = 0.5 * migration_instance.current_operation_index / (len(self.operations) - 1)
 
         return int(100 * result)

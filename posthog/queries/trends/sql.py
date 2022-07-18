@@ -6,6 +6,20 @@ VOLUME_TOTAL_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM ({event_query}) events
 """
 
+SESSION_VOLUME_TOTAL_AGGREGATE_SQL = """
+SELECT {aggregate_operation} as data FROM (
+    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
+)
+"""
+
+SESSION_DURATION_VOLUME_SQL = """
+SELECT {aggregate_operation} as data, date FROM (
+    SELECT {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date, any(session_duration) as session_duration
+    FROM ({event_query})
+    GROUP BY $session_id, date
+) GROUP BY date
+"""
+
 ACTIVE_USER_SQL = """
 SELECT counts as total, timestamp as day_start FROM (
     SELECT d.timestamp, COUNT(DISTINCT {aggregator}) counts FROM (
@@ -47,11 +61,27 @@ SELECT groupArray(value) FROM (
     FROM events e
     {person_join_clauses}
     {groups_join_clauses}
+    {sessions_join_clauses}
     WHERE
         team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
     GROUP BY value
     ORDER BY count DESC, value DESC
     LIMIT %(limit)s OFFSET %(offset)s
+)
+"""
+
+HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL = """
+SELECT {bucketing_expression} FROM (
+    SELECT
+        {value_expression},
+        {aggregate_operation} as count
+    FROM events e
+    {person_join_clauses}
+    {groups_join_clauses}
+    {sessions_join_clauses}
+    WHERE
+        team_id = %(team_id)s {entity_query} {parsed_date_from} {parsed_date_to} {prop_filters}
+    GROUP BY value
 )
 """
 
@@ -127,7 +157,26 @@ SELECT
 FROM events e
 {person_join}
 {groups_join}
+{sessions_join}
 {breakdown_filter}
+GROUP BY day_start, breakdown_value
+"""
+
+SESSION_MATH_BREAKDOWN_INNER_SQL = """
+SELECT
+    {aggregate_operation} as total, day_start, breakdown_value
+FROM (
+    SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
+        SELECT $session_id, session_duration, {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+            {breakdown_value} as breakdown_value
+        FROM events e
+        {person_join}
+        {groups_join}
+        {sessions_join}
+        {breakdown_filter}
+    )
+    GROUP BY $session_id, day_start, breakdown_value
+)
 GROUP BY day_start, breakdown_value
 """
 
@@ -150,6 +199,7 @@ FROM (
         events e
         {person_join}
         {groups_join}
+        {sessions_join}
         {breakdown_filter}
     )
     GROUP BY person_id, breakdown_value
@@ -168,6 +218,7 @@ FROM (
         FROM events e
         {person_join}
         {groups_join}
+        {sessions_join}
         {conditions}
         GROUP BY timestamp, person_id, breakdown_value
     ) e
@@ -183,7 +234,26 @@ SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
 FROM events e
 {person_join}
 {groups_join}
+{sessions_join_condition}
 {breakdown_filter}
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
+
+
+SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SELECT {aggregate_operation} AS total, breakdown_value
+FROM (
+    SELECT any(session_duration) as session_duration, breakdown_value FROM (
+        SELECT $session_id, session_duration, {breakdown_value} AS breakdown_value FROM
+            events e
+            {person_join}
+            {groups_join}
+            {sessions_join_condition}
+            {breakdown_filter}
+        )
+    GROUP BY $session_id, breakdown_value
+)
 GROUP BY breakdown_value
 ORDER BY breakdown_value
 """
@@ -195,6 +265,11 @@ WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_ra
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to}
   AND {breakdown_value_expr} in (%(values)s)
+  {actions_query}
+"""
+
+BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL = """
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {numeric_property_filter}
   {actions_query}
 """
 

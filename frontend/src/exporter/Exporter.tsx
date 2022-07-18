@@ -1,27 +1,15 @@
 import '~/styles'
 import './Exporter.scss'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import { loadPostHogJS } from '~/loadPostHogJS'
-import { initKea } from '~/initKea'
 import { ExportedData, ExportType } from '~/exporter/types'
 import { DashboardPlacement } from '~/types'
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 
-const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
-
-if (exportedData.type === ExportType.Image) {
-    // Disable tracking for screenshot captures
-    window.JS_POSTHOG_API_KEY = null
-}
-
-loadPostHogJS()
-initKea()
-
-function Exporter(): JSX.Element {
-    const { type, dashboard, insight, whitelabel, team } = exportedData
+export function Exporter(props: ExportedData): JSX.Element {
+    const { type, dashboard, insight, team, ...exportOptions } = props
+    const { whitelabel } = exportOptions
 
     return (
         <div className="Exporter">
@@ -57,11 +45,11 @@ function Exporter(): JSX.Element {
             ) : null}
 
             {insight ? (
-                <ExportedInsight insight={insight} showLogo={!whitelabel} />
+                <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
-                    shareToken={dashboard.share_token}
+                    dashboard={dashboard}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : (
@@ -86,5 +74,3 @@ function Exporter(): JSX.Element {
         </div>
     )
 }
-
-ReactDOM.render(<Exporter />, document.getElementById('root'))

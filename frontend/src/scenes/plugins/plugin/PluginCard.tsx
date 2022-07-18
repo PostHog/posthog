@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
+import { Button, Card, Col, Row, Space, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -13,6 +13,7 @@ import {
     InfoCircleOutlined,
     DownOutlined,
     GlobalOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -27,6 +28,7 @@ import { canInstallPlugins } from '../access'
 import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -80,8 +82,15 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } =
-        useActions(pluginsLogic)
+    const {
+        editPlugin,
+        toggleEnabled,
+        installPlugin,
+        resetPluginConfigError,
+        rearrange,
+        showPluginLogs,
+        showPluginHistory,
+    } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
     const { user } = useValues(userLogic)
 
@@ -120,22 +129,19 @@ export function PluginCard({
                     ) : null}
                     {pluginConfig && (
                         <Col>
-                            <Popconfirm
-                                placement="topLeft"
-                                title={`Are you sure you wish to ${
-                                    pluginConfig.enabled ? 'disable' : 'enable'
-                                } this plugin?`}
-                                onConfirm={() =>
-                                    pluginConfig.id
-                                        ? toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
-                                        : editPlugin(pluginId || null, { __enabled: true })
-                                }
-                                okText="Yes"
-                                cancelText="No"
-                                disabled={rearranging}
-                            >
-                                <Switch checked={pluginConfig.enabled ?? false} disabled={rearranging} />
-                            </Popconfirm>
+                            {pluginConfig.id ? (
+                                <LemonSwitch
+                                    checked={pluginConfig.enabled ?? false}
+                                    disabled={rearranging}
+                                    onChange={() =>
+                                        toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
+                                    }
+                                />
+                            ) : (
+                                <Tooltip title="Please configure this plugin before enabling it">
+                                    <LemonSwitch checked={false} disabled={true} />
+                                </Tooltip>
+                            )}
                         </Col>
                     )}
                     <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
@@ -200,6 +206,16 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
+                                    <Tooltip title="Activity history">
+                                        <Button
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            onClick={() => showPluginHistory(pluginId)}
+                                            data-attr="plugin-history"
+                                        >
+                                            <ClockCircleOutlined />
+                                        </Button>
+                                    </Tooltip>
                                     <Tooltip
                                         title={
                                             pluginConfig?.id
