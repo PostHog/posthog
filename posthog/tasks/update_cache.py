@@ -211,7 +211,8 @@ def update_cached_items() -> Tuple[int, int]:
         .order_by(F("last_refresh").asc(nulls_first=True), F("insight__last_refresh").asc(nulls_first=True))
     )
 
-    for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
+    cache_candidates = dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]
+    for dashboard_tile in cache_candidates:
         insight = dashboard_tile.insight
         try:
             cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
@@ -224,28 +225,6 @@ def update_cached_items() -> Tuple[int, int]:
             dashboard_tile.save(update_fields=["refresh_attempt"])
 
             capture_exception(e)
-
-        if dashboard_tile.last_refresh:
-            dashboard_cache_age = (datetime.datetime.now(timezone.utc) - dashboard_tile.last_refresh).total_seconds()
-
-            statsd.gauge(
-                "update_cache_queue.dashboards_lag",
-                round(dashboard_cache_age),
-                tags={
-                    "insight_id": dashboard_tile.insight_id,
-                    "dashboard_id": dashboard_tile.dashboard_id,
-                    "cache_key": dashboard_tile.filters_hash,
-                },
-            )
-
-            if dashboard_cache_age > 1800:
-                logger.error(
-                    "insight_cache.waiting_for_more_than_thirty_minutes",
-                    insight_id=dashboard_tile.insight.id,
-                    dashboard_id=dashboard_tile.dashboard.id,
-                    cache_key=dashboard_tile.filters_hash,
-                    team_id=dashboard_tile.insight.team.id,
-                )
 
     shared_insights = (
         Insight.objects.filter(sharingconfiguration__enabled=True)
@@ -266,6 +245,30 @@ def update_cached_items() -> Tuple[int, int]:
             capture_exception(e)
 
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
+
+    # how old is the next to be refreshed
+    for candidate in cache_candidates:
+        if candidate.last_refresh:
+            dashboard_cache_age = (datetime.datetime.now(timezone.utc) - candidate.last_refresh).total_seconds()
+
+            statsd.gauge(
+                "update_cache_queue.dashboards_lag",
+                round(dashboard_cache_age),
+                tags={
+                    "insight_id": candidate.insight_id,
+                    "dashboard_id": candidate.dashboard_id,
+                    "cache_key": candidate.filters_hash,
+                },
+            )
+
+            if dashboard_cache_age > 1800:
+                logger.error(
+                    "insight_cache.waiting_for_more_than_thirty_minutes",
+                    insight_id=candidate.insight.id,
+                    dashboard_id=candidate.dashboard.id,
+                    cache_key=candidate.filters_hash,
+                    team_id=candidate.insight.team.id,
+                )
 
     logger.info("update_cache_queue", length=len(tasks))
     taskset = group(tasks)
