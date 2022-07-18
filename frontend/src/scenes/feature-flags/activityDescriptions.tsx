@@ -167,6 +167,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         created_at: () => null,
         created_by: () => null,
         is_simple_flag: () => null,
+        experiment_set: () => null,
     }
 
 export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {

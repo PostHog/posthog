@@ -133,7 +133,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         }
                     />
-                    {featureFlag.experiment_set?.length > 0 && (
+                    {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                         <AlertMessage type="warning" style={{ margin: '1rem 0' }}>
                             This feature flag is linked to an experiment. It's recommended to only make changes to this
                             flag{' '}
