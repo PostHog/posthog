@@ -138,9 +138,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             !canEditInsight
                                 ? {
                                       icon: <IconLock />,
-                                      tooltip: featureFlags[FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS]
-                                          ? "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you."
-                                          : "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                      tooltip:
+                                          "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
                                   }
                                 : undefined
                         }
