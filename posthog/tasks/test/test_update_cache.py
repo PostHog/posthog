@@ -752,10 +752,11 @@ class TestUpdateCache(APIBaseTest):
         statsd_gauge.assert_any_call("update_cache_queue.never_refreshed", 1)
 
     @freeze_time("2022-12-01T13:54:00.000Z")
+    @patch("posthog.tasks.update_cache.logger")
     @patch("posthog.tasks.update_cache.statsd.gauge")
-    def test_refresh_age_of_tiles_is_gauged(self, statsd_gauge: MagicMock) -> None:
+    def test_refresh_age_of_tiles_is_gauged(self, statsd_gauge: MagicMock, logger: MagicMock,) -> None:
         tile_one = self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=1))
-        self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=0.5))
+        tile_two = self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=0.5))
 
         update_cached_items()
 
@@ -767,6 +768,24 @@ class TestUpdateCache(APIBaseTest):
                 "dashboard_id": tile_one.dashboard_id,
                 "cache_key": tile_one.filters_hash,
             },
+        )
+
+        statsd_gauge.assert_any_call(
+            "update_cache_queue.dashboards_lag",
+            1800,
+            tags={
+                "insight_id": tile_two.insight_id,
+                "dashboard_id": tile_two.dashboard_id,
+                "cache_key": tile_two.filters_hash,
+            },
+        )
+
+        logger.error.assert_called_with(
+            "insight_cache.waiting_for_more_than_thirty_minutes",
+            insight_id=tile_one.insight_id,
+            dashboard_id=tile_one.dashboard_id,
+            cache_key=tile_one.filters_hash,
+            team_id=self.team.id,
         )
 
     def _a_dashboard_tile_with_known_last_refresh(self, last_refresh_date: datetime) -> DashboardTile:
