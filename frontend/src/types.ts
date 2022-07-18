@@ -1386,6 +1386,7 @@ export interface FeatureFlagType {
     is_simple_flag: boolean
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
+    experiment_set: string[]
 }
 
 export interface CombinedFeatureFlagAndValueType {

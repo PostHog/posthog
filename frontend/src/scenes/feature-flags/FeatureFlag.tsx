@@ -29,6 +29,8 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeatureFlagsToCheckLogic } from 'lib/logic/featureFlagLogic'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -131,6 +133,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         }
                     />
+                    {featureFlag.experiment_set?.length > 0 && (
+                        <AlertMessage type="warning" style={{ margin: '1rem 0' }}>
+                            This feature flag is linked to an experiment. It's recommended to only make changes to this
+                            flag{' '}
+                            <a href={urls.experiment(featureFlag.experiment_set[0])}>
+                                using the experiment creation screen.
+                            </a>
+                        </AlertMessage>
+                    )}
                     <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
                     <h3 className="l3 mt">General configuration</h3>
                     <div className="text-muted mb">
