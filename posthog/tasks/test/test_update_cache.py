@@ -738,6 +738,46 @@ class TestUpdateCache(APIBaseTest):
         insight.refresh_from_db()
         assert insight.refresh_attempt == 1
 
+    @patch("posthog.tasks.update_cache.statsd.gauge")
+    def test_never_refreshed_tiles_are_gauged(self, statsd_gauge: MagicMock) -> None:
+        dashboard = create_shared_dashboard(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(filters=filter, team=self.team)
+        tile: DashboardTile = DashboardTile.objects.create(insight=item, dashboard=dashboard)
+
+        assert tile.last_refresh is None
+
+        update_cached_items()
+
+        statsd_gauge.assert_any_call("update_cache_queue.never_refreshed", 1)
+
+    @freeze_time("2022-12-01T13:54:00.000Z")
+    @patch("posthog.tasks.update_cache.statsd.gauge")
+    def test_refresh_age_of_tiles_is_gauged(self, statsd_gauge: MagicMock) -> None:
+        tile_one = self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=1))
+        self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=0.5))
+
+        update_cached_items()
+
+        statsd_gauge.assert_any_call(
+            "update_cache_queue.dashboards_lag",
+            3600,
+            tags={
+                "insight_id": tile_one.insight_id,
+                "dashboard_id": tile_one.dashboard_id,
+                "cache_key": tile_one.filters_hash,
+            },
+        )
+
+    def _a_dashboard_tile_with_known_last_refresh(self, last_refresh_date: datetime) -> DashboardTile:
+        dashboard = create_shared_dashboard(team=self.team, is_shared=True)
+        filter = {"events": [{"id": "$pageview"}]}
+        item = Insight.objects.create(filters=filter, team=self.team)
+        tile: DashboardTile = DashboardTile.objects.create(insight=item, dashboard=dashboard)
+        tile.last_refresh = last_refresh_date
+        tile.save(update_fields=["last_refresh"])
+        return tile
+
     def _create_insight_with_known_cache_key(self, test_hash: str) -> Insight:
         filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
