@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -242,9 +243,30 @@ def update_cached_items() -> Tuple[int, int]:
             insight.save(update_fields=["refresh_attempt"])
             capture_exception(e)
 
-    logger.info("Found {} items to refresh".format(len(tasks)))
+    statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
+
+    # how old is the next to be refreshed
+    oldest_previously_refreshed_tile: Optional[DashboardTile] = dashboard_tiles.exclude(last_refresh=None).first()
+    if oldest_previously_refreshed_tile and oldest_previously_refreshed_tile.last_refresh:
+        dashboard_cache_age = (
+            datetime.datetime.now(timezone.utc) - oldest_previously_refreshed_tile.last_refresh
+        ).total_seconds()
+
+        statsd.gauge(
+            "update_cache_queue.dashboards_lag",
+            round(dashboard_cache_age),
+            tags={
+                "insight_id": oldest_previously_refreshed_tile.insight_id,
+                "dashboard_id": oldest_previously_refreshed_tile.dashboard_id,
+                "cache_key": oldest_previously_refreshed_tile.filters_hash,
+            },
+        )
+
+    logger.info("update_cache_queue", length=len(tasks))
     taskset = group(tasks)
     taskset.apply_async()
+
+    # this is the number of cacheable items that match the query
     queue_depth = dashboard_tiles.count() + shared_insights.count()
     statsd.gauge("update_cache_queue_depth.shared_insights", shared_insights.count())
     statsd.gauge("update_cache_queue_depth.dashboards", dashboard_tiles.count())
