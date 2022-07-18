@@ -422,8 +422,12 @@ def check_cached_items():
     update_cached_items()
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=False)
 def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
+    """
+    Tasks used in a group (as this is) must not ignore their results
+    https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
+    """
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)
