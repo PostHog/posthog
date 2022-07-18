@@ -61,6 +61,7 @@ export function RetentionModal({
                                         export_format: ExporterFormat.CSV,
                                         export_context: {
                                             path: results[selectedRow]?.people_url,
+                                            max_limit: 10000,
                                         },
                                     })
                                 }

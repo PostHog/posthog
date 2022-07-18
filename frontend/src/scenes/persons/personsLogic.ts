@@ -152,6 +152,7 @@ export const personsLogic = kea<personsLogicType>({
                     export_format: ExporterFormat.CSV,
                     export_context: {
                         path: (cohort ? `/api/cohort/${cohort}/persons` : `api/person/`) + `?${toParams(listFilters)}`,
+                        max_limit: 10000,
                     },
                 },
             ],
