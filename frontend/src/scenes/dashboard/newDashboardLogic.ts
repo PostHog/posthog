@@ -11,6 +11,7 @@ import { forms } from 'kea-forms'
 
 export interface NewDashboardForm {
     name: string
+    description: ''
     show: boolean
     useTemplate: string
     restrictionLevel: DashboardRestrictionLevel
@@ -18,6 +19,7 @@ export interface NewDashboardForm {
 
 const defaultFormValues: NewDashboardForm = {
     name: '',
+    description: '',
     show: true,
     useTemplate: '',
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
@@ -47,11 +49,12 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 name: !name ? 'Please give your dashboard a name.' : null,
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
-            submit: async ({ name, useTemplate, restrictionLevel, show }, breakpoint) => {
+            submit: async ({ name, description, useTemplate, restrictionLevel, show }, breakpoint) => {
                 const result: DashboardType = await api.create(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
                         name: name,
+                        description: description,
                         use_template: useTemplate,
                         restriction_level: restrictionLevel,
                     } as Partial<DashboardType>
