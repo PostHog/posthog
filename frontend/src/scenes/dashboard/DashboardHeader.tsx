@@ -39,8 +39,6 @@ export function DashboardHeader(): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
-    const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
     const { push } = useActions(router)
 
     const exportOptions: ExportButtonItem[] = [
@@ -199,10 +197,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
-                                            {usingSubscriptionFeature && <SubscribeButton dashboardId={dashboard.id} />}
-                                            {usingExportFeature && (
-                                                <ExportButton fullWidth type="stealth" items={exportOptions} />
-                                            )}
+                                            <SubscribeButton dashboardId={dashboard.id} />
+                                            <ExportButton fullWidth type="stealth" items={exportOptions} />
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>

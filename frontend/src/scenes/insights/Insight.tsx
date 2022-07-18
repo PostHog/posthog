@@ -79,9 +79,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     // const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
-    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
-    const usingEmbedFeature = featureFlags[FEATURE_FLAGS.EMBED_INSIGHTS]
-    const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -173,20 +170,18 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             </LemonButton>
                                             <LemonDivider />
 
-                                            {usingEmbedFeature && (
-                                                <LemonButton
-                                                    type="stealth"
-                                                    onClick={() =>
-                                                        insight.short_id
-                                                            ? push(urls.insightSharing(insight.short_id))
-                                                            : null
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    Share or embed
-                                                </LemonButton>
-                                            )}
-                                            {usingExportFeature && insight.short_id && (
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() =>
+                                                    insight.short_id
+                                                        ? push(urls.insightSharing(insight.short_id))
+                                                        : null
+                                                }
+                                                fullWidth
+                                            >
+                                                Share or embed
+                                            </LemonButton>
+                                            {insight.short_id && (
                                                 <>
                                                     {usingSubscriptionFeature && (
                                                         <SubscribeButton insightShortId={insight.short_id} />
