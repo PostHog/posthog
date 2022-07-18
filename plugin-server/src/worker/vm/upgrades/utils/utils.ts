@@ -97,21 +97,19 @@ export const fetchEventsForInterval = async (
 
     const fetchEventsQuery = `
     SELECT
+        event,
         uuid,
         team_id,
         distinct_id,
         properties,
         timestamp,
-        now,
-        event,
-        ip,
-        site_url,
-        sent_at
+        created_at,
+        elements_chain
     FROM events
     WHERE team_id = ${teamId}
-    AND _timestamp >= '${chTimestampLower}'
-    AND _timestamp < '${chTimestampHigher}'
-    ORDER BY _offset
+    AND timestamp >= '${chTimestampLower}'
+    AND timestamp < '${chTimestampHigher}'
+    ORDER BY timestamp
     LIMIT ${eventsPerRun}
     OFFSET ${offset}`
 
