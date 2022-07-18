@@ -1,16 +1,23 @@
-import gzip
 import secrets
 from datetime import timedelta
-from typing import Optional
+from typing import List, Optional
 
+import structlog
+from django.conf import settings
 from django.db import models
 from django.http import HttpResponse
 from django.utils.text import slugify
+from rest_framework.exceptions import NotFound
+from sentry_sdk import capture_exception
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.models.utils import UUIDT
 from posthog.settings import DEBUG
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.utils import absolute_uri
+
+logger = structlog.get_logger(__name__)
 
 PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
 MAX_AGE_CONTENT = 86400  # 1 day
@@ -35,6 +42,7 @@ class ExportedAsset(models.Model):
     export_format: models.CharField = models.CharField(max_length=16, choices=ExportFormat.choices)
     content: models.BinaryField = models.BinaryField(null=True)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context: models.JSONField = models.JSONField(null=True, blank=True)
     # path in object storage or some other location identifier for the asset
@@ -53,12 +61,13 @@ class ExportedAsset(models.Model):
     @property
     def filename(self):
         ext = self.export_format.split("/")[1]
-
         filename = "export"
 
-        if self.dashboard and self.dashboard.name is not None:
+        if self.export_context and self.export_context.get("filename"):
+            filename = slugify(self.export_context.get("filename"))
+        elif self.dashboard and self.dashboard.name is not None:
             filename = f"{filename}-{slugify(self.dashboard.name)}"
-        if self.insight:
+        elif self.insight:
             filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
 
         filename = f"{filename}.{ext}"
@@ -93,8 +102,10 @@ def asset_for_token(token: str) -> ExportedAsset:
 def get_content_response(asset: ExportedAsset, download: bool = False):
     content = asset.content
     if not content and asset.content_location:
-        content_bytes = object_storage.read_bytes(asset.content_location)
-        content = gzip.decompress(content_bytes)
+        content = object_storage.read_bytes(asset.content_location)
+
+    if not content:
+        raise NotFound()
 
     res = HttpResponse(content, content_type=asset.export_format)
     if download:
@@ -104,3 +115,36 @@ def get_content_response(asset: ExportedAsset, download: bool = False):
         res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
 
     return res
+
+
+def save_content(exported_asset: ExportedAsset, content: bytes) -> None:
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            save_content_to_object_storage(exported_asset, content)
+        else:
+            save_content_to_exported_asset(exported_asset, content)
+    except ObjectStorageError as ose:
+        capture_exception(ose)
+        logger.error(
+            "exported_asset.object-storage-error", exported_asset_id=exported_asset.id, exception=ose, exc_info=True
+        )
+        save_content_to_exported_asset(exported_asset, content)
+
+
+def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes) -> None:
+    exported_asset.content = content
+    exported_asset.save(update_fields=["content"])
+
+
+def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
+    path_parts: List[str] = [
+        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+        exported_asset.export_format.split("/")[1],
+        f"team-{exported_asset.team.id}",
+        f"task-{exported_asset.id}",
+        str(UUIDT()),
+    ]
+    object_path = f'/{"/".join(path_parts)}'
+    object_storage.write(object_path, content)
+    exported_asset.content_location = object_path
+    exported_asset.save(update_fields=["content_location"])

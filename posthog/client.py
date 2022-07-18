@@ -55,12 +55,6 @@ QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_M
 _request_information: Optional[Dict] = None
 
 
-# Optimize_move_to_prewhere setting is set because of this regression test
-# test_ilike_regression_with_current_clickhouse_version
-# https://github.com/PostHog/posthog/blob/master/ee/clickhouse/queries/test/test_trends.py#L1566
-settings_override = {"optimize_move_to_prewhere": 0}
-
-
 def default_client():
     """
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
@@ -95,6 +89,8 @@ def make_ch_pool(**overrides) -> ChPool:
         "connections_min": CLICKHOUSE_CONN_POOL_MIN,
         "connections_max": CLICKHOUSE_CONN_POOL_MAX,
         "settings": {"mutations_sync": "1"} if TEST else {},
+        # Without this, OPTIMIZE table and other queries will regularly run into timeouts
+        "send_receive_timeout": 30 if TEST else 999_999_999,
         **overrides,
     }
 
@@ -147,8 +143,6 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
 
         timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure, tags)
-
-        settings = {**settings_override, **(settings or {})}
 
         try:
             result = client.execute(

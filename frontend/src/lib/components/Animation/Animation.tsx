@@ -12,6 +12,7 @@ export interface AnimationProps {
     delay?: number
     className?: string
     style?: React.CSSProperties
+    size?: 'small' | 'large'
 }
 
 export function Animation({
@@ -19,6 +20,7 @@ export function Animation({
     style,
     delay = 300,
     type = AnimationType.LaptopHog,
+    size = 'large',
 }: AnimationProps): JSX.Element {
     const [visible, setVisible] = useState(delay === 0)
     const [source, setSource] = useState<null | Record<string, any>>(null)
@@ -57,6 +59,7 @@ export function Animation({
             className={clsx(
                 'Animation',
                 { 'Animation--hidden': !(visible && (source || showFallbackSpinner)) },
+                `Animation--${size}`,
                 className
             )}
             style={{ aspectRatio: `${width} / ${height}`, ...style }}

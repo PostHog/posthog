@@ -16,7 +16,12 @@ jobs:
         name: Build & Deploy Production Docker image
         if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-20.04
+        permissions:
+            contents: read
+            id-token: write
         steps:
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
               with:
@@ -41,14 +46,24 @@ jobs:
                   # ref: 'master'
                   path: 'deploy/'
 
-            - name: Build, tag, and push image to Amazon ECR
+            - name: Build image
+              uses: depot/build-push-action@v1
+              with:
+                  context: .
+                  file: prod.web.Dockerfile
+                  load: true
+                  tags: |
+                      ${{ steps.login-ecr.outputs.registry }}/posthog-production:${{ github.sha }}
+                      ${{ steps.login-ecr.outputs.registry }}/posthog-production:latest
+                  project: 1stsk4xt19 # posthog-cloud project
+
+            - name: Push image to Amazon ECR
               id: build-image
               env:
                   ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
                   ECR_REPOSITORY: posthog-production
                   IMAGE_TAG: ${{ github.sha }}
               run: |
-                  docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f prod.web.Dockerfile .
                   docker push --all-tags $ECR_REGISTRY/$ECR_REPOSITORY
                   echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
@@ -198,27 +213,27 @@ jobs:
                         "context": ${{ toJson(github) }}
                       }
 
-    # TODO: Bring back once https://github.com/rtCamp/action-slack-notify/issues/126 is resolved
-    # slack:
-    #     name: Notify Slack of start of deploy
-    #     runs-on: ubuntu-20.04
-    #     if: github.repository == 'posthog/posthog'
-    #     steps:
-    #         - name: Notify Platform team on slack
-    #           uses: rtCamp/action-slack-notify@v2
-    #           env:
-    #               SLACK_CHANNEL: platform-bots
-    #               SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
-    #               SLACK_ICON: https://github.com/posthog.png?size=48
-    #               SLACK_MESSAGE: 'Production Cloud Deploy Beginning :rocket: - ${{ github.event.head_commit.message }}'
-    #               SLACK_TITLE: Message
-    #               SLACK_USERNAME: Max Hedgehog
-    #               SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+    slack:
+        name: Notify Slack of start of deploy
+        runs-on: ubuntu-20.04
+        if: github.repository == 'posthog/posthog'
+        steps:
+            - name: Notify Platform team on slack
+              uses: rtCamp/action-slack-notify@v2
+              env:
+                  SLACK_CHANNEL: platform-bots
+                  SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
+                  SLACK_ICON: https://github.com/posthog.png?size=48
+                  SLACK_MESSAGE: 'Production Cloud Deploy Beginning :rocket: - ${{ github.event.head_commit.message }}'
+                  SLACK_TITLE: Message
+                  SLACK_USERNAME: Max Hedgehog
+                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
 
     sentry:
         name: Notify Sentry of a production release
         runs-on: ubuntu-20.04
         if: github.repository == 'PostHog/posthog'
+        needs: build
         steps:
             - name: Checkout master
               uses: actions/checkout@v2

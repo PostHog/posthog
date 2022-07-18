@@ -204,7 +204,6 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
             next_url = None
 
         if request.accepted_renderer.format == "csv":
-            csvrenderers.CSVRenderer.header = ["Distinct ID", "Internal ID", "Email", "Name", "Properties"]
             content = [
                 {
                     "Name": get_person_name(person),

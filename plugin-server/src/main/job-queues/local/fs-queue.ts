@@ -1,10 +1,15 @@
-import { EnqueuedJob, OnJobCallback } from '../../../types'
+import { JobHelpers, TaskList } from 'graphile-worker'
+
+import { EnqueuedJob } from '../../../types'
 import Timeout = NodeJS.Timeout
 import * as fs from 'fs'
 import * as path from 'path'
 
 import { JobQueueBase } from '../job-queue-base'
 
+interface FsJob extends EnqueuedJob {
+    jobName: string
+}
 export class FsQueue extends JobQueueBase {
     paused: boolean
     started: boolean
@@ -32,12 +37,12 @@ export class FsQueue extends JobQueueBase {
         // nothing to do
     }
 
-    enqueue(job: EnqueuedJob): Promise<void> | void {
-        fs.appendFileSync(this.filename, `${JSON.stringify(job)}\n`)
+    enqueue(jobName: string, job: EnqueuedJob): Promise<void> | void {
+        fs.appendFileSync(this.filename, `${JSON.stringify({ jobName, ...job })}\n`)
     }
 
-    startConsumer(onJob: OnJobCallback): void {
-        super.startConsumer(onJob)
+    startConsumer(jobHandlers: TaskList): void {
+        super.startConsumer(jobHandlers)
         fs.writeFileSync(this.filename, '')
     }
 
@@ -48,15 +53,17 @@ export class FsQueue extends JobQueueBase {
             .toString()
             .split('\n')
             .filter((a) => a)
-            .map((s) => JSON.parse(s) as EnqueuedJob)
+            .map((s) => JSON.parse(s) as FsJob)
 
-        const newQueue = queue.filter((element) => element.timestamp < timestamp)
+        const jobsQueue = queue.filter((element) => element.timestamp < timestamp)
 
-        if (newQueue.length > 0) {
+        if (jobsQueue.length > 0) {
             const oldQueue = queue.filter((element) => element.timestamp >= timestamp)
             fs.writeFileSync(this.filename, `${oldQueue.map((q) => JSON.stringify(q)).join('\n')}\n`)
 
-            await this.onJob?.(newQueue)
+            for (const job of jobsQueue) {
+                await this.jobHandlers[job.jobName](job, {} as JobHelpers)
+            }
             return true
         }
 

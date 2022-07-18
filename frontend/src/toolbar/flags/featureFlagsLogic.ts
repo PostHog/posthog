@@ -30,7 +30,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         setOverriddenUserFlag: ({ flagKey, overrideValue }) => {
             const { posthog: clientPostHog } = toolbarLogic.values
             if (clientPostHog) {
-                clientPostHog.featureFlags.override({ [flagKey]: overrideValue, ...values.localOverrides })
+                clientPostHog.featureFlags.override({ ...values.localOverrides, [flagKey]: overrideValue })
                 posthog.capture('toolbar feature flag overridden')
                 actions.checkLocalOverrides()
                 toolbarLogic.values.posthog?.featureFlags.reloadFeatureFlags()

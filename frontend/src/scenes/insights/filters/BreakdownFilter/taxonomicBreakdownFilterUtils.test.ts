@@ -16,6 +16,8 @@ const taxonomicGroupFor = (
 
 const setFilters = jest.fn()
 
+const getPropertyDefinition = jest.fn()
+
 describe('taxonomic breakdown filter utils', () => {
     describe('with multi property breakdown flag on', () => {
         it('sets breakdowns for events', () => {
@@ -23,6 +25,8 @@ describe('taxonomic breakdown filter utils', () => {
                 useMultiBreakdown: true,
                 breakdownParts: ['a', 'b'],
                 setFilters,
+                getPropertyDefinition,
+                histogramFeatureFlag: false,
             })
             const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties)
@@ -46,6 +50,8 @@ describe('taxonomic breakdown filter utils', () => {
                 useMultiBreakdown: true,
                 breakdownParts: ['all', 1],
                 setFilters,
+                getPropertyDefinition,
+                histogramFeatureFlag: false,
             })
             const changedBreakdown = 2
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
@@ -72,6 +78,8 @@ describe('taxonomic breakdown filter utils', () => {
                 useMultiBreakdown: true,
                 breakdownParts: ['country'],
                 setFilters,
+                getPropertyDefinition,
+                histogramFeatureFlag: false,
             })
             const changedBreakdown = 'height'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
@@ -98,6 +106,8 @@ describe('taxonomic breakdown filter utils', () => {
                 useMultiBreakdown: false,
                 breakdownParts: ['a', 'b'],
                 setFilters,
+                getPropertyDefinition,
+                histogramFeatureFlag: false,
             })
             const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
@@ -107,6 +117,7 @@ describe('taxonomic breakdown filter utils', () => {
                 breakdown: 'c',
                 breakdowns: undefined,
                 breakdown_group_type_index: undefined,
+                breakdown_histogram_bin_count: undefined,
             })
         })
 
@@ -115,6 +126,8 @@ describe('taxonomic breakdown filter utils', () => {
                 useMultiBreakdown: false,
                 breakdownParts: ['all', 1],
                 setFilters,
+                getPropertyDefinition,
+                histogramFeatureFlag: false,
             })
             const changedBreakdown = 2
             const group: TaxonomicFilterGroup = taxonomicGroupFor(
@@ -135,6 +148,8 @@ describe('taxonomic breakdown filter utils', () => {
                 useMultiBreakdown: false,
                 breakdownParts: ['country'],
                 setFilters,
+                getPropertyDefinition,
+                histogramFeatureFlag: false,
             })
             const changedBreakdown = 'height'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
@@ -152,6 +167,8 @@ describe('taxonomic breakdown filter utils', () => {
                 useMultiBreakdown: false,
                 breakdownParts: ['$lib'],
                 setFilters,
+                getPropertyDefinition,
+                histogramFeatureFlag: false,
             })
             const changedBreakdown = '$lib_version'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.GroupsPrefix, 0)

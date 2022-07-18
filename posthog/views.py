@@ -15,6 +15,7 @@ from django.views.decorators.cache import never_cache
 from posthog.email import is_email_available
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
+from posthog.models.integration import SlackIntegration
 from posthog.utils import (
     get_available_timezones_with_offsets,
     get_can_create_org,
@@ -91,6 +92,8 @@ def security_txt(request):
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
+    slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+
     response = {
         "django": True,
         "redis": is_redis_alive() or settings.TEST,
@@ -106,6 +109,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(request.user),
         "email_service_available": is_email_available(with_absolute_urls=True),
+        "slack_service": {"available": bool(slack_client_id), "client_id": slack_client_id or None},
         "object_storage": is_object_storage_available(),
     }
 
@@ -120,6 +124,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "licensed_users_available": get_licensed_users_available(),
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
+            "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
         }
 
     return JsonResponse(response)

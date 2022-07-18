@@ -16,7 +16,7 @@ import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
 
-export class TimeoutError extends Error {
+export class TimeoutError extends RetryError {
     name = 'TimeoutError'
     caller?: string = undefined
 

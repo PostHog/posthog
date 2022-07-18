@@ -6,7 +6,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                e.distinct_id as target
         FROM events e
@@ -16,9 +15,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
-               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
                e.distinct_id as target,
+               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
                               'Day',
@@ -70,7 +69,6 @@
           0 as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -87,9 +85,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
-               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
                pdi.person_id as target,
+               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
                               'Day',
@@ -144,7 +142,6 @@
           0 as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -161,9 +158,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-04 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
-               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
                pdi.person_id as target,
+               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
                               'Day',
@@ -215,7 +212,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -239,9 +235,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
-               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
                pdi.person_id as target,
+               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
                               'Day',
@@ -307,7 +303,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -331,9 +326,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
-               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
                pdi.person_id as target,
+               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
                               'Day',
@@ -395,7 +390,6 @@
           NULL as selected_interval,
           returning_event_query as
        (SELECT toStartOfDay(toDateTime(e.timestamp, 'UTC')) AS event_date,
-               e.uuid AS uuid,
                e.event AS event,
                pdi.person_id as target
         FROM events e
@@ -419,9 +413,9 @@
           AND toDateTime(e.timestamp) <= toDateTime('2020-01-03 00:00:00') ),
           target_event_query as
        (SELECT min(toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as event_date,
-               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                argMin(e.event, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_event,
                pdi.person_id as target,
+               argMin(e.uuid, toStartOfDay(toDateTime(e.timestamp, 'UTC'))) as min_uuid,
                [
                           dateDiff(
                               'Day',
