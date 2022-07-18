@@ -750,6 +750,7 @@ export interface BillingType {
     billing_limit_exceeded: boolean | null
     current_bill_cycle: CurrentBillCycleType
     tiers: BillingTierType[] | null
+    free_trial_until: string
 }
 
 export interface BillingTierType {

@@ -1,4 +1,5 @@
 import { kea } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
@@ -15,6 +16,7 @@ export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
     UsageLimitExceeded = 'usage_limit_exceeded',
+    TrialExpired = 'trial_expired',
 }
 
 export const billingLogic = kea<billingLogicType>({
@@ -109,6 +111,10 @@ export const billingLogic = kea<billingLogicType>({
                 // Priority 2: Event allowance exceeded or near limit
                 if (billing?.billing_limit_exceeded) {
                     return BillingAlertType.UsageLimitExceeded
+                }
+
+                if (dayjs().isAfter(billing?.free_trial_until)) {
+                    return BillingAlertType.TrialExpired
                 }
 
                 if (

@@ -1,9 +1,11 @@
 import React from 'react'
+import { Link } from 'lib/components/Link'
 import { useValues } from 'kea'
 import { WarningOutlined, AlertOutlined, ToolFilled } from '@ant-design/icons'
 import { Button, Card } from 'antd'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { LinkButton } from './LinkButton'
+import { LemonButton } from './LemonButton'
 
 export function BillingAlerts(): JSX.Element | null {
     const { billing } = useValues(billingLogic)
@@ -29,6 +31,26 @@ export function BillingAlerts(): JSX.Element | null {
                             <Button type="primary" href={billing?.subscription_url} icon={<ToolFilled />}>
                                 Set up now
                             </Button>
+                        </div>
+                    </div>
+                </Card>
+            )}
+            {alertToShow === BillingAlertType.TrialExpired && (
+                <Card>
+                    <div style={{ display: 'flex' }}>
+                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
+                            <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
+                            Your free trial has expired. To continue using all features,{' '}
+                            <Link to="/organization/billing" data-attr="trial_expired_link">
+                                {' '}
+                                add your card details
+                            </Link>
+                            .
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <LemonButton to="/organization/billing" data-attr="trial_expired_button" type="primary">
+                                Subscribe
+                            </LemonButton>
                         </div>
                     </div>
                 </Card>
