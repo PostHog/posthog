@@ -38,6 +38,7 @@ export class GraphileQueue extends JobQueueBase {
         await workerUtils.addJob(jobName, job, {
             runAt: new Date(job.timestamp),
             maxAttempts: 1,
+            priority: 1,
         })
     }
 
