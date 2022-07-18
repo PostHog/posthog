@@ -1984,6 +1984,7 @@ export interface ExportedAssetType {
         query?: any
         body?: any
         filename?: string
+        max_limit?: number
     }
     has_content: boolean
     filename: string
