@@ -11,7 +11,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal } = useActions(newDashboardLogic)
@@ -93,7 +93,11 @@ export function NewDashboardModal(): JSX.Element {
                 </Field>
                 <Field name="show">
                     {({ value, onChange }) => (
-                        <LemonSwitch checked={value} onChange={onChange} label={'Show dashboard after creation'} />
+                        <LemonCheckbox
+                            checked={value}
+                            onChange={(e) => onChange(e.target.checked)}
+                            label={'Show dashboard after creation'}
+                        />
                     )}
                 </Field>
             </VerticalForm>
