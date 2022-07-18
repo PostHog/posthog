@@ -225,6 +225,28 @@ def update_cached_items() -> Tuple[int, int]:
 
             capture_exception(e)
 
+        if dashboard_tile.last_refresh:
+            dashboard_cache_age = (datetime.datetime.now(timezone.utc) - dashboard_tile.last_refresh).total_seconds()
+
+            statsd.gauge(
+                "update_cache_queue.dashboards_lag",
+                round(dashboard_cache_age),
+                tags={
+                    "insight_id": dashboard_tile.insight_id,
+                    "dashboard_id": dashboard_tile.dashboard_id,
+                    "cache_key": dashboard_tile.filters_hash,
+                },
+            )
+
+            if dashboard_cache_age > 1800:
+                logger.error(
+                    "insight_cache.waiting_for_more_than_thirty_minutes",
+                    insight_id=dashboard_tile.insight.id,
+                    dashboard_id=dashboard_tile.dashboard.id,
+                    cache_key=dashboard_tile.filters_hash,
+                    team_id=dashboard_tile.insight.team.id,
+                )
+
     shared_insights = (
         Insight.objects.filter(sharingconfiguration__enabled=True)
         .exclude(deleted=True)
@@ -244,23 +266,6 @@ def update_cached_items() -> Tuple[int, int]:
             capture_exception(e)
 
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
-
-    # how old is the next to be refreshed
-    oldest_previously_refreshed_tile: Optional[DashboardTile] = dashboard_tiles.exclude(last_refresh=None).first()
-    if oldest_previously_refreshed_tile and oldest_previously_refreshed_tile.last_refresh:
-        dashboard_cache_age = (
-            datetime.datetime.now(timezone.utc) - oldest_previously_refreshed_tile.last_refresh
-        ).total_seconds()
-
-        statsd.gauge(
-            "update_cache_queue.dashboards_lag",
-            round(dashboard_cache_age),
-            tags={
-                "insight_id": oldest_previously_refreshed_tile.insight_id,
-                "dashboard_id": oldest_previously_refreshed_tile.dashboard_id,
-                "cache_key": oldest_previously_refreshed_tile.filters_hash,
-            },
-        )
 
     logger.info("update_cache_queue", length=len(tasks))
     taskset = group(tasks)
