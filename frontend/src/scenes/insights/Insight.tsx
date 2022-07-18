@@ -9,7 +9,7 @@ import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -229,7 +229,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             </LemonButton>
                         )}
                         {insightMode !== ItemMode.Edit && insight.short_id && (
-                            <SaveToDashboard insight={insight} canEditInsight={canEditInsight} />
+                            <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (

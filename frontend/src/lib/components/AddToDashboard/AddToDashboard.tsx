@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AddToDashboardModal } from './SaveToDashboardModal'
+import { AddToDashboardModal } from './AddToDashboardModal'
 import { InsightModel } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
@@ -11,7 +11,7 @@ interface SaveToDashboardProps {
     canEditInsight: boolean
 }
 
-export function SaveToDashboard({ insight, canEditInsight }: SaveToDashboardProps): JSX.Element {
+export function AddToDashboard({ insight, canEditInsight }: SaveToDashboardProps): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
     const { rawDashboards } = useValues(dashboardsModel)
     const dashboards = insight.dashboards?.map((dashboard) => rawDashboards[dashboard]).filter((d) => !!d) || []

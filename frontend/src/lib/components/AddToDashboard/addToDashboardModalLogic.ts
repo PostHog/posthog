@@ -2,7 +2,6 @@ import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { prompt } from 'lib/logic/prompt'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import type { saveToDashboardModalLogicType } from './saveToDashboardModalLogicType'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardType, InsightModel, InsightType } from '~/types'
 import FuseClass from 'fuse.js'
@@ -11,7 +10,9 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-export interface SaveToDashboardModalLogicProps {
+import type { addToDashboardModalLogicType } from './addToDashboardModalLogicType'
+
+export interface AddToDashboardModalLogicProps {
     insight: Partial<InsightModel>
     fromDashboard?: number
 }
@@ -20,16 +21,16 @@ export interface SaveToDashboardModalLogicProps {
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<any> {}
 
-export const saveToDashboardModalLogic = kea<saveToDashboardModalLogicType>({
-    path: ['lib', 'components', 'SaveToDashboard', 'saveToDashboardModalLogic'],
-    props: {} as SaveToDashboardModalLogicProps,
+export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
+    path: ['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic'],
+    props: {} as AddToDashboardModalLogicProps,
     key: ({ insight }) => {
         if (!insight.short_id) {
             throw Error('must provide an insight with a short id')
         }
         return insight.short_id
     },
-    connect: (props: SaveToDashboardModalLogicProps) => ({
+    connect: (props: AddToDashboardModalLogicProps) => ({
         logic: [newDashboardLogic, dashboardsModel, prompt({ key: `saveToDashboardModalLogic-new-dashboard` })],
         actions: [
             insightLogic({ dashboardItemId: props.insight.short_id }),
