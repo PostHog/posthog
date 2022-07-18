@@ -1,8 +1,97 @@
-import React, { HTMLProps, useState } from 'react'
+import React, {
+    HTMLProps,
+    useRef,
+    useState,
+    useContext,
+    useEffect,
+    createContext,
+    useReducer,
+    HTMLAttributes,
+} from 'react'
 import { IconUnfoldLess, IconUnfoldMore } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'
 import clsx from 'clsx'
+
+type FixedLegendsContextType = {
+    left: (index: number) => number
+    setColumnWidth: React.Dispatch<{ index: number; width: number }>
+}
+
+export const FixedLegendsContext = createContext<FixedLegendsContextType>({
+    left: () => 0,
+    setColumnWidth: () => {},
+})
+
+function FixedLegendsContextProvider<T>({
+    columnGroups,
+    onChange,
+    children,
+}: {
+    columnGroups: LemonTableColumnGroup<T>[]
+    onChange?: (widths: Record<number, number>) => void
+    children: React.ReactNode
+}): JSX.Element {
+    const fixedColumnsLength = columnGroups
+        .flatMap((columnGroup) => columnGroup.children.map((column) => column))
+        .filter((column) => column.isFixed).length
+
+    const [widths, setColumnWidth] = useReducer(
+        (state: Record<number, number>, column: { index: number; width: number }) => {
+            return { ...state, [column.index]: column.width }
+        },
+        {}
+    )
+
+    useEffect(() => {
+        if (onChange && fixedColumnsLength === Object.keys(widths).length) {
+            onChange(widths)
+        }
+    }, [fixedColumnsLength, onChange, widths])
+
+    const left = (columnIndex: number): number => {
+        let result = 0
+        for (const [index, width] of Object.entries(widths)) {
+            if (parseInt(index) < columnIndex) {
+                result += width
+            }
+        }
+        return result
+    }
+
+    return (
+        <FixedLegendsContext.Provider
+            value={{
+                left,
+                setColumnWidth,
+            }}
+        >
+            {children}
+        </FixedLegendsContext.Provider>
+    )
+}
+
+type FixableColumnProps = {
+    index: number
+} & HTMLAttributes<HTMLTableCellElement>
+
+function FixedColumn({ index, children, ...props }: FixableColumnProps): JSX.Element {
+    const ref = useRef<HTMLTableCellElement | null>(null)
+    const { setColumnWidth } = useContext(FixedLegendsContext)
+
+    useEffect(() => {
+        if (ref.current) {
+            const rect = ref.current.getBoundingClientRect()
+            setColumnWidth({ index, width: rect.width })
+        }
+    }, [index, ref, setColumnWidth])
+
+    return (
+        <td ref={ref} {...props}>
+            {children}
+        </td>
+    )
+}
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
@@ -14,6 +103,11 @@ export interface TableRowProps<T extends Record<string, any>> {
     columnGroups: LemonTableColumnGroup<T>[]
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
+    isFixedRow?: boolean
+    setFixedWidths?: (widths: Record<number, number>) => void
+    fixedWidths?: Record<number, number>
+    lastFixedIndex?: [number, number]
+    isScrollable?: boolean
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -26,6 +120,11 @@ function TableRowRaw<T extends Record<string, any>>({
     columnGroups,
     onRow,
     expandable,
+    isFixedRow,
+    setFixedWidths,
+    fixedWidths,
+    lastFixedIndex,
+    isScrollable,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -36,7 +135,7 @@ function TableRowRaw<T extends Record<string, any>>({
             ? isRowExpandedLocal
             : !!expandable?.isRowExpanded?.(record)
 
-    return (
+    const row = (
         <>
             <tr
                 data-row-key={rowKeyDetermined}
@@ -79,19 +178,42 @@ function TableRowRaw<T extends Record<string, any>>({
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                         const areContentsCellRepresentations: boolean =
                             !!contents && typeof contents === 'object' && !React.isValidElement(contents)
-                        return (
-                            <td
-                                key={`LemonTable-td-${columnGroupIndex}-${columnKeyOrIndex}`}
-                                className={clsx(
-                                    columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
-                                    column.className
-                                )}
-                                style={{ textAlign: column.align }}
-                                {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
-                            >
-                                {areContentsCellRepresentations
-                                    ? (contents as TableCellRepresentation).children
-                                    : contents}
+
+                        const key = `LemonTable-td-${columnGroupIndex}-${columnKeyOrIndex}`
+                        const props = {
+                            className: clsx(
+                                columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
+                                column.className
+                            ),
+                            style: { textAlign: column.align } as React.CSSProperties,
+                        }
+
+                        if (isScrollable && fixedWidths && column.isFixed) {
+                            let result = 0
+                            for (const [index, width] of Object.entries(fixedWidths)) {
+                                if (parseInt(index) < columnIndex) {
+                                    result += width
+                                }
+                            }
+                            props.style = { ...props.style, left: result }
+                            props.className = clsx(
+                                'LemonTable__sticky',
+                                lastFixedIndex &&
+                                    lastFixedIndex[0] === columnGroupIndex &&
+                                    lastFixedIndex[1] === columnIndex &&
+                                    'LemonTable__sticky--boundary'
+                            )
+                        }
+                        const content = areContentsCellRepresentations
+                            ? (contents as TableCellRepresentation).children
+                            : contents
+                        return isScrollable && isFixedRow && column.isFixed ? (
+                            <FixedColumn key={key} index={columnIndex} {...props}>
+                                {content}
+                            </FixedColumn>
+                        ) : (
+                            <td key={key} {...props}>
+                                {content}
                             </td>
                         )
                     })
@@ -113,6 +235,15 @@ function TableRowRaw<T extends Record<string, any>>({
             )}
         </>
     )
+    if (isFixedRow) {
+        return (
+            <FixedLegendsContextProvider columnGroups={columnGroups} onChange={setFixedWidths}>
+                {row}
+            </FixedLegendsContextProvider>
+        )
+    } else {
+        return row
+    }
 }
 // Without `memo` all rows get rendered when anything in the parent component (LemonTable) changes.
 // This was most jarring when scrolling thet table from the very left or the very right – the simple addition

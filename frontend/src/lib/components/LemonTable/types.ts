@@ -29,6 +29,8 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     sticky?: boolean
     /** Set width. */
     width?: string | number
+    /** Fixes the column to the left */
+    isFixed?: boolean
 }
 export interface LemonTableColumnGroup<T extends Record<string, any>> {
     title?: string | React.ReactNode

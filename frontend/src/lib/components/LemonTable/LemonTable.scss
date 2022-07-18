@@ -1,10 +1,10 @@
 .LemonTable {
-    position: relative;
     width: 100%;
+    max-height: 80vh;
     background: #fff;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    overflow: hidden;
+    overflow: auto;
     --row-base-height: 3rem;
     &--small {
         --row-base-height: 2.5rem;
@@ -39,16 +39,24 @@
     border-collapse: collapse;
     border-spacing: 0;
     > thead {
-        position: relative;
         border-bottom: 1px solid var(--border);
         background: var(--bg-mid);
         font-size: 0.75rem;
         letter-spacing: 0.03125rem;
         text-transform: uppercase;
+        position: -webkit-sticky;
+        position: sticky;
+        top: 0;
+        z-index: 2;
         > tr {
             > th {
                 font-weight: 700;
                 text-align: left;
+
+                &.LemonTable__sticky {
+                    background: var(--bg-mid);
+                    z-index: 2;
+                }
             }
             &.LemonTable__row--grouping {
                 --row-base-height: 2.5rem; // Make group headers smaller for better hierarchy
@@ -97,6 +105,11 @@
             > td {
                 padding-top: 0.5rem;
                 padding-bottom: 0.5rem;
+
+                &.LemonTable__sticky {
+                    background: #fff;
+                    z-index: 1;
+                }
             }
         }
     }
@@ -132,6 +145,43 @@
     }
     .ant-skeleton-title {
         margin: 0;
+    }
+}
+
+.LemonTable__sticky {
+    position: sticky;
+
+    &--boundary {
+        padding-right: 2rem !important;
+        &::after {
+            z-index: 1;
+            transition: opacity 200ms ease;
+            opacity: 1;
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 1rem;
+            height: 100%;
+            pointer-events: none;
+            box-shadow: inset 16px 0 16px -16px rgb(0 0 0 / 25%);
+        }
+    }
+
+    &--vertical-boundary {
+        &::before {
+            z-index: 1;
+            transition: opacity 200ms ease;
+            opacity: 1;
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 100%;
+            height: 1rem;
+            pointer-events: none;
+            box-shadow: inset 0 -16px 16px -16px rgb(0 0 0 / 25%);
+        }
     }
 }
 

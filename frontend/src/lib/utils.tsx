@@ -22,6 +22,7 @@ import {
     PropertyGroupFilterValue,
     PropertyType,
     TimeUnitType,
+    LemonTableColumn,
 } from '~/types'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
@@ -1530,4 +1531,18 @@ export function processCohort(cohort: CohortType): CohortType {
             },
         },
     }
+}
+
+/**
+ * Determine the column's key, using `dataIndex` as fallback.
+ * If `obligationReason` is specified, will throw an error if the key can't be determined.
+ */
+export function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason: string): string
+export function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
+export function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
+    const columnKey = column.key || column.dataIndex
+    if (obligationReason && !columnKey) {
+        throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
+    }
+    return columnKey
 }

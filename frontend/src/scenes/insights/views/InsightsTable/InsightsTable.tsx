@@ -70,10 +70,33 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
-    const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
+    // TODO REVERT ME
+    const {
+        indexedResults: indexedResultsOld,
+        hiddenLegendKeys,
+        filters,
+        resultsLoading,
+    } = useValues(trendsLogic(insightProps))
+    //
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
+
+    // TODO: DELETE ME WITH FIRE
+    const indexedResults = [
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+        ...indexedResultsOld,
+    ]
+    //
+
+    console.log(indexedResults.length)
 
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
@@ -134,6 +157,7 @@ export function InsightsTable({
                 )
             },
             width: 0,
+            isFixed: true,
         })
     }
 
@@ -174,6 +198,7 @@ export function InsightsTable({
             const labelB = b.action?.name || b.label || ''
             return labelA.localeCompare(labelB)
         },
+        isFixed: true,
     })
 
     if (filters.breakdown) {
@@ -198,6 +223,7 @@ export function InsightsTable({
                 const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
                 return labelA.localeCompare(labelB)
             },
+            isFixed: true,
         })
         if (filters.display === ChartDisplayType.WorldMap) {
             columns.push({
@@ -207,6 +233,7 @@ export function InsightsTable({
                 sorter: (a, b) => {
                     return countryCodeToName[a.breakdown_value as string].localeCompare(b.breakdown_value as string)
                 },
+                isFixed: true,
             })
         }
     }

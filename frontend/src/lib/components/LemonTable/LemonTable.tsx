@@ -1,29 +1,16 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { HTMLProps, useCallback, useEffect, useMemo } from 'react'
-import { Tooltip } from '../Tooltip'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
-import { Sorting, SortingIndicator, getNextSorting } from './sorting'
+import { Sorting, getNextSorting } from './sorting'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, LemonTableColumns } from './types'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Skeleton } from 'antd'
 import { useScrollable } from 'lib/hooks/useScrollable'
-
-/**
- * Determine the column's key, using `dataIndex` as fallback.
- * If `obligationReason` is specified, will throw an error if the key can't be determined.
- */
-function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason: string): string
-function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
-function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
-    const columnKey = column.key || column.dataIndex
-    if (obligationReason && !columnKey) {
-        throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
-    }
-    return columnKey
-}
+import { determineColumnKey } from 'lib/utils'
+import { TableHeader } from './TableHeader'
 
 export interface LemonTableProps<T extends Record<string, any>> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
@@ -102,6 +89,8 @@ export function LemonTable<T extends Record<string, any>>({
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
 
+    const [fixedLegendsWidths, setFixedLegendsWidths] = useState<Record<number, number>>({})
+
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
@@ -118,7 +107,7 @@ export function LemonTable<T extends Record<string, any>>({
                 },
                 hashParams
             ),
-        [location, searchParams, hashParams, push]
+        [push, location.pathname, searchParams, currentSortingParam, hashParams]
     )
 
     const columnGroups = (
@@ -132,22 +121,40 @@ export function LemonTable<T extends Record<string, any>>({
     ) as LemonTableColumnGroup<T>[]
     const columns = columnGroups.flatMap((group) => group.children)
 
-    const [scrollRef, scrollableClassNames] = useScrollable()
+    const hasFixedLegends = columns.some((column) => column.isFixed)
+
+    const lastFixedLegendIndex: [number, number] = columnGroups.reduce(
+        (result, columnGroup, columnGroupIndex) => {
+            let l = columnGroup.children.length
+            while (l--) {
+                if (columnGroup.children[l].isFixed) {
+                    return [columnGroupIndex, l]
+                }
+            }
+            return result
+        },
+        [0, 0]
+    )
+
+    const [scrollRef, scrollableClassNames, isScrollable] = useScrollable()
 
     /** Sorting. */
-    const currentSorting =
-        sorting ||
-        (searchParams[currentSortingParam]
-            ? searchParams[currentSortingParam].startsWith('-')
-                ? {
-                      columnKey: searchParams[currentSortingParam].substr(1),
-                      order: -1,
-                  }
-                : {
-                      columnKey: searchParams[currentSortingParam],
-                      order: 1,
-                  }
-            : defaultSorting)
+    const currentSorting: Sorting | null = useMemo(() => {
+        return (
+            sorting ||
+            (searchParams[currentSortingParam]
+                ? searchParams[currentSortingParam].startsWith('-')
+                    ? {
+                          columnKey: searchParams[currentSortingParam].substr(1),
+                          order: -1,
+                      }
+                    : {
+                          columnKey: searchParams[currentSortingParam],
+                          order: 1,
+                      }
+                : defaultSorting)
+        )
+    }, [currentSortingParam, defaultSorting, searchParams, sorting])
 
     const sortedDataSource = useMemo(() => {
         if (currentSorting) {
@@ -160,7 +167,7 @@ export function LemonTable<T extends Record<string, any>>({
             }
         }
         return dataSource
-    }, [dataSource, currentSorting])
+    }, [currentSorting, dataSource, columns])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
 
@@ -173,7 +180,9 @@ export function LemonTable<T extends Record<string, any>>({
                 window.scrollTo(window.scrollX, window.scrollY + realTableOffsetTop)
             }
         }
-    }, [paginationState.currentPage, scrollRef.current])
+    }, [paginationState.currentPage, scrollRef])
+
+    console.log(isScrollable)
 
     return (
         <div
@@ -189,7 +198,7 @@ export function LemonTable<T extends Record<string, any>>({
             style={style}
             data-attr={dataAttr}
         >
-            <div className="scrollable__inner" ref={scrollRef}>
+            <div ref={scrollRef}>
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
@@ -200,98 +209,50 @@ export function LemonTable<T extends Record<string, any>>({
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead
-                                style={
-                                    !uppercaseHeader ? { textTransform: 'none', letterSpacing: 'normal' } : undefined
-                                }
-                            >
-                                {columnGroups.some((group) => group.title) && (
-                                    <tr className="LemonTable__row--grouping">
-                                        {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
-                                        {!!expandable && <th /> /* Expand/collapse column */}
-                                        {columnGroups.map((columnGroup, columnGroupIndex) => (
-                                            <th
-                                                key={`LemonTable-th-group-${columnGroupIndex}`}
-                                                colSpan={columnGroup.children.length}
-                                                className="LemonTable__boundary"
-                                            >
-                                                {columnGroup.title}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                )}
-                                <tr>
-                                    {!!rowRibbonColor && <th className="LemonTable__ribbon" /> /* Ribbon column */}
-                                    {!!expandable && <th /> /* Expand/collapse column */}
-                                    {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
-                                        columnGroup.children.map((column, columnIndex) => (
-                                            <th
-                                                key={`LemonTable-th-${columnGroupIndex}-${
-                                                    determineColumnKey(column) || columnIndex
-                                                }`}
-                                                className={clsx(
-                                                    column.sorter && 'LemonTable__header--actionable',
-                                                    columnIndex === columnGroup.children.length - 1 &&
-                                                        'LemonTable__boundary',
-                                                    column.className
-                                                )}
-                                                style={{ textAlign: column.align }}
-                                                onClick={
-                                                    column.sorter
-                                                        ? () => {
-                                                              const nextSorting = getNextSorting(
-                                                                  currentSorting,
-                                                                  determineColumnKey(column, 'sorting'),
-                                                                  disableSortingCancellation
-                                                              )
-                                                              setLocalSorting(nextSorting)
-                                                              onSort?.(nextSorting)
-                                                          }
-                                                        : undefined
-                                                }
-                                            >
-                                                <Tooltip
-                                                    title={
-                                                        column.sorter &&
-                                                        (() => {
-                                                            const nextSorting = getNextSorting(
-                                                                currentSorting,
-                                                                determineColumnKey(column, 'sorting'),
-                                                                disableSortingCancellation
-                                                            )
-                                                            return `Click to ${
-                                                                nextSorting
-                                                                    ? nextSorting.order === 1
-                                                                        ? 'sort ascending'
-                                                                        : 'sort descending'
-                                                                    : 'cancel sorting'
-                                                            }`
-                                                        })
-                                                    }
-                                                >
-                                                    <div
-                                                        className="LemonTable__header-content"
-                                                        style={{ justifyContent: column.align }}
-                                                    >
-                                                        {column.title}
-                                                        {column.sorter && (
-                                                            <SortingIndicator
-                                                                order={
-                                                                    currentSorting?.columnKey ===
-                                                                    determineColumnKey(column, 'sorting')
-                                                                        ? currentSorting.order
-                                                                        : null
-                                                                }
-                                                            />
-                                                        )}
-                                                    </div>
-                                                </Tooltip>
-                                            </th>
-                                        ))
-                                    )}
-                                </tr>
-                                <tr className="LemonTable__loader" />
-                            </thead>
+                            <TableHeader
+                                columnGroups={columnGroups}
+                                expandable={expandable}
+                                rowRibbonColor={rowRibbonColor}
+                                uppercaseHeader={uppercaseHeader}
+                                fixedWidths={fixedLegendsWidths}
+                                lastFixedIndex={lastFixedLegendIndex}
+                                isScrollable={isScrollable.top || isScrollable.bottom}
+                                onSort={(column: LemonTableColumn<T, keyof T | undefined>) => {
+                                    return column.sorter
+                                        ? () => {
+                                              const nextSorting = getNextSorting(
+                                                  currentSorting,
+                                                  determineColumnKey(column, 'sorting'),
+                                                  disableSortingCancellation
+                                              )
+                                              setLocalSorting(nextSorting)
+                                              onSort?.(nextSorting)
+                                          }
+                                        : undefined
+                                }}
+                                getTooltipTitle={(column: LemonTableColumn<T, keyof T | undefined>) => {
+                                    if (!column.sorter) {
+                                        return
+                                    }
+                                    const nextSorting = getNextSorting(
+                                        currentSorting,
+                                        determineColumnKey(column, 'sorting'),
+                                        disableSortingCancellation
+                                    )
+                                    return `Click to ${
+                                        nextSorting
+                                            ? nextSorting.order === 1
+                                                ? 'sort ascending'
+                                                : 'sort descending'
+                                            : 'cancel sorting'
+                                    }`
+                                }}
+                                getSortingOrder={(column: LemonTableColumn<T, keyof T | undefined>) => {
+                                    return currentSorting?.columnKey === determineColumnKey(column, 'sorting')
+                                        ? currentSorting.order
+                                        : null
+                                }}
+                            />
                         )}
                         <tbody>
                             {paginationState.dataSourcePage.length ? (
@@ -321,6 +282,11 @@ export function LemonTable<T extends Record<string, any>>({
                                             columnGroups={columnGroups}
                                             onRow={onRow}
                                             expandable={expandable}
+                                            isFixedRow={hasFixedLegends && rowIndex === 0}
+                                            setFixedWidths={setFixedLegendsWidths}
+                                            fixedWidths={fixedLegendsWidths}
+                                            lastFixedIndex={lastFixedLegendIndex}
+                                            isScrollable={isScrollable.left || isScrollable.right}
                                         />
                                     )
                                 })
