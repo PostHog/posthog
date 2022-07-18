@@ -1,10 +1,12 @@
 import { Button, Card, Col, Row, Skeleton } from 'antd'
+import { dayjs } from 'lib/dayjs'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 import { PlanInterface } from '~/types'
 import { billingLogic } from './billingLogic'
 import defaultImg from 'public/plan-default.svg'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonButton } from '@posthog/lemon-ui'
 
 function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: PlanInterface) => void }): JSX.Element {
     const [detail, setDetail] = useState('')
@@ -29,15 +31,15 @@ function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: 
                 <h3 style={{ fontSize: 22 }}>{plan.name}</h3>
                 <div style={{ fontWeight: 'bold', marginBottom: 16, fontSize: 16 }}>{plan.price_string}</div>
             </div>
-            <div>
-                <Button
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <LemonButton
                     data-attr="btn-subscribe-now"
                     data-plan={plan.key}
                     type="primary"
                     onClick={() => onSubscribe(plan)}
                 >
                     Subscribe now
-                </Button>
+                </LemonButton>
             </div>
             {isDetailLoading ? (
                 <Skeleton paragraph={{ rows: 6 }} title={false} className="mt" active />
@@ -49,7 +51,7 @@ function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: 
 }
 
 export function BillingEnrollment(): JSX.Element | null {
-    const { plans, plansLoading, billingSubscriptionLoading } = useValues(billingLogic)
+    const { plans, plansLoading, billingSubscriptionLoading, billing } = useValues(billingLogic)
     const { subscribe } = useActions(billingLogic)
 
     const handleBillingSubscribe = (plan: PlanInterface): void => {
@@ -70,9 +72,33 @@ export function BillingEnrollment(): JSX.Element | null {
                 </Card>
             ) : (
                 <Card title="Billing Plan Enrollment">
-                    <Row gutter={16} className="space-top" style={{ display: 'flex', justifyContent: 'center' }}>
+                    {billing.free_trial_until && (
+                        <>
+                            {dayjs().isBefore(billing.free_trial_until) && (
+                                <>
+                                    You have <strong>{dayjs(billing.free_trial_until).fromNow(true)}</strong> left of
+                                    your free trial.{' '}
+                                    <Button
+                                        style={{ padding: 0 }}
+                                        type="link"
+                                        onClick={() => handleBillingSubscribe(plans[0])}
+                                    >
+                                        Subscribe now
+                                    </Button>{' '}
+                                    to make sure you don't lose access to any features. We will only start charging you
+                                    after your trial period ends.{' '}
+                                </>
+                            )}
+                            {dayjs().isAfter(billing.free_trial_until) && (
+                                <>Your free trial has expired. Subscribe to keep access to all features. </>
+                            )}
+                            <br />
+                            <br />
+                        </>
+                    )}
+                    <Row gutter={8} className="space-top" style={{ display: 'flex', justifyContent: 'center' }}>
                         {plans.map((plan: PlanInterface) => (
-                            <Col sm={8} key={plan.key} className="text-center">
+                            <Col sm={12} key={plan.key} className="text-center">
                                 {billingSubscriptionLoading ? (
                                     <Spinner />
                                 ) : (

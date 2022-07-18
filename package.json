@@ -45,7 +45,7 @@
         "build-storybook": "build-storybook",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
-        "prepare": "husky install"
+        "prepare": "[ -d '.git' ] && husky install"
     },
     "dependencies": {
         "@ant-design/icons": "^4.7.0",

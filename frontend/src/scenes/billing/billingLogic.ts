@@ -28,7 +28,7 @@ export const billingLogic = kea<billingLogicType>({
             {
                 loadBilling: async () => {
                     const response = await api.get('api/billing/')
-                    if (!response?.plan) {
+                    if (!response?.plan || response?.free_trial_until) {
                         actions.loadPlans()
                     }
                     actions.registerInstrumentationProps()
