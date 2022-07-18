@@ -12,8 +12,8 @@ docker-compose up -d
 CONTAINER_NAME=session-recordings-test
 trap 'docker kill $(docker ps -q --filter="name=$CONTAINER_NAME")' EXIT
 docker run --rm \
-  -e OBJECT_STORAGE_ACCESS_KEY_ID=root \
-  -e OBJECT_STORAGE_SECRET_ACCESS_KEY=password \
+  -e OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user \
+  -e OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password \
   -e OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
   -e MAX_EVENT_GROUP_AGE=1000 \
   -e MAX_EVENT_GROUP_SIZE=1000 \
