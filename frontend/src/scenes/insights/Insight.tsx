@@ -183,9 +183,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             </LemonButton>
                                             {insight.short_id && (
                                                 <>
-                                                    {usingSubscriptionFeature && (
-                                                        <SubscribeButton insightShortId={insight.short_id} />
-                                                    )}
+                                                    <SubscribeButton insightShortId={insight.short_id} />
                                                     {exporterResourceParams ? (
                                                         <ExportButton
                                                             fullWidth
