@@ -244,6 +244,10 @@ def update_cached_items() -> Tuple[int, int]:
             insight.save(update_fields=["refresh_attempt"])
             capture_exception(e)
 
+    logger.info("update_cache_queue", length=len(tasks))
+    taskset = group(tasks)
+    taskset.apply_async()
+
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
 
     # how old is the next to be refreshed
@@ -269,10 +273,6 @@ def update_cached_items() -> Tuple[int, int]:
                     cache_key=candidate.filters_hash,
                     team_id=candidate.insight.team.id,
                 )
-
-    logger.info("update_cache_queue", length=len(tasks))
-    taskset = group(tasks)
-    taskset.apply_async()
 
     # this is the number of cacheable items that match the query
     queue_depth = dashboard_tiles.count() + shared_insights.count()
