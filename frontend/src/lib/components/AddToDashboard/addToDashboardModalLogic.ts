@@ -1,6 +1,5 @@
 import { kea } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { prompt } from 'lib/logic/prompt'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardType, InsightModel, InsightType } from '~/types'
@@ -31,12 +30,14 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         return insight.short_id
     },
     connect: (props: AddToDashboardModalLogicProps) => ({
-        logic: [newDashboardLogic, dashboardsModel, prompt({ key: `saveToDashboardModalLogic-new-dashboard` })],
+        logic: [dashboardsModel],
         actions: [
             insightLogic({ dashboardItemId: props.insight.short_id }),
             ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
+            newDashboardLogic,
+            ['showNewDashboardModal'],
         ],
     }),
     actions: {
@@ -113,13 +114,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         },
 
         addNewDashboard: async () => {
-            prompt({ key: `saveToDashboardModalLogic-new-dashboard` }).actions.prompt({
-                title: 'New dashboard',
-                placeholder: 'Please enter a name',
-                value: '',
-                error: 'You must enter name',
-                success: (name: string) => newDashboardLogic.actions.addDashboard({ name, show: false }),
-            })
+            actions.showNewDashboardModal()
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {

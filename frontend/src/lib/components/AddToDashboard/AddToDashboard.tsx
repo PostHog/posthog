@@ -5,6 +5,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
 import { LemonButton } from '../LemonButton'
 import { IconGauge, IconWithCount } from 'lib/components/icons'
+import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>
@@ -18,6 +19,7 @@ export function AddToDashboard({ insight, canEditInsight }: SaveToDashboardProps
 
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
+            <NewDashboardModal />
             <AddToDashboardModal
                 visible={openModal}
                 closeModal={() => setOpenModal(false)}
