@@ -25,7 +25,7 @@ def traces_sampler(sampling_context: dict) -> float:
     op = transaction_context.get("op")
 
     if op == "http.server":
-        path = sampling_context["wsgi_environ"]["PATH_INFO"]
+        path = sampling_context.get("wsgi_environ").get("PATH_INFO")
 
         # Ingestion endpoints (high volume)
         if path.startswith(("/capture", "/decide", "/track", "/batch", "/s", "/e")):
@@ -41,7 +41,7 @@ def traces_sampler(sampling_context: dict) -> float:
             return 0.001  # 0.1%
 
     elif op == "celery.task":
-        task = sampling_context["celery_job"]["task"]
+        task = sampling_context.get("celery_job").get("task")
         if task == "posthog.celery.redis_heartbeat":
             return 0.001  # 0.1%
         else:
