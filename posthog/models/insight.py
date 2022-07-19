@@ -2,6 +2,7 @@ import secrets
 import string
 from typing import Optional
 
+import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
@@ -10,9 +11,12 @@ from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
+from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.utils import absolute_uri, generate_cache_key
+
+logger = structlog.get_logger(__name__)
 
 
 def generate_short_id():
@@ -171,7 +175,15 @@ def insight_saving(sender, instance: Insight, **kwargs):
         instance.filters_hash = generate_insight_cache_key(instance, None)
 
 
+@timed("generate_insight_cache_key")
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
     candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
+
+    logger.info(
+        "insight.generate_insight_cache_key",
+        insight_id=insight.id,
+        dashboard_id="none" if not dashboard else dashboard.id,
+        generated_hash=candidate_filters_hash,
+    )
     return candidate_filters_hash
