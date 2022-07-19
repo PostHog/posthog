@@ -1,3 +1,4 @@
+import re
 from typing import Any, Callable, Dict, List, Union, cast
 
 from dateutil.relativedelta import relativedelta
@@ -9,7 +10,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
-from posthog.utils import get_compare_period_dates
+from posthog.utils import get_compare_period_dates, is_valid_regex
 
 
 def determine_compared_filter(filter) -> Filter:
@@ -71,7 +72,67 @@ TIME_IN_SECONDS: Dict[str, Any] = {
 }
 
 
-def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: bool = False) -> Q:
+def match_property(property: Property, override_property_values: Dict[str, Any]) -> bool:
+    # only looks for matches where key exists in override_property_values
+    # doesn't support operator is_not_set
+
+    if property.key not in override_property_values:
+        return False
+
+    if property.operator == "is_not_set":
+        return False
+
+    key = property.key
+    operator = property.operator or "exact"
+    value = property.value
+    override_value = override_property_values[key]
+
+    if operator == "exact":
+        if isinstance(value, list):
+            return override_value in value
+        return value == override_value
+
+    if operator == "is_not":
+        if isinstance(value, list):
+            return override_value not in value
+        return value != override_value
+
+    if operator == "is_set":
+        return key in override_property_values
+
+    if operator == "icontains":
+        return str(value).lower() in str(override_value).lower()
+
+    if operator == "not_icontains":
+        return str(value).lower() not in str(override_value).lower()
+
+    if operator == "regex":
+        return is_valid_regex(str(value)) and re.compile(str(value)).search(str(override_value)) is not None
+
+    if operator == "not_regex":
+        return is_valid_regex(str(value)) and re.compile(str(value)).search(str(override_value)) is None
+
+    if operator == "gt":
+        return type(override_value) == type(value) and override_value > value
+
+    if operator == "gte":
+        return type(override_value) == type(value) and override_value >= value
+
+    if operator == "lt":
+        return type(override_value) == type(value) and override_value < value
+
+    if operator == "lte":
+        return type(override_value) == type(value) and override_value <= value
+
+    return False
+
+
+def properties_to_Q(
+    properties: List[Property],
+    team_id: int,
+    is_direct_query: bool = False,
+    override_property_values: Dict[str, Any] = {},
+) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
     If you're filtering a Person/Group QuerySet, use is_direct_query to avoid doing an unnecessary nested loop
@@ -83,14 +144,29 @@ def properties_to_Q(properties: List[Property], team_id: int, is_direct_query: b
 
     if is_direct_query:
         for property in properties:
-            filters &= property.property_to_Q()
+            # short circuit query if key exists in override_property_values
+            if property.key in override_property_values:
+                # if match found, do nothing to Q
+                # if not found, return empty Q
+                if not match_property(property, override_property_values):
+                    filters &= Q(pk__isnull=True)
+            else:
+                filters &= property.property_to_Q()
         return filters
 
     person_properties = [prop for prop in properties if prop.type == "person"]
     if len(person_properties) > 0:
         person_Q = Q()
         for property in person_properties:
-            person_Q &= property.property_to_Q()
+            # short circuit query if key exists in override_property_values
+            if property.key in override_property_values:
+                # if match found, do nothing to Q
+                # if not found, return empty Q
+                if not match_property(property, override_property_values):
+                    person_Q &= Q(pk__isnull=True)
+            else:
+                person_Q &= property.property_to_Q()
+
         filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
 
     event_properties = [prop for prop in properties if prop.type == "event"]

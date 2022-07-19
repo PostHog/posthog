@@ -166,6 +166,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         Person.objects.create(
             team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"},
         )
+        Person.objects.create(
+            team=self.team, distinct_ids=["false_id"], properties={},
+        )
         feature_flag = self.create_feature_flag(
             filters={
                 "groups": [
@@ -183,6 +186,44 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag), FeatureFlagMatch()
             )
         self.assertIsNone(FeatureFlagMatcher([feature_flag], "false_id").get_match(feature_flag))
+
+    def test_multi_property_filters_with_override_properties(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"},
+        )
+        Person.objects.create(
+            team=self.team, distinct_ids=["another_id"], properties={"email": "example@example.com"},
+        )
+        Person.objects.create(
+            team=self.team, distinct_ids=["random_id"], properties={},
+        )
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {"properties": [{"key": "email", "value": "tim@posthog.com",}]},
+                    {"properties": [{"key": "email", "value": "example@example.com"}]},
+                ]
+            }
+        )
+        with self.assertNumQueries(2):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={}).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+            self.assertIsNone(
+                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(
+                    feature_flag
+                )
+            )
+
+        with self.assertNumQueries(2):
+            self.assertIsNone(FeatureFlagMatcher([feature_flag], "false_id").get_match(feature_flag))
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
 
     def test_user_in_cohort(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
