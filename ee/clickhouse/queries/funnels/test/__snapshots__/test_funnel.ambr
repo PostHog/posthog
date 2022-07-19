@@ -39,8 +39,7 @@
                                    WHERE team_id = 2
                                    GROUP BY id
                                    HAVING max(is_deleted) = 0
-                                   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'))
-                                   ORDER BY max(created_at) DESC, id)), 1, 0) as step_0,
+                                   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%')))), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -65,7 +64,6 @@
                        WHERE team_id = 2
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       ORDER BY max(created_at) DESC, id
                        LIMIT 100) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -177,7 +175,6 @@
                        WHERE team_id = 2
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       ORDER BY max(created_at) DESC, id
                        LIMIT 100) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
@@ -292,7 +289,6 @@
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             ORDER BY max(created_at) DESC, id
                              LIMIT 100) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
@@ -402,7 +398,6 @@
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             ORDER BY max(created_at) DESC, id
                              LIMIT 100) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
@@ -516,7 +511,6 @@
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             ORDER BY max(created_at) DESC, id
                              LIMIT 100) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
@@ -630,7 +624,6 @@
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
                                       OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             ORDER BY max(created_at) DESC, id
                              LIMIT 100) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
@@ -713,7 +706,6 @@
                        WHERE team_id = 2
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       ORDER BY max(created_at) DESC, id
                        LIMIT 100) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']

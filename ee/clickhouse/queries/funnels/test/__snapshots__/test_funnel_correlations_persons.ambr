@@ -479,7 +479,6 @@
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))
-                          ORDER BY max(created_at) DESC, id
                           LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageview', 'insight analyzed']
@@ -621,7 +620,6 @@
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))
-                          ORDER BY max(created_at) DESC, id
                           LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND timestamp >= toDateTime('2021-01-01 00:00:00')
@@ -761,7 +759,6 @@
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'foo'), '^"|"$', '')))
-                          ORDER BY max(created_at) DESC, id
                           LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND timestamp >= toDateTime('2021-01-01 00:00:00')
