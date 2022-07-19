@@ -90,7 +90,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag" enableFormOnSubmit>
+                <VerticalForm
+                    logic={featureFlagLogic}
+                    props={props}
+                    formKey="featureFlag"
+                    enableFormOnSubmit
+                    className="space-y"
+                >
                     <PageHeader
                         title="Feature Flag"
                         buttons={
@@ -135,7 +141,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         }
                     />
                     {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
-                        <AlertMessage type="warning" className="mt mb">
+                        <AlertMessage type="warning">
                             This feature flag is linked to an experiment. It's recommended to only make changes to this
                             flag{' '}
                             <Link to={urls.experiment(featureFlag.experiment_set[0])}>

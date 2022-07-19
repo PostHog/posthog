@@ -11,13 +11,12 @@ export interface AlertMessageProps {
     onClose?: () => void
     children: React.ReactChild | React.ReactChild[]
     style?: React.CSSProperties
-    className?: string
 }
 
 /** Generic alert message. */
-export function AlertMessage({ type, onClose, children, style, className }: AlertMessageProps): JSX.Element {
+export function AlertMessage({ type, onClose, children, style }: AlertMessageProps): JSX.Element {
     return (
-        <div className={clsx('AlertMessage', type, className)} style={style}>
+        <div className={clsx('AlertMessage', type)} style={style}>
             <div className="AlertMessage__icon">
                 {type === 'warning' || type === 'error' ? <WarningOutlined /> : <IconInfo />}
             </div>
