@@ -35,7 +35,7 @@ def traces_sampler(sampling_context: dict) -> float:
             return 0.001  # 0.1%
         # API endpoints
         elif path.startswith(("/api")):
-            return 0.001  # 1%
+            return 0.01  # 1%
         else:
             # Default sample rate for HTTP requests
             return 0.001  # 0.1%
