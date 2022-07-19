@@ -11,6 +11,7 @@
     padding: 0.5rem;
     background: var(--bg-bridge);
     border-bottom: 1px solid var(--border);
+    gap: 1rem;
     @media screen and (min-width: $sm) {
         padding: 0.5rem 1rem;
     }
@@ -27,10 +28,10 @@
     &--left {
         flex-grow: 1;
     }
-    &--left > * {
-        margin-right: 1rem;
+    &--left > * + * {
+        margin-left: 1rem;
     }
-    &--right > * {
+    &--right > * + * {
         margin-left: 1rem;
     }
 }
@@ -44,9 +45,21 @@
 }
 
 .TopBar__logo {
-    font-size: 1rem;
-    display: flex;
-    align-items: center;
+    width: 40px;
+    overflow: hidden;
+    flex-shrink: 0;
+
+    svg {
+        vertical-align: middle;
+    }
+
+    @media screen and (min-width: $md) {
+        width: auto;
+        overflow: hidden;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+    }
 }
 
 .Announcement {
