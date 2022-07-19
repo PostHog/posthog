@@ -5,6 +5,7 @@ from sentry_sdk import capture_exception
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperation, AsyncMigrationType
 from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.insight import generate_insight_cache_key
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -41,7 +42,9 @@ class Migration(AsyncMigrationDefinition):
         tiles_with_no_hash = DashboardTile.objects.filter(filters_hash=None).order_by("id")
         if tiles_with_no_hash.count() > 0:
             for tile in tiles_with_no_hash[0:100]:
-                tile.save()  # which causes filters_hash to be set
+                tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
+
+            DashboardTile.objects.bulk_update(tiles_with_no_hash, ["filters_hash"])
             return True
 
         return False
