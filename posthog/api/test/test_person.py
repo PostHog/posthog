@@ -479,7 +479,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         cohort4.insert_users_by_list(["2"])
 
-        response = self.client.get(f"/api/person/cohorts/?person_id={person2.id}").json()
+        response = self.client.get(f"/api/person/cohorts/?person_id={person2.uuid}").json()
         response["results"].sort(key=lambda cohort: cohort["name"])
         self.assertEqual(len(response["results"]), 3)
         self.assertDictContainsSubset({"id": cohort1.id, "count": 2, "name": cohort1.name}, response["results"][0])
