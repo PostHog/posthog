@@ -191,7 +191,8 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0
+        ORDER BY max(created_at) DESC, id) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -268,7 +269,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -357,7 +360,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -446,7 +451,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -535,7 +542,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -645,7 +654,8 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
+        HAVING max(is_deleted) = 0
+        ORDER BY max(created_at) DESC, id) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
                prop.2
   HAVING prop.1 NOT IN []
@@ -722,7 +732,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -811,7 +823,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -900,7 +914,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -989,7 +1005,9 @@
                           WHERE team_id = 2
                           GROUP BY id
                           HAVING max(is_deleted) = 0
-                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
+                          AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))
+                          ORDER BY max(created_at) DESC, id
+                          LIMIT 100) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['paid', 'user signed up']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
