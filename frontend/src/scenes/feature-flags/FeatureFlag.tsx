@@ -8,6 +8,7 @@ import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@an
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
+import '../../styles/global.scss'
 import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -134,12 +135,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         }
                     />
                     {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
-                        <AlertMessage type="warning" style={{ margin: '1rem 0' }}>
+                        <AlertMessage type="warning" className="mt mb">
                             This feature flag is linked to an experiment. It's recommended to only make changes to this
                             flag{' '}
-                            <a href={urls.experiment(featureFlag.experiment_set[0])}>
+                            <Link to={urls.experiment(featureFlag.experiment_set[0])}>
                                 using the experiment creation screen.
-                            </a>
+                            </Link>
                         </AlertMessage>
                     )}
                     <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
