@@ -14,7 +14,7 @@ const httpsAgent = new https.Agent({
 export async function fetchExtension(url: RequestInfo, init?: RequestInit): Promise<Response> {
     init = init ?? {}
     return await fetch(url, {
-        agent: (_parsedURL) => (_parsedURL.protocol == 'http:' ? httpAgent : httpsAgent),
+        agent: ({ protocol }) => (protocol === 'http:' ? httpAgent : httpsAgent),
         ...init,
     })
 }
