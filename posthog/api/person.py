@@ -12,12 +12,12 @@ from typing import (
     cast,
 )
 
-from django.db.models import Q
-from django_filters import rest_framework as filters
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import CursorPagination
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -26,6 +26,7 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import capture_internal
+from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
@@ -66,11 +67,26 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 
-class PersonCursorPagination(CursorPagination):
-    ordering = "-id"
-    page_size = 100
-    page_size_query_param = "limit"
-    max_page_size = 1000
+class PersonLimitOffsetPagination(LimitOffsetPagination):
+    def get_paginated_response_schema(self, schema):
+        return {
+            "type": "object",
+            "properties": {
+                "next": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "https://app.posthog.com/api/projects/{project_id}/accounts/?offset=400&limit=100",
+                },
+                "previous": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "https://app.posthog.com/api/projects/{project_id}/accounts/?offset=400&limit=100",
+                },
+                "results": schema,
+            },
+        }
 
 
 def get_person_name(person: Person) -> str:
@@ -104,43 +120,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         representation = super().to_representation(instance)
         representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
         return representation
-
-
-class PersonFilter(filters.FilterSet):
-    email = filters.CharFilter(field_name="properties__email")
-    distinct_id = filters.CharFilter(method="distinct_id_filter")
-    uuid = filters.CharFilter(method="uuid_filter")
-    search = filters.CharFilter(method="search_filter")
-    properties = filters.CharFilter(method="properties_filter")
-
-    def __init__(self, data=None, queryset=None, *, request=None, prefix=None, team_id=None):
-        self.team_id = team_id
-        return super().__init__(data=data, queryset=queryset, request=request, prefix=prefix)
-
-    def distinct_id_filter(self, queryset, attr, value, *args, **kwargs):
-        queryset = queryset.filter(persondistinctid__distinct_id=value, persondistinctid__team_id=self.team_id)
-        return queryset
-
-    def search_filter(self, queryset, attr, value, *args, **kwargs):
-        return queryset.filter(
-            Q(properties__icontains=value) | Q(persondistinctid__distinct_id__icontains=value)
-        ).distinct("id")
-
-    def properties_filter(self, queryset, attr, value, *args, **kwargs):
-        filter = Filter(data={"properties": json.loads(value)})
-        from posthog.queries.base import properties_to_Q
-
-        return queryset.filter(
-            properties_to_Q(
-                [prop for prop in filter.property_groups.flat if prop.type == "person"],
-                team_id=self.team_id,
-                is_direct_query=True,
-            )
-        )
-
-    class Meta:
-        model = Person
-        fields = ["email"]
 
 
 def should_paginate(results, limit: Union[str, int]) -> bool:
@@ -177,13 +156,29 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
-    pagination_class = PersonCursorPagination
-    filterset_class = PersonFilter
+    pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "email",
+                OpenApiTypes.STR,
+                description="Filter persons by email (exact match)",
+                examples=[OpenApiExample(name="email", value="test@test.com")],
+            ),
+            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Search persons, either by email (full text search) or distinct_id (exact match).",
+            ),
+            PersonPropertiesSerializer(required=False),
+        ],
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         team = self.team
         filter = Filter(request=request, team=self.team)
