@@ -196,7 +196,7 @@ def serialize_people(data: QuerySet[Person]) -> List[SerializedPerson]:
     return [
         SerializedPerson(
             type="person",
-            id=person.pk,
+            id=person.uuid,
             created_at=person.created_at,
             properties=person.properties,
             is_identified=person.is_identified,

@@ -12,6 +12,7 @@ from typing import (
     cast,
 )
 
+from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, status, viewsets
@@ -27,8 +28,8 @@ from statshog.defaults.django import statsd
 
 from posthog.api.capture import capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import format_paginated_url, get_target_entity
+from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
+from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.client import sync_execute
 from posthog.constants import (
     CSV_EXPORT_LIMIT,
@@ -152,7 +153,7 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
-class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -161,6 +162,12 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
+        return queryset
 
     @extend_schema(
         parameters=[
@@ -208,7 +215,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
-            person = Person.objects.get(team=self.team, pk=pk)
+            person = self.get_object()
             person_id = person.id
 
             delete_person(person=person)
@@ -366,7 +373,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))
-        person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person = self.get_object()
         person.merge_people([p for p in people])
 
         data = PersonSerializer(person).data
@@ -406,7 +413,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
         split_person.delay(person.id, request.data.get("main_distinct_id", None))
@@ -425,7 +432,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
         capture_internal(
             distinct_id=person.distinct_ids[0],
@@ -568,7 +575,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
-        instance = self.get_queryset().get(pk=kwargs["pk"])
+        instance = self.get_object()
         capture_internal(
             distinct_id=instance.distinct_ids[0],
             ip=None,

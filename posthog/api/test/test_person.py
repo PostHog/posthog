@@ -130,18 +130,18 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], person1.pk)
+        self.assertEqual(response.json()["results"][0]["id"], str(person1.uuid))
 
         response = self.client.get("/api/person/?distinct_id=another_one")  # can search on any of the distinct IDs
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], person1.pk)
+        self.assertEqual(response.json()["results"][0]["id"], str(person1.uuid))
 
         # Filter by email
         response = self.client.get("/api/person/?email=another@gmail.com")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], person2.pk)
+        self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
 
         # Non-matches return an empty list
         response = self.client.get("/api/person/?email=inexistent")
@@ -172,7 +172,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(
-            response.json()["results"][0]["id"], person.pk,
+            response.json()["results"][0]["id"], str(person.uuid),
         )  # note that even with shared distinct IDs, only the person from the same team is returned
 
         response = self.client.get("/api/person/?distinct_id=x_another_one")
@@ -188,13 +188,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="test", team=self.team, distinct_id="anonymous_id")
         _create_event(event="test", team=self.team, distinct_id="someone_else")
 
-        response = self.client.delete(f"/api/person/{person.pk}/")
+        response = self.client.delete(f"/api/person/{person.uuid}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
-        response = self.client.delete(f"/api/person/{person.pk}/")
+        response = self.client.delete(f"/api/person/{person.uuid}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         self._assert_person_activity(
@@ -387,7 +387,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        self.client.patch(f"/api/person/{person.id}", {"properties": {"foo": "bar"}})
+        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar"}})
 
         mock_capture.assert_called_once_with(
             distinct_id="some_distinct_id",
@@ -413,7 +413,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        self.client.post(f"/api/person/{person.id}/delete_property", {"$unset": "foo"})
+        self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": "foo"})
 
         mock_capture.assert_called_once_with(
             distinct_id="some_distinct_id",
@@ -494,7 +494,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        response = self.client.post("/api/person/%s/split/" % person.pk,).json()
+        response = self.client.post("/api/person/%s/split/" % person.uuid,).json()
         self.assertTrue(response["success"])
 
         people = Person.objects.all().order_by("id")
@@ -525,12 +525,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        created_person = self.client.get("/api/person/%s/" % person.pk).json()
+        created_person = self.client.get("/api/person/%s/" % person.uuid).json()
         created_person["properties"]["a"] = "b"
-        response = self.client.patch("/api/person/%s/" % person.pk, created_person)
+        response = self.client.patch("/api/person/%s/" % person.uuid, created_person)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.client.get("/api/person/%s/" % person.pk)
+        self.client.get("/api/person/%s/" % person.uuid)
 
         self._assert_person_activity(
             person_id=person.pk,

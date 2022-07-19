@@ -1,13 +1,14 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from django.shortcuts import get_object_or_404
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_extensions.routers import ExtendedDefaultRouter
 from rest_framework_extensions.settings import extensions_api_settings
 
-from posthog.api.utils import get_token
+from posthog.api.utils import get_pk_or_uuid, get_token
 from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -196,3 +197,32 @@ class StructuredViewSetMixin(_GenericViewSet):
     #     if self.legacy_team_compatibility:
     #         print(f"Legacy endpoint called – {super_cls.get_view_name()} (delete)")
     #     return super_cls.delete(*args, **kwargs)
+
+
+class PKorUUIDViewSet(_GenericViewSet):
+    """
+    Allow querying all verbs using either pk or uuid field
+
+    """
+
+    def get_object(self):
+        """
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # Perform the lookup filtering.
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+
+        assert lookup_url_kwarg in self.kwargs, (
+            "Expected view %s to be called with a URL keyword argument "
+            'named "%s". Fix your URL conf, or set the `.lookup_field` '
+            "attribute on the view correctly." % (self.__class__.__name__, lookup_url_kwarg)
+        )
+
+        queryset = get_pk_or_uuid(queryset, self.kwargs[lookup_url_kwarg])
+        obj = get_object_or_404(queryset)
+
+        # May raise a permission denied
+        self.check_object_permissions(self.request, obj)
+
+        return obj
