@@ -158,6 +158,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         # Hourly check for email subscriptions
         sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
 
+        sender.add_periodic_task(30, count_tiles_with_no_hash.s(), name="count tiles with no filters_hash")
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -172,6 +174,15 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog import client
 
     client._request_information = None
+
+
+@app.task(ignore_result=True)
+def count_tiles_with_no_hash() -> None:
+    from statshog.defaults.django import statsd
+
+    from posthog.models.dashboard_tile import DashboardTile
+
+    statsd.gauge("dashboard_tiles.with_no_filters_hash", DashboardTile.objects.filter(filters_hash=None).count())
 
 
 @app.task(ignore_result=True)
