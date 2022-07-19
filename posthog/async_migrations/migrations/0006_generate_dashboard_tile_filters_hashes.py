@@ -1,4 +1,5 @@
 from functools import cached_property
+from typing import List
 
 import structlog
 from sentry_sdk import capture_exception
@@ -42,11 +43,15 @@ class Migration(AsyncMigrationDefinition):
         tiles_with_no_hash = (
             DashboardTile.objects.filter(filters_hash=None).select_related("insight", "dashboard").order_by("id")
         )
+        updated_tiles: List[DashboardTile] = []
         if tiles_with_no_hash.count() > 0:
             for tile in tiles_with_no_hash[0:100]:
+                # generate_insight_cache_key takes 2-5 seconds with peaks above that
                 tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
+                updated_tiles.append(tile)
 
-            DashboardTile.objects.bulk_update(tiles_with_no_hash, ["filters_hash"])
+            DashboardTile.objects.bulk_update(updated_tiles, ["filters_hash"])
+
             return True
 
         return False
