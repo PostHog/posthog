@@ -148,15 +148,17 @@ def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> Li
         if not dashboard.filters or dashboard.filters == insight.filters:
             should_update_insight_filters_hash = True
 
-    if should_update_insight_filters_hash:
-        insight.filters_hash = cache_key
-        insight.save()
-
     if should_update_dashboard_tile_filters_hash:
         dashboard_tiles = DashboardTile.objects.filter(insight=insight, dashboard=dashboard,).exclude(
             filters_hash=cache_key
         )
+        matching_tiles_with_no_hash = dashboard_tiles.filter(filters_hash=None).count()
+        statsd.incr("update_cache_queue.set_missing_filters_hash", matching_tiles_with_no_hash)
         dashboard_tiles.update(filters_hash=cache_key)
+
+    if should_update_insight_filters_hash:
+        insight.filters_hash = cache_key
+        insight.save()
 
     if should_update_insight_filters_hash or should_update_dashboard_tile_filters_hash:
         statsd.incr(
