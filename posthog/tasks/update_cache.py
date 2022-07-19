@@ -213,6 +213,13 @@ def update_cached_items() -> Tuple[int, int]:
 
     for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
         insight = dashboard_tile.insight
+        logger.info(
+            "update_cache_queue.attempting_tile",
+            insight_id=insight.id,
+            dashboard_id=dashboard_tile.dashboard.id,
+            last_refresh=dashboard_tile.last_refresh,
+            filters_hash=dashboard_tile.filters_hash,
+        )
         try:
             cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
@@ -245,20 +252,19 @@ def update_cached_items() -> Tuple[int, int]:
 
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
 
-    # how old is the next to be refreshed
-    oldest_previously_refreshed_tile: Optional[DashboardTile] = dashboard_tiles.exclude(last_refresh=None).first()
-    if oldest_previously_refreshed_tile and oldest_previously_refreshed_tile.last_refresh:
-        dashboard_cache_age = (
-            datetime.datetime.now(timezone.utc) - oldest_previously_refreshed_tile.last_refresh
-        ).total_seconds()
+    oldest_previously_refreshed_tiles: List[DashboardTile] = list(
+        dashboard_tiles.exclude(last_refresh=None)[0:PARALLEL_INSIGHT_CACHE]
+    )
+    for candidate_tile in oldest_previously_refreshed_tiles:
+        dashboard_cache_age = (datetime.datetime.now(timezone.utc) - candidate_tile.last_refresh).total_seconds()
 
         statsd.gauge(
             "update_cache_queue.dashboards_lag",
             round(dashboard_cache_age),
             tags={
-                "insight_id": oldest_previously_refreshed_tile.insight_id,
-                "dashboard_id": oldest_previously_refreshed_tile.dashboard_id,
-                "cache_key": oldest_previously_refreshed_tile.filters_hash,
+                "insight_id": candidate_tile.insight_id,
+                "dashboard_id": candidate_tile.dashboard_id,
+                "cache_key": candidate_tile.filters_hash,
             },
         )
 
