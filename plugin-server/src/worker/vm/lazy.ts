@@ -234,7 +234,7 @@ export class LazyPluginVM {
         }
     }
 
-    public async createLogEntry(message: string, logType = PluginLogEntryType.Info): Promise<void> {
+    private async createLogEntry(message: string, logType = PluginLogEntryType.Info): Promise<void> {
         await this.hub.db.queuePluginLogEntry({
             message,
             pluginConfig: this.pluginConfig,

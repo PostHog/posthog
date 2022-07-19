@@ -150,6 +150,7 @@ describe.skip('job queues', () => {
                 const now = Date.now()
 
                 const job: EnqueuedJob = {
+                    type: 'pluginJob',
                     payload: { key: 'value' },
                     timestamp: now + DELAY,
                     pluginConfigId: 2,

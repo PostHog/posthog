@@ -7,14 +7,8 @@ import * as path from 'path'
 
 import { JobQueueBase } from '../job-queue-base'
 
-interface FsJob {
+interface FsJob extends EnqueuedJob {
     jobName: string
-    timestamp: number
-    type?: string
-    payload?: Record<string, any>
-    eventPayload?: Record<string, any>
-    pluginConfigId?: number
-    pluginConfigTeam?: number
 }
 export class FsQueue extends JobQueueBase {
     paused: boolean

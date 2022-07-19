@@ -1026,4 +1026,19 @@ describe('DB', () => {
             )
         })
     })
+
+    describe('addEventToBuffer', () => {
+        test('inserts event correctly', async () => {
+            const processAt = DateTime.now()
+            await db.addEventToBuffer({ foo: 'bar' }, processAt)
+
+            const bufferResult = await db.postgresQuery(
+                'SELECT event, process_at FROM posthog_eventbuffer',
+                [],
+                'addEventToBufferTest'
+            )
+            expect(bufferResult.rows[0].event).toEqual({ foo: 'bar' })
+            expect(processAt).toEqual(DateTime.fromISO(bufferResult.rows[0].process_at))
+        })
+    })
 })
