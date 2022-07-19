@@ -6,11 +6,13 @@ import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
+import { fetchExtension } from '../../../../src/worker/vm/extensions/fetch'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
+jest.mock('../../../../src/worker/vm/extensions/fetch')
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
@@ -121,7 +123,7 @@ describe('Event Pipeline integration test', () => {
             text: '[Test Action](https://example.com/action/69) was triggered by [abc](https://example.com/person/abc)',
         }
 
-        expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {
+        expect(fetchExtension).toHaveBeenCalledWith('https://webhook.example.com/', {
             body: JSON.stringify(expectedPayload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',

@@ -7,6 +7,7 @@ import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { delay } from '../../src/utils/utils'
+import { fetchExtension } from '../../src/worker/vm/extensions/fetch'
 import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
@@ -16,6 +17,7 @@ import { resetTestDatabase } from '../helpers/sql'
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/kafka-producer-wrapper')
 jest.mock('../../src/main/job-queues/job-queue-manager')
+jest.mock('../../src/worker/vm/extensions/fetch')
 jest.setTimeout(100000)
 
 const defaultEvent = {
@@ -120,9 +122,9 @@ describe('vm tests', () => {
             ...defaultEvent,
             properties: { haha: 'hoho' },
         })
-        expect(fetch).not.toHaveBeenCalled()
+        expect(fetchExtension).not.toHaveBeenCalled()
         await vm.methods.teardownPlugin!()
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho')
+        expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=hoho')
     })
 
     test('processEvent', async () => {
@@ -376,7 +378,7 @@ describe('vm tests', () => {
                 event: 'export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export')
+            expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=export')
         })
 
         test('export default', async () => {
@@ -395,7 +397,7 @@ describe('vm tests', () => {
                 event: 'default export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export')
+            expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=default export')
         })
     })
 
@@ -718,7 +720,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -740,7 +742,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -761,7 +763,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -1034,7 +1036,7 @@ describe('vm tests', () => {
             event: 'onEvent',
         }
         await vm.methods.onEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
+        expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
     })
 
     test('onSnapshot', async () => {
@@ -1050,7 +1052,7 @@ describe('vm tests', () => {
             event: '$snapshot',
         }
         await vm.methods.onSnapshot!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=$snapshot')
+        expect(fetchExtension).toHaveBeenCalledWith('https://google.com/results.json?query=$snapshot')
     })
 
     describe('exportEvents', () => {
@@ -1079,7 +1081,7 @@ describe('vm tests', () => {
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent2' })
             await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent3' })
             await delay(1010)
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
+            expect(fetchExtension).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
 
             // adds exportEventsWithRetry job and onEvent function
             expect(Object.keys(vm.tasks.job)).toEqual(expect.arrayContaining(['exportEventsWithRetry']))
@@ -1159,7 +1161,7 @@ describe('vm tests', () => {
             await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload2)
 
             // now it passed
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=3')
+            expect(fetchExtension).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=3')
         })
 
         test('max retries', async () => {
@@ -1233,9 +1235,9 @@ describe('vm tests', () => {
             await vm.methods.onEvent!(defaultEvent)
             await vm.methods.onEvent!(event)
             await delay(1010)
-            expect(fetch).toHaveBeenCalledTimes(4)
-            expect(fetch).toHaveBeenCalledWith('https://onevent.com/')
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=2')
+            expect(fetchExtension).toHaveBeenCalledTimes(4)
+            expect(fetchExtension).toHaveBeenCalledWith('https://onevent.com/')
+            expect(fetchExtension).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=2')
         })
 
         test('buffers bytes with exportEventsBufferBytes', async () => {
@@ -1272,7 +1274,7 @@ describe('vm tests', () => {
             }
             await delay(1010)
 
-            expect(fetch).toHaveBeenCalledTimes(15)
+            expect(fetchExtension).toHaveBeenCalledTimes(15)
             expect((fetch as any).mock.calls).toEqual([
                 ['https://export.com/?length=890&count=7'],
                 ['https://export.com/?length=890&count=7'],
@@ -1326,7 +1328,7 @@ describe('vm tests', () => {
             }
             await delay(1010)
 
-            expect(fetch).toHaveBeenCalledTimes(100)
+            expect(fetchExtension).toHaveBeenCalledTimes(100)
             expect((fetch as any).mock.calls).toEqual(
                 Array.from(Array(100)).map(() => ['https://export.com/?length=128&count=1'])
             )
@@ -1356,7 +1358,7 @@ describe('vm tests', () => {
             expect(fetch).not.toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
 
             await vm.methods.teardownPlugin!()
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
+            expect(fetchExtension).toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
         })
     })
 

@@ -7,7 +7,10 @@ import { join } from 'path'
 import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
 import { fetchIpLocationInternally } from '../../src/worker/mmdb'
 import { makePiscina } from '../../src/worker/piscina'
+import { fetchExtension } from '../../src/worker/vm/extensions/fetch'
 import { resetTestDatabase } from '../helpers/sql'
+
+jest.mock('../../src/worker/vm/extensions/fetch')
 
 const mmdbBrotliContents = readFileSync(join(__dirname, '..', 'assets', 'GeoLite2-City-Test.mmdb.br'))
 
@@ -59,7 +62,7 @@ describe('mmdb', () => {
 
         expect(serverInstance.hub.DISABLE_MMDB).toBeFalsy()
 
-        expect(fetch).toHaveBeenCalledWith('https://mmdbcdn.posthog.net/', { compress: false })
+        expect(fetchExtension).toHaveBeenCalledWith('https://mmdbcdn.posthog.net/', { compress: false })
         expect(serverInstance.mmdb).toBeInstanceOf(ReaderModel)
 
         const cityResultDirect = serverInstance.mmdb!.city('89.160.20.129')
