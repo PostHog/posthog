@@ -142,8 +142,20 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            distinct_id = data.get("distinct_id")
+            if distinct_id is None:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        "Decide requires a distinct_id.",
+                        code="missing_distinct_id",
+                        type="validation_error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    ),
+                )
             feature_flags = get_active_feature_flags(
-                team.pk, data["distinct_id"], data.get("groups", {}), hash_key_override=data.get("$anon_distinct_id")
+                team.pk, distinct_id, data.get("groups", {}), hash_key_override=data.get("$anon_distinct_id")
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
