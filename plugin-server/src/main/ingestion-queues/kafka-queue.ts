@@ -119,18 +119,15 @@ export class KafkaQueue {
                         }
                         if (error.message) {
                             let logToSentry = true
-                            const messagesToIgnore = [
-                                'The group is rebalancing, so a rejoin is needed',
-                                'Specified group generation id is not valid',
-                                'Could not find person with distinct id',
-                                'The coordinator is not aware of this member',
-                            ]
-                            for (const msg in messagesToIgnore) {
+                            const messagesToIgnore = {
+                                'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
+                                'Specified group generation id is not valid': 'generation_id_invalid',
+                                'Could not find person with distinct id': 'person_not_found',
+                                'The coordinator is not aware of this member': 'not_aware_of_member',
+                            }
+                            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
                                 if (error.message.includes(msg)) {
-                                    const metricSuffix = msg.toLowerCase().split(' ').join('_')
-                                    this.pluginsServer.statsd?.increment(
-                                        'kafka_consumer_each_batch_error_' + metricSuffix
-                                    )
+                                    this.pluginsServer.statsd?.increment('each_batch_error_' + metricSuffix)
                                     logToSentry = false
                                 }
                             }
