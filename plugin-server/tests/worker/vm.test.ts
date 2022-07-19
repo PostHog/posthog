@@ -798,8 +798,8 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         expect(event.properties?.get).toEqual({ hello: 'world' })
-        expect((fetchExtension as any).mock.calls.length).toEqual(7)
-        expect((fetchExtension as any).mock.calls).toEqual([
+        expect((fetch as any).mock.calls.length).toEqual(7)
+        expect((fetch as any).mock.calls).toEqual([
             [
                 'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
                 {
@@ -1275,7 +1275,7 @@ describe('vm tests', () => {
             await delay(1010)
 
             expect(fetchExtension).toHaveBeenCalledTimes(15)
-            expect((fetchExtension as any).mock.calls).toEqual([
+            expect(fetchExtension.mock.calls).toEqual([
                 ['https://export.com/?length=890&count=7'],
                 ['https://export.com/?length=890&count=7'],
                 ['https://export.com/?length=890&count=7'],
@@ -1329,7 +1329,7 @@ describe('vm tests', () => {
             await delay(1010)
 
             expect(fetchExtension).toHaveBeenCalledTimes(100)
-            expect((fetchExtension as any).mock.calls).toEqual(
+            expect(fetchExtension.mock.calls).toEqual(
                 Array.from(Array(100)).map(() => ['https://export.com/?length=128&count=1'])
             )
         })
