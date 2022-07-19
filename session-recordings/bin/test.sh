@@ -22,7 +22,7 @@ docker run --rm \
   "${1:-session-recordings}" &
 
 # Wait for the ingester to be up
-until (curl --silent http://localhost:3001/metrics);
+until (curl --silent http://localhost:3001/_readyz);
 do
   echo "Waiting for instance to come up"
   sleep 5

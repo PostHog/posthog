@@ -2,9 +2,11 @@ import { Kafka } from 'kafkajs'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { RecordingEvent, RecordingEventGroup } from '../types'
 import { s3Client } from '../s3'
-import { meterProvider } from './metrics'
+import { meterProvider, metricRoutes } from './metrics'
 import { performance } from 'perf_hooks'
 import { getEventGroupDataString, getEventSummaryMetadata } from './utils'
+import { getHealthcheckRoutes } from './healthcheck'
+import express from 'express'
 
 const maxEventGroupAge = Number.parseInt(
     process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
@@ -20,12 +22,20 @@ const kafka = new Kafka({
     brokers: ['localhost:9092'],
 })
 
-const consumer = kafka.consumer({
+const consumerConfig = {
     groupId: `object-storage-ingester`,
-})
+    sessionTimeout: 30000,
+    heartbeatInterval: 6000,
+}
+const consumer = kafka.consumer(consumerConfig)
 
 consumer.connect()
 consumer.subscribe({ topic: RECORDING_EVENTS_TOPIC })
+
+const app = express()
+app.use(getHealthcheckRoutes({ consumer, consumerConfig }))
+app.use(metricRoutes)
+const httpServer = app.listen(3001)
 
 const eventsBySessionId: { [key: string]: RecordingEventGroup } = {}
 
@@ -220,6 +230,7 @@ signalTraps.map((type) => {
     process.once(type, async () => {
         try {
             await consumer.disconnect()
+            await httpServer.close()
         } finally {
             process.kill(process.pid, type)
         }
