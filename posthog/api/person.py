@@ -200,7 +200,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        query, params = PersonQuery(filter, team.pk).get_query()
+        query, params = PersonQuery(filter, team.pk).get_query(order_by_created_at=True)
 
         raw_result = sync_execute(query, params)
 

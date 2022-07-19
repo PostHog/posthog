@@ -68,7 +68,7 @@ class PersonQuery:
             properties
         ).inner
 
-    def get_query(self, prepend: str = "") -> Tuple[str, Dict]:
+    def get_query(self, prepend: str = "", order_by_created_at: bool = False) -> Tuple[str, Dict]:
         fields = "id" + " ".join(
             f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
@@ -89,7 +89,6 @@ class PersonQuery:
             GROUP BY id
             HAVING max(is_deleted) = 0
             {person_filters} {search_clause} {distinct_id_clause} {email_clause}
-            ORDER BY max(created_at) DESC, id
             {limit_offset}
         """,
             {
@@ -100,6 +99,7 @@ class PersonQuery:
                 **distinct_id_params,
                 **email_params,
                 "team_id": self._team_id,
+                "order_by": "ORDER BY max(created_at) DESC, id" if order_by_created_at else "",
             },
         )
 
