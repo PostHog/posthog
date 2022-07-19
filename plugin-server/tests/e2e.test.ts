@@ -100,7 +100,7 @@ describe('E2E', () => {
 
             const event = {
                 event: 'custom event',
-                properties: { name: 'haha', uuid }
+                properties: { name: 'haha', uuid },
             }
             await posthog.capture(event.event, event.properties)
 
@@ -130,13 +130,11 @@ describe('E2E', () => {
             // object. Thus we want to ensure that this information is passed
             // through to any plugins with `onEvent` handlers
             const properties = {
-                $elements: [
-                    { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
-                ],
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
             }
             const event = {
                 event: '$autocapture',
-                properties: properties
+                properties: properties,
             }
             await posthog.capture('$autocapture', properties)
 
@@ -147,7 +145,9 @@ describe('E2E', () => {
             expect(consoleOutput).toEqual([['processEvent'], ['onEvent', expect.any(String)]])
 
             const onEventEvent = JSON.parse(consoleOutput[1][1])
-            expect(onEventEvent.elements).toEqual([{ attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' }])
+            expect(onEventEvent.elements).toEqual([
+                { attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' },
+            ])
         })
 
         test('snapshot captured, processed, ingested', async () => {
