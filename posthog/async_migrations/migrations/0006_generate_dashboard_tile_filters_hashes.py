@@ -39,7 +39,9 @@ class Migration(AsyncMigrationDefinition):
             capture_exception(err)
 
     def set_page_of_filters_hashes(self) -> bool:
-        tiles_with_no_hash = DashboardTile.objects.filter(filters_hash=None).order_by("id")
+        tiles_with_no_hash = (
+            DashboardTile.objects.filter(filters_hash=None).select_related("insight", "dashboard").order_by("id")
+        )
         if tiles_with_no_hash.count() > 0:
             for tile in tiles_with_no_hash[0:100]:
                 tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
