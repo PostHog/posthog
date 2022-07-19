@@ -29,10 +29,13 @@ def traces_sampler(sampling_context: dict) -> float:
 
         # Ingestion endpoints (high volume)
         if path.startswith(("/batch")):
-            return 0.00000001  # 0.000001%
+            return 0
         # Ingestion endpoints (high volume)
-        elif path.startswith(("/capture", "/decide", "/track", "/s", "/e")):
-            return 0.0000001  # 0.00001%
+        elif path.startswith(("/capture", "/track", "/s", "/e")):
+            return 0
+        # decide
+        elif path.startswith("/decide"):
+            return 0.0001
         # Probes/monitoring endpoints
         elif path.startswith(("/_health", "/_readyz", "/_livez")):
             return 0.0001  # 0.01%
