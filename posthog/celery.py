@@ -42,6 +42,8 @@ EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_S
 # How frequently do we want to check if dashboard items need to be recalculated
 UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
 
+COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = settings.COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS
+
 
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
@@ -158,7 +160,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         # Hourly check for email subscriptions
         sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
 
-        sender.add_periodic_task(30, count_tiles_with_no_hash.s(), name="count tiles with no filters_hash")
+        sender.add_periodic_task(
+            COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS,
+            count_tiles_with_no_hash.s(),
+            name="count tiles with no filters_hash",
+        )
 
 
 # Set up clickhouse query instrumentation
