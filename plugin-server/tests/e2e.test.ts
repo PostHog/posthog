@@ -136,7 +136,7 @@ describe('E2E', () => {
                 event: '$autocapture',
                 properties: properties,
             }
-            await posthog.capture('$autocapture', properties)
+            await posthog.capture(event.event, event.properties)
 
             await delayUntilEventIngested(() => hub.db.fetchEvents(), 1)
 
