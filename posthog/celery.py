@@ -33,14 +33,6 @@ app.conf.broker_pool_limit = 0
 
 app.steps["worker"].add(DjangoStructLogInitStep)
 
-# How frequently do we want to calculate event property stats if async is enabled
-EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS
-
-# How frequently do we want to check if dashboard items need to be recalculated
-UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
-
-COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = settings.COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS
-
 
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
@@ -94,7 +86,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
-        UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
+        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
@@ -117,7 +109,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
-            EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+            settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
             calculate_event_property_usage.s(),
             name="calculate event property usage",
         )
@@ -158,7 +150,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
 
         sender.add_periodic_task(
-            COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS,
+            settings.COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS,
             count_tiles_with_no_hash.s(),
             name="count tiles with no filters_hash",
         )
