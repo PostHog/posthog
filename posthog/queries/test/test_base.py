@@ -1,4 +1,5 @@
 from django.test import TestCase
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.property import Property
@@ -26,15 +27,15 @@ class TestMatchProperties(TestCase):
         self.assertFalse(match_property(property_a, {"key": "value2"}))
         self.assertFalse(match_property(property_a, {"key": ""}))
         self.assertFalse(match_property(property_a, {"key": None}))
-        self.assertFalse(match_property(property_a, {"key2": "value"}))
-        self.assertFalse(match_property(property_a, {}))
+
+        with self.assertRaises(ValidationError):
+            match_property(property_a, {"key2": "value"})
+            match_property(property_a, {})
 
         property_b = Property(key="key", value="value", operator="exact")
         self.assertTrue(match_property(property_b, {"key": "value"}))
 
         self.assertFalse(match_property(property_b, {"key": "value2"}))
-        self.assertFalse(match_property(property_b, {"key2": "value"}))
-        self.assertFalse(match_property(property_b, {}))
 
         property_c = Property(key="key", value=["value1", "value2", "value3"], operator="exact")
         self.assertTrue(match_property(property_c, {"key": "value1"}))
@@ -42,15 +43,15 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_c, {"key": "value3"}))
 
         self.assertFalse(match_property(property_c, {"key": "value4"}))
-        self.assertFalse(match_property(property_c, {"key2": "value"}))
-        self.assertFalse(match_property(property_c, {}))
+
+        with self.assertRaises(ValidationError):
+            match_property(property_c, {"key2": "value"})
 
     def test_match_properties_not_in(self):
         property_a = Property(key="key", value="value", operator="is_not")
         self.assertTrue(match_property(property_a, {"key": "value2"}))
         self.assertTrue(match_property(property_a, {"key": ""}))
         self.assertTrue(match_property(property_a, {"key": None}))
-        self.assertFalse(match_property(property_a, {"key2": "value"}))
 
         property_c = Property(key="key", value=["value1", "value2", "value3"], operator="is_not")
         self.assertTrue(match_property(property_c, {"key": "value4"}))
@@ -59,10 +60,13 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_c, {"key": ""}))
         self.assertTrue(match_property(property_c, {"key": None}))
 
-        self.assertFalse(match_property(property_c, {"key2": "value1"}))  # overrides don't have 'key'
-        self.assertFalse(match_property(property_c, {"key": "value1"}))
         self.assertFalse(match_property(property_c, {"key": "value2"}))
         self.assertFalse(match_property(property_c, {"key": "value3"}))
+        self.assertFalse(match_property(property_c, {"key": "value1"}))
+
+        with self.assertRaises(ValidationError):
+            match_property(property_a, {"key2": "value"})
+            match_property(property_c, {"key2": "value1"})  # overrides don't have 'key'
 
     def test_match_properties_is_set(self):
         property_a = Property(key="key", operator="is_set")
@@ -71,8 +75,9 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_a, {"key": ""}))
         self.assertTrue(match_property(property_a, {"key": None}))
 
-        self.assertFalse(match_property(property_a, {"key2": "value"}))
-        self.assertFalse(match_property(property_a, {}))
+        with self.assertRaises(ValidationError):
+            match_property(property_a, {"key2": "value"})
+            match_property(property_a, {})
 
     def test_match_properties_icontains(self):
         property_a = Property(key="key", value="valUe", operator="icontains")
@@ -82,8 +87,6 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_a, {"key": "vaLue4"}))
         self.assertTrue(match_property(property_a, {"key": "343tfvalue5"}))
 
-        self.assertFalse(match_property(property_a, {"key2": "value"}))
-        self.assertFalse(match_property(property_a, {}))
         self.assertFalse(match_property(property_a, {"key": "Alakazam"}))
         self.assertFalse(match_property(property_a, {"key": 123}))
 
@@ -92,8 +95,6 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_b, {"key": 323}))
         self.assertTrue(match_property(property_b, {"key": "val3"}))
 
-        self.assertFalse(match_property(property_b, {"key2": "3"}))
-        self.assertFalse(match_property(property_b, {}))
         self.assertFalse(match_property(property_b, {"key": "three"}))
 
     def test_match_properties_regex(self):
@@ -101,8 +102,6 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_a, {"key": "value.com"}))
         self.assertTrue(match_property(property_a, {"key": "value2.com"}))
 
-        self.assertFalse(match_property(property_a, {"key2": "value"}))
-        self.assertFalse(match_property(property_a, {}))
         self.assertFalse(match_property(property_a, {"key": ".com343tfvalue5"}))
         self.assertFalse(match_property(property_a, {"key": "Alakazam"}))
         self.assertFalse(match_property(property_a, {"key": 123}))
@@ -112,15 +111,12 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_b, {"key": 323}))
         self.assertTrue(match_property(property_b, {"key": "val3"}))
 
-        self.assertFalse(match_property(property_b, {"key2": "3"}))
-        self.assertFalse(match_property(property_b, {}))
         self.assertFalse(match_property(property_b, {"key": "three"}))
 
         # invalid regex
         property_c = Property(key="key", value=r"?*", operator="regex")
         self.assertFalse(match_property(property_c, {"key": "value"}))
         self.assertFalse(match_property(property_c, {"key": "value2"}))
-        self.assertFalse(match_property(property_c, {}))
 
         # non string value
         property_d = Property(key="key", value=4, operator="regex")
@@ -128,7 +124,6 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_d, {"key": 4}))
 
         self.assertFalse(match_property(property_d, {"key": "value"}))
-        self.assertFalse(match_property(property_d, {}))
 
     def test_match_properties_math_operators(self):
         property_a = Property(key="key", value=1, operator="gt")
@@ -137,7 +132,6 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_a, {"key": 0}))
         self.assertFalse(match_property(property_a, {"key": -1}))
-        self.assertFalse(match_property(property_a, {}))
         self.assertFalse(match_property(property_a, {"key": "23"}))
 
         property_b = Property(key="key", value=1, operator="lt")
@@ -148,7 +142,6 @@ class TestMatchProperties(TestCase):
         self.assertFalse(match_property(property_b, {"key": 1}))
         self.assertFalse(match_property(property_b, {"key": "1"}))
         self.assertFalse(match_property(property_b, {"key": "3"}))
-        self.assertFalse(match_property(property_b, {}))
 
         property_c = Property(key="key", value=1, operator="gte")
         self.assertTrue(match_property(property_c, {"key": 1}))
@@ -165,4 +158,3 @@ class TestMatchProperties(TestCase):
         self.assertFalse(match_property(property_d, {"key": "43"}))
         self.assertFalse(match_property(property_d, {"key": "44"}))
         self.assertFalse(match_property(property_d, {"key": 44}))
-        self.assertFalse(match_property(property_d, {}))
