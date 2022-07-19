@@ -200,14 +200,7 @@ class StructuredViewSetMixin(_GenericViewSet):
 
 
 class PKorUUIDViewSet(_GenericViewSet):
-    """
-    Allow querying all verbs using either pk or uuid field
-
-    """
-
     def get_object(self):
-        """
-        """
         queryset = self.filter_queryset(self.get_queryset())
 
         # Perform the lookup filtering.

@@ -100,6 +100,10 @@ def get_person_name(person: Person) -> str:
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
+    id = serializers.UUIDField(help_text="A unique UUID identifying this person.")
+    properties = serializers.DictField(
+        help_text="Properties of the person. If the key already exist, the property will be updated. If it doesn't exist, it'll be added to the existing properties."
+    )
     name = serializers.SerializerMethodField()
 
     class Meta:
@@ -112,7 +116,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "uuid",
         ]
-        read_only_fields = ("id", "distinct_ids", "created_at", "uuid")
+        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
         return get_person_name(person)
