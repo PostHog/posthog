@@ -10,7 +10,11 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import Property, PropertyGroup
-from posthog.models.property.util import extract_tables_and_properties, parse_prop_grouped_clauses
+from posthog.models.property.util import (
+    extract_tables_and_properties,
+    parse_prop_grouped_clauses,
+    prop_filter_json_extract,
+)
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
@@ -73,6 +77,8 @@ class PersonQuery:
         cohort_query, cohort_params = self._get_cohort_query()
         limit_offset, limit_params = self._get_limit_offset()
         search_clause, search_params = self._get_search_clause(prepend=prepend)
+        distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
+        email_clause, email_params = self._get_email_clause()
 
         return (
             f"""
@@ -81,10 +87,20 @@ class PersonQuery:
             {cohort_query}
             WHERE team_id = %(team_id)s
             GROUP BY id
-            HAVING max(is_deleted) = 0 {person_filters} {search_clause}
+            HAVING max(is_deleted) = 0
+            {person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            ORDER BY max(created_at) DESC, id
             {limit_offset}
         """,
-            {**params, **cohort_params, **limit_params, **search_params, "team_id": self._team_id},
+            {
+                **params,
+                **cohort_params,
+                **limit_params,
+                **search_params,
+                **distinct_id_params,
+                **email_params,
+                "team_id": self._team_id,
+            },
         )
 
     @property
@@ -151,12 +167,10 @@ class PersonQuery:
         if not isinstance(self._filter, Filter):
             return "", {}
 
-        if not self._cohort or not (self._filter.limit or self._filter.offset):
+        if not (self._filter.limit or self._filter.offset):
             return "", {}
 
-        clause = """
-        ORDER BY id
-        """
+        clause = ""
 
         params = {}
 
@@ -201,4 +215,25 @@ class PersonQuery:
 
             return f"AND (({search_clause}) OR ({distinct_id_clause}))", params
 
+        return "", {}
+
+    def _get_distinct_id_clause(self) -> Tuple[str, Dict]:
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        if self._filter.distinct_id:
+            distinct_id_clause = f"""
+            AND id IN (
+                SELECT person_id FROM ({get_team_distinct_ids_query(self._team_id)}) where distinct_id = %(distinct_id_filter)s
+            )
+            """
+            return distinct_id_clause, {"distinct_id_filter": self._filter.distinct_id}
+        return "", {}
+
+    def _get_email_clause(self) -> Tuple[str, Dict]:
+        if not isinstance(self._filter, Filter):
+            return "", {}
+
+        if self._filter.email:
+            return prop_filter_json_extract(Property(key="email", value=self._filter.email), 0, prepend="_email")
         return "", {}

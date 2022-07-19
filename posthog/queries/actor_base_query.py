@@ -13,7 +13,7 @@ from typing import (
     cast,
 )
 
-from django.db.models.query import QuerySet
+from django.db.models.query import Prefetch, QuerySet
 
 from posthog.client import sync_execute
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
@@ -184,6 +184,9 @@ def get_groups(
 def get_people(team_id: int, people_ids: List[Any]) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """ Get people from raw SQL results in data model and dict formats """
     persons: QuerySet[Person] = Person.objects.filter(team_id=team_id, uuid__in=people_ids)
+
+    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+    persons = persons.only("id", "is_identified", "created_at", "properties", "uuid")
     return persons, serialize_people(persons)
 
 
@@ -193,7 +196,7 @@ def serialize_people(data: QuerySet[Person]) -> List[SerializedPerson]:
     return [
         SerializedPerson(
             type="person",
-            id=person.uuid,
+            id=person.pk,
             created_at=person.created_at,
             properties=person.properties,
             is_identified=person.is_identified,

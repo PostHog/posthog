@@ -13,7 +13,6 @@ from typing import (
 )
 
 from django.db.models import Q
-from django.db.models.query import Prefetch
 from django_filters import rest_framework as filters
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -30,7 +29,15 @@ from posthog.api.capture import capture_internal
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.utils import format_paginated_url, get_target_entity
 from posthog.client import sync_execute
-from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, TRENDS_TABLE, FunnelVizType
+from posthog.constants import (
+    CSV_EXPORT_LIMIT,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    LIMIT,
+    OFFSET,
+    TRENDS_TABLE,
+    FunnelVizType,
+)
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
@@ -43,11 +50,12 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_ch_distinct_ids, delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery
+from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.paths import PathsActors
+from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -101,10 +109,8 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
 class PersonFilter(filters.FilterSet):
     email = filters.CharFilter(field_name="properties__email")
     distinct_id = filters.CharFilter(method="distinct_id_filter")
-    key_identifier = filters.CharFilter(method="key_identifier_filter", help_text="Filter on email or distinct ID")
     uuid = filters.CharFilter(method="uuid_filter")
     search = filters.CharFilter(method="search_filter")
-    cohort = filters.CharFilter(method="cohort_filter", help_text="ID of a cohort the user belongs to")
     properties = filters.CharFilter(method="properties_filter")
 
     def __init__(self, data=None, queryset=None, *, request=None, prefix=None, team_id=None):
@@ -114,21 +120,6 @@ class PersonFilter(filters.FilterSet):
     def distinct_id_filter(self, queryset, attr, value, *args, **kwargs):
         queryset = queryset.filter(persondistinctid__distinct_id=value, persondistinctid__team_id=self.team_id)
         return queryset
-
-    def cohort_filter(self, queryset, attr, value, *args, **kwargs):
-        cohort = Cohort.objects.get(pk=value)
-        queryset = queryset.filter(cohort__id=cohort.pk, cohortpeople__version=cohort.version)
-        return queryset
-
-    def key_identifier_filter(self, queryset, attr, value, *args, **kwargs):
-        """
-        Filters persons by email or distinct ID
-        """
-        return queryset.filter(Q(persondistinctid__distinct_id=value) | Q(properties__email=value))
-
-    def uuid_filter(self, queryset, attr, value, *args, **kwargs):
-        uuids = value.split(",")
-        return queryset.filter(uuid__in=uuids)
 
     def search_filter(self, queryset, attr, value, *args, **kwargs):
         return queryset.filter(
@@ -193,10 +184,32 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     retention_class = Retention
     stickiness_class = Stickiness
 
-    def paginate_queryset(self, queryset):
-        if self.request.accepted_renderer.format == "csv" or not self.paginator:
-            return None
-        return self.paginator.paginate_queryset(queryset, self.request, view=self)
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = self.team
+        filter = Filter(request=request, team=self.team)
+
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        if is_csv_request:
+            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+        elif not filter.limit:
+            filter = filter.with_data({LIMIT: 100})
+
+        query, params = PersonQuery(filter, team.pk).get_query()
+
+        raw_result = sync_execute(query, params)
+
+        actor_ids = [row[0] for row in raw_result]
+        actors, serialized_actors = get_people(team.pk, actor_ids)
+
+        _should_paginate = should_paginate(actors, filter.limit)
+        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
+        previous_url = (
+            format_query_params_absolute_url(request, filter.offset - filter.limit)
+            if filter.offset - filter.limit >= 0
+            else None
+        )
+
+        return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
@@ -223,18 +236,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        queryset = self.filterset_class(self.request.GET, queryset=queryset, team_id=self.team.id).qs
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        queryset = queryset.only("id", "created_at", "properties", "uuid")
-
-        is_csv_request = self.request.accepted_renderer.format == "csv"
-        if is_csv_request:
-            return queryset[0:CSV_EXPORT_LIMIT]
-
-        return queryset
-
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
         if request.user.is_anonymous or not self.team:
@@ -260,7 +261,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}
 
@@ -311,7 +312,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     @cached_function
-    def calculate_path_persons(self, request: request.Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+    def calculate_path_persons(self, request: request.Request) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}
 
