@@ -10,7 +10,49 @@ from sentry_sdk.integrations.redis import RedisIntegration
 from posthog.settings.base_variables import TEST
 
 
-def sentry_init(traces_sample_rate: float = 0.0000001) -> None:
+def traces_sampler(sampling_context: dict) -> float:
+    #
+    # Examine provided context data (including parent decision, if any)
+    # along with anything in the global namespace to compute the sample rate
+    # or sampling decision for this transaction.
+    #
+    # Please use a number between 0 and 1 (0 represents 0% while 1 represents 100%)
+    #
+    transaction_context = sampling_context.get("transaction_context")
+    if transaction_context is None:
+        return 0
+
+    op = transaction_context.get("op")
+
+    if op == "http.server":
+        path = sampling_context["wsgi_environ"]["PATH_INFO"]
+
+        # Ingestion endpoints (high volume)
+        if path.startswith(("/capture", "/decide", "/track", "/batch", "/s", "/e")):
+            return 0.0000001  # 0.00001%
+        # Probes/monitoring endpoints
+        elif path.startswith(("/_health", "/_readyz", "/_livez")):
+            return 0.001  # 0.1%
+        # API endpoints
+        elif path.startswith(("/api")):
+            return 0.001  # 1%
+        else:
+            # Default sample rate for HTTP requests
+            return 0.001  # 0.1%
+
+    elif op == "celery.task":
+        task = sampling_context["celery_job"]["task"]
+        if task == "posthog.celery.redis_heartbeat":
+            return 0.001  # 0.1%
+        else:
+            # Default sample rate for Celery tasks
+            return 0.01  # 1%
+    else:
+        # Default sample rate for everything else
+        return 0.01  # 1%
+
+
+def sentry_init() -> None:
     if not TEST and os.getenv("SENTRY_DSN"):
         sentry_sdk.utils.MAX_STRING_LENGTH = 10_000_000
         # https://docs.sentry.io/platforms/python/
@@ -23,8 +65,7 @@ def sentry_init(traces_sample_rate: float = 0.0000001) -> None:
             sample_rate=1.0,
             # Configures the sample rate for error events, in the range of 0.0 to 1.0. The default is 1.0 which means that 100% of error events are sent. If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
             send_default_pii=True,
-            traces_sample_rate=traces_sample_rate,
-            # A number between 0 and 1, controlling the percentage chance a given transaction will be sent to Sentry. (0 represents 0% while 1 represents 100%.) Applies equally to all transactions created in the app.
+            traces_sampler=traces_sampler,
         )
 
 
