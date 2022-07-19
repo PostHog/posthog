@@ -155,7 +155,7 @@ def get_decide(request: HttpRequest):
                     ),
                 )
             feature_flags = get_active_feature_flags(
-                team.pk, data["distinct_id"], data.get("groups", {}), hash_key_override=data.get("$anon_distinct_id")
+                team.pk, distinct_id, data.get("groups", {}), hash_key_override=data.get("$anon_distinct_id")
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 
