@@ -61,7 +61,7 @@ async function decompressAndOpenMmdb(brotliContents: Buffer, filename: string): 
 async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
     const { db } = hub
 
-    // TODO: use local GeoLite2 on container at /share/GeoLite2-City.mmdb instead of downloading it each time
+    // TODO: use local GeoLite2 on container at share/GeoLite2-City.mmdb instead of downloading it each time
     status.info('⏳', 'Downloading GeoLite2 database from PostHog servers...')
     const response = await fetch(MMDB_ENDPOINT, { compress: false })
     const contentType = response.headers.get('content-type')
