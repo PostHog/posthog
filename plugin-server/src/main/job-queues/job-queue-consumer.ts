@@ -14,6 +14,7 @@ export async function startJobQueueConsumer(hub: Hub, piscina: Piscina): Promise
 
     const ingestionJobHandlers: TaskList = {
         bufferJob: async (job) => {
+            pauseQueueIfWorkerFull(() => hub.jobQueueManager.pauseConsumer(), hub, piscina)
             const eventPayload = (job as EnqueuedBufferJob).eventPayload
             await runInstrumentedFunction({
                 server: hub,
