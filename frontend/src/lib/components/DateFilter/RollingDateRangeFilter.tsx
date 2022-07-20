@@ -54,7 +54,7 @@ export function RollingDateRangeFilter({
 
     return (
         <Tooltip title={makeLabel ? makeLabel(formattedDate) : undefined}>
-            <div
+            <LemonButton
                 className={clsx('RollingDateRangeFilter', {
                     'RollingDateRangeFilter--selected': selected,
                 })}
@@ -110,7 +110,7 @@ export function RollingDateRangeFilter({
                     outlined
                     size="small"
                 />
-            </div>
+            </LemonButton>
         </Tooltip>
     )
 }

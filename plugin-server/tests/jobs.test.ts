@@ -2,7 +2,7 @@ import { gzipSync } from 'zlib'
 
 import { defaultConfig } from '../src/config/config'
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { EnqueuedJob, Hub, LogLevel, PluginsServerConfig } from '../src/types'
+import { EnqueuedJob, Hub, JobName, LogLevel, PluginsServerConfig } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
 import { killProcess } from '../src/utils/kill'
 import { delay } from '../src/utils/utils'
@@ -157,7 +157,7 @@ describe.skip('job queues', () => {
                     pluginConfigTeam: 3,
                 }
 
-                server.hub.jobQueueManager.enqueue(job)
+                server.hub.jobQueueManager.enqueue(JobName.PLUGIN_JOB, job)
                 const consumedJob: EnqueuedJob = await new Promise((resolve) => {
                     server.hub.jobQueueManager.startConsumer((consumedJob) => {
                         resolve(consumedJob[0])
@@ -266,7 +266,7 @@ describe.skip('job queues', () => {
                 pluginConfigId: 2,
                 pluginConfigTeam: 3,
             }
-            await hub.jobQueueManager.enqueue(job)
+            await hub.jobQueueManager.enqueue(JobName.PLUGIN_JOB, job)
 
             expect(mS3WrapperInstance.upload).toBeCalledWith({
                 Body: gzipSync(Buffer.from(JSON.stringify(job), 'utf8')),

@@ -109,14 +109,14 @@ describe('Trends', () => {
 
     it('Apply pie filter', () => {
         cy.get('[data-attr=chart-filter]').click()
-        cy.get('.ant-select-dropdown').find('.ant-select-item-option-content').contains('Pie').click({ force: true })
+        cy.get('.Popup').find('.LemonButton').contains('Pie').click({ force: true })
 
         cy.get('[data-attr=trend-pie-graph]').should('exist')
     })
 
     it('Apply table filter', () => {
         cy.get('[data-attr=chart-filter]').click()
-        cy.get('.ant-select-dropdown').find('.ant-select-item-option-content').contains('Table').click({ force: true })
+        cy.get('.Popup').find('.LemonButton').contains('Table').click({ force: true })
 
         cy.get('[data-attr=insights-table-graph]').should('exist')
 

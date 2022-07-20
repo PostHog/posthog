@@ -1926,6 +1926,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "hakubo",
+      "name": "Jakub Olek",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1018759?v=4",
+      "profile": "https://github.com/hakubo",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "klink",
+      "name": "Kate Klink",
+      "avatar_url": "https://avatars.githubusercontent.com/u/5008686?v=4",
+      "profile": "http://kateklink.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

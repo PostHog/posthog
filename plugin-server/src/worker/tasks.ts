@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, EnqueuedJob, Hub, IngestionEvent, PluginTaskType, Team } from '../types'
+import { Action, EnqueuedJob, Hub, IngestionEvent, JobName, PluginTaskType, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
 import { runPluginTask, runProcessEvent } from './plugins/run'
@@ -62,7 +62,7 @@ export const workerTasks: Record<string, TaskRunner> = {
         await hub.kafkaProducer.flush()
     },
     enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
-        await hub.jobQueueManager.enqueue(job)
+        await hub.jobQueueManager.enqueue(JobName.PLUGIN_JOB, job)
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {

@@ -9,3 +9,11 @@
     border: 0 !important;
     font-size: 0.625em;
 }
+
+.ant-picker-range-arrow {
+    border-top: 1px solid var(--primary);
+    border-right: 1px solid var(--primary);
+}
+.ant-picker-range-wrapper {
+    border: 1px solid var(--primary);
+}

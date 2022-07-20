@@ -39,6 +39,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -572,6 +574,75 @@ export const insightLogic = kea<insightLogicType>({
                 }
             },
         ],
+        exporterResourceParams: [
+            (s) => [s.filters, s.currentTeamId, s.insight],
+            (
+                filters: Partial<FilterType>,
+                currentTeamId: number,
+                insight: Partial<InsightModel>
+            ): TriggerExportProps['export_context'] | null => {
+                const insightType = (filters.insight as InsightType | undefined) || InsightType.TRENDS
+                const params = { ...filters }
+
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+
+                if (
+                    insightType === InsightType.TRENDS ||
+                    insightType === InsightType.STICKINESS ||
+                    insightType === InsightType.LIFECYCLE
+                ) {
+                    return {
+                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                            filterTrendsClientSideParams(params)
+                        )}`,
+                        filename,
+                    }
+                } else if (insightType === InsightType.RETENTION) {
+                    return { filename, path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}` }
+                } else if (insightType === InsightType.FUNNELS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/funnel`,
+                        body: params,
+                    }
+                } else if (insightType === InsightType.PATHS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/path`,
+                        body: params,
+                    }
+                } else {
+                    return null
+                }
+            },
+        ],
+        isUsingSessionAnalysis: [
+            (s) => [s.filters],
+            (filters: Partial<FilterType>): boolean => {
+                const entities = (filters.events || []).concat(filters.actions ?? [])
+                const using_session_breakdown = filters.breakdown_type === 'session'
+                const using_session_math = entities.some((entity) => entity.math === 'unique_session')
+                const using_session_property_math = entities.some((entity) => {
+                    // Should be made more generic is we ever add more session properties
+                    return entity.math_property === '$session_duration'
+                })
+                const using_entity_session_property_filter = entities.some((entity) => {
+                    return parseProperties(entity.properties).some((property) => property.type === 'session')
+                })
+                const using_global_session_property_filter = parseProperties(filters.properties).some(
+                    (property) => property.type === 'session'
+                )
+                return (
+                    using_session_breakdown ||
+                    using_session_math ||
+                    using_session_property_math ||
+                    using_entity_session_property_filter ||
+                    using_global_session_property_filter
+                )
+            },
+        ],
     },
     listeners: ({ actions, selectors, values }) => ({
         setFilters: async ({ filters }, _, __, previousState) => {
@@ -642,7 +713,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     0,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
 
                 actions.setNotFirstLoad()
@@ -655,7 +727,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     10,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
             }
         },

@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
@@ -16,6 +16,7 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlagMatcher
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -202,13 +203,20 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             .order_by("-created_at")
         )
         groups = json.loads(request.GET.get("groups", "{}"))
-        flags = []
-        for feature_flag in feature_flags:
-            match = feature_flag.matches(request.user.distinct_id, groups)
-            value = (match.variant or True) if match else False
+        flags: List[dict] = []
 
+        feature_flag_list = list(feature_flags)
+
+        if not feature_flag_list:
+            return Response(flags)
+
+        matches = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        for feature_flag in feature_flags:
             flags.append(
-                {"feature_flag": FeatureFlagSerializer(feature_flag).data, "value": value,}
+                {
+                    "feature_flag": FeatureFlagSerializer(feature_flag).data,
+                    "value": matches.get(feature_flag.key, False),
+                }
             )
         return Response(flags)
 

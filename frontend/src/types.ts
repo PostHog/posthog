@@ -23,7 +23,6 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
-import { ExporterFormat } from 'lib/components/ExportButton/exporterLogic'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -982,7 +981,7 @@ export enum ChartDisplayType {
     WorldMap = 'WorldMap',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 
@@ -1428,6 +1427,10 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     posthog_version?: string
     email_service_available: boolean
+    slack_service: {
+        available: boolean
+        client_id?: string
+    }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
@@ -1738,7 +1741,7 @@ export interface dateMappingOption {
     key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
-    getFormattedDate?: (date: dayjs.Dayjs, format: string) => string
+    getFormattedDate?: (date: dayjs.Dayjs, format?: string) => string
     defaultInterval?: IntervalType
 }
 
@@ -1964,12 +1967,25 @@ export interface SharingConfigurationType {
     created_at: string
 }
 
+export enum ExporterFormat {
+    PNG = 'image/png',
+    CSV = 'text/csv',
+    PDF = 'application/pdf',
+}
+
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    exportContext?: any
+    export_context?: {
+        method?: string
+        path: string
+        query?: any
+        body?: any
+        filename?: string
+        max_limit?: number
+    }
     has_content: boolean
     filename: string
 }

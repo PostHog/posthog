@@ -2,8 +2,9 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
+import structlog
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -16,7 +17,6 @@ from statshog.defaults.django import statsd
 
 from posthog.api.utils import (
     EventIngestionContext,
-    capture_as_common_error_to_sentry_ratelimited,
     get_data,
     get_event_ingestion_context,
     get_token,
@@ -26,10 +26,13 @@ from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
+
+logger = structlog.get_logger(__name__)
 
 
 def parse_kafka_event_data(
@@ -110,7 +113,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
-def _get_sent_at(data, request) -> Optional[datetime]:
+def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
     try:
         if request.GET.get("_"):  # posthog-js
             sent_at = request.GET["_"]
@@ -119,15 +122,24 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
             sent_at = request.POST["sent_at"]
         else:
-            return None
+            return None, None
 
         if re.match(r"^\d+(?:\.\d+)?$", sent_at):
-            return _datetime_from_seconds_or_millis(sent_at)
+            return _datetime_from_seconds_or_millis(sent_at), None
 
-        return parser.isoparse(sent_at)
+        return parser.isoparse(sent_at), None
     except Exception as error:
-        capture_as_common_error_to_sentry_ratelimited("Invalid sent_at value", error)
-        return None
+        statsd.incr("capture_endpoint_invalid_sent_at")
+        logger.exception(f"Invalid sent_at value", error=error)
+        return (
+            None,
+            cors_response(
+                request,
+                generate_exception_response(
+                    "capture", f"Malformed request data, invalid sent at: {error}", code="invalid_payload"
+                ),
+            ),
+        )
 
 
 def _get_distinct_id(data: Dict[str, Any]) -> str:
@@ -156,12 +168,12 @@ def _ensure_web_feature_flags_in_properties(
 
 
 @csrf_exempt
+@timed("posthog_cloud_event_endpoint")
 def get_event(request):
     # handle cors request
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
 
-    timer = statsd.timer("posthog_cloud_event_endpoint").start()
     now = timezone.now()
 
     data, error_response = get_data(request)
@@ -169,7 +181,10 @@ def get_event(request):
     if error_response:
         return error_response
 
-    sent_at = _get_sent_at(data, request)
+    sent_at, error_response = _get_sent_at(data, request)
+
+    if error_response:
+        return error_response
 
     token = get_token(data, request)
 
@@ -257,7 +272,6 @@ def get_event(request):
         try:
             capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
         except Exception as e:
-            timer.stop()
             capture_exception(e, {"data": data})
             statsd.incr(
                 "posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture",},
@@ -273,7 +287,6 @@ def get_event(request):
                 ),
             )
 
-    timer.stop()
     statsd.incr(
         "posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture",},
     )

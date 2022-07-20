@@ -10,10 +10,10 @@ export default {
     argTypes: {
         options: {
             defaultValue: ['ben', 'marius', 'paul', 'tiina', 'li'].reduce(
-                (acc, x) => ({
+                (acc, x, i) => ({
                     ...acc,
-                    [`${x}@posthog.com`]: {
-                        label: (
+                    [`user-${i}`]: {
+                        labelComponent: (
                             <span className="flex gap-05 items-center">
                                 <ProfilePicture name={x} email={`${x}@posthog.com`} size="sm" />
                                 <span>
@@ -21,6 +21,7 @@ export default {
                                 </span>
                             </span>
                         ),
+                        label: `${x} ${x}@posthog.com>`,
                     },
                 }),
                 {}

@@ -128,7 +128,7 @@ def get_breakdown_prop_values(
     )
 
     if filter.using_histogram:
-        bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_historgam_bin_count))
+        bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_histogram_bin_count))
         elements_query = HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL.format(
             bucketing_expression=bucketing_expression,
             value_expression=value_expression,
