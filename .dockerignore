@@ -29,3 +29,4 @@
 !plugin-server/src
 !plugin-server/.eslintrc.js
 !plugin-server/.prettierrc
+!shared
