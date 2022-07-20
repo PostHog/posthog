@@ -520,7 +520,8 @@ def load_data_from_request(request):
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:
-        scope.set_context("data", data)
+        if isinstance(data, dict):
+            scope.set_context("data", data)
         scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
         scope.set_tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
