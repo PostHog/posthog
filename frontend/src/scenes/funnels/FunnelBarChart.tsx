@@ -117,7 +117,6 @@ function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendP
         aggregationTargetLabel.singular,
         aggregationTargetLabel.plural
     )
-    console.log(step)
 
     return (
         <div className="StepLegend">
