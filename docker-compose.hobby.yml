@@ -14,13 +14,9 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
-        ports:
-            - '5432:5432'
     redis:
         image: redis:6.2.7-alpine
         restart: on-failure
-        ports:
-            - '6379:6379'
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
     clickhouse:
         #
@@ -32,11 +28,6 @@ services:
         depends_on:
             - kafka
             - zookeeper
-        ports:
-            - '8123:8123'
-            - '9000:9000'
-            - '9440:9440'
-            - '9009:9009'
         volumes:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -54,8 +45,6 @@ services:
         restart: on-failure
         depends_on:
             - zookeeper
-        ports:
-            - '9092:9092'
         environment:
             KAFKA_BROKER_ID: 1001
             KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
@@ -95,15 +84,11 @@ services:
         <<: *worker
         command: /compose/start
         restart: on-failure
-        ports:
-            - '8000:8000'
-            - '8234:8234'
         volumes:
             - ./compose:/compose
     caddy:
         image: caddy
         restart: unless-stopped
-        ports:
             - '80:80'
             - '443:443'
         volumes:
@@ -129,9 +114,6 @@ services:
     object_storage:
         image: minio/minio
         restart: on-failure
-        ports:
-            - '19000:19000'
-            - '19001:19001'
         volumes:
             - object_storage:/data
         environment:
