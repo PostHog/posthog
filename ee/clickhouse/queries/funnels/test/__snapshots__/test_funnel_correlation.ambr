@@ -24,7 +24,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -130,7 +130,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -228,7 +228,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -318,7 +318,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -408,7 +408,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -498,7 +498,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -588,7 +588,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -686,7 +686,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -776,7 +776,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -866,7 +866,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -956,7 +956,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1046,7 +1046,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1143,7 +1143,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1240,7 +1240,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1328,7 +1328,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1413,7 +1413,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1498,7 +1498,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1583,7 +1583,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1668,7 +1668,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1765,7 +1765,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1859,7 +1859,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -1953,7 +1953,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2043,7 +2043,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2126,7 +2126,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2209,7 +2209,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2292,7 +2292,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2375,7 +2375,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2466,7 +2466,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2556,7 +2556,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2639,7 +2639,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2722,7 +2722,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2805,7 +2805,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time
@@ -2888,7 +2888,7 @@
                                   latest_0
            FROM
              (SELECT *,
-                     if(latest_0 < latest_1
+                     if(latest_0 <= latest_1
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
                      if(isNotNull(latest_1)
                         AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time

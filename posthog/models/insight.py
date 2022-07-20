@@ -177,13 +177,16 @@ def insight_saving(sender, instance: Insight, **kwargs):
 
 @timed("generate_insight_cache_key")
 def generate_insight_cache_key(insight: Insight, dashboard: Optional[Dashboard]) -> str:
-    dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
-    candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
-
-    logger.info(
-        "insight.generate_insight_cache_key",
-        insight_id=insight.id,
-        dashboard_id="none" if not dashboard else dashboard.id,
-        generated_hash=candidate_filters_hash,
-    )
-    return candidate_filters_hash
+    try:
+        dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
+        candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
+        return candidate_filters_hash
+    except Exception as e:
+        logger.error(
+            "insight.generate_insight_cache_key.failed",
+            insight_id=insight.id,
+            dashboard_id="none" if not dashboard else dashboard.id,
+            exception=e,
+            exc_info=True,
+        )
+        raise e

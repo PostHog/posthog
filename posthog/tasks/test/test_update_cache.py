@@ -790,6 +790,21 @@ class TestUpdateCache(APIBaseTest):
         ]
         assert len(lag_calls) == 2
 
+    @patch("posthog.tasks.update_cache.statsd.incr")
+    def test_update_insight_cache_reports_on_updating_tiles_with_no_hash(self, statsd_incr: MagicMock) -> None:
+        tile = self._a_dashboard_tile_with_known_last_refresh(last_refresh_date=None)
+        # can't set filters_hash=None on a route that triggers save
+        DashboardTile.objects.filter(id=tile.id).update(filters_hash=None)
+        tile.refresh_from_db()
+        assert tile.filters_hash is None
+
+        update_insight_cache(tile.insight, tile.dashboard)
+
+        statsd_incr.assert_any_call("update_cache_queue.set_missing_filters_hash", 1)
+
+        tile.refresh_from_db()
+        assert tile.filters_hash is not None
+
     def _a_dashboard_tile_with_known_last_refresh(self, last_refresh_date: Optional[datetime]) -> DashboardTile:
         dashboard = create_shared_dashboard(team=self.team, is_shared=True)
         filter = {"events": [{"id": "$pageview"}]}
