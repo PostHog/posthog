@@ -126,12 +126,8 @@ class TestUpdateCache(APIBaseTest):
 
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
         funnel_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
-        update_cached_items()
 
-        # pass the caught calls straight to the function
-        # we do this to skip Redis
-        for call_item in patch_update_cache_item.call_args_list:
-            update_cache_item(*call_item[0])
+        self._run_cache_update(patch_update_cache_item)
 
         self.assertIsNotNone(Insight.objects.get(pk=cached_insight_because_no_dashboard_filters.pk).last_refresh)
         self.assertIsNotNone(
@@ -371,10 +367,7 @@ class TestUpdateCache(APIBaseTest):
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 
-        update_cached_items()
-
-        for call_item in patch_update_cache_item.call_args_list:
-            update_cache_item(*call_item[0])
+        self._run_cache_update(patch_update_cache_item)
 
         self.assertEqual(
             get_safe_cache(item_stickiness_key)["result"][0]["labels"],
@@ -391,54 +384,58 @@ class TestUpdateCache(APIBaseTest):
         When there are no filters on the dashboard the tile and insight cache key match
         the cache only updates cache counts on the Insight not the dashboard tile
         """
-        dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
-        item_to_cache = Insight.objects.create(
-            filters=Filter(
-                data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
-            ).to_dict(),
-            team=self.team,
-        )
-        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
+            item_to_cache = Insight.objects.create(
+                filters=Filter(
+                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+                ).to_dict(),
+                team=self.team,
+            )
+            DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
 
-        patch_calculate_by_filter.side_effect = Exception()
+            patch_calculate_by_filter.side_effect = Exception()
 
-        def _update_cached_items() -> None:
-            # This function will throw an exception every time which is what we want in production
-            try:
-                update_cached_items()
-            except Exception:
-                pass
+            def _update_cached_items() -> None:
+                # This function will throw an exception every time which is what we want in production
+                try:
+                    update_cached_items()
+                except Exception:
+                    pass
 
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 1)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 2)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 1)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 2)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
 
-        # Magically succeeds, reset counter
-        patch_calculate_by_filter.side_effect = None
-        patch_calculate_by_filter.return_value = {"some": "exciting results"}
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 0)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # Magically succeeds, reset counter
+            patch_calculate_by_filter.side_effect = None
+            patch_calculate_by_filter.return_value = {"some": "exciting results"}
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
-        # We should retry a max of 3 times
-        patch_calculate_by_filter.reset_mock()
-        patch_calculate_by_filter.side_effect = Exception()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 3)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
-        self.assertEqual(patch_calculate_by_filter.call_count, 3)
+            # tick forwards since we ignore recently refreshed tiles
+            frozen_datetime.tick(timedelta(minutes=4))
 
-        # If a user later comes back and manually refreshes we should reset refresh_attempt
-        patch_calculate_by_filter.side_effect = None
-        self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
-        self.assertEqual(Insight.objects.get().refresh_attempt, 0)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # We should retry a max of 3 times
+            patch_calculate_by_filter.reset_mock()
+            patch_calculate_by_filter.side_effect = Exception()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 3)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            self.assertEqual(patch_calculate_by_filter.call_count, 3)
+
+            # If a user later comes back and manually refreshes we should reset refresh_attempt
+            patch_calculate_by_filter.side_effect = None
+            self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
+            self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
     @patch("posthog.tasks.update_cache._calculate_by_filter")
     def test_errors_refreshing_dashboard_tile(self, patch_calculate_by_filter: MagicMock) -> None:
@@ -446,58 +443,61 @@ class TestUpdateCache(APIBaseTest):
         When a filters_hash matches the dashboard tile and not the insight the cache update doesn't touch the Insight
         but does touch the tile
         """
-        dashboard_to_cache = create_shared_dashboard(
-            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-14d"}
-        )
-        item_to_cache = Insight.objects.create(
-            filters=Filter(
-                data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
-            ).to_dict(),
-            team=self.team,
-        )
-        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            dashboard_to_cache = create_shared_dashboard(
+                team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-14d"}
+            )
+            item_to_cache = Insight.objects.create(
+                filters=Filter(
+                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+                ).to_dict(),
+                team=self.team,
+            )
+            DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
 
-        patch_calculate_by_filter.side_effect = Exception()
+            patch_calculate_by_filter.side_effect = Exception()
 
-        def _update_cached_items() -> None:
-            # This function will throw an exception every time which is what we want in production
-            try:
-                update_cached_items()
-            except Exception:
-                pass
+            def _update_cached_items() -> None:
+                # This function will throw an exception every time which is what we want in production
+                try:
+                    update_cached_items()
+                except Exception:
+                    pass
 
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
 
-        # Magically succeeds, reset counter
-        patch_calculate_by_filter.side_effect = None
-        patch_calculate_by_filter.return_value = {"some": "exciting results"}
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # Magically succeeds, reset counter
+            patch_calculate_by_filter.side_effect = None
+            patch_calculate_by_filter.return_value = {"some": "exciting results"}
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
-        # We should retry a max of 3 times
-        patch_calculate_by_filter.reset_mock()
-        patch_calculate_by_filter.side_effect = Exception()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
-        self.assertEqual(patch_calculate_by_filter.call_count, 3)
+            # tick forwards since we ignore recently refreshed tiles
+            frozen_datetime.tick(timedelta(minutes=4))
+            # We should retry a max of 3 times
+            patch_calculate_by_filter.reset_mock()
+            patch_calculate_by_filter.side_effect = Exception()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(patch_calculate_by_filter.call_count, 3)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
 
-        # If a user later comes back and manually refreshes we should reset refresh_attempt
-        patch_calculate_by_filter.side_effect = None
-        self.client.get(
-            f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true&from_dashboard={dashboard_to_cache.id}"
-        )
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # If a user later comes back and manually refreshes we should reset refresh_attempt
+            patch_calculate_by_filter.side_effect = None
+            self.client.get(
+                f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true&from_dashboard={dashboard_to_cache.id}"
+            )
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:
@@ -660,7 +660,7 @@ class TestUpdateCache(APIBaseTest):
         assert insight.filters_hash != test_hash
         assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
         assert tile.filters_hash != test_hash
-        assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+        assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_update_dashboard_tile_updates_only_tile_when_different_filters(self) -> None:
@@ -678,7 +678,7 @@ class TestUpdateCache(APIBaseTest):
         assert insight.filters_hash == test_hash
         assert insight.last_refresh is None
         assert tile.filters_hash != test_hash
-        assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+        assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cache_key_that_matches_no_assets_still_counts_as_a_refresh_attempt_for_dashboard_tiles(self) -> None:
@@ -805,6 +805,55 @@ class TestUpdateCache(APIBaseTest):
         tile.refresh_from_db()
         assert tile.filters_hash is not None
 
+    @patch("posthog.tasks.update_cache._calculate_by_filter")
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_update_skips_items_refreshed_in_last_three_minutes(
+        self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock, patch_generate_results: MagicMock
+    ) -> None:
+        patch_generate_results.return_value = {"not": "None"}
+
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            # two tiles that share a hash
+            # only one on a shared dashboard
+            # the dashboard has no filters so both insights and the tile share a hash key
+            insight_one = self._create_insight_with_known_cache_key(None)
+            insight_two = self._create_insight_with_known_cache_key(None)
+            dashboard, tile = self._create_dashboard_tile_with_known_cache_key(
+                insight_one, None, last_accessed_at=datetime.now(pytz.utc)
+            )
+
+            self._run_cache_update(patch_update_cache_item)
+
+            tile.refresh_from_db()
+            insight_one.refresh_from_db()
+            insight_two.refresh_from_db()
+
+            assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_one.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_two.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+            frozen_datetime.tick(delta=timedelta(minutes=1))
+
+            patch_update_cache_item.reset_mock()
+            self._run_cache_update(patch_update_cache_item)
+
+            # refresh dates don't change
+            tile.refresh_from_db()
+            insight_one.refresh_from_db()
+            insight_two.refresh_from_db()
+
+            assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_one.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_two.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+    def _run_cache_update(self, patch_update_cache_item: MagicMock) -> None:
+        update_cached_items()
+        # pass the caught calls straight to the function
+        # we do this to skip Redis
+        for call_item in patch_update_cache_item.call_args_list:
+            update_cache_item(*call_item[0])
+
     def _a_dashboard_tile_with_known_last_refresh(self, last_refresh_date: Optional[datetime]) -> DashboardTile:
         dashboard = create_shared_dashboard(team=self.team, is_shared=True)
         filter = {"events": [{"id": "$pageview"}]}
@@ -814,33 +863,40 @@ class TestUpdateCache(APIBaseTest):
         tile.save(update_fields=["last_refresh"])
         return tile
 
-    def _create_insight_with_known_cache_key(self, test_hash: str) -> Insight:
+    def _create_insight_with_known_cache_key(self, cache_key: Optional[str] = None) -> Insight:
         filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
         insight: Insight = Insight.objects.create(team=self.team, filters=filter_dict)
-        insight.filters_hash = test_hash
-        insight.save(update_fields=["filters_hash"])
+        if cache_key:
+            insight.filters_hash = cache_key
+            insight.save(update_fields=["filters_hash"])
 
-        insight.refresh_from_db()
-        assert insight.filters_hash == test_hash
+            insight.refresh_from_db()
+            assert insight.filters_hash == cache_key
 
         return insight
 
     def _create_dashboard_tile_with_known_cache_key(
-        self, insight: Insight, test_hash: str, dashboard_filters: Optional[Dict] = None
+        self,
+        insight: Insight,
+        cache_key: Optional[str] = None,
+        dashboard_filters: Optional[Dict] = None,
+        last_accessed_at: Optional[datetime] = None,
     ) -> Tuple[Dashboard, DashboardTile]:
         dashboard: Dashboard = Dashboard.objects.create(
-            team=self.team, filters=dashboard_filters if dashboard_filters else {}
+            team=self.team, filters=dashboard_filters if dashboard_filters else {}, last_accessed_at=last_accessed_at
         )
-        tile: DashboardTile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
-        tile.filters_hash = test_hash
-        tile.save(update_fields=["filters_hash"])
 
-        tile.refresh_from_db()
-        insight.refresh_from_db()
-        assert tile.filters_hash == test_hash
-        assert insight.filters_hash == test_hash
+        tile: DashboardTile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        if cache_key:
+            tile.filters_hash = cache_key
+            tile.save(update_fields=["filters_hash"])
+
+            tile.refresh_from_db()
+            insight.refresh_from_db()
+            assert tile.filters_hash == cache_key
+            assert insight.filters_hash == cache_key
 
         return dashboard, tile

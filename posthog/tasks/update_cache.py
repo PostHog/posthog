@@ -199,10 +199,13 @@ def update_cached_items() -> Tuple[int, int]:
     # TODO: According to the metrics, on Cloud this is a huge list and needs to be improved
     dashboard_tiles = (
         DashboardTile.objects.filter(
-            Q(
-                Q(dashboard__sharingconfiguration__enabled=True)
-                | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
-            )
+            Q(dashboard__sharingconfiguration__enabled=True)
+            | Q(dashboard__last_accessed_at__gt=timezone.now() - relativedelta(days=7))
+        )
+        .filter(
+            # no last refresh date or last refresh not in last three minutes
+            Q(last_refresh__isnull=True)
+            | Q(last_refresh__lt=timezone.now() - relativedelta(minutes=3))
         )
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
