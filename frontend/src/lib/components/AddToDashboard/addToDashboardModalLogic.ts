@@ -37,7 +37,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
             newDashboardLogic,
-            ['showNewDashboardModal', 'setNewDashboardValue'],
+            ['showNewDashboardModal'],
         ],
     }),
     actions: {
@@ -115,7 +115,6 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
 
         addNewDashboard: async () => {
             actions.showNewDashboardModal()
-            actions.setNewDashboardValue('show', false)
         },
 
         [dashboardsModel.actionTypes.addDashboardSuccess]: async ({ dashboard }) => {

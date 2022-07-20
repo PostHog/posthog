@@ -20,7 +20,7 @@ export interface NewDashboardForm {
 const defaultFormValues: NewDashboardForm = {
     name: '',
     description: '',
-    show: true,
+    show: false,
     useTemplate: '',
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
@@ -32,6 +32,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         showNewDashboardModal: true,
         hideNewDashboardModal: true,
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
+        createAndGoToDashboard: true,
     }),
     reducers({
         newDashboardModalVisible: [
@@ -77,6 +78,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         },
         showNewDashboardModal: () => {
             actions.resetNewDashboard()
+        },
+        createAndGoToDashboard: () => {
+            actions.setNewDashboardValue('show', true)
+            actions.submitNewDashboard()
         },
     })),
 ])
