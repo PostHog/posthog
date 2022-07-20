@@ -183,10 +183,9 @@ def get_groups(
 
 def get_people(team_id: int, people_ids: List[Any]) -> Tuple[QuerySet[Person], List[SerializedPerson]]:
     """ Get people from raw SQL results in data model and dict formats """
-    persons: QuerySet[Person] = Person.objects.filter(team_id=team_id, uuid__in=people_ids)
-
-    persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-    persons = persons.only("id", "is_identified", "created_at", "properties", "uuid")
+    persons: QuerySet[Person] = Person.objects.filter(team_id=team_id, uuid__in=people_ids).prefetch_related(
+        Prefetch("persondistinctid_set", to_attr="distinct_ids_cache")
+    ).only("id", "is_identified", "created_at", "properties", "uuid")
     return persons, serialize_people(persons)
 
 
