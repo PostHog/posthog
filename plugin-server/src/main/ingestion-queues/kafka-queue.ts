@@ -117,13 +117,23 @@ export class KafkaQueue {
                                 "Probably the batch took longer than the session and we couldn't commit the offset"
                             )
                         }
-                        if (
-                            error.message &&
-                            !error.message.includes('The group is rebalancing, so a rejoin is needed') &&
-                            !error.message.includes('Specified group generation id is not valid') &&
-                            !error.message.includes('Could not find person with distinct id')
-                        ) {
-                            Sentry.captureException(error)
+                        if (error.message) {
+                            let logToSentry = true
+                            const messagesToIgnore = {
+                                'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
+                                'Specified group generation id is not valid': 'generation_id_invalid',
+                                'Could not find person with distinct id': 'person_not_found',
+                                'The coordinator is not aware of this member': 'not_aware_of_member',
+                            }
+                            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
+                                if (error.message.includes(msg)) {
+                                    this.pluginsServer.statsd?.increment('each_batch_error_' + metricSuffix)
+                                    logToSentry = false
+                                }
+                            }
+                            if (logToSentry) {
+                                Sentry.captureException(error)
+                            }
                         }
                         throw error
                     }

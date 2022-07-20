@@ -26,5 +26,10 @@ describe('property definitions auto discovery', () => {
         it('can detect decimals in strings', () => {
             expect(detectPropertyDefinitionTypes('1.23', 'anything')).toEqual(PropertyType.Numeric)
         })
+
+        it('can detect version numbers as non numeric', () => {
+            expect(detectPropertyDefinitionTypes('1.2.3', 'anything')).toEqual(PropertyType.String)
+            expect(detectPropertyDefinitionTypes('9.7.0', '$app_version')).toEqual(PropertyType.String)
+        })
     })
 })
