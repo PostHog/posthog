@@ -1,5 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import {
+    Element,
     Meta,
     PluginAttachment,
     PluginConfigSchema,
@@ -511,20 +512,8 @@ export interface Team {
     ingested_event: boolean
 }
 
-/** Usable Element model. */
-export interface Element {
-    text?: string
-    tag_name?: string
-    href?: string
-    attr_id?: string
-    attr_class?: string[]
-    nth_child?: number
-    nth_of_type?: number
-    attributes?: Record<string, any>
-    event_id?: number
-    order?: number
-    group_id?: number
-}
+/** Re-export Element from scaffolding, for backwards compat. */
+export { Element } from '@posthog/plugin-scaffold'
 
 /** Usable Event model. */
 export interface Event {
