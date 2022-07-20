@@ -20,7 +20,10 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0005_person_replacing_by_version"
 
     def is_required(self) -> bool:
-        return DashboardTile.objects.filter(filters_hash=None).count() > 0
+        hashless_tiles = DashboardTile.objects.filter(filters_hash=None)
+        is_required = hashless_tiles.count() > 0
+        logger.info("0006_async_migration.checking_if_required", count=hashless_tiles.count(), is_required=is_required)
+        return is_required
 
     @cached_property
     def operations(self):
@@ -43,6 +46,7 @@ class Migration(AsyncMigrationDefinition):
         tiles_with_no_hash = (
             DashboardTile.objects.filter(filters_hash=None).select_related("insight", "dashboard").order_by("id")
         )
+        logger.debug("0006_async_migration.processing_a_page", count=tiles_with_no_hash.count())
         updated_tiles: List[DashboardTile] = []
         if tiles_with_no_hash.count() > 0:
             for tile in tiles_with_no_hash[0:100]:
@@ -50,6 +54,7 @@ class Migration(AsyncMigrationDefinition):
                 tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
                 updated_tiles.append(tile)
 
+            logger.info("0006_async_migration.updating_tiles", count=updated_tiles.count())
             DashboardTile.objects.bulk_update(updated_tiles, ["filters_hash"])
 
             return True
@@ -63,6 +68,7 @@ class Migration(AsyncMigrationDefinition):
     def set_high_watermark(self, query_id: str) -> None:
         if not self.get_high_watermark():
             count_of_tiles_without_filters_hash = DashboardTile.objects.filter(filters_hash=None).count()
+            logger.debug("0006_async_migration.setting_high_watermark", count=count_of_tiles_without_filters_hash)
             get_client().set(REDIS_HIGHWATERMARK_KEY, count_of_tiles_without_filters_hash)
 
     def unset_high_watermark(self, query_id: str) -> None:
