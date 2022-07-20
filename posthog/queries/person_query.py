@@ -68,14 +68,18 @@ class PersonQuery:
             properties
         ).inner
 
-    def get_query(self, prepend: str = "", order_by_created_at: bool = False) -> Tuple[str, Dict]:
+    def get_query(self, prepend: str = "", paginate: bool = False) -> Tuple[str, Dict]:
         fields = "id" + " ".join(
             f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
 
         person_filters, params = self._get_person_filters(prepend=prepend)
         cohort_query, cohort_params = self._get_cohort_query()
-        limit_offset, limit_params = self._get_limit_offset()
+        if paginate:
+            limit_offset, limit_params = self._get_limit_offset()
+        else:
+            limit_offset = ""
+            limit_params = {}
         search_clause, search_params = self._get_search_clause(prepend=prepend)
         distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
         email_clause, email_params = self._get_email_clause()
@@ -89,6 +93,7 @@ class PersonQuery:
             GROUP BY id
             HAVING max(is_deleted) = 0
             {person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
         """,
             {
@@ -99,7 +104,6 @@ class PersonQuery:
                 **distinct_id_params,
                 **email_params,
                 "team_id": self._team_id,
-                "order_by": "ORDER BY max(created_at) DESC, id" if order_by_created_at else "",
             },
         )
 

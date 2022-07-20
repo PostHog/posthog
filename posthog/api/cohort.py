@@ -208,7 +208,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
-        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(order_by_created_at=True)
+        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
 
         raw_result = sync_execute(query, params)
         actor_ids = [row[0] for row in raw_result]
