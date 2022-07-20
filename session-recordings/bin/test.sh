@@ -12,8 +12,8 @@ docker-compose up -d
 CONTAINER_NAME=session-recordings-test
 trap 'docker kill $(docker ps -q --filter="name=$CONTAINER_NAME")' EXIT
 docker run --rm \
-  -e OBJECT_STORAGE_ACCESS_KEY_ID=root \
-  -e OBJECT_STORAGE_SECRET_ACCESS_KEY=password \
+  -e OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user \
+  -e OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password \
   -e OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
   -e MAX_EVENT_GROUP_AGE=1000 \
   -e MAX_EVENT_GROUP_SIZE=1000 \
@@ -22,7 +22,7 @@ docker run --rm \
   "${1:-session-recordings}" &
 
 # Wait for the ingester to be up
-until (curl --silent http://localhost:3001/metrics);
+until (curl --silent http://localhost:3001/_readyz);
 do
   echo "Waiting for instance to come up"
   sleep 5

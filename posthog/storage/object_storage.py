@@ -1,5 +1,6 @@
 import abc
-from typing import Optional, Union
+from threading import Thread
+from typing import List, Optional, Tuple, Union
 
 import structlog
 from boto3 import client
@@ -29,6 +30,14 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def list_all_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+        pass
+
+    @abc.abstractmethod
+    def read_all(self, bucket: str, keys: List[str]) -> Optional[List[Tuple[str, str]]]:
+        pass
+
+    @abc.abstractmethod
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         pass
 
@@ -41,6 +50,12 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
+        pass
+
+    def list_all_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+        pass
+
+    def read_all(self, bucket: str, keys: List[str]) -> Optional[List[Tuple[str, str]]]:
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
@@ -73,6 +88,49 @@ class ObjectStorage(ObjectStorageClient):
         except Exception as e:
             logger.error("object_storage.read_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
             raise ObjectStorageError("read failed") from e
+
+    def list_all_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+        objects = []
+        try:
+            has_next = True
+            while has_next:
+                last_key = objects[-1]["Key"] if len(objects) > 0 else ""
+                s3_response = self.aws_client.list_objects_v2(
+                    Bucket=bucket, Prefix=prefix, Delimiter="/", StartAfter=last_key
+                )
+                has_next = s3_response["IsTruncated"]
+                objects.extend(s3_response["Contents"])
+            return objects
+        except Exception as e:
+            logger.error("object_storage.list_all_objects_failed", bucket=bucket, prefix=prefix, error=e)
+            raise ObjectStorageError("list_all_objects failed") from e
+
+    def _read_for_threading(self, result: List, index: int, bucket: str, key: str):
+        result[index] = self.read(bucket, key)
+
+    def read_all(self, bucket: str, keys: List[str], max_concurrent_requests: int) -> Optional[List[Tuple[str, str]]]:
+        all_results: List[Tuple[str, str]] = []
+        chunked_keys = [
+            keys[0 + offset : max_concurrent_requests + offset]
+            for offset in range(0, len(keys), max_concurrent_requests)
+        ]
+        for chunk_of_keys in chunked_keys:
+            jobs: List[Thread] = []
+            chunk_result: List[Optional[str]] = [None] * len(chunk_of_keys)
+            for index, key in enumerate(chunk_of_keys):
+                thread = Thread(target=self._read_for_threading, args=(chunk_result, index, bucket, key))
+                jobs.append(thread)
+
+            for j in jobs:
+                j.start()
+
+            for j in jobs:
+                j.join()
+
+            for index, key in enumerate(chunk_of_keys):
+                all_results.append((key, chunk_result[index]))
+
+        return all_results
 
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         s3_response = {}
@@ -112,6 +170,16 @@ def write(file_name: str, content: Union[str, bytes]) -> None:
 
 def read(file_name: str) -> Optional[str]:
     return object_storage_client().read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
+
+
+def list_all_objects(prefix: str) -> Optional[List[str]]:
+    return object_storage_client().list_all_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def read_all(file_names: List[str], max_concurrent_requests: int = 100) -> Optional[List[Tuple[str, str]]]:
+    return object_storage_client().read_all(
+        bucket=settings.OBJECT_STORAGE_BUCKET, keys=file_names, max_concurrent_requests=max_concurrent_requests
+    )
 
 
 def read_bytes(file_name: str) -> Optional[bytes]:

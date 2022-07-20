@@ -8,19 +8,34 @@
  * together.
  */
 
-import { PrometheusExporter } from '@opentelemetry/exporter-prometheus'
-import { MeterProvider } from '@opentelemetry/sdk-metrics-base'
+import { PrometheusSerializer } from '@opentelemetry/exporter-prometheus'
+import { AggregationTemporality, MeterProvider, MetricReader } from '@opentelemetry/sdk-metrics-base'
+import { Router } from 'express'
 
-const exporter = new PrometheusExporter({ port: 3001, host: '0.0.0.0', preventServerStart: false })
 export const meterProvider = new MeterProvider()
+
+class Exporter extends MetricReader {
+    selectAggregationTemporality() {
+        return AggregationTemporality.CUMULATIVE
+    }
+
+    protected onForceFlush(): Promise<void> {
+        return
+    }
+
+    protected onShutdown(): Promise<void> {
+        return
+    }
+}
+
+const exporter = new Exporter()
 
 meterProvider.addMetricReader(exporter)
 
-// Make sure we kill the exporter on shutdown
-const signalTraps = ['SIGTERM', 'SIGINT', 'SIGUSR2']
+export const metricRoutes = Router()
 
-signalTraps.map((type) => {
-    process.once(type, async () => {
-        await exporter.stopServer()
-    })
+metricRoutes.get('/_metrics', async (req, res) => {
+    const results = await exporter.collect()
+    res.setHeader('content-type', 'text/plain')
+    return res.send(new PrometheusSerializer().serialize(results.resourceMetrics))
 })

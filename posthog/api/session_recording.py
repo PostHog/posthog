@@ -1,5 +1,7 @@
 import dataclasses
-from typing import Any, Union
+import json
+from datetime import datetime, timezone
+from typing import Any, List, Union
 
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -8,14 +10,16 @@ from rest_framework.response import Response
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.helpers.session_recording import RecordingEventSummary, get_metadata_from_event_summaries
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
-from posthog.utils import format_query_params_absolute_url
+from posthog.storage.object_storage import list_all_objects, read, read_all
+from posthog.utils import format_query_params_absolute_url, should_read_recordings_from_object_storage
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
@@ -57,7 +61,44 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             request=request, team=self.team, session_recording_id=session_recording_id
         ).get_snapshots(limit, offset)
 
+    def _get_session_recording_metadata_from_object_storage(self, session_recording_id):
+        base_folder = f"session_recordings/team_id/{self.team_id}/session_id/{session_recording_id}/metadata/"
+        metadata_file = f"{base_folder}metadata.json"
+        metadata_file_content = read(metadata_file)
+        distinct_id = json.loads(metadata_file_content).get("distinctId")
+
+        event_summary_files = list_all_objects(f"{base_folder}event_summaries/")
+
+        event_summary_file_names = [object["Key"] for object in event_summary_files]
+        event_summary_file_contents = read_all(event_summary_file_names)
+        event_summary_strings = [
+            event_summary_string
+            for _, metadata_string in event_summary_file_contents
+            for event_summary_string in metadata_string.split("\n")
+        ]
+        event_summary_json_string = "[" + ",".join(event_summary_strings) + "]"
+        event_summaries = json.loads(event_summary_json_string)
+        parsed_event_summaries: List[RecordingEventSummary] = [
+            RecordingEventSummary(
+                timestamp=datetime.fromtimestamp(event_summary.get("timestamp", 0) / 1000, timezone.utc),
+                window_id=event_summary.get("windowId", ""),
+                type=event_summary.get("eventType"),
+                source=event_summary.get("eventSource"),
+            )
+            for event_summary in event_summaries
+        ]
+
+        segments, start_and_end_times_by_window_id = get_metadata_from_event_summaries(parsed_event_summaries)
+
+        return RecordingMetadata(
+            segments=segments,
+            start_and_end_times_by_window_id=start_and_end_times_by_window_id,
+            distinct_id=distinct_id,
+        )
+
     def _get_session_recording_meta_data(self, request, session_recording_id):
+        if should_read_recordings_from_object_storage(self.team_id):
+            return self._get_session_recording_metadata_from_object_storage(session_recording_id)
         return SessionRecording(
             request=request, team=self.team, session_recording_id=session_recording_id
         ).get_metadata()
@@ -133,7 +174,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 persondistinctid__distinct_id=session_recording_meta_data.distinct_id,
                 persondistinctid__team_id=self.team,
                 team=self.team,
-            )
+            ) if session_recording_meta_data.distinct_id else None
         except Person.DoesNotExist:
             person = None
 

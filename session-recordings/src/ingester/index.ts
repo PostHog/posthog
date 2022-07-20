@@ -2,9 +2,11 @@ import { Kafka } from 'kafkajs'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { RecordingEvent, RecordingEventGroup } from '../types'
 import { s3Client } from '../s3'
-import { meterProvider } from './metrics'
+import { meterProvider, metricRoutes } from './metrics'
 import { performance } from 'perf_hooks'
-import { getEventGroupDataString, getEventGroupMetadata } from './utils'
+import { getEventGroupDataString, getEventSummaryMetadata } from './utils'
+import { getHealthcheckRoutes } from './healthcheck'
+import express from 'express'
 
 const maxEventGroupAge = Number.parseInt(
     process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
@@ -20,12 +22,20 @@ const kafka = new Kafka({
     brokers: ['localhost:9092'],
 })
 
-const consumer = kafka.consumer({
+const consumerConfig = {
     groupId: `object-storage-ingester`,
-})
+    sessionTimeout: 30000,
+    heartbeatInterval: 6000,
+}
+const consumer = kafka.consumer(consumerConfig)
 
 consumer.connect()
 consumer.subscribe({ topic: RECORDING_EVENTS_TOPIC })
+
+const app = express()
+app.use(getHealthcheckRoutes({ consumer, consumerConfig }))
+app.use(metricRoutes)
+const httpServer = app.listen(3001)
 
 const eventsBySessionId: { [key: string]: RecordingEventGroup } = {}
 
@@ -59,6 +69,7 @@ consumer.run({
         const sessionId = message.headers.sessionId.toString()
         const windowId = message.headers.windowId.toString()
         const eventId = message.headers.eventId.toString()
+        const distinctId = message.headers.distinctId.toString()
         const eventSource = Number.parseInt(message.headers.eventSource.toString())
         const eventType = Number.parseInt(message.headers.eventType.toString())
         const teamId = Number.parseInt(message.headers.teamId.toString())
@@ -75,10 +86,10 @@ consumer.run({
         })
 
         const commitEventGroupToS3 = async () => {
-            const dataKey = `team_id/${eventGroup.teamId}/session_id/${eventGroup.sessionId}/data/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
-
-            // TODO: calculate metadata and write it to this key
-            const metaDataKey = `team_id/${eventGroup.teamId}/session_id/${eventGroup.sessionId}/metadata/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
+            const baseKey = `session_recordings/team_id/${eventGroup.teamId}/session_id/${eventGroup.sessionId}`
+            const dataKey = `${baseKey}/data/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
+            const metaDataEventSummaryKey = `${baseKey}/metadata/event_summaries/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
+            const metaDataKey = `${baseKey}/metadata/metadata.json`
 
             console.debug({ action: 'committing_event_group', sessionId: eventGroup.sessionId, key: dataKey })
 
@@ -86,8 +97,15 @@ consumer.run({
             await s3Client.send(
                 new PutObjectCommand({
                     Bucket: 'posthog',
+                    Key: metaDataEventSummaryKey,
+                    Body: getEventSummaryMetadata(eventGroup),
+                })
+            )
+            await s3Client.send(
+                new PutObjectCommand({
+                    Bucket: 'posthog',
                     Key: metaDataKey,
-                    Body: getEventGroupMetadata(eventGroup),
+                    Body: JSON.stringify({ distinctId: eventGroup.distinctId }),
                 })
             )
             await s3Client.send(
@@ -145,6 +163,7 @@ consumer.run({
                 teamId: teamId,
                 sessionId: sessionId,
                 oldestEventTimestamp: unixTimestamp,
+                distinctId: distinctId,
                 oldestOffset: message.offset,
                 newestOffset: message.offset,
             }
@@ -211,6 +230,7 @@ signalTraps.map((type) => {
     process.once(type, async () => {
         try {
             await consumer.disconnect()
+            await httpServer.close()
         } finally {
             process.kill(process.pid, type)
         }

@@ -11,7 +11,7 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
     // Fetch events for the specified session recording
     // TODO: habdle time range querying, list pagination
 
-    const prefix = `team_id/${teamId}/session_id/${sessionId}/data/`
+    const prefix = `session_recordings/team_id/${teamId}/session_id/${sessionId}/data/`
 
     console.debug({ action: 'fetch_session', teamId, sessionId, prefix })
 
