@@ -63,8 +63,7 @@
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
-                       HAVING max(is_deleted) = 0
-                       LIMIT 100) person ON person.id = pdi.person_id
+                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -174,8 +173,7 @@
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
-                       HAVING max(is_deleted) = 0
-                       LIMIT 100) person ON person.id = pdi.person_id
+                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -288,8 +286,7 @@
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             LIMIT 100) person ON person.id = pdi.person_id
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -397,8 +394,7 @@
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             LIMIT 100) person ON person.id = pdi.person_id
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -510,8 +506,7 @@
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             LIMIT 100) person ON person.id = pdi.person_id
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -623,8 +618,7 @@
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
                                    AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
                                   OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))
-                             LIMIT 100) person ON person.id = pdi.person_id
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
                             AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -705,8 +699,7 @@
                        FROM person
                        WHERE team_id = 2
                        GROUP BY id
-                       HAVING max(is_deleted) = 0
-                       LIMIT 100) person ON person.id = pdi.person_id
+                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
                       AND timestamp >= toDateTime('2020-01-01 00:00:00')
