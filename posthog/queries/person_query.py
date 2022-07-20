@@ -239,5 +239,7 @@ class PersonQuery:
             return "", {}
 
         if self._filter.email:
-            return prop_filter_json_extract(Property(key="email", value=self._filter.email), 0, prepend="_email")
+            return prop_filter_json_extract(
+                Property(key="email", value=self._filter.email, type="person"), 0, prepend="_email"
+            )
         return "", {}
