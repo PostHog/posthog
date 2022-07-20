@@ -9,6 +9,7 @@ import { InsightModel, DashboardType, InsightShortId } from '~/types'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
 import { lemonToast } from 'lib/components/lemonToast'
+import { Link } from 'lib/components/Link'
 
 export const dashboardsModel = kea<dashboardsModelType>({
     path: ['models', 'dashboardsModel'],
@@ -203,7 +204,11 @@ export const dashboardsModel = kea<dashboardsModelType>({
         addDashboardSuccess: ({ dashboard }) => {
             lemonToast.success(
                 <>
-                    Dashboard <b>{dashboard.name}</b> created
+                    Dashboard{' '}
+                    <b>
+                        <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
+                    </b>{' '}
+                    created
                 </>
             )
         },
