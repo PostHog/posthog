@@ -54,6 +54,7 @@ export class JobQueueManager implements JobQueue {
         for (const jobQueue of this.jobQueues) {
             try {
                 await jobQueue.enqueue(jobName, job)
+                this.pluginsServer.statsd?.increment('enqueue_job.success', { jobName })
                 return
             } catch (error) {
                 // if one fails, take the next queue
@@ -66,7 +67,19 @@ export class JobQueueManager implements JobQueue {
                 })
             }
         }
-        throw new Error('No JobQueue available')
+
+        this.pluginsServer.statsd?.increment('enqueue_job.fail', { jobName })
+
+        const error = new Error('No JobQueue available')
+        Sentry.captureException(error, {
+            extra: {
+                jobName,
+                job: JSON.stringify(job),
+                queues: this.jobQueues.map((q) => q.toString()),
+            },
+        })
+
+        throw error
     }
 
     async disconnectProducer(): Promise<void> {
