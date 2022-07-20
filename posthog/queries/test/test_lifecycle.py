@@ -1,6 +1,8 @@
 import json
 from unittest.mock import patch
 
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
 
@@ -283,30 +285,31 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
 
             self.assertEqual(len(dormant_result), 1)
 
+        @snapshot_clickhouse_queries
         def test_lifecycle_trend_people_paginated(self):
-            with freeze_time("2020-01-15T12:00:00Z"):
-                for i in range(150):
-                    person_id = "person{}".format(i)
-                    person_factory(team_id=self.team.pk, distinct_ids=[person_id])
-                    event_factory(
-                        team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z",
-                    )
+            for i in range(15):
+                person_id = "person{}".format(i)
+                person_factory(team_id=self.team.pk, distinct_ids=[person_id])
+                event_factory(
+                    team=self.team, event="$pageview", distinct_id=person_id,
+                )
             # even if set to hour 6 it should default to beginning of day and include all pageviews above
             result = self.client.get(
                 "/api/person/lifecycle",
                 data={
-                    "date_from": "2020-01-12T00:00:00Z",
-                    "date_to": "2020-01-19T00:00:00Z",
+                    "date_from": (timezone.now() - relativedelta(days=3)).isoformat(),
+                    "date_to": (timezone.now() + relativedelta(days=4)).isoformat(),
                     "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
                     "shown_as": TRENDS_LIFECYCLE,
                     "lifecycle_type": "new",
-                    "target_date": "2020-01-15T00:00:00Z",
+                    "limit": "10",
+                    "target_date": timezone.now().isoformat(),
                 },
             ).json()
-            self.assertEqual(len(result["results"][0]["people"]), 100)
+            self.assertEqual(len(result["results"][0]["people"]), 10)
 
             second_result = self.client.get(result["next"]).json()
-            self.assertEqual(len(second_result["results"][0]["people"]), 50)
+            self.assertEqual(len(second_result["results"][0]["people"]), 5)
 
         def test_lifecycle_trend_action(self):
 

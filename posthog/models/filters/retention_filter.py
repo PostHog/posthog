@@ -10,6 +10,7 @@ from posthog.models.filters.mixins.common import (
     DisplayDerivedMixin,
     FilterTestAccountsMixin,
     InsightMixin,
+    LimitMixin,
     OffsetMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
@@ -31,6 +32,7 @@ class RetentionFilter(
     FilterTestAccountsMixin,
     BreakdownMixin,
     InsightMixin,
+    LimitMixin,
     OffsetMixin,
     GroupsAggregationMixin,
     FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter

@@ -389,7 +389,7 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(str(people[0]["id"]), str(person1.uuid))
 
         def test_stickiness_people_paginated(self):
-            for i in range(150):
+            for i in range(15):
                 person_name = f"person{i}"
                 person_factory(team_id=self.team.id, distinct_ids=[person_name], properties={"name": person_name})
                 event_factory(
@@ -411,13 +411,14 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
                     "date_to": "2020-01-08",
                     ENTITY_TYPE: "actions",
                     ENTITY_ID: watched_movie.id,
+                    "limit": 10,
                 },
             )
 
-            self.assertEqual(len(result["results"][0]["people"]), 100)
+            self.assertEqual(len(result["results"][0]["people"]), 10)
 
             second_result = self.client.get(result["next"]).json()
-            self.assertEqual(len(second_result["results"][0]["people"]), 50)
+            self.assertEqual(len(second_result["results"][0]["people"]), 5)
 
         def test_compare(self):
             self._create_multiple_people()

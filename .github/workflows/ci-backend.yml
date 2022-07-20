@@ -2,7 +2,7 @@
 #
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .github/workflows/ci-backend-update-test-timing.yml action
-name: Backend CI
+name: Backend
 
 on:
     push:
@@ -183,7 +183,7 @@ jobs:
         timeout-minutes: 30
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Py ${{ matrix.python-version }} ${{ matrix.name }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
@@ -196,8 +196,8 @@ jobs:
                 name: ['']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and group's in sync
-                concurrency: [5]
-                group: [1, 2, 3, 4, 5]
+                concurrency: [1]
+                group: [1]
                 include:
                     # :TRICKY: Run FOSS tests in a separate container
                     - python-version: '3.8.12'
@@ -215,40 +215,8 @@ jobs:
                       person-on-events: true
                       name: 'Person on Events'
                       clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
+                      concurrency: 1
                       group: 1
-                    - python-version: '3.8.12'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 2
-                    - python-version: '3.8.12'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 3
-                    - python-version: '3.8.12'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 4
-                    - python-version: '3.8.12'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 5
 
         steps:
             - uses: actions/checkout@v2

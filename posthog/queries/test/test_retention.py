@@ -483,7 +483,7 @@ def retention_test_factory(retention):
             self.assertEqual(len(result), 0)
 
         def test_retention_people_paginated(self):
-            for i in range(150):
+            for i in range(15):
                 person_id = "person{}".format(i)
                 _create_person(team_id=self.team.pk, distinct_ids=[person_id])
                 _create_events(
@@ -496,10 +496,10 @@ def retention_test_factory(retention):
                 "/api/person/retention", data={"date_to": _date(10, hour=6), "selected_interval": 2}
             ).json()
 
-            self.assertEqual(len(result["result"]), 100)
+            self.assertEqual(len(result["result"]), 10)
 
             second_result = self.client.get(result["next"]).json()
-            self.assertEqual(len(second_result["result"]), 50)
+            self.assertEqual(len(second_result["result"]), 5)
 
         def test_retention_invalid_properties(self):
             response = self.client.get("/api/person/retention", data={"properties": "invalid_json"})
