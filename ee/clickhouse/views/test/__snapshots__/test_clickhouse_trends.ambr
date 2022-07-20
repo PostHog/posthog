@@ -500,8 +500,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
-        ORDER BY max(created_at) DESC, id) person ON pdi.person_id = person.id
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-01 00:00:00')
@@ -572,8 +571,7 @@
                     GROUP BY id
                     HAVING max(is_deleted) = 0
                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
-                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
-                    ORDER BY max(created_at) DESC, id) person ON person.id = pdi.person_id
+                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND timestamp >= '2011-12-25 00:00:00'
@@ -622,8 +620,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
-        ORDER BY max(created_at) DESC, id) person ON person.id = pdi.person_id
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= '2011-12-25 00:00:00'
