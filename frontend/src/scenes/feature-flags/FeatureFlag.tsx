@@ -8,7 +8,6 @@ import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@an
 import { featureFlagLogic } from './featureFlagLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import '../../styles/global.scss'
 import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
