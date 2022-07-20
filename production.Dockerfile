@@ -86,7 +86,7 @@ RUN apk --update --no-cache --virtual .geolite-deps add \
     && \
     mkdir shared \
     && \
-    curl -L "https://mmdbcdn.posthog.net/" -o share/GeoLite2-City.mmdb \
+    curl -L "https://mmdbcdn.posthog.net/" -o ./share/GeoLite2-City.mmdb \
     && \
     apk del .geolite-deps
 
