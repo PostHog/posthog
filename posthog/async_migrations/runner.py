@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+import structlog
 from semantic_version.base import SimpleSpec
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
@@ -25,6 +26,8 @@ from posthog.version_requirement import ServiceVersionRequirement
 Important to prevent us taking up too many celery workers and also to enable running migrations sequentially
 """
 MAX_CONCURRENT_ASYNC_MIGRATIONS = 1
+
+logger = structlog.get_logger(__name__)
 
 
 def start_async_migration(
@@ -55,8 +58,9 @@ def start_async_migration(
         not migration_instance
         or over_concurrent_migrations_limit
         or not posthog_version_valid
-        or migration_instance.status == MigrationStatus.Running
+        or migration_instance.status != MigrationStatus.Starting
     ):
+        logger.error(f"Initial check failed for async migration {migration_name}")
         return False
 
     if migration_definition is None:
@@ -92,7 +96,9 @@ def start_async_migration(
         )
         return False
 
-    mark_async_migration_as_running(migration_instance)
+    if not mark_async_migration_as_running(migration_instance):
+        logger.error(f"Migration state has unexpectedly changed for async migration {migration_name}")
+        return False
 
     return run_async_migration_operations(migration_name, migration_instance)
 

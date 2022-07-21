@@ -292,16 +292,31 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             run_next_migration(next_migration)
 
 
-def mark_async_migration_as_running(migration_instance: AsyncMigration):
-    update_async_migration(
-        migration_instance=migration_instance,
-        current_query_id="",
-        progress=0,
-        current_operation_index=0,
-        status=MigrationStatus.Running,
-        started_at=now(),
-        finished_at=None,
-    )
+def async_migration_from_starting_to_running_atomic(migration_instance: AsyncMigration) -> bool:
+    # update to running iff the state was Starting
+    with transaction.atomic():
+        instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
+        if instance.status != MigrationStatus.Starting:
+            return False
+        instance.status = MigrationStatus.Running
+        instance.current_query_id = ""
+        instance.progress = 0
+        instance.current_operation_index = 0
+        instance.started_at = now()
+        instance.finished_at = None
+        instance.save()
+    return True
+
+
+def async_migration_from_starting_to_not_started_atomic(migration_instance: AsyncMigration) -> bool:
+    # update to not started iff the state was Starting
+    with transaction.atomic():
+        instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
+        if instance.status != MigrationStatus.Starting:
+            return False
+        instance.status = MigrationStatus.NotStarted
+        instance.save()
+    return True
 
 
 def update_async_migration(

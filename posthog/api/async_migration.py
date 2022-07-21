@@ -4,7 +4,12 @@ from rest_framework.decorators import action
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
 from posthog.async_migrations.setup import get_async_migration_definition
-from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
+from posthog.async_migrations.utils import (
+    async_migration_from_starting_to_not_started_atomic,
+    force_stop_migration,
+    rollback_migration,
+    trigger_migration,
+)
 from posthog.models.async_migration import (
     AsyncMigration,
     AsyncMigrationError,
@@ -124,6 +129,9 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def _force_stop(self, rollback: bool):
         migration_instance = self.get_object()
+        if migration_instance.status == MigrationStatus.Starting:
+            if async_migration_from_starting_to_not_started_atomic(migration_instance):
+                return response.Response({"success": True}, status=200)
         if migration_instance.status != MigrationStatus.Running:
             return response.Response(
                 {"success": False, "error": "Can't stop a migration that isn't running.",}, status=400,
