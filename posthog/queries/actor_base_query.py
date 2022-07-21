@@ -38,7 +38,6 @@ class MatchedRecording(TypedDict):
 
 class CommonAttributes(TypedDict, total=False):
     id: Union[uuid.UUID, str]
-    uuid: Union[uuid.UUID, str]
     created_at: Optional[str]
     properties: Dict[str, Any]
     matched_recordings: List[MatchedRecording]
@@ -46,6 +45,7 @@ class CommonAttributes(TypedDict, total=False):
 
 class SerializedPerson(CommonAttributes):
     type: Literal["person"]
+    uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
     name: str
     distinct_ids: List[str]
