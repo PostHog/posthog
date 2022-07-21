@@ -248,6 +248,7 @@ def update_cached_items() -> Tuple[int, int]:
     for insight in shared_insights[0:PARALLEL_INSIGHT_CACHE]:
         try:
             cache_key, cache_type, payload = insight_update_task_params(insight)
+            update_filters_hash(cache_key, None, insight)
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
         except Exception as e:
             insight.refresh_attempt = (insight.refresh_attempt or 0) + 1

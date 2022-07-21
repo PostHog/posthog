@@ -152,6 +152,14 @@ class TestSynchronousCacheUpdate(APIBaseTest):
         assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
 
 
+def run_cache_update(patch_update_cache_item: MagicMock) -> None:
+    update_cached_items()
+    # pass the caught calls straight to the function
+    # we do this to skip Redis
+    for call_item in patch_update_cache_item.call_args_list:
+        update_cache_item(*call_item[0])
+
+
 class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
@@ -238,7 +246,7 @@ class TestUpdateCache(APIBaseTest):
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
         funnel_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 
-        self._run_cache_update(patch_update_cache_item)
+        run_cache_update(patch_update_cache_item)
 
         self.assertIsNotNone(Insight.objects.get(pk=cached_insight_because_no_dashboard_filters.pk).last_refresh)
         self.assertIsNotNone(
@@ -478,7 +486,7 @@ class TestUpdateCache(APIBaseTest):
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 
-        self._run_cache_update(patch_update_cache_item)
+        run_cache_update(patch_update_cache_item)
 
         self.assertEqual(
             get_safe_cache(item_stickiness_key)["result"][0]["labels"],
@@ -874,7 +882,7 @@ class TestUpdateCache(APIBaseTest):
                 self.team, insight_one, None, last_accessed_at=datetime.now(pytz.utc)
             )
 
-            self._run_cache_update(patch_update_cache_item)
+            run_cache_update(patch_update_cache_item)
 
             tile.refresh_from_db()
             insight_one.refresh_from_db()
@@ -887,7 +895,7 @@ class TestUpdateCache(APIBaseTest):
             frozen_datetime.tick(delta=timedelta(minutes=1))
 
             patch_update_cache_item.reset_mock()
-            self._run_cache_update(patch_update_cache_item)
+            run_cache_update(patch_update_cache_item)
 
             # refresh dates don't change
             tile.refresh_from_db()
@@ -917,7 +925,7 @@ class TestUpdateCache(APIBaseTest):
         tile.refresh_from_db()
         assert tile.filters_hash is None
 
-        self._run_cache_update(patch_update_cache_item)
+        run_cache_update(patch_update_cache_item)
 
         statsd_incr.assert_any_call("update_cache_queue.set_missing_filters_hash", 1)
 
@@ -937,7 +945,7 @@ class TestUpdateCache(APIBaseTest):
             self.team, insight, test_hash, last_accessed_at=datetime.now(pytz.utc) - timedelta(days=1)
         )
 
-        self._run_cache_update(patch_update_cache_item)
+        run_cache_update(patch_update_cache_item)
 
         insight.refresh_from_db()
         assert insight.filters_hash != test_hash
@@ -961,7 +969,7 @@ class TestUpdateCache(APIBaseTest):
             self.team, insight, test_hash, last_accessed_at=datetime.now(pytz.utc) - timedelta(days=1)
         )
 
-        self._run_cache_update(patch_update_cache_item)
+        run_cache_update(patch_update_cache_item)
 
         insight.refresh_from_db()
         tile.refresh_from_db()
@@ -992,7 +1000,7 @@ class TestUpdateCache(APIBaseTest):
             last_accessed_at=datetime.now(pytz.utc) - timedelta(days=1),
         )
 
-        self._run_cache_update(patch_update_cache_item)
+        run_cache_update(patch_update_cache_item)
 
         tile.refresh_from_db()
         insight.refresh_from_db()
@@ -1002,9 +1010,46 @@ class TestUpdateCache(APIBaseTest):
         assert tile.filters_hash != test_hash
         assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
 
-    def _run_cache_update(self, patch_update_cache_item: MagicMock) -> None:
-        update_cached_items()
-        # pass the caught calls straight to the function
-        # we do this to skip Redis
-        for call_item in patch_update_cache_item.call_args_list:
-            update_cache_item(*call_item[0])
+
+class TestUpdateCacheForSharedInsights(APIBaseTest):
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_updates_insight_with_incorrect_filters_hash(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        test_hash = "ma räägin temaga, aga vaatan sind"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        run_cache_update(patch_update_cache_item)
+        insight.refresh_from_db()
+
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh is not None
+
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_updates_insight_with_null_filters_hash(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+
+        insight = _create_insight_with_known_cache_key(self.team, None)
+        SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        run_cache_update(patch_update_cache_item)
+        insight.refresh_from_db()
+
+        assert insight.filters_hash is not None
+        assert insight.last_refresh is not None
