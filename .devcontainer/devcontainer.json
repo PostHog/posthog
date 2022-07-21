@@ -30,11 +30,6 @@
 
     // Set *default* container specific settings.json values on container create.
     "settings": {
-        /*
-          Python settings
-        */
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
-
         // Configure linting
         "python.linting.enabled": true,
         "python.linting.pylintEnabled": false, // We use flake8, disable pylint
