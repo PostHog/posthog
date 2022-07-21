@@ -73,10 +73,6 @@
                     "value": "True"
                 },
                 {
-                    "name": "NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS",
-                    "value": "2"
-                },
-                {
                     "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
                     "value": "2,2635"
                 },
