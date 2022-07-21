@@ -818,11 +818,11 @@ describe('DB', () => {
         })
     })
 
-    describe('postgresQuery', () => {
+    describe('cachedPostgresQuery', () => {
         it('caches query results if cacheResult=true', async () => {
             jest.spyOn(db, 'redisSet')
             const queryTag = 'testCachedQuery'
-            await db.postgresQuery('SELECT 1 as col', undefined, queryTag, undefined, true)
+            await db.cachedPostgresQuery('SELECT 1 as col', undefined, queryTag, undefined)
             expect(db.redisSet).toHaveBeenCalledWith(
                 `${POSTGRES_QUERY_CACHE_PREFIX}${queryTag}`,
                 JSON.stringify({ rows: [{ col: 1 }], rowCount: 1 }),
@@ -831,11 +831,13 @@ describe('DB', () => {
         })
 
         it('returns cached results if cacheResult=true', async () => {
+            jest.spyOn(db, 'redisSet')
             const queryTag = 'testCachedQuery'
-            await db.postgresQuery('SELECT 1 as col', undefined, queryTag, undefined, true)
-            const res = await db.postgresQuery('SELECT 2 as col', undefined, queryTag, undefined, true)
+            await db.cachedPostgresQuery('SELECT 1 as col', undefined, queryTag, undefined)
+            const res = await db.cachedPostgresQuery('SELECT 2 as col', undefined, queryTag, undefined)
 
             // if this wasn't cached the value would have been 2
+            expect(db.redisSet).toHaveBeenCalledOnce()
             expect(res.rows[0].col).toEqual(1)
         })
     })

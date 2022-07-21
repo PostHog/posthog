@@ -7,6 +7,7 @@ import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
+import Redlock from 'redlock'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
 import {
@@ -60,6 +61,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { status } from '../../utils/status'
 import { instrumentQuery } from '../metrics'
 import {
     castTimestampOrNow,
@@ -147,6 +149,7 @@ type GroupCreatedAt = {
 export type PostgresQueryResult<R = any> = PartialBy<QueryResult<R>, 'fields' | 'oid' | 'command'>
 
 export const POSTGRES_QUERY_CACHE_PREFIX = 'plugin_server_psql_'
+const DEFAULT_REDLOCK_ACQUIRE_TIMEOUT = 2000
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -200,23 +203,12 @@ export class DB {
 
     // Postgres
 
-    public async postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
+    public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         queryString: string,
         values: I | undefined,
         tag: string,
-        client?: PoolClient,
-        cacheResult = false,
-        cacheResultTtlSeconds = 15
+        client?: PoolClient
     ): Promise<PostgresQueryResult<R>> {
-        const cacheKey = `${POSTGRES_QUERY_CACHE_PREFIX}${tag}`
-
-        if (cacheResult) {
-            const cachedResult = await this.redisGet(cacheKey, null)
-            if (cachedResult) {
-                return JSON.parse(cachedResult as string) as QueryResult<R>
-            }
-        }
-
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
             let fullQuery = ''
             try {
@@ -231,23 +223,64 @@ export class DB {
             // Annotate query string to give context when looking at DB logs
             queryString = `/* plugin-server:${tag} */ ${queryString}`
             try {
-                let queryRes
                 if (client) {
-                    queryRes = await client.query(queryString, values)
+                    return await client.query(queryString, values)
                 } else {
-                    queryRes = await this.postgres.query(queryString, values)
+                    return await this.postgres.query(queryString, values)
                 }
-
-                if (cacheResult) {
-                    const queryResultToCache = { rows: queryRes.rows, rowCount: queryRes.rowCount }
-                    await this.redisSet(cacheKey, JSON.stringify(queryResultToCache), cacheResultTtlSeconds)
-                }
-                return queryRes
             } finally {
                 clearTimeout(timeout)
             }
         })
     }
+
+
+    
+    public async cachedPostgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
+        queryString: string,
+        values: I | undefined,
+        tag: string,
+        client?: PoolClient,
+        cacheResultTtlSeconds = 15,
+    ): Promise<PostgresQueryResult<R>> {
+        const cacheKey = `${POSTGRES_QUERY_CACHE_PREFIX}${tag}`
+
+        let lock: Redlock.Lock | null = null
+        const redisClient = await this.redisPool.acquire()
+        const redlock = new Redlock([redisClient])
+        try {
+            // To prevent us from thundering the herd, we use a locking mechanism where we'll either:
+            // 1. Get a lock and process the query, most likely setting the cache
+            // 2. Timeout waiting for the lock and process the query, at which point another server/thread will have probably populated the cache
+            lock = await redlock.acquire(cacheKey, DEFAULT_REDLOCK_ACQUIRE_TIMEOUT)
+
+            status.info('🔴', `Acquired lock ${cacheKey} for query ${tag}.`)
+        } catch (e) {
+
+            status.info('🔴', `Could not get redlock lock for ${cacheKey}. Proceeding with query ${tag} anyway after waiting ${DEFAULT_REDLOCK_ACQUIRE_TIMEOUT}ms.`)
+        }
+
+        const cachedResult = await this.redisGet(cacheKey, null)
+        if (cachedResult) {
+            if (lock) {
+                await redlock.release(lock)
+            }
+            return JSON.parse(cachedResult as string) as QueryResult<R>
+        }
+
+        const queryRes = await this.postgresQuery(queryString, values, tag, client)
+
+        const queryResultToCache = { rows: queryRes.rows, rowCount: queryRes.rowCount }
+        await this.redisSet(cacheKey, JSON.stringify(queryResultToCache), cacheResultTtlSeconds)
+
+
+        if (lock) {
+            await redlock.release(lock)
+        }
+
+        return queryRes
+    }
+
 
     public postgresTransaction<ReturnType extends any>(
         transaction: (client: PoolClient) => Promise<ReturnType>
