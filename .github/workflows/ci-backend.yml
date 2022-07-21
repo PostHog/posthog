@@ -163,6 +163,10 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
+            - name: Download GeoIP Database
+              run: |
+                  [ ! -f ./share/GeoLite2-City.mmdb ] && curl -L "https://mmdbcdn.posthog.net/" -o ./share/GeoLite2-City.mmdb
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
