@@ -649,14 +649,17 @@ export function autoCaptureEventToDescription(
     }
 
     const getVerb = (): string => {
-        if (event.properties.$event_type === 'click') {
-            return 'clicked'
-        }
-        if (event.properties.$event_type === 'change') {
-            return 'typed something into'
-        }
-        if (event.properties.$event_type === 'submit') {
-            return 'submitted'
+        switch (event.properties.$event_type) {
+            case 'click':
+                return 'clicked'
+            case 'change':
+                return 'typed something into'
+            case 'submit':
+                return 'submitted'
+            case 'touch':
+                return 'touched'
+            case 'press':
+                return 'pressed'
         }
         return 'interacted with'
     }
