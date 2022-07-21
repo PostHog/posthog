@@ -211,7 +211,7 @@ def is_active_event(event: SnapshotData) -> bool:
     return event.get("type") == 3 and event.get("data", {}).get("source") in active_rr_web_sources
 
 
-ACTIVITY_THRESHOLD_SECONDS = 60
+ACTIVITY_THRESHOLD_SECONDS = 10
 
 
 def get_active_segments_from_event_list(
