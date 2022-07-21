@@ -77,6 +77,8 @@ runs:
               touch frontend/dist/layout.html
               touch frontend/dist/exporter.html
               [ ! -f ./share/GeoLite2-City.mmdb ] && curl -L "https://mmdbcdn.posthog.net/" -o ./share/GeoLite2-City.mmdb
+              pwd
+              ls -arthl
 
         - name: Wait for Clickhouse & Kafka
           shell: bash
