@@ -24,7 +24,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.update_cache import update_insight_cache
+from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -698,7 +698,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @patch("posthog.api.insight.update_insight_cache", wraps=update_insight_cache)
+    @patch("posthog.api.insight.synchronously_update_insight_cache", wraps=synchronously_update_insight_cache)
     def test_insight_refreshing(self, spy_update_insight_cache):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d",}})
 

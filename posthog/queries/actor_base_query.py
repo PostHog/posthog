@@ -45,6 +45,7 @@ class CommonAttributes(TypedDict, total=False):
 
 class SerializedPerson(CommonAttributes):
     type: Literal["person"]
+    uuid: Union[uuid.UUID, str]
     is_identified: Optional[bool]
     name: str
     distinct_ids: List[str]
@@ -196,6 +197,7 @@ def serialize_people(data: QuerySet[Person]) -> List[SerializedPerson]:
         SerializedPerson(
             type="person",
             id=person.uuid,
+            uuid=person.uuid,
             created_at=person.created_at,
             properties=person.properties,
             is_identified=person.is_identified,
