@@ -57,23 +57,22 @@ class Migration(AsyncMigrationDefinition):
 
     def fix_one_page_of_dashboard_tiles(self) -> bool:
         tiles_with_no_hash = (
-            DashboardTile.objects.filter(filters_hash=None).select_related("insight", "dashboard").order_by("id")
+            DashboardTile.objects.filter(filters_hash=None).select_related("insight", "dashboard").order_by("id")[0:100]
         )
-        logger.debug("0006_generate_dashboard_tile_filters_hashes.processing_a_page", count=tiles_with_no_hash.count())
 
-        if tiles_with_no_hash.count() > 0:
-            updated_tiles: List[DashboardTile] = []
-            for tile in tiles_with_no_hash[0:100]:
-                # generate_insight_cache_key takes 2-5 seconds with peaks above that
-                tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
-                updated_tiles.append(tile)
+        if not bool(tiles_with_no_hash):
+            return False
 
-            logger.info("0006_generate_dashboard_tile_filters_hashes.updating_tiles", count=len(updated_tiles))
-            DashboardTile.objects.bulk_update(updated_tiles, ["filters_hash"])
+        updated_tiles: List[DashboardTile] = []
+        for tile in tiles_with_no_hash[0:100]:
+            # generate_insight_cache_key takes 2-5 seconds with peaks above that
+            tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
+            updated_tiles.append(tile)
 
-            return True
+        DashboardTile.objects.bulk_update(updated_tiles, ["filters_hash"])
+        logger.info("0006_generate_dashboard_tile_filters_hashes.updating_tiles", count=len(updated_tiles))
 
-        return False
+        return True
 
     def get_high_watermark(self) -> int:
         high_watermark = get_client().get(REDIS_HIGH_WATERMARK_KEY)
