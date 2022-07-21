@@ -4,14 +4,15 @@
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
-      <env name="PYTHONUNBUFFERED" value="1" />
-      <env name="DJANGO_SETTINGS_MODULE" value="posthog.settings" />
-      <env name="DEBUG" value="1" />
       <env name="CLICKHOUSE_SECURE" value="False" />
-      <env name="KAFKA_URL" value="kafka://localhost" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
-      <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+      <env name="DEBUG" value="1" />
+      <env name="DJANGO_SETTINGS_MODULE" value="posthog.settings" />
+      <env name="KAFKA_URL" value="kafka://localhost" />
       <env name="PRINT_SQL" value="1" />
+      <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+      <env name="SKIP_ASYNC_MIGRATIONS_SETUP" value="0" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="WORKING_DIRECTORY" value="" />
