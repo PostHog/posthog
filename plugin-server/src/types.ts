@@ -933,3 +933,6 @@ export interface PreIngestionEvent {
 }
 
 export type IngestionEvent = PreIngestionEvent
+
+// "explicit" version of Partial, where specified fields are marked as optional, rather than all fields
+export type PartialBy<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>

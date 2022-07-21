@@ -7,6 +7,7 @@ import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { castTimestampOrNow, RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
+import { POSTGRES_QUERY_CACHE_PREFIX } from './../../src/utils/db/db'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
@@ -814,6 +815,28 @@ describe('DB', () => {
                 group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
             })
             expect(db.getGroupsCreatedAtFromDbAndUpdateCache).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('postgresQuery', () => {
+        it('caches query results if cacheResult=true', async () => {
+            jest.spyOn(db, 'redisSet')
+            const queryTag = 'testCachedQuery'
+            await db.postgresQuery('SELECT 1 as col', undefined, queryTag, undefined, true)
+            expect(db.redisSet).toHaveBeenCalledWith(
+                `${POSTGRES_QUERY_CACHE_PREFIX}${queryTag}`,
+                JSON.stringify({ rows: [{ col: 1 }], rowCount: 1 }),
+                expect.any(Number)
+            )
+        })
+
+        it('returns cached results if cacheResult=true', async () => {
+            jest.spyOn(db, 'redisSet')
+            const queryTag = 'testCachedQuery'
+            await db.postgresQuery('SELECT 1 as col', undefined, queryTag, undefined, true)
+            const res = await db.postgresQuery('SELECT 2 as col', undefined, queryTag, undefined, true)
+
+            expect(res.rows[0].col).toEqual(1)
         })
     })
 

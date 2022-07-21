@@ -37,6 +37,7 @@ import {
     Hook,
     IngestionPersonData,
     OrganizationMembershipLevel,
+    PartialBy,
     Person,
     PersonDistinctId,
     Plugin,
@@ -142,6 +143,11 @@ type GroupCreatedAt = {
     createdAt: DateTime | null
 }
 
+// QueryResult provided by the 'pg' library with `fields`, `oid`, and `command` made optional to make caching types work
+export type PostgresQueryResult<R = any> = PartialBy<QueryResult<R>, 'fields' | 'oid' | 'command'>
+
+export const POSTGRES_QUERY_CACHE_PREFIX = 'plugin_server_psql_'
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection pool for primary database access. */
@@ -194,12 +200,23 @@ export class DB {
 
     // Postgres
 
-    public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
+    public async postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         queryString: string,
         values: I | undefined,
         tag: string,
-        client?: PoolClient
-    ): Promise<QueryResult<R>> {
+        client?: PoolClient,
+        cacheResult = false,
+        cacheResultTtlSeconds = 15
+    ): Promise<PostgresQueryResult<R>> {
+        const cacheKey = `${POSTGRES_QUERY_CACHE_PREFIX}${tag}`
+
+        if (cacheResult) {
+            const cachedResult = await this.redisGet(cacheKey, null)
+            if (cachedResult) {
+                return JSON.parse(cachedResult as string) as QueryResult<R>
+            }
+        }
+
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
             let fullQuery = ''
             try {
@@ -214,11 +231,18 @@ export class DB {
             // Annotate query string to give context when looking at DB logs
             queryString = `/* plugin-server:${tag} */ ${queryString}`
             try {
+                let queryRes
                 if (client) {
-                    return await client.query(queryString, values)
+                    queryRes = await client.query(queryString, values)
                 } else {
-                    return await this.postgres.query(queryString, values)
+                    queryRes = await this.postgres.query(queryString, values)
                 }
+
+                if (cacheResult) {
+                    const queryResultToCache = { rows: queryRes.rows, rowCount: queryRes.rowCount }
+                    await this.redisSet(cacheKey, JSON.stringify(queryResultToCache), cacheResultTtlSeconds)
+                }
+                return queryRes
             } finally {
                 clearTimeout(timeout)
             }
@@ -900,7 +924,7 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        const selectResult: QueryResult = await this.postgresQuery(queryString, values, 'fetchPerson', client)
+        const selectResult: PostgresQueryResult = await this.postgresQuery(queryString, values, 'fetchPerson', client)
 
         if (selectResult.rows.length > 0) {
             const rawPerson: RawPerson = selectResult.rows[0]
@@ -1000,7 +1024,7 @@ export class DB {
         }
         RETURNING *`
 
-        const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
+        const updateResult: PostgresQueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
         if (updateResult.rows.length == 0) {
             throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
         }
@@ -1173,7 +1197,7 @@ export class DB {
     }
 
     public async moveDistinctIds(source: Person, target: Person, client?: PoolClient): Promise<ProducerRecord[]> {
-        let movedDistinctIdResult: QueryResult<any> | null = null
+        let movedDistinctIdResult: PostgresQueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgresQuery(
                 `
@@ -1675,7 +1699,7 @@ export class DB {
         events_column_config,
         organization_id,
         organizationMembershipLevel = OrganizationMembershipLevel.Member,
-    }: CreateUserPayload): Promise<QueryResult> {
+    }: CreateUserPayload): Promise<PostgresQueryResult> {
         const createUserResult = await this.postgresQuery(
             `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config, current_organization_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -1722,7 +1746,7 @@ export class DB {
         label,
         value,
         created_at,
-    }: CreatePersonalApiKeyPayload): Promise<QueryResult> {
+    }: CreatePersonalApiKeyPayload): Promise<PostgresQueryResult> {
         return await this.postgresQuery(
             `INSERT INTO posthog_personalapikey (id, user_id, label, value, created_at)
             VALUES ($1, $2, $3, $4, $5)
@@ -1822,7 +1846,7 @@ export class DB {
             queryString = queryString.concat(` FOR UPDATE`)
         }
 
-        const selectResult: QueryResult = await this.postgresQuery(
+        const selectResult: PostgresQueryResult = await this.postgresQuery(
             queryString,
             [teamId, groupTypeIndex, groupKey],
             'fetchGroup',

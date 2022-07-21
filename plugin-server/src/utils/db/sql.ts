@@ -65,7 +65,9 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
         GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,
-        'getPluginRows'
+        'getPluginRows',
+        undefined,
+        true
     )
 
     return rows

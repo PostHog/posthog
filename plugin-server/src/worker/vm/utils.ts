@@ -1,7 +1,5 @@
-import { QueryResult } from 'pg'
-
 import { PluginConfig } from '../../types'
-import { DB } from '../../utils/db/db'
+import { DB, PostgresQueryResult } from '../../utils/db/db'
 
 // This assumes the value stored at `key` can be cast to a Postgres numeric type
 export const postgresIncrement = async (
@@ -47,7 +45,7 @@ export const postgresGet = async (
     db: DB,
     pluginConfigId: PluginConfig['id'],
     key: string
-): Promise<QueryResult<any>> => {
+): Promise<PostgresQueryResult> => {
     return await db.postgresQuery(
         'SELECT * FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2 LIMIT 1',
         [pluginConfigId, key],
