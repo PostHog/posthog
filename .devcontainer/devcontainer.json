@@ -7,10 +7,21 @@
     "build": {
         "dockerfile": "Dockerfile",
         "context": "../",
-        "cacheFrom": ""
+        "cacheFrom": "ghcr.io/posthog/posthog/codespaces:master"
     },
 
     "remoteUser": "vscode",
+    "remoteEnv": {
+        "DEBUG": "1",
+        "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+        "KAFKA_ENABLED": "true",
+        "KAFKA_HOSTS": "localhost:9092",
+        "KAFKA_URL": "kafka://localhost:9092",
+        "CLICKHOUST_HOST": "localhost",
+        "CLICKHOUSE_DATABASE": "posthog_test",
+        "CLICKHOUSE_VERIFY": "False",
+        "REDIS_URL": "redis://localhost:6379"
+    },
     "overrideCommand": false,
     "mounts": ["source=codespaces-linux-var-lib-docker,target=/var/lib/docker,type=volume"],
     "runArgs": ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined", "--privileged", "--init"],
