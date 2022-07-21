@@ -41,6 +41,7 @@ class Migration(AsyncMigrationDefinition):
         except Exception as err:
             logger.error("0006_async_migration.error_setting_filters_hashes", exc=err, exc_info=True)
             capture_exception(err)
+            raise err
 
     def set_page_of_filters_hashes(self) -> bool:
         tiles_with_no_hash = (
