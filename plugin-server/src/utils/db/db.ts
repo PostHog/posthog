@@ -242,6 +242,10 @@ export class DB {
         cacheResultTtlSeconds = 15
     ): Promise<PostgresQueryResult<R>> {
         const cacheKey = `${POSTGRES_QUERY_CACHE_PREFIX}${tag}`
+        let cachedResult = await this.redisGet(cacheKey, null)
+        if (cachedResult) {
+            return JSON.parse(cachedResult as string) as QueryResult<R>
+        }
 
         let lock: Redlock.Lock | null = null
         const redisClient = await this.redisPool.acquire()
@@ -260,8 +264,9 @@ export class DB {
             )
         }
 
-        const cachedResult = await this.redisGet(cacheKey, null)
         let queryRes
+
+        cachedResult = await this.redisGet(cacheKey, null)
         if (cachedResult) {
             queryRes = JSON.parse(cachedResult as string) as QueryResult<R>
         } else {
