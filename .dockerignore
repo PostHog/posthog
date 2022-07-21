@@ -29,4 +29,4 @@
 !plugin-server/src
 !plugin-server/.eslintrc.js
 !plugin-server/.prettierrc
-!share
+!share/GeoLite2-City.mmdb

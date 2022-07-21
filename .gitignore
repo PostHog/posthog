@@ -41,4 +41,4 @@ ee/benchmarks/results
 coverage-*.xml
 object_storage/
 __emails__
-share
+share/GeoLite2-City.mmdb
