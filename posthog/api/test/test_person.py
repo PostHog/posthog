@@ -132,6 +132,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
+        self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
     def test_filter_person_list(self):
 
