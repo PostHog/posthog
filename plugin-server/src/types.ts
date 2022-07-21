@@ -1,5 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import {
+    Element,
     Meta,
     PluginAttachment,
     PluginConfigSchema,
@@ -201,12 +202,13 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
-    processJobs?: boolean
+    processPluginJobs?: boolean
     processAsyncHandlers?: boolean
     http?: boolean
 }
 
-export interface EnqueuedJob {
+export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
+export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
@@ -214,8 +216,14 @@ export interface EnqueuedJob {
     pluginConfigTeam: number
 }
 
+export interface EnqueuedBufferJob {
+    eventPayload: PluginEvent
+    timestamp: number
+}
+
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
+    BUFFER_JOB = 'bufferJob',
 }
 
 export interface JobQueue {
@@ -504,20 +512,8 @@ export interface Team {
     ingested_event: boolean
 }
 
-/** Usable Element model. */
-export interface Element {
-    text?: string
-    tag_name?: string
-    href?: string
-    attr_id?: string
-    attr_class?: string[]
-    nth_child?: number
-    nth_of_type?: number
-    attributes?: Record<string, any>
-    event_id?: number
-    order?: number
-    group_id?: number
-}
+/** Re-export Element from scaffolding, for backwards compat. */
+export { Element } from '@posthog/plugin-scaffold'
 
 /** Usable Event model. */
 export interface Event {
