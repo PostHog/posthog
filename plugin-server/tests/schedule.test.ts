@@ -66,7 +66,9 @@ describe('schedule', () => {
 
         const [hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         hub.pluginSchedule = await loadPluginSchedule(piscina)
-        expect(hub.pluginSchedule).toEqual({ runEveryDay: [], runEveryHour: [], runEveryMinute: [39] })
+        expect(hub.pluginSchedule).toEqual(
+            expect.objectContaining({ runEveryDay: [], runEveryHour: [], runEveryMinute: [39] })
+        )
 
         const event1 = await ingestEvent(createEvent())
         expect(event1.properties['counter']).toBe(0)

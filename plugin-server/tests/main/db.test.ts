@@ -11,6 +11,7 @@ import { POSTGRES_QUERY_CACHE_PREFIX } from './../../src/utils/db/db'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
+jest.setTimeout(100000)
 
 describe('DB', () => {
     let hub: Hub
@@ -836,7 +837,7 @@ describe('DB', () => {
             await db.cachedPostgresQuery('SELECT 1 as col', undefined, queryTag, undefined)
             const res = await db.cachedPostgresQuery('SELECT 2 as col', undefined, queryTag, undefined)
 
-            expect(db.redisSet).toHaveBeenCalledOnce()
+            expect(db.redisSet).toHaveBeenCalledTimes(1)
 
             // if this wasn't cached the value would have been 2
             expect(res.rows[0].col).toEqual(1)
