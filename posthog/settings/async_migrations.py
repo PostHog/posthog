@@ -1,11 +1,10 @@
-from posthog.settings.base_variables import DEBUG, E2E_TESTING, TEST
+from posthog.settings.base_variables import E2E_TESTING, TEST
 from posthog.settings.overrides import cmd
 from posthog.settings.service_requirements import SKIP_SERVICE_VERSION_REQUIREMENTS
 from posthog.settings.utils import get_from_env, str_to_bool
 
-_default_skip_async_migrations_setup = (
-    False if DEBUG else (TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver")
-)
+_default_skip_async_migrations_setup = TEST or E2E_TESTING or SKIP_SERVICE_VERSION_REQUIREMENTS or cmd != "runserver"
+
 SKIP_ASYNC_MIGRATIONS_SETUP = get_from_env(
     "SKIP_ASYNC_MIGRATIONS_SETUP", _default_skip_async_migrations_setup, type_cast=str_to_bool
 )
