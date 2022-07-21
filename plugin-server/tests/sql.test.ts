@@ -73,7 +73,6 @@ describe('sql', () => {
     test('getPluginRows', async () => {
         const rowsExpected = [
             {
-                description: 'Ingest GeoIP data via MaxMind',
                 error: null,
                 from_json: false,
                 from_web: false,
@@ -92,10 +91,7 @@ describe('sql', () => {
                 source__frontend_tsx: null,
                 tag: '0.0.2',
                 url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
-                created_at: expect.anything(),
-                updated_at: expect.anything(),
                 capabilities: {},
-                metrics: {},
             },
         ]
 
