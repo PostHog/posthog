@@ -10,7 +10,7 @@
       `is_deleted` Int8 DEFAULT 0,
       `version` UInt64
   )
-  ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
+  ENGINE = Kafka('localhost:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
   '
 ---
 # name: Test0005PersonCollapsedByVersion.test_migration_schema.1

@@ -63,7 +63,7 @@ jobs:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
-            KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_HOSTS: 'localhost:9092'
 
         steps:
             - name: Code check out
