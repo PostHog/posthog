@@ -64,7 +64,7 @@ class Migration(AsyncMigrationDefinition):
             return False
 
         updated_tiles: List[DashboardTile] = []
-        for tile in tiles_with_no_hash[0:100]:
+        for tile in tiles_with_no_hash[0:20]:
             # generate_insight_cache_key takes 2-5 seconds with peaks above that
             tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
             updated_tiles.append(tile)
