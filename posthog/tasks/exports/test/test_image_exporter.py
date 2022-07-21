@@ -18,7 +18,7 @@ from posthog.test.base import APIBaseTest
 TEST_BUCKET = "Test-Exports"
 
 
-@patch("posthog.tasks.exports.image_exporter.update_insight_cache")
+@patch("posthog.tasks.exports.image_exporter.synchronously_update_insight_cache")
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
 @patch("builtins.open", new_callable=mock_open, read_data=b"image_data")
 @patch("os.remove")
