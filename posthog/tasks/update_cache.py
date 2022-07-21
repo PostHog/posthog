@@ -126,28 +126,32 @@ def _mark_refresh_attempt_for(queryset: QuerySet) -> None:
     queryset.update(refreshing=False, refresh_attempt=F("refresh_attempt") + 1)
 
 
-def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
+def synchronously_update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
     cache_key, cache_type, payload = insight_update_task_params(insight, dashboard)
-    # check if the cache key has changed, usually because of a new default filter
+    update_filters_hash(cache_key, dashboard, insight)
+    result = update_cache_item(cache_key, cache_type, payload)
+    insight.refresh_from_db()
+    return result
+
+
+def update_filters_hash(cache_key: str, dashboard: Optional[Dashboard], insight: Insight) -> None:
+    """ check if the cache key has changed, usually because of a new default filter
     # there are three possibilities
     # 1) the insight is not being updated in a dashboard context
     #    --> so set its cache key if it doesn't match
     # 2) the insight is being updated in a dashboard context and the dashboard has different filters to the insight
     #    --> so set only the dashboard tile's filters_hash
     # 3) the insight is being updated in a dashboard context and the dashboard has matching or no filters
-    #    --> so set the dashboard tile and the insight's filters hash
+    #    --> so set the dashboard tile and the insight's filters hash"""
 
     should_update_insight_filters_hash = False
     should_update_dashboard_tile_filters_hash = False
-
     if not dashboard and insight.filters_hash and insight.filters_hash != cache_key:
         should_update_insight_filters_hash = True
-
     if dashboard:
         should_update_dashboard_tile_filters_hash = True
         if not dashboard.filters or dashboard.filters == insight.filters:
             should_update_insight_filters_hash = True
-
     if should_update_dashboard_tile_filters_hash:
         dashboard_tiles = DashboardTile.objects.filter(insight=insight, dashboard=dashboard,).exclude(
             filters_hash=cache_key
@@ -155,11 +159,9 @@ def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> Li
         matching_tiles_with_no_hash = dashboard_tiles.filter(filters_hash=None).count()
         statsd.incr("update_cache_queue.set_missing_filters_hash", matching_tiles_with_no_hash)
         dashboard_tiles.update(filters_hash=cache_key)
-
     if should_update_insight_filters_hash:
         insight.filters_hash = cache_key
         insight.save()
-
     if should_update_insight_filters_hash or should_update_dashboard_tile_filters_hash:
         statsd.incr(
             "update_cache_item_set_new_cache_key",
@@ -170,10 +172,6 @@ def update_insight_cache(insight: Insight, dashboard: Optional[Dashboard]) -> Li
                 "dashboard_id": None if not dashboard else dashboard.id,
             },
         )
-
-    result = update_cache_item(cache_key, cache_type, payload)
-    insight.refresh_from_db()
-    return result
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
@@ -227,6 +225,7 @@ def update_cached_items() -> Tuple[int, int]:
         )
         try:
             cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
+            update_filters_hash(cache_key, dashboard_tile.dashboard, insight)
             tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
         except Exception as e:
             # to avoid splitting the queryset above, update refresh attempt on both tile and insight
