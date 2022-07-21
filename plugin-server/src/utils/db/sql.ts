@@ -24,7 +24,7 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
 }
 
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
-    const { rows }: { rows: Plugin[] } = await hub.db.postgresQuery(
+    const { rows }: { rows: Plugin[] } = await hub.db.cachedPostgresQuery(
         // `posthog_plugin` columns have to be listed individually, as we want to exclude a few columns
         // and Postgres syntax unfortunately doesn't have a column exclusion feature. The excluded columns are:
         // - archive - this is a potentially large blob, only extracted in Django as a plugin server optimization
@@ -66,8 +66,7 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         GROUP BY posthog_pluginconfig.plugin_id)`,
         undefined,
         'getPluginRows',
-        undefined,
-        true
+        undefined
     )
 
     return rows
