@@ -55,7 +55,7 @@ class Migration(AsyncMigrationDefinition):
                 tile.filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
                 updated_tiles.append(tile)
 
-            logger.info("0006_async_migration.updating_tiles", count=updated_tiles.count())
+            logger.info("0006_async_migration.updating_tiles", count=len(updated_tiles))
             DashboardTile.objects.bulk_update(updated_tiles, ["filters_hash"])
 
             return True
