@@ -831,7 +831,6 @@ describe('DB', () => {
         })
 
         it('returns cached results if cacheResult=true', async () => {
-            jest.spyOn(db, 'redisSet')
             const queryTag = 'testCachedQuery'
             await db.postgresQuery('SELECT 1 as col', undefined, queryTag, undefined, true)
             const res = await db.postgresQuery('SELECT 2 as col', undefined, queryTag, undefined, true)
