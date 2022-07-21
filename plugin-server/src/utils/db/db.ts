@@ -261,19 +261,15 @@ export class DB {
         }
 
         const cachedResult = await this.redisGet(cacheKey, null)
+        let queryRes
         if (cachedResult) {
-            await lock
-                ?.unlock()
-                .catch(() =>
-                    status.info('🔴', `Could not release redlock lock ${cacheKey}. It probably already expired.`)
-                )
-            return JSON.parse(cachedResult as string) as QueryResult<R>
+            queryRes = JSON.parse(cachedResult as string) as QueryResult<R>
+        } else {
+            queryRes = await this.postgresQuery(queryString, values, tag, client)
+
+            const queryResultToCache = { rows: queryRes.rows, rowCount: queryRes.rowCount }
+            await this.redisSet(cacheKey, JSON.stringify(queryResultToCache), cacheResultTtlSeconds)
         }
-
-        const queryRes = await this.postgresQuery(queryString, values, tag, client)
-
-        const queryResultToCache = { rows: queryRes.rows, rowCount: queryRes.rowCount }
-        await this.redisSet(cacheKey, JSON.stringify(queryResultToCache), cacheResultTtlSeconds)
 
         await lock
             ?.unlock()

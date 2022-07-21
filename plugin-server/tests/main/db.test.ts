@@ -836,8 +836,9 @@ describe('DB', () => {
             await db.cachedPostgresQuery('SELECT 1 as col', undefined, queryTag, undefined)
             const res = await db.cachedPostgresQuery('SELECT 2 as col', undefined, queryTag, undefined)
 
-            // if this wasn't cached the value would have been 2
             expect(db.redisSet).toHaveBeenCalledOnce()
+
+            // if this wasn't cached the value would have been 2
             expect(res.rows[0].col).toEqual(1)
         })
     })
