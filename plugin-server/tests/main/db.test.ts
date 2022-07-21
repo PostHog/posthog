@@ -835,6 +835,7 @@ describe('DB', () => {
             await db.postgresQuery('SELECT 1 as col', undefined, queryTag, undefined, true)
             const res = await db.postgresQuery('SELECT 2 as col', undefined, queryTag, undefined, true)
 
+            // if this wasn't cached the value would have been 2
             expect(res.rows[0].col).toEqual(1)
         })
     })
