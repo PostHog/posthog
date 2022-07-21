@@ -1,10 +1,11 @@
 import datetime
 import json
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
 from celery import group
+from celery.canvas import Signature
 from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.core.cache import cache
@@ -52,9 +53,8 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 
 
 def update_cached_items() -> Tuple[int, int]:
-    tasks = []
+    tasks: List[Optional[Signature]] = []
 
-    # TODO: According to the metrics, on Cloud this is a huge list and needs to be improved
     dashboard_tiles = (
         DashboardTile.objects.filter(
             Q(dashboard__sharingconfiguration__enabled=True)
@@ -75,26 +75,7 @@ def update_cached_items() -> Tuple[int, int]:
     )
 
     for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
-        insight = dashboard_tile.insight
-        logger.info(
-            "update_cache_queue.attempting_tile",
-            insight_id=insight.id,
-            dashboard_id=dashboard_tile.dashboard.id,
-            last_refresh=dashboard_tile.last_refresh,
-            filters_hash=dashboard_tile.filters_hash,
-        )
-        try:
-            cache_key, cache_type, payload = insight_update_task_params(insight, dashboard_tile.dashboard)
-            update_filters_hash(cache_key, dashboard_tile.dashboard, insight)
-            tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
-        except Exception as e:
-            # to avoid splitting the queryset above, update refresh attempt on both tile and insight
-            insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
-            insight.save(update_fields=["refresh_attempt"])
-            dashboard_tile.refresh_attempt = (dashboard_tile.refresh_attempt or 0) + 1
-            dashboard_tile.save(update_fields=["refresh_attempt"])
-
-            capture_exception(e)
+        tasks.append(task_for_cache_update_candidate(dashboard_tile))
 
     shared_insights = (
         Insight.objects.filter(sharingconfiguration__enabled=True)
@@ -106,17 +87,36 @@ def update_cached_items() -> Tuple[int, int]:
     )
 
     for insight in shared_insights[0:PARALLEL_INSIGHT_CACHE]:
-        try:
-            cache_key, cache_type, payload = insight_update_task_params(insight)
-            update_filters_hash(cache_key, None, insight)
-            tasks.append(update_cache_item_task.s(cache_key, cache_type, payload))
-        except Exception as e:
-            insight.refresh_attempt = (insight.refresh_attempt or 0) + 1
-            insight.save(update_fields=["refresh_attempt"])
-            capture_exception(e)
+        tasks.append(task_for_cache_update_candidate(insight))
 
+    gauge_cache_update_candidates(dashboard_tiles, shared_insights)
+
+    tasks = list(filter(None, tasks))
+    group(tasks).apply_async()
+    return len(tasks), dashboard_tiles.count() + shared_insights.count()
+
+
+def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) -> Optional[Signature]:
+    candidate_tile: Optional[DashboardTile] = None if isinstance(candidate, Insight) else candidate
+    candidate_insight: Insight = candidate if isinstance(candidate, Insight) else candidate.insight
+    candidate_dashboard: Optional[Dashboard] = None if isinstance(candidate, Insight) else candidate.dashboard
+
+    try:
+        cache_key, cache_type, payload = insight_update_task_params(candidate_insight, candidate_dashboard)
+        update_filters_hash(cache_key, candidate_dashboard, candidate_insight)
+        return update_cache_item_task.s(cache_key, cache_type, payload)
+    except Exception as e:
+        candidate_insight.refresh_attempt = (candidate_insight.refresh_attempt or 0) + 1
+        candidate_insight.save(update_fields=["refresh_attempt"])
+        if candidate_tile:
+            candidate_tile.refresh_attempt = (candidate_tile.refresh_attempt or 0) + 1
+            candidate_tile.save(update_fields=["refresh_attempt"])
+        capture_exception(e)
+        return None
+
+
+def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: QuerySet) -> None:
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
-
     oldest_previously_refreshed_tiles: List[DashboardTile] = list(
         dashboard_tiles.exclude(last_refresh=None)[0:PARALLEL_INSIGHT_CACHE]
     )
@@ -133,17 +133,10 @@ def update_cached_items() -> Tuple[int, int]:
             },
         )
 
-    logger.info("update_cache_queue", length=len(tasks))
-    taskset = group(tasks)
-    taskset.apply_async()
-
     # this is the number of cacheable items that match the query
-    queue_depth = dashboard_tiles.count() + shared_insights.count()
     statsd.gauge("update_cache_queue_depth.shared_insights", shared_insights.count())
     statsd.gauge("update_cache_queue_depth.dashboards", dashboard_tiles.count())
-    statsd.gauge("update_cache_queue_depth", queue_depth)
-
-    return len(tasks), queue_depth
+    statsd.gauge("update_cache_queue_depth", dashboard_tiles.count() + shared_insights.count())
 
 
 @timed("update_cache_item_timer")
