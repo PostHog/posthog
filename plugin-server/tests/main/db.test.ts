@@ -824,8 +824,8 @@ describe('DB', () => {
         beforeEach(async () => {
             team = await getFirstTeam(hub)
             const plug = await db.postgresQuery(
-                'INSERT INTO posthog_plugin (name, organization_id, config_schema, from_json, from_web, is_global, is_preinstalled, is_stateless, created_at, capabilities) values($1, $2, $3, false, false, false, false, false, $4, $5) RETURNING id',
-                ['My Plug', team.organization_id, [], new Date(), {}],
+                'INSERT INTO posthog_plugin (name, organization_id, from_json, from_web, is_global, is_preinstalled, is_stateless, created_at, capabilities) values($1, $2, $3, false, false, false, false, false, $4, $5) RETURNING id',
+                ['My Plug', team.organization_id, new Date(), {}],
                 ''
             )
             plugin = plug.rows[0].id

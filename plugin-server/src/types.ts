@@ -277,9 +277,7 @@ export interface Plugin {
     plugin_type: 'local' | 'respository' | 'custom' | 'source'
     description?: string
     is_global: boolean
-    is_preinstalled: boolean
     url?: string
-    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     /** @deprecated Replaced with source__index_ts */
     source?: string
@@ -292,8 +290,8 @@ export interface Plugin {
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
-    created_at: string
-    updated_at: string
+    created_at?: string
+    updated_at?: string
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
