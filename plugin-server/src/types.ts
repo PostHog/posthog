@@ -277,7 +277,9 @@ export interface Plugin {
     plugin_type: 'local' | 'respository' | 'custom' | 'source'
     description?: string
     is_global: boolean
+    is_preinstalled?: boolean
     url?: string
+    config_schema?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     /** @deprecated Replaced with source__index_ts */
     source?: string
