@@ -201,11 +201,12 @@ export const dashboardsModel = kea<dashboardsModelType>({
 
     listeners: ({ actions, values }) => ({
         addDashboardSuccess: ({ dashboard }) => {
-            lemonToast.success(
-                <>
-                    Dashboard <b>{dashboard.name}</b> created
-                </>
-            )
+            lemonToast.success(<>Dashboard created</>, {
+                button: {
+                    label: 'View',
+                    action: () => router.actions.push(urls.dashboard(dashboard.id)),
+                },
+            })
         },
 
         restoreDashboardSuccess: ({ dashboard }) => {
