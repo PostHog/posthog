@@ -280,6 +280,7 @@ export class DB {
             ?.unlock()
             .catch(() => status.info('🔴', `Could not release redlock lock ${cacheKey}. It probably already expired.`))
 
+        await this.redisPool.release(redisClient)
         return queryRes
     }
 
