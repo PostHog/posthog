@@ -149,7 +149,7 @@ type GroupCreatedAt = {
 export type PostgresQueryResult<R = any> = PartialBy<QueryResult<R>, 'fields' | 'oid' | 'command'>
 
 export const POSTGRES_QUERY_CACHE_PREFIX = 'plugin_server_psql_'
-const DEFAULT_REDLOCK_ACQUIRE_TIMEOUT = 3000
+const DEFAULT_REDLOCK_ACQUIRE_TIMEOUT = 1000
 
 /** The recommended way of accessing the database. */
 export class DB {
