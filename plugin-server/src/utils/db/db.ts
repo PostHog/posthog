@@ -149,7 +149,7 @@ type GroupCreatedAt = {
 export type PostgresQueryResult<R = any> = PartialBy<QueryResult<R>, 'fields' | 'oid' | 'command'>
 
 export const POSTGRES_QUERY_CACHE_PREFIX = 'plugin_server_psql_'
-const DEFAULT_REDLOCK_ACQUIRE_TIMEOUT = 2000
+const DEFAULT_REDLOCK_ACQUIRE_TIMEOUT = 3000
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -234,14 +234,12 @@ export class DB {
         })
     }
 
-
-    
     public async cachedPostgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
         queryString: string,
         values: I | undefined,
         tag: string,
         client?: PoolClient,
-        cacheResultTtlSeconds = 15,
+        cacheResultTtlSeconds = 15
     ): Promise<PostgresQueryResult<R>> {
         const cacheKey = `${POSTGRES_QUERY_CACHE_PREFIX}${tag}`
 
@@ -254,17 +252,21 @@ export class DB {
             // 2. Timeout waiting for the lock and process the query, at which point another server/thread will have probably populated the cache
             lock = await redlock.acquire(cacheKey, DEFAULT_REDLOCK_ACQUIRE_TIMEOUT)
 
-            status.info('🔴', `Acquired lock ${cacheKey} for query ${tag}.`)
+            status.info('🔴', `Acquired redlock lock ${cacheKey} for query ${tag}.`)
         } catch (e) {
-
-            status.info('🔴', `Could not get redlock lock for ${cacheKey}. Proceeding with query ${tag} anyway after waiting ${DEFAULT_REDLOCK_ACQUIRE_TIMEOUT}ms.`)
+            status.info(
+                '🔴',
+                `Could not get redlock lock for ${cacheKey}. Proceeding with query ${tag} anyway after waiting ${DEFAULT_REDLOCK_ACQUIRE_TIMEOUT}ms.`
+            )
         }
 
         const cachedResult = await this.redisGet(cacheKey, null)
         if (cachedResult) {
-            if (lock) {
-                await redlock.release(lock)
-            }
+            await lock
+                ?.unlock()
+                .catch(() =>
+                    status.info('🔴', `Could not release redlock lock ${cacheKey}. It probably already expired.`)
+                )
             return JSON.parse(cachedResult as string) as QueryResult<R>
         }
 
@@ -273,14 +275,12 @@ export class DB {
         const queryResultToCache = { rows: queryRes.rows, rowCount: queryRes.rowCount }
         await this.redisSet(cacheKey, JSON.stringify(queryResultToCache), cacheResultTtlSeconds)
 
-
-        if (lock) {
-            await redlock.release(lock)
-        }
+        await lock
+            ?.unlock()
+            .catch(() => status.info('🔴', `Could not release redlock lock ${cacheKey}. It probably already expired.`))
 
         return queryRes
     }
-
 
     public postgresTransaction<ReturnType extends any>(
         transaction: (client: PoolClient) => Promise<ReturnType>
