@@ -39,10 +39,6 @@ runs:
               docker-compose -f docker-compose.dev.yml down
               docker-compose -f docker-compose.dev.yml up -d
 
-        - name: Add Kafka to /etc/hosts
-          shell: bash
-          run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
         - name: Set up Python
           uses: actions/setup-python@v2
           with:
