@@ -175,7 +175,15 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
                 if not dashboard_id
                 else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
             )
-        return []
+        result = []
+
+    logger.info(
+        "update_insight_cache.processed_item",
+        insight_id=payload.get("insight_id", None),
+        dashboard_id=payload.get("dashboard_id", None),
+        cache_key=key,
+        has_results=len(result) > 0,
+    )
 
     return result
 
