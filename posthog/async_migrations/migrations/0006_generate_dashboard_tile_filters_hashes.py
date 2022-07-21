@@ -78,4 +78,4 @@ class Migration(AsyncMigrationDefinition):
     def progress(self, migration_instance: AsyncMigrationType) -> int:
         current_count = DashboardTile.objects.filter(filters_hash=None).count()
         starting_count = self.get_high_watermark()
-        return int((current_count / starting_count) * 100)
+        return int((starting_count - current_count / starting_count) * 100)
