@@ -18,9 +18,9 @@ from posthog.models.team.team import Team
 from posthog.queries.util import get_earliest_timestamp
 from posthog.tasks.update_cache import (
     PARALLEL_INSIGHT_CACHE,
+    synchronously_update_insight_cache,
     update_cache_item,
     update_cached_items,
-    update_insight_cache,
 )
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
@@ -41,10 +41,129 @@ def create_shared_insight(team: Team, is_shared: bool = False, **kwargs: Any) ->
     return insight
 
 
+def _a_dashboard_tile_with_known_last_refresh(team: Team, last_refresh_date: Optional[datetime]) -> DashboardTile:
+    dashboard = create_shared_dashboard(team=team, is_shared=True)
+    filter = {"events": [{"id": "$pageview"}]}
+    item = Insight.objects.create(filters=filter, team=team)
+    tile: DashboardTile = DashboardTile.objects.create(insight=item, dashboard=dashboard)
+    tile.last_refresh = last_refresh_date
+    tile.save(update_fields=["last_refresh"])
+    return tile
+
+
+def _create_insight_with_known_cache_key(team: Team, cache_key: Optional[str] = None) -> Insight:
+    filter_dict: Dict[str, Any] = {
+        "events": [{"id": "$pageview"}],
+        "properties": [{"key": "$browser", "value": "Mac OS X"}],
+    }
+    insight: Insight = Insight.objects.create(team=team, filters=filter_dict)
+    if cache_key:
+        insight.filters_hash = cache_key
+        insight.save(update_fields=["filters_hash"])
+
+        insight.refresh_from_db()
+        assert insight.filters_hash == cache_key
+
+    return insight
+
+
+def _create_dashboard_tile_with_known_cache_key(
+    team: Team,
+    insight: Insight,
+    cache_key: Optional[str] = None,
+    dashboard_filters: Optional[Dict] = None,
+    last_accessed_at: Optional[datetime] = None,
+) -> Tuple[Dashboard, DashboardTile]:
+    dashboard: Dashboard = Dashboard.objects.create(
+        team=team, filters=dashboard_filters if dashboard_filters else {}, last_accessed_at=last_accessed_at
+    )
+
+    tile: DashboardTile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+    if cache_key:
+        tile.filters_hash = cache_key
+        tile.save(update_fields=["filters_hash"])
+
+        tile.refresh_from_db()
+        insight.refresh_from_db()
+        assert tile.filters_hash == cache_key
+        assert insight.filters_hash == cache_key
+
+    return dashboard, tile
+
+
+class TestSynchronousCacheUpdate(APIBaseTest):
+    @patch("posthog.tasks.update_cache.statsd.incr")
+    def test_update_insight_cache_reports_on_updating_tiles_with_no_hash(self, statsd_incr: MagicMock) -> None:
+        tile = _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None)
+        # can't set filters_hash=None on a route that triggers save
+        DashboardTile.objects.filter(id=tile.id).update(filters_hash=None)
+        tile.refresh_from_db()
+        assert tile.filters_hash is None
+
+        synchronously_update_insight_cache(tile.insight, tile.dashboard)
+
+        statsd_incr.assert_any_call("update_cache_queue.set_missing_filters_hash", 1)
+
+        tile.refresh_from_db()
+        assert tile.filters_hash is not None
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_update_insight_filters_hash(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+
+        synchronously_update_insight_cache(insight, None)
+
+        insight.refresh_from_db()
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_update_dashboard_tile_updates_tile_and_insight_filters_hash_when_dashboard_has_no_filters(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        dashboard, tile = _create_dashboard_tile_with_known_cache_key(self.team, insight, test_hash)
+
+        synchronously_update_insight_cache(insight, dashboard)
+
+        insight.refresh_from_db()
+        tile.refresh_from_db()
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+        assert tile.filters_hash != test_hash
+        assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_update_dashboard_tile_updates_only_tile_when_different_filters(self) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        dashboard, tile = _create_dashboard_tile_with_known_cache_key(
+            self.team, insight, test_hash, dashboard_filters={"date_from": "-30d"}
+        )
+
+        synchronously_update_insight_cache(insight, dashboard)
+
+        tile.refresh_from_db()
+        insight.refresh_from_db()
+
+        assert insight.filters_hash == test_hash
+        assert insight.last_refresh is None
+        assert tile.filters_hash != test_hash
+        assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+
+def run_cache_update(patch_update_cache_item: MagicMock) -> None:
+    update_cached_items()
+    # pass the caught calls straight to the function
+    # we do this to skip Redis
+    for call_item in patch_update_cache_item.call_args_list:
+        update_cache_item(*call_item[0])
+
+
 class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
-    def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
+    def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, _: MagicMock) -> None:
         # There's two things we want to refresh
         # Any shared dashboard, as we only use cached items to show those
         # Any dashboard accessed in the last 7 days
@@ -126,12 +245,8 @@ class TestUpdateCache(APIBaseTest):
 
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
         funnel_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
-        update_cached_items()
 
-        # pass the caught calls straight to the function
-        # we do this to skip Redis
-        for call_item in patch_update_cache_item.call_args_list:
-            update_cache_item(*call_item[0])
+        run_cache_update(patch_update_cache_item)
 
         self.assertIsNotNone(Insight.objects.get(pk=cached_insight_because_no_dashboard_filters.pk).last_refresh)
         self.assertIsNotNone(
@@ -339,7 +454,7 @@ class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     @freeze_time("2012-01-15")
-    def test_stickiness_regression(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
+    def test_stickiness_regression(self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock) -> None:
         # We moved Stickiness from being a "shown_as" item to its own insight
         # This move caused issues hence a regression test
         filter_stickiness = StickinessFilter(
@@ -371,10 +486,7 @@ class TestUpdateCache(APIBaseTest):
         item_stickiness_key = generate_cache_key(filter_stickiness.toJSON() + "_" + str(self.team.pk))
         item_key = generate_cache_key(filter.toJSON() + "_" + str(self.team.pk))
 
-        update_cached_items()
-
-        for call_item in patch_update_cache_item.call_args_list:
-            update_cache_item(*call_item[0])
+        run_cache_update(patch_update_cache_item)
 
         self.assertEqual(
             get_safe_cache(item_stickiness_key)["result"][0]["labels"],
@@ -391,54 +503,58 @@ class TestUpdateCache(APIBaseTest):
         When there are no filters on the dashboard the tile and insight cache key match
         the cache only updates cache counts on the Insight not the dashboard tile
         """
-        dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
-        item_to_cache = Insight.objects.create(
-            filters=Filter(
-                data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
-            ).to_dict(),
-            team=self.team,
-        )
-        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
+            item_to_cache = Insight.objects.create(
+                filters=Filter(
+                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+                ).to_dict(),
+                team=self.team,
+            )
+            DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
 
-        patch_calculate_by_filter.side_effect = Exception()
+            patch_calculate_by_filter.side_effect = Exception()
 
-        def _update_cached_items() -> None:
-            # This function will throw an exception every time which is what we want in production
-            try:
-                update_cached_items()
-            except Exception:
-                pass
+            def _update_cached_items() -> None:
+                # This function will throw an exception every time which is what we want in production
+                try:
+                    update_cached_items()
+                except Exception:
+                    pass
 
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 1)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 2)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 1)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 2)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
 
-        # Magically succeeds, reset counter
-        patch_calculate_by_filter.side_effect = None
-        patch_calculate_by_filter.return_value = {"some": "exciting results"}
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 0)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # Magically succeeds, reset counter
+            patch_calculate_by_filter.side_effect = None
+            patch_calculate_by_filter.return_value = {"some": "exciting results"}
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
-        # We should retry a max of 3 times
-        patch_calculate_by_filter.reset_mock()
-        patch_calculate_by_filter.side_effect = Exception()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, 3)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
-        self.assertEqual(patch_calculate_by_filter.call_count, 3)
+            # tick forwards since we ignore recently refreshed tiles
+            frozen_datetime.tick(timedelta(minutes=4))
 
-        # If a user later comes back and manually refreshes we should reset refresh_attempt
-        patch_calculate_by_filter.side_effect = None
-        self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
-        self.assertEqual(Insight.objects.get().refresh_attempt, 0)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # We should retry a max of 3 times
+            patch_calculate_by_filter.reset_mock()
+            patch_calculate_by_filter.side_effect = Exception()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, 3)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            self.assertEqual(patch_calculate_by_filter.call_count, 3)
+
+            # If a user later comes back and manually refreshes we should reset refresh_attempt
+            patch_calculate_by_filter.side_effect = None
+            self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
+            self.assertEqual(Insight.objects.get().refresh_attempt, 0)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
     @patch("posthog.tasks.update_cache._calculate_by_filter")
     def test_errors_refreshing_dashboard_tile(self, patch_calculate_by_filter: MagicMock) -> None:
@@ -446,58 +562,61 @@ class TestUpdateCache(APIBaseTest):
         When a filters_hash matches the dashboard tile and not the insight the cache update doesn't touch the Insight
         but does touch the tile
         """
-        dashboard_to_cache = create_shared_dashboard(
-            team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-14d"}
-        )
-        item_to_cache = Insight.objects.create(
-            filters=Filter(
-                data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
-            ).to_dict(),
-            team=self.team,
-        )
-        DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            dashboard_to_cache = create_shared_dashboard(
+                team=self.team, is_shared=True, last_accessed_at=now(), filters={"date_from": "-14d"}
+            )
+            item_to_cache = Insight.objects.create(
+                filters=Filter(
+                    data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}],}
+                ).to_dict(),
+                team=self.team,
+            )
+            DashboardTile.objects.create(insight=item_to_cache, dashboard=dashboard_to_cache)
 
-        patch_calculate_by_filter.side_effect = Exception()
+            patch_calculate_by_filter.side_effect = Exception()
 
-        def _update_cached_items() -> None:
-            # This function will throw an exception every time which is what we want in production
-            try:
-                update_cached_items()
-            except Exception:
-                pass
+            def _update_cached_items() -> None:
+                # This function will throw an exception every time which is what we want in production
+                try:
+                    update_cached_items()
+                except Exception:
+                    pass
 
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
 
-        # Magically succeeds, reset counter
-        patch_calculate_by_filter.side_effect = None
-        patch_calculate_by_filter.return_value = {"some": "exciting results"}
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # Magically succeeds, reset counter
+            patch_calculate_by_filter.side_effect = None
+            patch_calculate_by_filter.return_value = {"some": "exciting results"}
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
-        # We should retry a max of 3 times
-        patch_calculate_by_filter.reset_mock()
-        patch_calculate_by_filter.side_effect = Exception()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        _update_cached_items()
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
-        self.assertEqual(patch_calculate_by_filter.call_count, 3)
+            # tick forwards since we ignore recently refreshed tiles
+            frozen_datetime.tick(timedelta(minutes=4))
+            # We should retry a max of 3 times
+            patch_calculate_by_filter.reset_mock()
+            patch_calculate_by_filter.side_effect = Exception()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            _update_cached_items()
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(patch_calculate_by_filter.call_count, 3)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
 
-        # If a user later comes back and manually refreshes we should reset refresh_attempt
-        patch_calculate_by_filter.side_effect = None
-        self.client.get(
-            f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true&from_dashboard={dashboard_to_cache.id}"
-        )
-        self.assertEqual(Insight.objects.get().refresh_attempt, None)
-        self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            # If a user later comes back and manually refreshes we should reset refresh_attempt
+            patch_calculate_by_filter.side_effect = None
+            self.client.get(
+                f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true&from_dashboard={dashboard_to_cache.id}"
+            )
+            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:
@@ -585,7 +704,7 @@ class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     @freeze_time("2022-01-03T00:00:00.000Z")
-    def test_refresh_insight_cache(self, patch_update_cache_item: MagicMock, patch_apply_async: MagicMock) -> None:
+    def test_refresh_insight_cache(self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock) -> None:
         filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -604,7 +723,7 @@ class TestUpdateCache(APIBaseTest):
                 filters=filter_dict,
                 last_refresh=datetime(2022, 1, 1).replace(tzinfo=pytz.utc),
             )
-            for i in range(PARALLEL_INSIGHT_CACHE - 1)
+            for _ in range(PARALLEL_INSIGHT_CACHE - 1)
         ]
 
         # Valid insights outside of the PARALLEL_INSIGHT_CACHE count with later refresh date to ensure order
@@ -637,55 +756,11 @@ class TestUpdateCache(APIBaseTest):
             assert not Insight.objects.get(pk=insight.pk).last_refresh == datetime(2022, 1, 2).replace(tzinfo=pytz.utc)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_update_insight_filters_hash(self) -> None:
-        test_hash = "rongi rattad ragisevad"
-        insight = self._create_insight_with_known_cache_key(test_hash)
-
-        update_insight_cache(insight, None)
-
-        insight.refresh_from_db()
-        assert insight.filters_hash != test_hash
-        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_update_dashboard_tile_updates_tile_and_insight_filters_hash_when_dashboard_has_no_filters(self) -> None:
-        test_hash = "rongi rattad ragisevad"
-        insight = self._create_insight_with_known_cache_key(test_hash)
-        dashboard, tile = self._create_dashboard_tile_with_known_cache_key(insight, test_hash)
-
-        update_insight_cache(insight, dashboard)
-
-        insight.refresh_from_db()
-        tile.refresh_from_db()
-        assert insight.filters_hash != test_hash
-        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
-        assert tile.filters_hash != test_hash
-        assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    def test_update_dashboard_tile_updates_only_tile_when_different_filters(self) -> None:
-        test_hash = "rongi rattad ragisevad"
-        insight = self._create_insight_with_known_cache_key(test_hash)
-        dashboard, tile = self._create_dashboard_tile_with_known_cache_key(
-            insight, test_hash, dashboard_filters={"date_from": "-30d"}
-        )
-
-        update_insight_cache(insight, dashboard)
-
-        tile.refresh_from_db()
-        insight.refresh_from_db()
-
-        assert insight.filters_hash == test_hash
-        assert insight.last_refresh is None
-        assert tile.filters_hash != test_hash
-        assert tile.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cache_key_that_matches_no_assets_still_counts_as_a_refresh_attempt_for_dashboard_tiles(self) -> None:
         test_hash = "märg koer lamab parimal tekil"
-        insight = self._create_insight_with_known_cache_key(test_hash)
-        dashboard, tile = self._create_dashboard_tile_with_known_cache_key(
-            insight, test_hash, dashboard_filters={"date_from": "-30d"}
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        dashboard, tile = _create_dashboard_tile_with_known_cache_key(
+            self.team, insight, test_hash, dashboard_filters={"date_from": "-30d"}
         )
 
         assert insight.refresh_attempt is None
@@ -715,7 +790,7 @@ class TestUpdateCache(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cache_key_that_matches_no_assets_still_counts_as_a_refresh_attempt_for_insights(self) -> None:
         test_hash = "märg koer lamab parimal tekil"
-        insight = self._create_insight_with_known_cache_key(test_hash)
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
 
         assert insight.refresh_attempt is None
 
@@ -754,11 +829,11 @@ class TestUpdateCache(APIBaseTest):
     @freeze_time("2022-12-01T13:54:00.000Z")
     @patch("posthog.tasks.update_cache.statsd.gauge")
     def test_refresh_age_of_tiles_is_gauged(self, statsd_gauge: MagicMock) -> None:
-        tile_one = self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=1))
-        tile_two = self._a_dashboard_tile_with_known_last_refresh(datetime.now(pytz.utc) - timedelta(hours=0.5))
+        tile_one = _a_dashboard_tile_with_known_last_refresh(self.team, datetime.now(pytz.utc) - timedelta(hours=1))
+        tile_two = _a_dashboard_tile_with_known_last_refresh(self.team, datetime.now(pytz.utc) - timedelta(hours=0.5))
 
         # should not gauge because no last_refresh
-        self._a_dashboard_tile_with_known_last_refresh(None)
+        _a_dashboard_tile_with_known_last_refresh(self.team, None)
 
         update_cached_items()
 
@@ -790,57 +865,191 @@ class TestUpdateCache(APIBaseTest):
         ]
         assert len(lag_calls) == 2
 
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "None"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_update_skips_items_refreshed_in_last_three_minutes(
+        self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock, _patch_generate_results: MagicMock
+    ) -> None:
+
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            # two tiles that share a hash
+            # only one on a shared dashboard
+            # the dashboard has no filters so both insights and the tile share a hash key
+            insight_one = _create_insight_with_known_cache_key(self.team, None)
+            insight_two = _create_insight_with_known_cache_key(self.team, None)
+            dashboard, tile = _create_dashboard_tile_with_known_cache_key(
+                self.team, insight_one, None, last_accessed_at=datetime.now(pytz.utc)
+            )
+
+            run_cache_update(patch_update_cache_item)
+
+            tile.refresh_from_db()
+            insight_one.refresh_from_db()
+            insight_two.refresh_from_db()
+
+            assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_one.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_two.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+            frozen_datetime.tick(delta=timedelta(minutes=1))
+
+            patch_update_cache_item.reset_mock()
+            run_cache_update(patch_update_cache_item)
+
+            # refresh dates don't change
+            tile.refresh_from_db()
+            insight_one.refresh_from_db()
+            insight_two.refresh_from_db()
+
+            assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_one.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+            assert insight_two.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter")
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
     @patch("posthog.tasks.update_cache.statsd.incr")
-    def test_update_insight_cache_reports_on_updating_tiles_with_no_hash(self, statsd_incr: MagicMock) -> None:
-        tile = self._a_dashboard_tile_with_known_last_refresh(last_refresh_date=None)
+    def test_update_insight_cache_reports_on_updating_tiles_with_no_hash(
+        self,
+        statsd_incr: MagicMock,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        tile = _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None)
         # can't set filters_hash=None on a route that triggers save
         DashboardTile.objects.filter(id=tile.id).update(filters_hash=None)
         tile.refresh_from_db()
         assert tile.filters_hash is None
 
-        update_insight_cache(tile.insight, tile.dashboard)
+        run_cache_update(patch_update_cache_item)
 
         statsd_incr.assert_any_call("update_cache_queue.set_missing_filters_hash", 1)
 
         tile.refresh_from_db()
         assert tile.filters_hash is not None
 
-    def _a_dashboard_tile_with_known_last_refresh(self, last_refresh_date: Optional[datetime]) -> DashboardTile:
-        dashboard = create_shared_dashboard(team=self.team, is_shared=True)
-        filter = {"events": [{"id": "$pageview"}]}
-        item = Insight.objects.create(filters=filter, team=self.team)
-        tile: DashboardTile = DashboardTile.objects.create(insight=item, dashboard=dashboard)
-        tile.last_refresh = last_refresh_date
-        tile.save(update_fields=["last_refresh"])
-        return tile
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not", "an empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_update_insight_filters_hash(
+        self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock, _patch_generate_results: MagicMock,
+    ) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        dashboard, tile = _create_dashboard_tile_with_known_cache_key(
+            self.team, insight, test_hash, last_accessed_at=datetime.now(pytz.utc) - timedelta(days=1)
+        )
 
-    def _create_insight_with_known_cache_key(self, test_hash: str) -> Insight:
-        filter_dict: Dict[str, Any] = {
-            "events": [{"id": "$pageview"}],
-            "properties": [{"key": "$browser", "value": "Mac OS X"}],
-        }
-        insight: Insight = Insight.objects.create(team=self.team, filters=filter_dict)
-        insight.filters_hash = test_hash
-        insight.save(update_fields=["filters_hash"])
+        run_cache_update(patch_update_cache_item)
 
         insight.refresh_from_db()
-        assert insight.filters_hash == test_hash
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
 
-        return insight
-
-    def _create_dashboard_tile_with_known_cache_key(
-        self, insight: Insight, test_hash: str, dashboard_filters: Optional[Dict] = None
-    ) -> Tuple[Dashboard, DashboardTile]:
-        dashboard: Dashboard = Dashboard.objects.create(
-            team=self.team, filters=dashboard_filters if dashboard_filters else {}
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_update_dashboard_tile_updates_tile_and_insight_filters_hash_when_dashboard_has_no_filters(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        dashboard, tile = _create_dashboard_tile_with_known_cache_key(
+            self.team, insight, test_hash, last_accessed_at=datetime.now(pytz.utc) - timedelta(days=1)
         )
-        tile: DashboardTile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
-        tile.filters_hash = test_hash
-        tile.save(update_fields=["filters_hash"])
+
+        run_cache_update(patch_update_cache_item)
+
+        insight.refresh_from_db()
+        tile.refresh_from_db()
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+        assert tile.filters_hash != test_hash
+        assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_update_dashboard_tile_updates_only_tile_when_different_filters(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        test_hash = "rongi rattad ragisevad"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        dashboard, tile = _create_dashboard_tile_with_known_cache_key(
+            self.team,
+            insight,
+            test_hash,
+            dashboard_filters={"date_from": "-30d"},
+            last_accessed_at=datetime.now(pytz.utc) - timedelta(days=1),
+        )
+
+        run_cache_update(patch_update_cache_item)
 
         tile.refresh_from_db()
         insight.refresh_from_db()
-        assert tile.filters_hash == test_hash
-        assert insight.filters_hash == test_hash
 
-        return dashboard, tile
+        assert insight.filters_hash == test_hash
+        assert insight.last_refresh is None
+        assert tile.filters_hash != test_hash
+        assert tile.last_refresh.isoformat() == "2021-08-25T22:09:14.252000+00:00"
+
+
+class TestUpdateCacheForSharedInsights(APIBaseTest):
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_updates_insight_with_incorrect_filters_hash(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        test_hash = "ma räägin temaga, aga vaatan sind"
+        insight = _create_insight_with_known_cache_key(self.team, test_hash)
+        SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        run_cache_update(patch_update_cache_item)
+        insight.refresh_from_db()
+
+        assert insight.filters_hash != test_hash
+        assert insight.last_refresh is not None
+
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_updates_insight_with_null_filters_hash(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+
+        insight = _create_insight_with_known_cache_key(self.team, None)
+        SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        run_cache_update(patch_update_cache_item)
+        insight.refresh_from_db()
+
+        assert insight.filters_hash is not None
+        assert insight.last_refresh is not None

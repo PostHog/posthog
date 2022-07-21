@@ -12,18 +12,16 @@ services:
     db:
         image: postgres:12-alpine
         restart: on-failure
+        network_mode: host
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
-        ports:
-            - '5432:5432'
 
     redis:
         image: redis:6.2.7-alpine
         restart: on-failure
-        ports:
-            - '6379:6379'
+        network_mode: host
         command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
 
     clickhouse:
@@ -33,14 +31,10 @@ services:
         #
         image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
         restart: on-failure
+        network_mode: host
         depends_on:
             - kafka
             - zookeeper
-        ports:
-            - '8123:8123'
-            - '9000:9000'
-            - '9440:9440'
-            - '9009:9009'
         volumes:
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
@@ -49,28 +43,26 @@ services:
     zookeeper:
         image: zookeeper:3.7.0
         restart: on-failure
+        network_mode: host
 
     kafka:
         image: bitnami/kafka:2.8.1-debian-10-r99
         restart: on-failure
+        network_mode: host
         depends_on:
             - zookeeper
-        ports:
-            - '9092:9092'
         environment:
             KAFKA_BROKER_ID: 1001
             KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
             KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
-            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+            KAFKA_CFG_ZOOKEEPER_CONNECT: localhost:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
     object_storage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
         restart: on-failure
-        ports:
-            - '19000:19000'
-            - '19001:19001'
+        network_mode: host
         environment:
             MINIO_ROOT_USER: object_storage_root_user
             MINIO_ROOT_PASSWORD: object_storage_root_password
@@ -80,6 +72,4 @@ services:
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
-        ports:
-            - '1080:1080'
-            - '1025:1025'
+        network_mode: host

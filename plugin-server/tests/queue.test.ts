@@ -19,7 +19,7 @@ describe('queue', () => {
         beforeEach(async () => {
             ;[hub, closeHub] = await createHub({
                 LOG_LEVEL: LogLevel.Warn,
-                KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'kafka:9092',
+                KAFKA_HOSTS: process.env.KAFKA_HOSTS || 'localhost:9092',
             })
             piscina = { run: jest.fn() } as any
         })

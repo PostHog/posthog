@@ -1,5 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import {
+    Element,
     Meta,
     PluginAttachment,
     PluginConfigSchema,
@@ -201,12 +202,13 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
-    processJobs?: boolean
+    processPluginJobs?: boolean
     processAsyncHandlers?: boolean
     http?: boolean
 }
 
-export interface EnqueuedJob {
+export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
+export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
@@ -214,8 +216,14 @@ export interface EnqueuedJob {
     pluginConfigTeam: number
 }
 
+export interface EnqueuedBufferJob {
+    eventPayload: PluginEvent
+    timestamp: number
+}
+
 export enum JobName {
     PLUGIN_JOB = 'pluginJob',
+    BUFFER_JOB = 'bufferJob',
 }
 
 export interface JobQueue {
@@ -269,9 +277,9 @@ export interface Plugin {
     plugin_type: 'local' | 'respository' | 'custom' | 'source'
     description?: string
     is_global: boolean
-    is_preinstalled: boolean
+    is_preinstalled?: boolean
     url?: string
-    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
+    config_schema?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
     /** @deprecated Replaced with source__index_ts */
     source?: string
@@ -284,8 +292,8 @@ export interface Plugin {
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
-    created_at: string
-    updated_at: string
+    created_at?: string
+    updated_at?: string
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
@@ -504,20 +512,8 @@ export interface Team {
     ingested_event: boolean
 }
 
-/** Usable Element model. */
-export interface Element {
-    text?: string
-    tag_name?: string
-    href?: string
-    attr_id?: string
-    attr_class?: string[]
-    nth_child?: number
-    nth_of_type?: number
-    attributes?: Record<string, any>
-    event_id?: number
-    order?: number
-    group_id?: number
-}
+/** Re-export Element from scaffolding, for backwards compat. */
+export { Element } from '@posthog/plugin-scaffold'
 
 /** Usable Event model. */
 export interface Event {

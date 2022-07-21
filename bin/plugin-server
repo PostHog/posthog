@@ -23,7 +23,7 @@ done
 
 export BASE_DIR=$(dirname $(dirname "$PWD/${0#./}"))
 
-export KAFKA_URL=${KAFKA_URL:-'kafka://kafka:9092'}
+export KAFKA_URL=${KAFKA_URL:-'kafka://localhost:9092'}
 export KAFKA_HOSTS
 
 ./bin/migrate-check
@@ -44,7 +44,7 @@ fi
 
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."
-  trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' SIGTERM
+  trap 'kill -TERM $child 2>/dev/null; while kill -0 $child 2>/dev/null; do sleep 1; done' EXIT
   yarn $cmd &
   child=$!
   wait $child

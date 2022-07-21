@@ -3,8 +3,10 @@ import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
+from uuid import UUID
 
 import structlog
+from django.db.models import QuerySet
 from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
@@ -411,3 +413,12 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         {ordering}
     """
     )
+
+
+def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
+    try:
+        # Test if value is a UUID
+        UUID(key)  # type: ignore
+        return queryset.filter(uuid=key)
+    except ValueError:
+        return queryset.filter(pk=key)

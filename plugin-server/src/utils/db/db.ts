@@ -2041,13 +2041,4 @@ export class DB {
         )
         return response.rowCount > 0
     }
-
-    public async addEventToBuffer(event: Record<string, any>, processAt: DateTime): Promise<void> {
-        await this.postgresQuery(
-            `INSERT INTO posthog_eventbuffer (event, process_at, locked) VALUES ($1, $2, $3)`,
-            [event, processAt.toISO(), false],
-            'addEventToBuffer'
-        )
-        this.statsd?.increment('events_sent_to_buffer')
-    }
 }

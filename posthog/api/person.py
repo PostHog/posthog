@@ -12,13 +12,13 @@ from typing import (
     cast,
 )
 
-from django.db.models import Q
-from django.db.models.query import Prefetch
-from django_filters import rest_framework as filters
+from django.db.models import Prefetch
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import CursorPagination
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -27,10 +27,19 @@ from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import capture_internal
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.utils import format_paginated_url, get_target_entity
+from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
+from posthog.api.routing import PKorUUIDViewSet, StructuredViewSetMixin
+from posthog.api.utils import format_paginated_url, get_pk_or_uuid, get_target_entity
 from posthog.client import sync_execute
-from posthog.constants import CSV_EXPORT_LIMIT, INSIGHT_FUNNELS, INSIGHT_PATHS, LIMIT, TRENDS_TABLE, FunnelVizType
+from posthog.constants import (
+    CSV_EXPORT_LIMIT,
+    INSIGHT_FUNNELS,
+    INSIGHT_PATHS,
+    LIMIT,
+    OFFSET,
+    TRENDS_TABLE,
+    FunnelVizType,
+)
 from posthog.decorators import cached_function
 from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
@@ -43,11 +52,12 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
 from posthog.models.person.util import delete_ch_distinct_ids, delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.actor_base_query import ActorBaseQuery
+from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.paths import PathsActors
+from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -58,11 +68,26 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 
-class PersonCursorPagination(CursorPagination):
-    ordering = "-id"
-    page_size = 100
-    page_size_query_param = "limit"
-    max_page_size = 1000
+class PersonLimitOffsetPagination(LimitOffsetPagination):
+    def get_paginated_response_schema(self, schema):
+        return {
+            "type": "object",
+            "properties": {
+                "next": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "https://app.posthog.com/api/projects/{project_id}/accounts/?offset=400&limit=100",
+                },
+                "previous": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "https://app.posthog.com/api/projects/{project_id}/accounts/?offset=400&limit=100",
+                },
+                "results": schema,
+            },
+        }
 
 
 def get_person_name(person: Person) -> str:
@@ -87,7 +112,7 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
             "created_at",
             "uuid",
         ]
-        read_only_fields = ("id", "distinct_ids", "created_at", "uuid")
+        read_only_fields = ("id", "name", "distinct_ids", "created_at", "uuid")
 
     def get_name(self, person: Person) -> str:
         return get_person_name(person)
@@ -96,60 +121,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         representation = super().to_representation(instance)
         representation["distinct_ids"] = sorted(representation["distinct_ids"], key=is_anonymous_id)
         return representation
-
-
-class PersonFilter(filters.FilterSet):
-    email = filters.CharFilter(field_name="properties__email")
-    distinct_id = filters.CharFilter(method="distinct_id_filter")
-    key_identifier = filters.CharFilter(method="key_identifier_filter", help_text="Filter on email or distinct ID")
-    uuid = filters.CharFilter(method="uuid_filter")
-    search = filters.CharFilter(method="search_filter")
-    cohort = filters.CharFilter(method="cohort_filter", help_text="ID of a cohort the user belongs to")
-    properties = filters.CharFilter(method="properties_filter")
-
-    def __init__(self, data=None, queryset=None, *, request=None, prefix=None, team_id=None):
-        self.team_id = team_id
-        return super().__init__(data=data, queryset=queryset, request=request, prefix=prefix)
-
-    def distinct_id_filter(self, queryset, attr, value, *args, **kwargs):
-        queryset = queryset.filter(persondistinctid__distinct_id=value, persondistinctid__team_id=self.team_id)
-        return queryset
-
-    def cohort_filter(self, queryset, attr, value, *args, **kwargs):
-        cohort = Cohort.objects.get(pk=value)
-        queryset = queryset.filter(cohort__id=cohort.pk, cohortpeople__version=cohort.version)
-        return queryset
-
-    def key_identifier_filter(self, queryset, attr, value, *args, **kwargs):
-        """
-        Filters persons by email or distinct ID
-        """
-        return queryset.filter(Q(persondistinctid__distinct_id=value) | Q(properties__email=value))
-
-    def uuid_filter(self, queryset, attr, value, *args, **kwargs):
-        uuids = value.split(",")
-        return queryset.filter(uuid__in=uuids)
-
-    def search_filter(self, queryset, attr, value, *args, **kwargs):
-        return queryset.filter(
-            Q(properties__icontains=value) | Q(persondistinctid__distinct_id__icontains=value)
-        ).distinct("id")
-
-    def properties_filter(self, queryset, attr, value, *args, **kwargs):
-        filter = Filter(data={"properties": json.loads(value)})
-        from posthog.queries.base import properties_to_Q
-
-        return queryset.filter(
-            properties_to_Q(
-                [prop for prop in filter.property_groups.flat if prop.type == "person"],
-                team_id=self.team_id,
-                is_direct_query=True,
-            )
-        )
-
-    class Meta:
-        model = Person
-        fields = ["email"]
 
 
 def should_paginate(results, limit: Union[str, int]) -> bool:
@@ -182,25 +153,69 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
     return funnel_actor_class
 
 
-class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
-    pagination_class = PersonCursorPagination
-    filterset_class = PersonFilter
+    pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
 
-    def paginate_queryset(self, queryset):
-        if self.request.accepted_renderer.format == "csv" or not self.paginator:
-            return None
-        return self.paginator.paginate_queryset(queryset, self.request, view=self)
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
+        return queryset
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "email",
+                OpenApiTypes.STR,
+                description="Filter persons by email (exact match)",
+                examples=[OpenApiExample(name="email", value="test@test.com")],
+            ),
+            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                description="Search persons, either by email (full text search) or distinct_id (exact match).",
+            ),
+            PersonPropertiesSerializer(required=False),
+        ],
+    )
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        team = self.team
+        filter = Filter(request=request, team=self.team)
+
+        is_csv_request = self.request.accepted_renderer.format == "csv"
+        if is_csv_request:
+            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+        elif not filter.limit:
+            filter = filter.with_data({LIMIT: 100})
+
+        query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
+
+        raw_result = sync_execute(query, params)
+
+        actor_ids = [row[0] for row in raw_result]
+        actors, serialized_actors = get_people(team.pk, actor_ids)
+
+        _should_paginate = should_paginate(actors, filter.limit)
+        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
+        previous_url = (
+            format_query_params_absolute_url(request, filter.offset - filter.limit)
+            if filter.offset - filter.limit >= 0
+            else None
+        )
+
+        return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
-            person = Person.objects.get(team=self.team, pk=pk)
+            person = self.get_object()
             person_id = person.id
 
             delete_person(person=person)
@@ -222,18 +237,6 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response(status=204)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        queryset = self.filterset_class(self.request.GET, queryset=queryset, team_id=self.team.id).qs
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-        queryset = queryset.only("id", "created_at", "properties", "uuid")
-
-        is_csv_request = self.request.accepted_renderer.format == "csv"
-        if is_csv_request:
-            return queryset[0:CSV_EXPORT_LIMIT]
-
-        return queryset
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
@@ -260,7 +263,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @cached_function
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}
 
@@ -311,7 +314,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     @cached_function
-    def calculate_path_persons(self, request: request.Request) -> Dict[str, Tuple[list, Optional[str], Optional[str]]]:
+    def calculate_path_persons(self, request: request.Request) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None)}
 
@@ -370,7 +373,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))
-        person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person = self.get_object()
         person.merge_people([p for p in people])
 
         data = PersonSerializer(person).data
@@ -410,7 +413,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def split(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
         split_person.delay(person.id, request.data.get("main_distinct_id", None))
@@ -429,7 +432,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["POST"], detail=True)
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        person: Person = Person.objects.get(pk=pk, team_id=self.team_id)
+        person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
         capture_internal(
             distinct_id=person.distinct_ids[0],
@@ -545,7 +548,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 status=400,
             )
 
-        person = self.get_queryset().get(id=str(request.GET["person_id"]))
+        person = get_pk_or_uuid(self.get_queryset(), request.GET["person_id"]).get()
         cohort_ids = get_all_cohort_ids_by_person_uuid(person.uuid, team.pk)
 
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
@@ -572,7 +575,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
-        instance = self.get_queryset().get(pk=kwargs["pk"])
+        instance = self.get_object()
         capture_internal(
             distinct_id=instance.distinct_ids[0],
             ip=None,
