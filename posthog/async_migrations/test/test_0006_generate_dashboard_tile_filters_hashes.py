@@ -5,6 +5,7 @@ from posthog.async_migrations.setup import get_async_migration_definition, setup
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.async_migrations.utils import execute_op_postgres
 from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models.utils import UUIDT
 
 MIGRATION_NAME = "0006_generate_dashboard_tile_filters_hashes"
 
@@ -45,8 +46,9 @@ class Test0006GenerateDashboardTilesFiltersHashes(AsyncMigrationBaseTest):
     def _create_tile_with_no_filters_hash(self, dashboard, insight):
         # can't use the model to create the tile or the filters_hash is populated
         execute_op_postgres(
-            sql=f"""insert into posthog_dashboardtile
-                (dashboard_id, insight_id, layouts)
-            values ({dashboard.id}, {insight.id}, '{{}}');""",
-            query_id="insert the tile",
+            sql=f"""
+            INSERT INTO posthog_dashboardtile (dashboard_id, insight_id, layouts)
+            VALUES ({dashboard.id}, {insight.id}, '{{}}');
+            """,
+            query_id=str(UUIDT()),
         )
