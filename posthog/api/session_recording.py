@@ -1,7 +1,8 @@
 import dataclasses
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -10,7 +11,13 @@ from rest_framework.response import Response
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.helpers.session_recording import RecordingEventSummary, get_metadata_from_event_summaries
+from posthog.helpers.session_recording import (
+    DecompressedRecordingData,
+    RecordingEventSummary,
+    SnapshotData,
+    WindowId,
+    get_metadata_from_event_summaries,
+)
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
@@ -56,7 +63,41 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()
 
+    def _read_and_combine_object_storage_files(self, folder, limit=None, offset=None):
+        files = list_all_objects(folder)
+        has_next = False
+        if limit is not None:
+            files = files[offset : offset + limit]
+            has_next = len(files) > limit + offset
+
+        file_names = [object["Key"] for object in files]
+
+        file_contents = read_all(file_names)
+        rows = [
+            event_summary_string
+            for _, metadata_string in file_contents
+            for event_summary_string in metadata_string.split("\n")
+        ]
+        combined_json_string = "[" + ",".join(rows) + "]"
+        combined_data = json.loads(combined_json_string)
+        return combined_data, has_next
+
+    def _get_session_recording_snapshots_from_object_storage(
+        self, session_recording_id, limit, offset
+    ) -> DecompressedRecordingData:
+        session_data_folder = f"session_recordings/team_id/{self.team_id}/session_id/{session_recording_id}/data/"
+        session_data, has_next = self._read_and_combine_object_storage_files(session_data_folder, limit, offset)
+        snapshot_data_by_window_id: Dict[WindowId, List[SnapshotData]] = defaultdict(list)
+
+        for snapshot_data in session_data:
+            snapshot_data_by_window_id[snapshot_data.get("$window_id", "")].append(snapshot_data)
+
+        return DecompressedRecordingData(has_next=has_next, snapshot_data_by_window_id=snapshot_data_by_window_id)
+
     def _get_session_recording_snapshots(self, request, session_recording_id, limit, offset):
+
+        if should_read_recordings_from_object_storage(self.team_id):
+            return self._get_session_recording_snapshots_from_object_storage(session_recording_id, limit, offset)
         return SessionRecording(
             request=request, team=self.team, session_recording_id=session_recording_id
         ).get_snapshots(limit, offset)
@@ -67,23 +108,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         metadata_file_content = read(metadata_file)
         distinct_id = json.loads(metadata_file_content).get("distinctId")
 
-        event_summary_files = list_all_objects(f"{base_folder}event_summaries/")
+        event_summaries, _ = self._read_and_combine_object_storage_files(f"{base_folder}event_summaries/")
 
-        event_summary_file_names = [object["Key"] for object in event_summary_files]
-        event_summary_file_contents = read_all(event_summary_file_names)
-        event_summary_strings = [
-            event_summary_string
-            for _, metadata_string in event_summary_file_contents
-            for event_summary_string in metadata_string.split("\n")
-        ]
-        event_summary_json_string = "[" + ",".join(event_summary_strings) + "]"
-        event_summaries = json.loads(event_summary_json_string)
         parsed_event_summaries: List[RecordingEventSummary] = [
             RecordingEventSummary(
                 timestamp=datetime.fromtimestamp(event_summary.get("timestamp", 0) / 1000, timezone.utc),
                 window_id=event_summary.get("windowId", ""),
-                type=event_summary.get("eventType"),
-                source=event_summary.get("eventSource"),
+                type=event_summary.get("type"),
+                source=event_summary.get("source"),
             )
             for event_summary in event_summaries
         ]
