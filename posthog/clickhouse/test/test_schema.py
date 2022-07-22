@@ -6,10 +6,10 @@ from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
     CREATE_TABLE_QUERIES,
-    KAFKA_EVENTS_TABLE_SQL,
     build_query,
     get_table_name,
 )
+from posthog.models.event.sql import KAFKA_EVENTS_TABLE_JSON_SQL
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
@@ -35,9 +35,7 @@ def test_create_kafka_table_with_different_kafka_host(query, snapshot, settings)
 
 
 def test_create_kafka_events_with_disabled_protobuf(snapshot, settings):
-    settings.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS = True
-
-    assert KAFKA_EVENTS_TABLE_SQL() == snapshot
+    assert KAFKA_EVENTS_TABLE_JSON_SQL() == snapshot
 
 
 @pytest.fixture(autouse=True)
