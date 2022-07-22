@@ -38,14 +38,6 @@ class EventActivityData:
 
 
 @dataclasses.dataclass
-class RecordingEventSummary:
-    timestamp: datetime
-    window_id: str
-    type: int
-    source: Optional[int]
-
-
-@dataclasses.dataclass
 class RecordingSegment:
     start_time: datetime
     end_time: datetime
@@ -349,13 +341,28 @@ def get_session_recording_events_for_object_storage(
     recording_events_for_object_storage = []
     for event in events:
         if is_unchunked_snapshot(event):
-            # TODO: Handle payloads that aren't what we expect
+            required_properties = ["distinct_id", "$session_id", "$snapshot_data"]
+            for required_property in required_properties:
+                if required_property not in event["properties"]:
+                    e = ValueError(f'$snapshot events must contain property "{required_property}"')
+                    capture_exception(e)
+                    raise e
+
+            required_snapshot_properties = ["timestamp", "type"]
+            for required_snapshot_property in required_snapshot_properties:
+                if required_snapshot_property not in event["properties"]["$snapshot_data"]:
+                    e = ValueError(f'$snapshot events must contain snapshot data with "{required_snapshot_property}"')
+                    capture_exception(e)
+                    raise e
             distinct_id = event["properties"]["distinct_id"]
             session_id = event["properties"]["$session_id"]
             window_id = event["properties"].get("$window_id")
             recording_event_type = event["properties"]["$snapshot_data"].get("type")
             unix_timestamp = event["properties"]["$snapshot_data"]["timestamp"]
             recording_event_source = event["properties"]["$snapshot_data"].get("data", {}).get("source")
+            # We need to add the window_id to the $snapshot_data because the $snapshot_data is the only raw data
+            # sent to the client for playback, and the window_id is needed for playback
+            event["properties"]["$snapshot_data"]["$window_id"] = window_id
             recording_event_string = json.dumps(event["properties"]["$snapshot_data"])
             chunked_recording_event_string = chunk_string(recording_event_string, chunk_size)
             recording_event_id = str(utils.UUIDT())

@@ -267,22 +267,20 @@ def get_event(request):
     else:
         events = [data]
 
-    # TODO: Handle and log any exception here to make sure we don't disrupt the existing data path
-    if ingestion_context and should_write_recordings_to_object_storage(ingestion_context.team_id):
-        session_recording_events = get_session_recording_events_for_object_storage(events)
-        for recording_event in session_recording_events:
-            headers, data = parse_kafka_recording_for_object_storage_event_data(
-                ingestion_context.team_id, recording_event,
-            )
-            log_session_recording_event(
-                headers,
-                data,
-                partition_key=hashlib.sha256(
-                    f"{ingestion_context.team_id}:{recording_event.session_id}".encode()
-                ).hexdigest(),
-            )
-
     try:
+        if ingestion_context and should_write_recordings_to_object_storage(ingestion_context.team_id):
+            session_recording_events = get_session_recording_events_for_object_storage(events)
+            for recording_event in session_recording_events:
+                headers, data = parse_kafka_recording_for_object_storage_event_data(
+                    ingestion_context.team_id, recording_event,
+                )
+                log_session_recording_event(
+                    headers,
+                    data,
+                    partition_key=hashlib.sha256(
+                        f"{ingestion_context.team_id}:{recording_event.session_id}".encode()
+                    ).hexdigest(),
+                )
         events = preprocess_session_recording_events_for_clickhouse(events)
     except ValueError as e:
         return cors_response(
