@@ -13,7 +13,7 @@ from django.db.models import Q
 from django.db.models.expressions import F
 from django.db.models.query import QuerySet
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog.celery import update_cache_item_task
@@ -206,6 +206,11 @@ def _update_cache_for_queryset(
     except Exception as e:
         statsd.incr("update_cache_item_error", tags={"team": team.id})
         _mark_refresh_attempt_for(queryset)
+        with push_scope() as scope:
+            scope.set_tag("cache_key", key)
+            scope.set_tag("team_id", team.id)
+            capture_exception(e)
+        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
         raise e
 
     if result:
