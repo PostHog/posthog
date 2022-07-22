@@ -31,11 +31,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def list_all_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+    def list_all_objects(self, bucket: str, prefix: str) -> List[dict]:
         pass
 
     @abc.abstractmethod
-    def read_all(self, bucket: str, keys: List[str]) -> Optional[List[Tuple[str, str]]]:
+    def read_all(self, bucket: str, keys: List[str], max_concurrent_requests: int) -> List[Tuple[str, str]]:
         pass
 
     @abc.abstractmethod
@@ -53,10 +53,10 @@ class UnavailableStorage(ObjectStorageClient):
     def read_bytes(self, bucket: str, key: str) -> Optional[bytes]:
         pass
 
-    def list_all_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
+    def list_all_objects(self, bucket: str, prefix: str) -> List[dict]:
         pass
 
-    def read_all(self, bucket: str, keys: List[str]) -> Optional[List[Tuple[str, str]]]:
+    def read_all(self, bucket: str, keys: List[str], max_concurrent_requests: int) -> List[Tuple[str, str]]:
         pass
 
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
@@ -90,8 +90,8 @@ class ObjectStorage(ObjectStorageClient):
             logger.error("object_storage.read_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
             raise ObjectStorageError("read failed") from e
 
-    def list_all_objects(self, bucket: str, prefix: str) -> Optional[List[str]]:
-        objects = []
+    def list_all_objects(self, bucket: str, prefix: str) -> List[dict]:
+        objects: List[dict] = []
         try:
             has_next = True
             while has_next:
@@ -106,16 +106,19 @@ class ObjectStorage(ObjectStorageClient):
             logger.error("object_storage.list_all_objects_failed", bucket=bucket, prefix=prefix, error=e)
             raise ObjectStorageError("list_all_objects failed") from e
 
-    def _read_from_queue_for_threading(self, keys_queue: Queue, bucket: str, result_list: List[Tuple[str, str]]):
+    def _read_from_queue_for_threading(
+        self, keys_queue: Queue, bucket: str, result_list: List[Tuple[str, Optional[str]]]
+    ):
         while not keys_queue.empty():
             (key_index, key) = keys_queue.get()
             result_list[key_index] = (key, self.read(bucket, key))
 
-    def read_all(self, bucket: str, keys: List[str], max_concurrent_requests: int) -> Optional[List[Tuple[str, str]]]:
-        keys_queue = Queue()
-        [keys_queue.put((index, key)) for index, key in enumerate(keys)]
+    def read_all(self, bucket: str, keys: List[str], max_concurrent_requests: int) -> List[Tuple[str, str]]:
+        keys_queue: Queue[Tuple[int, str]] = Queue()
+        for index, key in enumerate(keys):
+            keys_queue.put((index, key))
         threads: list[Thread] = []
-        results_list: List[Optional[str]] = [None] * len(keys)
+        results_list: List[Optional[Tuple[str, str]]] = [None] * len(keys)
         for _ in range(max_concurrent_requests):
             thread = Thread(
                 target=self._read_from_queue_for_threading, args=(keys_queue, bucket, results_list), daemon=True,
@@ -126,7 +129,7 @@ class ObjectStorage(ObjectStorageClient):
         for t in threads:
             t.join()
 
-        return results_list
+        return results_list  # type: ignore
 
     def write(self, bucket: str, key: str, content: Union[str, bytes]) -> None:
         s3_response = {}
@@ -170,7 +173,7 @@ def read(file_name: str) -> Optional[str]:
     return object_storage_client().read(bucket=settings.OBJECT_STORAGE_BUCKET, key=file_name)
 
 
-def list_all_objects(prefix: str) -> Optional[List[str]]:
+def list_all_objects(prefix: str) -> Optional[List[dict]]:
     return object_storage_client().list_all_objects(bucket=settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
 
 

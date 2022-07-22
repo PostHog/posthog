@@ -40,7 +40,7 @@ class EventActivityData:
 @dataclasses.dataclass
 class RecordingEventSummary:
     timestamp: datetime
-    window_id: str
+    window_id: Optional[str]
     type: int
     source: Optional[int]
 
