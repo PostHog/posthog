@@ -2,7 +2,6 @@
 
 from posthog.settings.data_stores import KAFKA_PREFIX, SUFFIX
 
-KAFKA_EVENTS = f"{KAFKA_PREFIX}clickhouse_events_proto{SUFFIX}"
 KAFKA_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_events_json{SUFFIX}"
 KAFKA_PERSON = f"{KAFKA_PREFIX}clickhouse_person{SUFFIX}"
 KAFKA_PERSON_UNIQUE_ID = f"{KAFKA_PREFIX}clickhouse_person_unique_id{SUFFIX}"
