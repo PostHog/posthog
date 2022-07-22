@@ -400,6 +400,9 @@ def get_session_recording_events_for_object_storage(
             recording_event_type = event["properties"]["$snapshot_data"].get("type")
             unix_timestamp = event["properties"]["$snapshot_data"]["timestamp"]
             recording_event_source = event["properties"]["$snapshot_data"].get("data", {}).get("source")
+            # We need to add the window_id to the $snapshot_data because the $snapshot_data is the only raw data
+            # sent to the client for playback, and the window_id is needed for playback
+            event["properties"]["$snapshot_data"]["$window_id"] = window_id
             recording_event_string = json.dumps(event["properties"]["$snapshot_data"])
             chunked_recording_event_string = chunk_string(recording_event_string, chunk_size)
             recording_event_id = str(utils.UUIDT())
