@@ -34,6 +34,7 @@ const NEW_FLAG: FeatureFlagType = {
     is_simple_flag: false,
     rollout_percentage: null,
     ensure_experience_continuity: false,
+    experiment_set: null,
 }
 const NEW_VARIANT = {
     key: '',
@@ -298,6 +299,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 object: { name: featureFlag.name, id: featureFlag.id },
                 callback: () => {
                     featureFlag.id && featureFlagsLogic.findMounted()?.actions.deleteFlag(featureFlag.id)
+                    featureFlagsLogic.findMounted()?.actions.loadFeatureFlags()
                     router.actions.push(urls.featureFlags())
                 },
             })

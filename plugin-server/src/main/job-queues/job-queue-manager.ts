@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
+import { TaskList } from 'graphile-worker'
 
-import { EnqueuedJob, Hub, JobQueue, JobQueueType, OnJobCallback } from '../../types'
+import { EnqueuedJob, Hub, JobQueue, JobQueueType } from '../../types'
 import { status } from '../../utils/status'
 import { logOrThrowJobQueueError } from '../../utils/utils'
 import { jobQueueMap } from './job-queues'
@@ -49,10 +50,11 @@ export class JobQueueManager implements JobQueue {
         }
     }
 
-    async enqueue(job: EnqueuedJob): Promise<void> {
+    async enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         for (const jobQueue of this.jobQueues) {
             try {
-                await jobQueue.enqueue(job)
+                await jobQueue.enqueue(jobName, job)
+                this.pluginsServer.statsd?.increment('enqueue_job.success', { jobName })
                 return
             } catch (error) {
                 // if one fails, take the next queue
@@ -65,15 +67,27 @@ export class JobQueueManager implements JobQueue {
                 })
             }
         }
-        throw new Error('No JobQueue available')
+
+        this.pluginsServer.statsd?.increment('enqueue_job.fail', { jobName })
+
+        const error = new Error('No JobQueue available')
+        Sentry.captureException(error, {
+            extra: {
+                jobName,
+                job: JSON.stringify(job),
+                queues: this.jobQueues.map((q) => q.toString()),
+            },
+        })
+
+        throw error
     }
 
     async disconnectProducer(): Promise<void> {
         await Promise.all(this.jobQueues.map((r) => r.disconnectProducer()))
     }
 
-    async startConsumer(onJob: OnJobCallback): Promise<void> {
-        await Promise.all(this.jobQueues.map((r) => r.startConsumer(onJob)))
+    async startConsumer(jobHandlers: TaskList): Promise<void> {
+        await Promise.all(this.jobQueues.map((r) => r.startConsumer(jobHandlers)))
     }
 
     async stopConsumer(): Promise<void> {

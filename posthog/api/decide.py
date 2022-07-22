@@ -1,5 +1,4 @@
 import re
-import secrets
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -12,7 +11,7 @@ from statshog.defaults.django import statsd
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_overridden_feature_flags
+from posthog.models.feature_flag import get_active_feature_flags
 from posthog.utils import cors_response, get_js_url, load_data_from_request
 
 from .utils import get_project_id
@@ -84,13 +83,6 @@ def get_decide(request: HttpRequest):
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
 
-    if request.user.is_authenticated:
-        r, update_user_token = decide_editor_params(request)
-        response.update(r)
-        if update_user_token:
-            request.user.temporary_token = secrets.token_urlsafe(32)
-            request.user.save()
-
     response["featureFlags"] = []
     response["sessionRecording"] = False
 
@@ -150,8 +142,20 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
-            feature_flags = get_overridden_feature_flags(
-                team.pk, data["distinct_id"], data.get("groups", {}), hash_key_override=data.get("$anon_distinct_id")
+            distinct_id = data.get("distinct_id")
+            if distinct_id is None:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        "Decide requires a distinct_id.",
+                        code="missing_distinct_id",
+                        type="validation_error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    ),
+                )
+            feature_flags = get_active_feature_flags(
+                team.pk, distinct_id, data.get("groups", {}), hash_key_override=data.get("$anon_distinct_id")
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 

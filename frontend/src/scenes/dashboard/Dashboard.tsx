@@ -16,8 +16,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Props {
     id?: string
@@ -54,7 +52,6 @@ function DashboardScene(): JSX.Element {
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -131,15 +128,12 @@ function DashboardScene(): JSX.Element {
                                     )}
                                 />
                             </div>
-                            {(featureFlags[FEATURE_FLAGS.PROPERTY_FILTER_ON_DASHBOARD] ||
-                                dashboard?.filters.properties) && (
-                                <PropertyFilters
-                                    onChange={setProperties}
-                                    pageKey={'dashboard_' + dashboard?.id}
-                                    propertyFilters={dashboard?.filters.properties}
-                                    useLemonButton
-                                />
-                            )}
+                            <PropertyFilters
+                                onChange={setProperties}
+                                pageKey={'dashboard_' + dashboard?.id}
+                                propertyFilters={dashboard?.filters.properties}
+                                useLemonButton
+                            />
                         </div>
                     )}
                     {placement !== DashboardPlacement.Export && (

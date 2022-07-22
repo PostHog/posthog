@@ -1,6 +1,5 @@
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
-import { eachBatchBuffer } from '../../../src/main/ingestion-queues/batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ClickhouseEventKafka } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
@@ -82,6 +81,7 @@ describe('eachBatchX', () => {
                     timing: jest.fn(),
                     increment: jest.fn(),
                     histogram: jest.fn(),
+                    gauge: jest.fn(),
                 },
             },
             workerMethods: {
@@ -188,39 +188,6 @@ describe('eachBatchX', () => {
             expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 6, {
                 key: 'ingestion',
             })
-        })
-    })
-
-    describe('eachBatchBuffer', () => {
-        it('eachBatchBuffer triggers sleep for partition if a messages is newer than BUFFER_CONVERSION_SECONDS', async () => {
-            const systemDate = new Date(2022, 1, 1, 1, 0, 0, 0)
-            jest.useFakeTimers('modern')
-            jest.setSystemTime(systemDate)
-
-            // the message is sent at the same time as the system, meaning we sleep for BUFFER_CONVERSION_SECONDS * 1000
-            const batch = createBatch({ ...event, offset: '294' }, systemDate)
-
-            await eachBatchBuffer(batch, queue)
-
-            expect(queue.bufferSleep).toHaveBeenCalledWith(60000, 0, '294', expect.any(Function))
-
-            jest.clearAllTimers()
-        })
-
-        it('eachBatchBuffer processes a batch if the messages are older than BUFFER_CONVERSION_SECONDS', async () => {
-            const systemDate = new Date(2022, 1, 1, 1, 0, 0, 0)
-            jest.useFakeTimers('modern')
-            jest.setSystemTime(systemDate)
-
-            // the message is sent at the same time as the system, meaning we sleep for BUFFER_CONVERSION_SECONDS * 1000
-            const batch = createBatch(event, new Date(2020, 1, 1, 1, 0, 0, 0))
-
-            await eachBatchBuffer(batch, queue)
-
-            expect(queue.workerMethods.runBufferEventPipeline).toHaveBeenCalledWith(event)
-            expect(queue.bufferSleep).not.toHaveBeenCalled()
-
-            jest.clearAllTimers()
         })
     })
 })

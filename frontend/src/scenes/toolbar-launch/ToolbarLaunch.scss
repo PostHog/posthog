@@ -1,31 +1,25 @@
 .toolbar-launch-page {
     margin-bottom: 48px;
 
-    .footer-caption {
-        text-align: center;
-        color: var(--muted);
-        margin-top: 1rem;
+    .EnableToolbarSwitch {
+        max-width: 400px;
     }
 
     .feature-highlight-list {
         max-width: 800px;
-        margin: 0 auto;
-        margin-top: 2rem;
 
         .fh-item {
-            display: flex;
-            align-items: center;
-            margin-top: 1rem;
+            width: calc(100% * (1 / 2) - 8px);
+
+            @media (max-width: 599px) {
+                width: calc(100% - 8px);
+            }
 
             .fh-icon {
-                color: var(--text-muted-alt);
-                margin-right: 8px;
                 font-size: 1.6em;
             }
 
             h4 {
-                color: var(--text-muted-alt);
-                margin-bottom: 0;
                 font-size: 1.2em;
             }
         }

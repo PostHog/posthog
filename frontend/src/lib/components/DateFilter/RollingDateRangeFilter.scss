@@ -1,0 +1,65 @@
+.RollingDateRangeFilter {
+    display: flex;
+    min-height: 2rem;
+    height: 2rem;
+    padding: 1.25rem 0.5rem;
+    align-items: center;
+    color: var(--text-default);
+    font-weight: normal;
+    font-size: 0.875rem;
+    line-height: 1.375em;
+    cursor: pointer;
+    transition: background 0.3s ease;
+
+    &:hover {
+        background-color: var(--bg-mid);
+    }
+
+    &.RollingDateRangeFilter--selected {
+        background: var(--primary-bg-hover);
+        color: var(--text-default);
+    }
+
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    /* Firefox */
+    input[type='number'] {
+        -moz-appearance: textfield;
+    }
+}
+
+.RollingDateRangeFilter__label {
+    flex-shrink: 0;
+    margin: 0 auto;
+}
+
+.RollingDateRangeFilter__counter {
+    display: flex;
+    margin: 0;
+    height: 2rem;
+    border: 1px solid var(--border-light);
+    border-radius: 0.25rem;
+    box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    -webkit-box-sizing: border-box;
+    margin-right: 0.25rem;
+    margin-left: 0.25rem;
+    line-height: 1.25rem;
+
+    input {
+        width: 3rem;
+        text-align: center;
+    }
+}
+
+.RollingDateRangeFilter__select {
+    width: 6rem;
+}
+
+.RollingDateRangeFilter__popup {
+    z-index: 9999;
+}

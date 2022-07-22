@@ -164,6 +164,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 2)
         self.assertEqual(response["results"][0]["elements"], [])
 
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id={person.uuid}").json()
+        self.assertEqual(len(response["results"]), 2)
+
     def test_filter_by_nonexisting_person(self):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?person_id=5555555555")
         self.assertEqual(response.status_code, 200)
@@ -387,7 +390,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(page3["next"])
 
     def test_ascending_order_timestamp(self):
-        for idx in range(10):
+        for idx in range(20):
             _create_event(
                 team=self.team,
                 event="some event",
@@ -396,15 +399,16 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?distinct_id=1&orderBy={json.dumps(['timestamp'])}"
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['timestamp'])}"
         ).json()
         self.assertEqual(len(response["results"]), 10)
         self.assertLess(
             parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
         )
+        assert "after=" in response["next"]
 
     def test_default_descending_order_timestamp(self):
-        for idx in range(10):
+        for idx in range(20):
             _create_event(
                 team=self.team,
                 event="some event",
@@ -412,11 +416,30 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
             )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10").json()
         self.assertEqual(len(response["results"]), 10)
         self.assertGreater(
             parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
         )
+        assert "before=" in response["next"]
+
+    def test_specified_descending_order_timestamp(self):
+        for idx in range(20):
+            _create_event(
+                team=self.team,
+                event="some event",
+                distinct_id="1",
+                timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['-timestamp'])}"
+        ).json()
+        self.assertEqual(len(response["results"]), 10)
+        self.assertGreater(
+            parser.parse(response["results"][0]["timestamp"]), parser.parse(response["results"][-1]["timestamp"])
+        )
+        assert "before=" in response["next"]
 
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)

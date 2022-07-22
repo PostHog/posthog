@@ -32,12 +32,16 @@ inputs:
 runs:
     using: 'composite'
     steps:
-        - name: Start stack with Docker Compose
+        - name: Stop/Start stack with Docker Compose
           shell: bash
           run: |
               export CLICKHOUSE_SERVER_IMAGE=${{ inputs.clickhouse-server-image }}
               docker-compose -f docker-compose.dev.yml down
               docker-compose -f docker-compose.dev.yml up -d
+
+        - name: Add Kafka to /etc/hosts
+          shell: bash
+          run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
         - name: Set up Python
           uses: actions/setup-python@v2
@@ -65,17 +69,12 @@ runs:
               python -m pip install -r requirements-dev.txt
               python -m pip install -r requirements.txt
 
-        - name: Add kafka host to /etc/hosts for kafka connectivity
-          shell: bash
-          run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
-
         - name: Set up needed files
           shell: bash
           run: |
               mkdir -p frontend/dist
               touch frontend/dist/index.html
               touch frontend/dist/layout.html
-              touch frontend/dist/shared_dashboard.html
               touch frontend/dist/exporter.html
 
         - name: Wait for Clickhouse & Kafka

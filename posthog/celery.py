@@ -4,7 +4,7 @@ from random import randrange
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import task_postrun, task_prerun
+from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
@@ -33,14 +33,23 @@ app.conf.broker_pool_limit = 0
 
 app.steps["worker"].add(DjangoStructLogInitStep)
 
-# How frequently do we want to calculate action -> event relationships if async is enabled
-ACTION_EVENT_MAPPING_INTERVAL_SECONDS = settings.ACTION_EVENT_MAPPING_INTERVAL_SECONDS
 
-# How frequently do we want to calculate event property stats if async is enabled
-EVENT_PROPERTY_USAGE_INTERVAL_SECONDS = settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS
+@setup_logging.connect
+def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
+    import logging
 
-# How frequently do we want to check if dashboard items need to be recalculated
-UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS = settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS
+    from posthog.settings import logs
+
+    # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
+    # mypy thinks that there is no `logging.config` but there is ¯\_(ツ)_/¯
+    logging.config.dictConfig(logs.LOGGING)  # type: ignore
+
+
+@worker_process_init.connect
+def on_worker_start(**kwargs) -> None:
+    from posthog.settings import sentry_init
+
+    sentry_init()
 
 
 @app.on_after_configure.connect
@@ -77,7 +86,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
-        UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
+        settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS, check_cached_items.s(), name="check dashboard items"
     )
 
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
@@ -100,7 +109,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
-            EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
+            settings.EVENT_PROPERTY_USAGE_INTERVAL_SECONDS,
             calculate_event_property_usage.s(),
             name="calculate event property usage",
         )
@@ -140,6 +149,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         # Hourly check for email subscriptions
         sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
 
+        sender.add_periodic_task(
+            settings.COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS,
+            count_tiles_with_no_hash.s(),
+            name="count tiles with no filters_hash",
+        )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -154,6 +169,15 @@ def teardown_instrumentation(task_id, task, **kwargs):
     from posthog import client
 
     client._request_information = None
+
+
+@app.task(ignore_result=True)
+def count_tiles_with_no_hash() -> None:
+    from statshog.defaults.django import statsd
+
+    from posthog.models.dashboard_tile import DashboardTile
+
+    statsd.gauge("dashboard_tiles.with_no_filters_hash", DashboardTile.objects.filter(filters_hash=None).count())
 
 
 @app.task(ignore_result=True)
@@ -404,8 +428,12 @@ def check_cached_items():
     update_cached_items()
 
 
-@app.task(ignore_result=True)
+@app.task(ignore_result=False)
 def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
+    """
+    Tasks used in a group (as this is) must not ignore their results
+    https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
+    """
     from posthog.tasks.update_cache import update_cache_item
 
     update_cache_item(key, cache_type, payload)

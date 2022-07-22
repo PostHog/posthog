@@ -14,6 +14,7 @@ from posthog.constants import (
     BREAKDOWN_ATTRIBUTION_TYPE,
     BREAKDOWN_ATTRIBUTION_VALUE,
     BREAKDOWN_GROUP_TYPE_INDEX,
+    BREAKDOWN_HISTOGRAM_BIN_COUNT,
     BREAKDOWN_LIMIT,
     BREAKDOWN_TYPE,
     BREAKDOWN_VALUE,
@@ -35,7 +36,6 @@ from posthog.constants import (
     LIMIT,
     OFFSET,
     SELECTOR,
-    SESSION,
     SHOWN_AS,
     SMOOTHING_INTERVALS,
     TREND_FILTER_TYPE_ACTIONS,
@@ -47,7 +47,7 @@ from posthog.models.entity import MATH_TYPE, Entity, ExclusionEntity
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
 from posthog.models.filters.mixins.utils import cached_property, include_dict, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import relative_date_parse
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse
 
 # When updating this regex, remember to update the regex with the same name in TrendsFormula.tsx
 ALLOWED_FORMULA_CHARACTERS = r"([a-zA-Z \-\*\^0-9\+\/\(\)\.]+)"
@@ -180,6 +180,19 @@ class BreakdownMixin(BaseParamMixin):
             else BREAKDOWN_VALUES_LIMIT
         )
 
+    @cached_property
+    def using_histogram(self) -> bool:
+        return self.breakdown_histogram_bin_count is not None
+
+    @cached_property
+    def breakdown_histogram_bin_count(self) -> Optional[int]:
+        if BREAKDOWN_HISTOGRAM_BIN_COUNT in self._data:
+            try:
+                return int(self._data[BREAKDOWN_HISTOGRAM_BIN_COUNT])
+            except ValueError:
+                pass
+        return None
+
     @include_dict
     def breakdown_to_dict(self):
         result: Dict = {}
@@ -193,7 +206,8 @@ class BreakdownMixin(BaseParamMixin):
             result[BREAKDOWN_ATTRIBUTION_TYPE] = self.breakdown_attribution_type
         if self.breakdown_attribution_value is not None:
             result[BREAKDOWN_ATTRIBUTION_VALUE] = self.breakdown_attribution_value
-
+        if self.breakdown_histogram_bin_count is not None:
+            result[BREAKDOWN_HISTOGRAM_BIN_COUNT] = self.breakdown_histogram_bin_count
         return result
 
     @cached_property
@@ -243,16 +257,6 @@ class DisplayDerivedMixin(InsightMixin):
     @include_dict
     def display_to_dict(self):
         return {"display": self.display}
-
-
-class SessionMixin(BaseParamMixin):
-    @cached_property
-    def session(self) -> Optional[str]:
-        return self._data.get(SESSION, None)
-
-    @include_dict
-    def session_to_dict(self):
-        return {"session": self.session} if self.session else {}
 
 
 class OffsetMixin(BaseParamMixin):
@@ -324,7 +328,9 @@ class DateMixin(BaseParamMixin):
                 return relative_date_parse(self._date_from)
             else:
                 return self._date_from
-        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
+        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
+            days=DEFAULT_DATE_FROM_DAYS
+        )
 
     @cached_property
     def date_to(self) -> datetime.datetime:
@@ -357,6 +363,8 @@ class DateMixin(BaseParamMixin):
                     else self._date_from
                 }
             )
+        else:
+            result_dict.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
 
         if self._date_to:
             result_dict.update(
@@ -477,3 +485,25 @@ class SearchMixin(BaseParamMixin):
     def search(self) -> Optional[str]:
         search = self._data.get("search", None)
         return search
+
+
+class DistinctIdMixin(BaseParamMixin):
+    """
+    Filter on distinct id. Only used for person endpoint
+    """
+
+    @cached_property
+    def distinct_id(self) -> Optional[str]:
+        distinct_id = self._data.get("distinct_id", None)
+        return distinct_id
+
+
+class EmailMixin(BaseParamMixin):
+    """
+    Filter on email. Only used for person endpoint
+    """
+
+    @cached_property
+    def email(self) -> Optional[str]:
+        email = self._data.get("email", None)
+        return email

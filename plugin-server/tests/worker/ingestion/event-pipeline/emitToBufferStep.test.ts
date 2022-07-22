@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Person } from '../../../../src/types'
+import { JobName, Person } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
@@ -44,18 +44,25 @@ beforeEach(() => {
             CONVERSION_BUFFER_ENABLED: true,
             BUFFER_CONVERSION_SECONDS: 60,
             db: { fetchPerson: jest.fn().mockResolvedValue(existingPerson) },
-            eventsProcessor: {
-                produceEventToBuffer: jest.fn(),
+            eventsProcessor: {},
+            jobQueueManager: {
+                enqueue: jest.fn(),
             },
         },
     }
 })
 
 describe('emitToBufferStep()', () => {
-    it('calls `produceEventToBuffer` if event should be buffered, stops processing', async () => {
+    it('enqueues graphile job if event should be buffered, stops processing', async () => {
+        const unixNow = 1657710000000
+        Date.now = jest.fn(() => unixNow)
+
         const response = await emitToBufferStep(runner, pluginEvent, () => true)
 
-        expect(runner.hub.eventsProcessor.produceEventToBuffer).toHaveBeenCalledWith(pluginEvent)
+        expect(runner.hub.jobQueueManager.enqueue).toHaveBeenCalledWith(JobName.BUFFER_JOB, {
+            eventPayload: pluginEvent,
+            timestamp: unixNow + 60000, // runner.hub.BUFFER_CONVERSION_SECONDS * 1000
+        })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
     })
@@ -65,7 +72,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, existingPerson])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
-        expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
     })
 
     it('calls `processPersonsStep` for $snapshot events', async () => {
@@ -75,7 +82,7 @@ describe('emitToBufferStep()', () => {
 
         expect(response).toEqual(['processPersonsStep', event, undefined])
         expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
-        expect(runner.hub.eventsProcessor.produceEventToBuffer).not.toHaveBeenCalled()
+        expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
     })
 })
 
@@ -153,6 +160,22 @@ describe('shouldSendEventToBuffer()', () => {
 
         const result = shouldSendEventToBuffer(runner.hub, event, person, 2)
         expect(result).toEqual(false)
+    })
+
+    it('returns false for events from mobile libraries', () => {
+        const eventIos = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-ios' },
+        }
+        const eventAndroid = {
+            ...pluginEvent,
+            event: 'some_event',
+            properties: { $lib: 'posthog-android' },
+        }
+
+        expect(shouldSendEventToBuffer(runner.hub, eventIos, undefined, 2)).toEqual(false)
+        expect(shouldSendEventToBuffer(runner.hub, eventAndroid, undefined, 2)).toEqual(false)
     })
 
     it('handles CONVERSION_BUFFER_ENABLED and conversionBufferEnabledTeams', () => {

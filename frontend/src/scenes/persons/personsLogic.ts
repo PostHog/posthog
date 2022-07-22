@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import type { personsLogicType } from './personsLogicType'
-import { AnyPropertyFilter, Breadcrumb, CohortType, PersonsTabType, PersonType } from '~/types'
+import { AnyPropertyFilter, Breadcrumb, CohortType, ExporterFormat, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,6 +10,7 @@ import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/components/lemonToast'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 export interface PersonPaginatedResponse {
     next: string | null
@@ -96,6 +97,13 @@ export const personsLogic = kea<personsLogicType>({
         },
     },
     selectors: () => ({
+        apiDocsURL: [
+            () => [(_, props) => props.cohort],
+            (cohort: PersonLogicProps['cohort']) =>
+                !!cohort
+                    ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
+                    : 'https://posthog.com/docs/api/persons',
+        ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
         showSessionRecordings: [
             (s) => [s.currentTeam],
@@ -136,6 +144,20 @@ export const personsLogic = kea<personsLogicType>({
             (listFilters, cohort): string =>
                 cohort ? `/api/cohort/${cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
         ],
+
+        exporterProps: [
+            (s) => [s.listFilters, (_, { cohort }) => cohort],
+            (listFilters, cohort): TriggerExportProps[] => [
+                {
+                    export_format: ExporterFormat.CSV,
+                    export_context: {
+                        path: (cohort ? `/api/cohort/${cohort}/persons` : `api/person/`) + `?${toParams(listFilters)}`,
+                        max_limit: 10000,
+                    },
+                },
+            ],
+        ],
+        urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
     }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {

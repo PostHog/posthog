@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import type { cohortsModelType } from './cohortsModelType'
-import { CohortType } from '~/types'
+import { CohortType, ExporterFormat } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { deleteWithUndo, processCohort } from 'lib/utils'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 const POLL_TIMEOUT = 5000
 
@@ -75,8 +76,14 @@ export const cohortsModel = kea<cohortsModelType>({
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
-        exportCohortPersons: ({ id }) => {
-            window.open(`/api/person.csv?cohort=${id}`, '_blank')
+        exportCohortPersons: async ({ id }) => {
+            await triggerExport({
+                export_format: ExporterFormat.CSV,
+                export_context: {
+                    path: `/api/cohort/${id}/persons`,
+                    max_limit: 10000,
+                },
+            })
         },
         deleteCohort: ({ cohort }) => {
             deleteWithUndo({

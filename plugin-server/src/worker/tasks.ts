@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { Action, EnqueuedJob, Hub, IngestionEvent, PluginTaskType, Team } from '../types'
+import { Action, EnqueuedPluginJob, Hub, IngestionEvent, PluginTaskType, Team } from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
 import { runPluginTask, runProcessEvent } from './plugins/run'
@@ -10,7 +10,7 @@ import { teardownPlugins } from './plugins/teardown'
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 
 export const workerTasks: Record<string, TaskRunner> = {
-    runJob: (hub, { job }: { job: EnqueuedJob }) => {
+    runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
         return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
     },
     runEveryMinute: (hub, args: { pluginConfigId: number }) => {
@@ -60,9 +60,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     flushKafkaMessages: async (hub) => {
         await hub.kafkaProducer.flush()
-    },
-    enqueueJob: async (hub, { job }: { job: EnqueuedJob }) => {
-        await hub.jobQueueManager.enqueue(job)
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {

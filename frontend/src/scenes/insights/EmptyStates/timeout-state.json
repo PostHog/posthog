@@ -189,6 +189,9 @@
                     },
                     "can_create_org": true,
                     "email_service_available": false,
+                    "slack_service": {
+                        "available": false
+                    },
                     "ee_available": true,
                     "db_backend": "clickhouse",
                     "available_timezones": {

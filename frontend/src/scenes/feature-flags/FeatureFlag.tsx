@@ -29,6 +29,9 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeatureFlagsToCheckLogic } from 'lib/logic/featureFlagLogic'
+import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -87,7 +90,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <VerticalForm logic={featureFlagLogic} props={props} formKey="featureFlag" enableFormOnSubmit>
+                <VerticalForm
+                    logic={featureFlagLogic}
+                    props={props}
+                    formKey="featureFlag"
+                    enableFormOnSubmit
+                    className="space-y"
+                >
                     <PageHeader
                         title="Feature Flag"
                         buttons={
@@ -131,7 +140,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         }
                     />
-                    <h3 className="l3">General configuration</h3>
+                    {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                        <AlertMessage type="warning">
+                            This feature flag is linked to an experiment. It's recommended to only make changes to this
+                            flag{' '}
+                            <Link to={urls.experiment(featureFlag.experiment_set[0])}>
+                                using the experiment creation screen.
+                            </Link>
+                        </AlertMessage>
+                    )}
+                    <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
+                    <h3 className="l3 mt">General configuration</h3>
                     <div className="text-muted mb">
                         General settings for your feature flag and integration instructions.
                     </div>
@@ -302,7 +321,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             if they match one or more release condition groups.
                         </div>
                         {multivariateEnabled && (
-                            <div className="variant-form-list">
+                            <div className="variant-form-list space-y-05">
                                 <Row gutter={8} className="label-row">
                                     <Col span={7}>Variant key</Col>
                                     <Col span={7}>Description</Col>
@@ -407,7 +426,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         focusVariantKeyField(newIndex)
                                     }}
                                     style={{ margin: '1rem 0' }}
-                                    size="small"
                                     fullWidth
                                     center
                                 >

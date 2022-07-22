@@ -8,7 +8,6 @@ import {
     PluginError,
     PluginLogEntrySource,
     PluginLogEntryType,
-    StoredPluginMetrics,
 } from '../../types'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
@@ -33,9 +32,7 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         `SELECT
             posthog_plugin.id,
             posthog_plugin.name,
-            posthog_plugin.description,
             posthog_plugin.url,
-            posthog_plugin.config_schema,
             posthog_plugin.tag,
             posthog_plugin.from_json,
             posthog_plugin.from_web,
@@ -43,12 +40,8 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
             posthog_plugin.plugin_type,
             posthog_plugin.source,
             posthog_plugin.organization_id,
-            posthog_plugin.created_at,
-            posthog_plugin.updated_at,
             posthog_plugin.is_global,
-            posthog_plugin.is_preinstalled,
             posthog_plugin.capabilities,
-            posthog_plugin.metrics,
             posthog_plugin.public_jobs,
             posthog_plugin.is_stateless,
             posthog_plugin.log_level,
@@ -99,18 +92,6 @@ export async function setPluginCapabilities(
         'UPDATE posthog_plugin SET capabilities = ($1) WHERE id = $2',
         [capabilities, pluginConfig.plugin_id],
         'setPluginCapabilities'
-    )
-}
-
-export async function setPluginMetrics(
-    hub: Hub,
-    pluginConfig: PluginConfig,
-    metrics: StoredPluginMetrics
-): Promise<void> {
-    await hub.db.postgresQuery(
-        'UPDATE posthog_plugin SET metrics = ($1) WHERE id = $2',
-        [metrics, pluginConfig.plugin_id],
-        'setPluginMetrics'
     )
 }
 

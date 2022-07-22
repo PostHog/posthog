@@ -809,18 +809,47 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     def test_my_flags_is_not_nplus1(self) -> None:
-        with self.assertNumQueries(6):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
             format="json",
         ).json()
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 4):
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_getting_flags_is_not_nplus1(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 5):
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -875,6 +904,16 @@ class TestFeatureFlag(APIBaseTest):
         first_flag = response_data[0]
         self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
         self.assertEqual(first_flag["value"], False)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_my_flags_empty_flags(self, mock_capture):
+        # Ensure empty feature flag list
+        FeatureFlag.objects.all().delete()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data), 0)
 
     @patch("posthoganalytics.capture")
     def test_my_flags_groups(self, mock_capture):

@@ -125,6 +125,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
     authentication_classes = []  # type: ignore
     permission_classes = []  # type: ignore
+    include_in_docs = False
 
     def get_object(self) -> Tuple[Optional[SharingConfiguration], Optional[ExportedAsset]]:
         # JWT based access (ExportedAsset)
@@ -164,9 +165,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
         if asset:
             if request.path.endswith(f".{asset.file_ext}"):
-                if not asset.content:
-                    raise NotFound()
-
                 return get_content_response(asset, request.query_params.get("download") == "true")
 
             exported_data["type"] = "image"

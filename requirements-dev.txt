@@ -51,7 +51,7 @@ cryptography==37.0.2
     #   -c requirements.txt
     #   pyopenssl
     #   urllib3
-django==3.2.13
+django==3.2.14
     # via
     #   -c requirements.txt
     #   django-stubs
