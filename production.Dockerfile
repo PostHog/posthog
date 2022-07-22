@@ -83,10 +83,11 @@ RUN apk --update --no-cache add \
 
 RUN apk --update --no-cache --virtual .geolite-deps add \
     "curl~=7" \
+    "brotli~=1.0.9" \
     && \
     mkdir share \
     && \
-    curl -L "https://mmdbcdn.posthog.net/" -o ./share/GeoLite2-City.mmdb \
+    ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) \
     && \
     apk del .geolite-deps
 
