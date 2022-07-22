@@ -13,13 +13,13 @@
 # name: Test0004ReplicatedSchema.test_migration.10
   <class 'tuple'> (
     'kafka_plugin_log_entries',
-    "Kafka('localhost:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.11
   <class 'tuple'> (
     'kafka_session_recording_events',
-    "Kafka('localhost:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.12
@@ -91,37 +91,37 @@
 # name: Test0004ReplicatedSchema.test_migration.4
   <class 'tuple'> (
     'kafka_events',
-    "Kafka SETTINGS kafka_broker_list = 'localhost:9092', kafka_topic_list = 'clickhouse_events_proto_test', kafka_group_name = 'group1', kafka_format = 'Protobuf', kafka_schema = 'events:Event', kafka_skip_broken_messages = 100",
+    "Kafka SETTINGS kafka_broker_list = 'kafka:9092', kafka_topic_list = 'clickhouse_events_proto_test', kafka_group_name = 'group1', kafka_format = 'Protobuf', kafka_schema = 'events:Event', kafka_skip_broken_messages = 100",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.5
   <class 'tuple'> (
     'kafka_events_dead_letter_queue',
-    "Kafka('localhost:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 1000",
+    "Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 1000",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.6
   <class 'tuple'> (
     'kafka_events_json',
-    "Kafka('localhost:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 100",
+    "Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 100",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.7
   <class 'tuple'> (
     'kafka_groups',
-    "Kafka('localhost:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.8
   <class 'tuple'> (
     'kafka_person',
-    "Kafka('localhost:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_migration.9
   <class 'tuple'> (
     'kafka_person_distinct_id2',
-    "Kafka('localhost:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback
@@ -139,13 +139,13 @@
 # name: Test0004ReplicatedSchema.test_rollback.10
   <class 'tuple'> (
     'kafka_plugin_log_entries',
-    "Kafka('localhost:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.11
   <class 'tuple'> (
     'kafka_session_recording_events',
-    "Kafka('localhost:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.12
@@ -193,36 +193,36 @@
 # name: Test0004ReplicatedSchema.test_rollback.4
   <class 'tuple'> (
     'kafka_events',
-    "Kafka SETTINGS kafka_broker_list = 'localhost:9092', kafka_topic_list = 'clickhouse_events_proto_test', kafka_group_name = 'group1', kafka_format = 'Protobuf', kafka_schema = 'events:Event', kafka_skip_broken_messages = 100",
+    "Kafka SETTINGS kafka_broker_list = 'kafka:9092', kafka_topic_list = 'clickhouse_events_proto_test', kafka_group_name = 'group1', kafka_format = 'Protobuf', kafka_schema = 'events:Event', kafka_skip_broken_messages = 100",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.5
   <class 'tuple'> (
     'kafka_events_dead_letter_queue',
-    "Kafka('localhost:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 1000",
+    "Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 1000",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.6
   <class 'tuple'> (
     'kafka_events_json',
-    "Kafka('localhost:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 100",
+    "Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow') SETTINGS kafka_skip_broken_messages = 100",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.7
   <class 'tuple'> (
     'kafka_groups',
-    "Kafka('localhost:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.8
   <class 'tuple'> (
     'kafka_person',
-    "Kafka('localhost:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')",
   )
 ---
 # name: Test0004ReplicatedSchema.test_rollback.9
   <class 'tuple'> (
     'kafka_person_distinct_id2',
-    "Kafka('localhost:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')",
+    "Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')",
   )
 ---

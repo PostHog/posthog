@@ -692,7 +692,7 @@
 
     <zookeeper>
         <node>
-            <host>localhost</host>
+            <host>zookeeper</host>
             <port>2181</port>
         </node>
     </zookeeper>
