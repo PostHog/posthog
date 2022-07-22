@@ -18,9 +18,31 @@ WindowId = Optional[str]
 
 
 @dataclasses.dataclass
+class RecordingEventForObjectStorage:
+    unix_timestamp: int
+    recording_event_id: str
+    session_id: str
+    distinct_id: str
+    chunk_count: int
+    chunk_index: int
+    recording_event_data_chunk: str
+    recording_event_source: Optional[int] = None
+    recording_event_type: Optional[int] = None
+    window_id: Optional[str] = None
+
+
+@dataclasses.dataclass
 class EventActivityData:
     timestamp: datetime
     is_active: bool
+
+
+@dataclasses.dataclass
+class RecordingEventSummary:
+    timestamp: datetime
+    window_id: str
+    type: int
+    source: Optional[int]
 
 
 @dataclasses.dataclass
@@ -43,7 +65,7 @@ class DecompressedRecordingData:
     snapshot_data_by_window_id: Dict[WindowId, List[SnapshotData]]
 
 
-def preprocess_session_recording_events(events: List[Event]) -> List[Event]:
+def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:
     result = []
     snapshots_by_session_and_window_id = defaultdict(list)
     for event in events:
@@ -319,3 +341,38 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
         has_next = False
         paginated_list = list_to_paginate[offset:]
     return PaginatedList(has_next=has_next, paginated_list=paginated_list)
+
+
+def get_session_recording_events_for_object_storage(
+    events: List[Event], chunk_size=512 * 1024
+) -> List[RecordingEventForObjectStorage]:
+    recording_events_for_object_storage = []
+    for event in events:
+        if is_unchunked_snapshot(event):
+            # TODO: Handle payloads that aren't what we expect
+            distinct_id = event["properties"]["distinct_id"]
+            session_id = event["properties"]["$session_id"]
+            window_id = event["properties"].get("$window_id")
+            recording_event_type = event["properties"]["$snapshot_data"].get("type")
+            unix_timestamp = event["properties"]["$snapshot_data"]["timestamp"]
+            recording_event_source = event["properties"]["$snapshot_data"].get("data", {}).get("source")
+            recording_event_string = json.dumps(event["properties"]["$snapshot_data"])
+            chunked_recording_event_string = chunk_string(recording_event_string, chunk_size)
+            recording_event_id = str(utils.UUIDT())
+            chunk_count = len(chunked_recording_event_string)
+            for chunk_index, chunk in enumerate(chunked_recording_event_string):
+                recording_events_for_object_storage.append(
+                    RecordingEventForObjectStorage(
+                        recording_event_id=recording_event_id,
+                        distinct_id=distinct_id,
+                        session_id=session_id,
+                        window_id=window_id,
+                        recording_event_type=recording_event_type,
+                        recording_event_source=recording_event_source,
+                        recording_event_data_chunk=chunk,
+                        chunk_count=chunk_count,
+                        chunk_index=chunk_index,
+                        unix_timestamp=unix_timestamp,
+                    )
+                )
+    return recording_events_for_object_storage
