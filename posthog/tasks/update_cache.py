@@ -120,18 +120,21 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
     oldest_previously_refreshed_tiles: List[DashboardTile] = list(
         dashboard_tiles.exclude(last_refresh=None)[0:PARALLEL_INSIGHT_CACHE]
     )
+    ages = []
     for candidate_tile in oldest_previously_refreshed_tiles:
         dashboard_cache_age = (datetime.datetime.now(timezone.utc) - candidate_tile.last_refresh).total_seconds()
 
+        tags = {
+            "insight_id": candidate_tile.insight_id,
+            "dashboard_id": candidate_tile.dashboard_id,
+            "cache_key": candidate_tile.filters_hash,
+        }
         statsd.gauge(
-            "update_cache_queue.dashboards_lag",
-            round(dashboard_cache_age),
-            tags={
-                "insight_id": candidate_tile.insight_id,
-                "dashboard_id": candidate_tile.dashboard_id,
-                "cache_key": candidate_tile.filters_hash,
-            },
+            "update_cache_queue.dashboards_lag", round(dashboard_cache_age), tags=tags,
         )
+        ages.append({**tags, "age": round(dashboard_cache_age)})
+
+    logger.info("update_cache_queue.seen_ages", ages=ages)
 
     # this is the number of cacheable items that match the query
     statsd.gauge("update_cache_queue_depth.shared_insights", shared_insights.count())
