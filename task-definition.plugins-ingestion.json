@@ -53,10 +53,6 @@
                     "value": "--max-old-space-size=4096"
                 },
                 {
-                    "name": "JOB_QUEUES",
-                    "value": "graphile"
-                },
-                {
                     "name": "CRASH_IF_NO_PERSISTENT_JOB_QUEUE",
                     "value": "0"
                 },
