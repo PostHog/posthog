@@ -131,7 +131,7 @@ jobs:
                   SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
                   REDIS_URL=redis://localhost
                   DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
-                  KAFKA_URL=kafka://localhost:9092
+                  KAFKA_URL=kafka://kafka:9092
                   DISABLE_SECURE_SSL_REDIRECT=1
                   SECURE_COOKIES=0
                   OPT_OUT_CAPTURE=1
