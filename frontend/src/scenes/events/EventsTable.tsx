@@ -434,7 +434,7 @@ export function EventsTable({
                         {showAutoload && (
                             <LemonSwitch
                                 type="primary"
-                                data-tooltip="experiment-tooltip-0"
+                                data-tooltip="experiment-events-product-tour-2"
                                 id="autoload-switch"
                                 label="Automatically load new events"
                                 checked={automaticLoadEnabled}

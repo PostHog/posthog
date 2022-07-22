@@ -42,7 +42,6 @@ export function LemonTableConfig(props: TableConfigProps): JSX.Element {
     return (
         <>
             <LemonButton
-                data-tooltip="experiment-tooltip-1"
                 type="secondary"
                 data-attr="events-table-column-selector"
                 onClick={showModal}

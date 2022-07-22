@@ -10,8 +10,10 @@ import {
     LemonActionableTooltipProps,
 } from 'lib/components/LemonActionableTooltip/LemonActionableTooltip'
 import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
-import { featureFlagLogic } from '../featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+import { now } from 'lib/dayjs'
 
 /** To be extended with other types of notifications e.g. modals, bars */
 export type PromptType = 'tooltip'
@@ -34,24 +36,28 @@ export type PromptSequence = {
     key: string
     prompts: Prompt[]
     rule: PromptRule
-    oneTimeOnly: boolean
+    type: string
 }
 
 export type PromptConfig = {
     sequences: PromptSequence[]
 }
 
+export type PromptState = {
+    key: string
+    last_updated_at: string
+    step: number
+    completed?: boolean
+    dismissed?: boolean
+}
+
 export type PromptUserState = {
-    [key: string]: {
-        step: number
-        completed?: boolean
-        dismissed?: boolean
-    }
+    [key: string]: PromptState
 }
 
 function cancellableTooltipWithRetries(
     tooltip: Tooltip,
-    config: { maxSteps: number; onClose: () => void; next: () => void; previous: () => void }
+    options: { maxSteps: number; onClose: () => void; next: () => void; previous: () => void }
 ): { close: () => void; show: Promise<unknown> } {
     let trigger = (): void => {}
     const close = (): number => window.setTimeout(trigger, 1)
@@ -69,29 +75,33 @@ function cancellableTooltipWithRetries(
 
         const tryRender = function (retries: number): void {
             try {
-                const element = document.querySelector(`[data-tooltip="${tooltip.reference}"]`) as HTMLElement
-                if (!element) {
-                    throw 'element not found'
-                }
-                const props: LemonActionableTooltipProps = {
-                    element,
+                let props: LemonActionableTooltipProps = {
                     text: tooltip.text,
                     placement: tooltip.placement,
-                    step: tooltip.step - 1,
-                    maxSteps: config.maxSteps,
+                    step: tooltip.step,
+                    maxSteps: options.maxSteps,
                     next: () => {
                         destroy()
-                        config.next()
+                        options.next()
                     },
                     previous: () => {
                         destroy()
-                        config.previous()
+                        options.previous()
                     },
                     close: () => {
                         destroy()
-                        config.onClose()
+                        options.onClose()
                     },
                     visible: true,
+                }
+                if (tooltip.reference) {
+                    const element = tooltip.reference
+                        ? (document.querySelector(`[data-tooltip="${tooltip.reference}"]`) as HTMLElement)
+                        : null
+                    if (!element) {
+                        throw 'Prompt reference element not found'
+                    }
+                    props = { ...props, element }
                 }
 
                 ReactDOM.render(<LemonActionableTooltip {...props} />, div)
@@ -116,55 +126,28 @@ function cancellableTooltipWithRetries(
     }
 }
 
-const experimentTooltipsConfig: PromptConfig = {
-    sequences: [
-        {
-            key: 'experiment-tooltip',
-            prompts: [
-                {
-                    step: 1,
-                    type: 'tooltip',
-                    text: 'Hey welcome to the magical world of PostHog, where your analytics dreams come true.',
-                    placement: 'bottom-end',
-                    reference: 'experiment-tooltip-0',
-                },
-                {
-                    step: 2,
-                    type: 'tooltip',
-                    text: 'This is a second tooltip',
-                    placement: 'top-end',
-                    reference: 'experiment-tooltip-1',
-                },
-            ],
-            rule: {
-                path: '/events',
-            },
-            oneTimeOnly: false,
-        },
-    ],
-}
-
 export const inAppPromptLogic = kea<inAppPromptLogicType>([
     path(['lib', 'logic', 'inAppPrompt']),
     connect([inAppPromptEventCaptureLogic]),
     actions({
         tooltip: (tooltip: Tooltip) => ({ tooltip }),
-        setConfig: (config: PromptConfig) => ({ config }),
-        runFirstValidSequence: (opts: { runDismissedOrCompleted?: boolean; restart?: boolean }) => opts,
+        runFirstValidSequence: (options: { runDismissedOrCompleted?: boolean; restart?: boolean }) => ({ options }),
         runSequence: (sequence: PromptSequence, step: number) => ({ sequence, step }),
         dismissSequence: true,
         clearSequence: true,
         nextPrompt: true,
         previousPrompt: true,
-        updateUserState: true,
+        updatePromptState: (update: Partial<PromptState>) => ({ update }),
         setUserState: (state: PromptUserState) => ({ state }),
+        syncState: (options: { forceRun?: boolean }) => ({ options }),
+        setSequences: (sequences: PromptSequence[]) => ({ sequences }),
     }),
     reducers(() => ({
-        config: [
-            null as PromptConfig | null,
-            { persist: true },
+        sequences: [
+            [] as PromptSequence[],
+            // { persist: true },
             {
-                setConfig: (_, { config }) => config,
+                setSequences: (_, { sequences }) => sequences,
             },
         ],
         currentSequence: [
@@ -175,15 +158,15 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             },
         ],
         currentStep: [
-            1,
+            0,
             {
                 runSequence: (_, { step }) => step,
-                clearSequence: () => 1,
+                clearSequence: () => 0,
             },
         ],
         userState: [
             {} as PromptUserState,
-            { persist: true },
+            // { persist: true },
             {
                 setUserState: (_, { state }) => state,
             },
@@ -193,31 +176,33 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         prompts: [(s) => [s.currentSequence], (sequence: PromptSequence | null) => sequence?.prompts ?? []],
         sequenceKey: [(s) => [s.currentSequence], (sequence: PromptSequence | null) => sequence?.key],
         validSequences: [
-            (s) => [s.config, s.userState, router.selectors.currentLocation],
-            (config: PromptConfig | null, userState: PromptUserState, currentLocation: { pathname: string }) => {
+            (s) => [s.sequences, s.userState, router.selectors.currentLocation],
+            (sequences: PromptSequence[], userState: PromptUserState, currentLocation: { pathname: string }) => {
                 const pathname = currentLocation.pathname
                 const valid = []
-                if (!config) {
-                    return []
-                }
-                for (const sequence of config.sequences) {
+                for (const sequence of sequences) {
                     // for now the only valid rule is related to the pathname, can be extended
                     if (sequence.rule.path === pathname) {
                         if (userState[sequence.key]) {
                             const sequenceState = userState[sequence.key]
-                            const completed = sequenceState.step === sequence.prompts.length
+                            const completed = !!sequenceState.completed
                             const dismissed = !!sequenceState.dismissed
-                            if (sequence.oneTimeOnly && (completed || dismissed)) {
+                            if (
+                                sequence.type !== 'product-tour' &&
+                                (completed || dismissed || sequenceState.step === sequence.prompts.length)
+                            ) {
                                 continue
                             }
                             valid.push({
                                 sequence,
-                                step: sequenceState.step,
-                                completed,
-                                dismissed,
+                                state: {
+                                    step: sequenceState.step + 1,
+                                    completed,
+                                    dismissed,
+                                },
                             })
                         } else {
-                            valid.push({ sequence, step: 0 })
+                            valid.push({ sequence, state: { step: 0 } })
                         }
                     }
                 }
@@ -226,8 +211,29 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setConfig: () => actions.runFirstValidSequence({}),
-        runSequence: ({ sequence, step = 1 }) => {
+        syncState: async ({ options }) => {
+            try {
+                const updatedState = await api.update(
+                    `api/projects/${teamLogic.values.currentTeamId}/prompts/my_prompts`,
+                    values.userState
+                )
+                if (updatedState) {
+                    if (
+                        JSON.stringify(values.sequences) !== JSON.stringify(updatedState['sequences']) ||
+                        options.forceRun
+                    ) {
+                        actions.setSequences(updatedState['sequences'])
+                    }
+                    if (JSON.stringify(values.userState) !== JSON.stringify(updatedState['state'])) {
+                        actions.setUserState(updatedState['state'])
+                    }
+                }
+            } catch (error: any) {
+                console.error(error)
+            }
+        },
+        setSequences: () => actions.runFirstValidSequence({}),
+        runSequence: ({ sequence, step = 0 }) => {
             const prompt = sequence.prompts.find((prompt) => prompt.step === step)
             if (prompt) {
                 switch (prompt.type) {
@@ -251,30 +257,21 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             cache.runOnClose = close
 
             show.then(() => {
-                actions.updateUserState()
+                actions.updatePromptState({ step: values.currentStep })
             }).catch((err) => console.error(err))
         },
-        updateUserState: () => {
-            // TODO sync this with backend
+        updatePromptState: ({ update }) => {
             if (values.sequenceKey) {
                 const key = values.sequenceKey
-                const currentState = values.userState[key]
-                if (currentState && currentState.step < values.currentStep) {
-                    actions.setUserState({
-                        ...values.userState,
-                        [key]: {
-                            ...currentState,
-                            step: values.currentStep,
-                        },
-                    })
-                } else {
-                    actions.setUserState({
-                        ...values.userState,
-                        [key]: {
-                            step: values.currentStep,
-                        },
-                    })
-                }
+                const currentState = values.userState[key] || { key, step: 0 }
+                actions.setUserState({
+                    ...values.userState,
+                    [key]: {
+                        ...currentState,
+                        ...update,
+                        last_updated_at: now().toISOString(),
+                    },
+                })
             }
         },
         previousPrompt: () => {
@@ -296,6 +293,9 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     values.currentSequence.prompts.length
                 )
                 if (values.currentStep === values.currentSequence.prompts.length) {
+                    actions.updatePromptState({
+                        completed: true,
+                    })
                     inAppPromptEventCaptureLogic.actions.reportPromptSequenceCompleted(
                         values.currentSequence.key,
                         values.currentStep,
@@ -304,20 +304,19 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                 }
             }
         },
-        runFirstValidSequence: (opts) => {
+        runFirstValidSequence: ({ options }) => {
             if (values.validSequences) {
                 let firstValid = null
-                if (opts.runDismissedOrCompleted) {
+                if (options.runDismissedOrCompleted) {
                     firstValid = values.validSequences[0]
                 } else {
                     firstValid = values.validSequences.filter(
-                        (sequence) => !sequence.completed || !sequence.dismissed
+                        (sequence) => !sequence.state.completed || !sequence.state.dismissed
                     )?.[0]
-                    console.log(firstValid)
                 }
                 if (firstValid) {
-                    const { sequence, step } = firstValid
-                    actions.runSequence(sequence, opts.restart ? 1 : step)
+                    const { sequence, state } = firstValid
+                    actions.runSequence(sequence, options.restart ? 0 : state.step)
                 }
             }
         },
@@ -325,25 +324,22 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             if (values.sequenceKey) {
                 const key = values.sequenceKey
                 const currentState = values.userState[key]
-                if (currentState) {
-                    actions.setUserState({
-                        ...values.userState,
-                        [key]: {
-                            ...currentState,
-                            dismissed: true,
-                        },
+                if (currentState && !currentState.completed) {
+                    actions.updatePromptState({
+                        dismissed: true,
                     })
+                    if (values.currentStep < values.prompts.length) {
+                        inAppPromptEventCaptureLogic.actions.reportPromptSequenceDismissed(
+                            values.sequenceKey,
+                            values.currentStep,
+                            values.prompts.length
+                        )
+                    }
                 }
                 actions.clearSequence()
-                if (values.currentStep < values.prompts.length) {
-                    inAppPromptEventCaptureLogic.actions.reportPromptSequenceDismissed(
-                        values.sequenceKey,
-                        values.currentStep,
-                        values.prompts.length
-                    )
-                }
             }
         },
+        setUserState: () => actions.syncState({}),
         //@ts-expect-error
         [router.actions.locationChanged]: () => {
             cache.runOnClose?.()
@@ -352,10 +348,9 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
-            posthog.onFeatureFlags(() => {
-                if (featureFlagLogic.selectors.featureFlags[FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT] === 'test') {
-                    // TODO load this from the backend
-                    actions.setConfig(experimentTooltipsConfig)
+            posthog.onFeatureFlags(async (_, variants) => {
+                if (variants[FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT] === 'test') {
+                    actions.syncState({ forceRun: true })
                 }
             })
         },

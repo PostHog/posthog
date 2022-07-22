@@ -162,6 +162,10 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                   )
             : null
 
+        const isAttached = clonedChildren || referenceElement
+        const top = isAttached ? y ?? 0 : undefined
+        const left = isAttached ? x ?? 0 : undefined
+
         return (
             <>
                 {clonedChildren}
@@ -173,17 +177,18 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                                     'Popup',
                                     actionable && 'Popup--actionable',
                                     maxContentWidth && 'Popup--max-content-width',
+                                    !isAttached && 'Popup--top-centered',
                                     className
                                 )}
                                 data-floating-placement={floatingPlacement}
                                 ref={floatingRef as MutableRefObject<HTMLDivElement>}
-                                style={{ position: strategy, top: y ?? 0, left: x ?? 0, ...style }}
+                                style={{ position: strategy, top, left, ...style }}
                                 onClick={onClickInside}
                             >
                                 <div ref={ref} className="Popup__box">
                                     {overlay}
                                 </div>
-                                {showArrow && (
+                                {showArrow && isAttached && (
                                     <div
                                         ref={arrowRef}
                                         className={clsx(

@@ -239,6 +239,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     <LemonButton
                                         type="secondary"
                                         data-attr="dashboard-share-button"
+                                        data-tooltip="experiment-new-dashboard-product-tour-1"
                                         onClick={() => push(urls.dashboardSharing(dashboard.id))}
                                     >
                                         Share

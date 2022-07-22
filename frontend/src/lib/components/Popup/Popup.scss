@@ -11,6 +11,12 @@
     &[data-floating-placement^='top'] {
         perspective-origin: bottom;
     }
+
+    &.Popup--top-centered {
+        top: 1rem;
+        left: 50%;
+        transform: translate(-50%);
+    }
 }
 
 .Popup__box {
