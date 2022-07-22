@@ -57,10 +57,6 @@
                     "value": "graphile"
                 },
                 {
-                    "name": "CRASH_IF_NO_PERSISTENT_JOB_QUEUE",
-                    "value": "0"
-                },
-                {
                     "name": "CAPTURE_INTERNAL_METRICS",
                     "value": "False"
                 },
