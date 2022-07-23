@@ -141,12 +141,13 @@ export const personsLogic = kea<personsLogicType>({
 
         exporterProps: [
             (s) => [s.listFilters, (_, { cohort }) => cohort],
-            (listFilters, cohort): TriggerExportProps[] => [
+            (listFilters, cohort: number | 'new' | undefined): TriggerExportProps[] => [
                 {
                     export_format: ExporterFormat.CSV,
                     export_context: {
-                        // TODO should this use api.person.determineCSVUrl(listFilters)
-                        path: (cohort ? `/api/cohort/${cohort}/persons` : `api/person/`) + `?${toParams(listFilters)}`,
+                        path: cohort
+                            ? api.cohorts.determineCSVUrl(cohort, listFilters)
+                            : api.person.determineCSVUrl(listFilters),
                         max_limit: 10000,
                     },
                 },
