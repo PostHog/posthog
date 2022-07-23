@@ -10,7 +10,6 @@ import { fromParamsGivenUrl } from 'lib/utils'
 import { useMocks } from '~/mocks/jest'
 
 const errorToastSpy = jest.spyOn(lemonToast, 'error')
-const successToastSpy = jest.spyOn(lemonToast, 'success')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
@@ -19,9 +18,13 @@ jest.mock('lib/dayjs', () => {
     return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
 })
 
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+jest.mock('lib/components/ExportButton/exporter')
+
 const randomBool = (): boolean => Math.random() < 0.5
 
-const randomString = (): string => Math.random().toString(36).substr(2, 5)
+const randomString = (): string => Math.random().toString(36).substring(2, 5)
 
 const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
@@ -778,19 +781,17 @@ describe('eventsTableLogic', () => {
                 expect(errorToastSpy).toHaveBeenCalled()
             })
 
-            it('gives the user advice about the events export download', async () => {
-                window = Object.create(window)
-                Object.defineProperty(window, 'location', {
-                    value: {
-                        href: 'https://dummy.com',
-                    },
-                    writable: true,
-                })
-
+            it('can trigger CSV export', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.startDownload()
                 })
-                expect(successToastSpy).toHaveBeenCalled()
+                expect(triggerExport).toHaveBeenCalledWith({
+                    export_context: {
+                        max_limit: 3500,
+                        path: `/api/projects/${MOCK_TEAM_ID}/events?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,
+                    },
+                    export_format: 'text/csv',
+                })
             })
         })
     })
