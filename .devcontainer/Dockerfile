@@ -54,4 +54,4 @@ RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
 # need to specify KAFKA_URL as kafka://kafka such that it can communicate with
 # it. This means we need to also refer to Kafka as `kafka` from container local
 # processes as well.
-RUN echo "127.0.0.1 kafka" >> /etc/hosts
+RUN echo "127.0.0.1 kafka" >> sudo tee -a /etc/hosts
