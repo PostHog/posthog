@@ -53,7 +53,6 @@ export const personsLogic = kea<personsLogicType>({
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
-        exportCsv: true,
     },
     reducers: {
         listFilters: [
@@ -139,11 +138,6 @@ export const personsLogic = kea<personsLogicType>({
                 return breadcrumbs
             },
         ],
-        exportUrl: [
-            (s) => [s.listFilters, (_, { cohort }) => cohort],
-            (listFilters, cohort): string =>
-                cohort ? `/api/cohort/${cohort}/persons.csv?` : api.person.determineCSVUrl(listFilters),
-        ],
 
         exporterProps: [
             (s) => [s.listFilters, (_, { cohort }) => cohort],
@@ -151,6 +145,7 @@ export const personsLogic = kea<personsLogicType>({
                 {
                     export_format: ExporterFormat.CSV,
                     export_context: {
+                        // TODO should this use api.person.determineCSVUrl(listFilters)
                         path: (cohort ? `/api/cohort/${cohort}/persons` : `api/person/`) + `?${toParams(listFilters)}`,
                         max_limit: 10000,
                     },
@@ -229,10 +224,6 @@ export const personsLogic = kea<personsLogicType>({
         },
         navigateToCohort: ({ cohort }) => {
             router.actions.push(urls.cohort(cohort.id))
-        },
-        exportCsv: () => {
-            lemonToast.success('The export is starting. It should finish soon')
-            window.location.href = values.exportUrl
         },
     }),
     loaders: ({ values, actions, props }) => ({

@@ -402,15 +402,10 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },
-        determinePeopleCsvUrl(
-            peopleParams: PeopleParamType,
-            filters: Partial<FilterType>,
-            useBareAPIURL: boolean = false
-        ): string {
-            const apiAction = `people${useBareAPIURL ? '' : '.csv'}`
+        determinePeopleCsvUrl(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
             return new ApiRequest()
                 .actions()
-                .withAction(apiAction)
+                .withAction('people')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
         },
