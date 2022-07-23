@@ -1,5 +1,4 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -48,7 +47,6 @@ const afterTheFirstEvent = 'the first timestamp'
 const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
 const orderByTimestamp = '["-timestamp"]'
-const propertiesWithFilterValue = '[{"key":"fixed value","operator":"exact","type":"t","value":"v"}]'
 const emptyProperties = '[]'
 
 const getUrlParameters = (url: string): Record<string, any> => {
@@ -398,28 +396,6 @@ describe('eventsTableLogic', () => {
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
                         after: afterTheFirstEvent,
-                    })
-                })
-
-                it('can build the export URL when there are no properties or filters', async () => {
-                    await expectLogic(logic, () => {})
-
-                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
-                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
-                        properties: emptyProperties,
-                        orderBy: orderByTimestamp,
-                    })
-                })
-
-                it('can build the export URL when there are properties or filters', async () => {
-                    await expectLogic(logic, () => {
-                        logic.actions.setProperties([makePropertyFilter('fixed value')])
-                    })
-
-                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
-                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
-                        properties: propertiesWithFilterValue,
-                        orderBy: orderByTimestamp,
                     })
                 })
 
