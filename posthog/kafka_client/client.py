@@ -81,9 +81,7 @@ def _sasl_params():
 
 class _KafkaProducer:
     def __init__(self, test=TEST):
-        if test:
-            self.producer = TestKafkaProducer()
-        elif KAFKA_BASE64_KEYS:
+        if KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES, value_serializer=lambda d: d)
         else:
             self.producer = KP(
@@ -104,7 +102,7 @@ class _KafkaProducer:
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        self.producer.send(topic, value=b, key=key)
+        self.producer.send(topic, value=b, key=key).get()
 
     def close(self):
         self.producer.flush()
