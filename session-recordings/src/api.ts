@@ -4,8 +4,11 @@ import consumers from 'stream/consumers'
 import { ListObjectsCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { Readable } from 'stream'
 import { s3Client } from './s3'
+import pino from 'pino'
 
 const routes = Router()
+
+const logger = pino({ name: 'api', level: process.env.LOG_LEVEL || 'info' })
 
 routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: { teamId, sessionId } }, res) => {
     // Fetch events for the specified session recording
@@ -13,7 +16,7 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
 
     const prefix = `session_recordings/team_id/${teamId}/session_id/${sessionId}/data/`
 
-    console.debug({ action: 'fetch_session', teamId, sessionId, prefix })
+    logger.debug({ action: 'fetch_session', teamId, sessionId, prefix })
 
     const listResponse = await s3Client.send(
         new ListObjectsCommand({
@@ -22,7 +25,7 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
         })
     )
 
-    console.debug({ chunks: listResponse.Contents?.map((object) => object.Key) })
+    logger.debug({ chunks: listResponse.Contents?.map((object) => object.Key) })
 
     const objects = await Promise.all(
         listResponse.Contents?.map((key) =>
@@ -41,7 +44,7 @@ routes.get('/api/team/:teamId/session_recordings/:sessionId', async ({ params: {
     // construct the JSON progressively
     const events = blobs.flatMap((blob) => blob.split('\n'))
 
-    console.debug({ action: 'returning_session', events: '[' + events.join(',') + ']' })
+    logger.debug({ action: 'returning_session', events: '[' + events.join(',') + ']' })
 
     return res.send(`{"events": [${events.join(',')}]}`)
 })
@@ -56,8 +59,8 @@ const errorTypes = ['unhandledRejection', 'uncaughtException']
 
 errorTypes.map((type) => {
     process.on(type, async (e) => {
-        console.debug(`process.on ${type}`)
-        console.error(e)
+        logger.debug(`process.on ${type}`)
+        logger.error(e)
     })
 })
 

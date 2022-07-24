@@ -7,6 +7,9 @@ import { performance } from 'perf_hooks'
 import { getEventGroupDataString, getEventSummaryMetadata } from './utils'
 import { getHealthcheckRoutes } from './healthcheck'
 import express from 'express'
+import pino from 'pino'
+
+const logger = pino({ name: 'ingester', level: process.env.LOG_LEVEL || 'info' })
 
 const maxEventGroupAge = Number.parseInt(
     process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
@@ -79,7 +82,7 @@ consumer.run({
 
         let eventGroup = eventsBySessionId[sessionId]
 
-        console.debug({
+        logger.debug({
             action: 'start',
             uuid: eventId,
             sessionId: sessionId,
@@ -91,7 +94,7 @@ consumer.run({
             const metaDataEventSummaryKey = `${baseKey}/metadata/event_summaries/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
             const metaDataKey = `${baseKey}/metadata/metadata.json`
 
-            console.debug({ action: 'committing_event_group', sessionId: eventGroup.sessionId, key: dataKey })
+            logger.debug({ action: 'committing_event_group', sessionId: eventGroup.sessionId, key: dataKey })
 
             const sendStartTime = performance.now()
             await s3Client.send(
@@ -127,7 +130,7 @@ consumer.run({
                 // offset to the oldest message referenced by them.
                 const offset = otherSessions.map((eventGroup) => eventGroup.oldestOffset).sort()[0]
 
-                console.debug({ action: 'committing_offset', offset: offset, partition })
+                logger.debug({ action: 'committing_offset', offset: offset, partition })
 
                 consumer.commitOffsets([
                     {
@@ -168,7 +171,7 @@ consumer.run({
                 newestOffset: message.offset,
             }
             eventGroup.timer = setTimeout(() => commitEventGroupToS3(), maxEventGroupAge)
-            console.debug({ action: 'create_event_group', sessionId: eventGroup.sessionId })
+            logger.debug({ action: 'create_event_group', sessionId: eventGroup.sessionId })
             return eventGroup
         }
 
@@ -211,9 +214,9 @@ const errorTypes = ['unhandledRejection', 'uncaughtException']
 errorTypes.map((type) => {
     process.on(type, async (e) => {
         try {
-            console.debug(`process.on ${type}`)
-            console.error(e)
-            await consumer.disconnect()
+            logger.debug(`process.on ${type}`)
+            logger.error(e)
+            await Promise.all([consumer.disconnect(), httpServer.close()])
             process.exit(0)
         } catch (_) {
             process.exit(1)
@@ -229,8 +232,7 @@ const signalTraps = ['SIGTERM', 'SIGINT', 'SIGUSR2']
 signalTraps.map((type) => {
     process.once(type, async () => {
         try {
-            await consumer.disconnect()
-            await httpServer.close()
+            await Promise.all([consumer.disconnect(), httpServer.close()])
         } finally {
             process.kill(process.pid, type)
         }
