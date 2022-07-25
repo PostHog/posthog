@@ -1,3 +1,4 @@
+{% load django_vite %}
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf8">
@@ -15,7 +16,6 @@
 <link rel="manifest" href="/static/site.webmanifest?v=2021-04-29">
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
-
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>
     window.JS_POSTHOG_API_KEY = {{js_posthog_api_key | safe}};
@@ -34,3 +34,6 @@
     // frontent JS from a CDN
     window.JS_URL = "{{ js_url|default:"" }}";
 </script>
+
+{% vite_hmr_client %}
+{% vite_asset 'index.tsx' %}

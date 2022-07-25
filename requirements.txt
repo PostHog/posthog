@@ -81,6 +81,7 @@ django==3.2.14
     #   django-redis
     #   django-rest-hooks
     #   django-structlog
+    #   django-vite
     #   djangorestframework
     #   djangorestframework-dataclasses
     #   drf-spectacular
@@ -109,6 +110,8 @@ django-rest-hooks @ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 django-statsd==2.5.2
     # via -r requirements.in
 django-structlog==2.1.3
+    # via -r requirements.in
+django-vite==2.0.2
     # via -r requirements.in
 djangorestframework==3.12.2
     # via
