@@ -26,8 +26,6 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport } from 'lib/components/icons'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
@@ -67,15 +65,12 @@ export function InsightContainer(
         filters,
         showTimeoutMessage,
         showErrorMessage,
-        csvExportUrl,
         exporterResourceParams,
         isUsingSessionAnalysis,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
     )
-
-    const newExportButtonActive = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -141,29 +136,19 @@ export function InsightContainer(
         ) {
             return (
                 <>
-                    {csvExportUrl && (
+                    {exporterResourceParams && (
                         <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
                             <h2>Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
-                                {newExportButtonActive && exporterResourceParams ? (
-                                    <ExportButton
-                                        type="secondary"
-                                        items={[
-                                            {
-                                                export_format: ExporterFormat.CSV,
-                                                export_context: exporterResourceParams,
-                                            },
-                                        ]}
-                                    />
-                                ) : (
-                                    <LemonButton
-                                        type="secondary"
-                                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                        href={csvExportUrl}
-                                    >
-                                        Export
-                                    </LemonButton>
-                                )}
+                                <ExportButton
+                                    type="secondary"
+                                    items={[
+                                        {
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: exporterResourceParams,
+                                        },
+                                    ]}
+                                />
                             </Tooltip>
                         </div>
                     )}

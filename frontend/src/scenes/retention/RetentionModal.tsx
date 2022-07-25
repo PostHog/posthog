@@ -16,9 +16,6 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { LemonButton } from '@posthog/lemon-ui'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function RetentionModal({
     results,
@@ -41,9 +38,6 @@ export function RetentionModal({
     actors: RetentionTablePeoplePayload
     aggregationTargetLabel: { singular: string; plural: string }
 }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const supportsCSVExports = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
-
     return (
         <Modal
             visible={visible}
@@ -53,22 +47,20 @@ export function RetentionModal({
                 <div className="flex space-between-items">
                     <div />
                     <div className="flex gap-05">
-                        {supportsCSVExports && (
-                            <LemonButton
-                                type="secondary"
-                                onClick={() =>
-                                    triggerExport({
-                                        export_format: ExporterFormat.CSV,
-                                        export_context: {
-                                            path: results[selectedRow]?.people_url,
-                                            max_limit: 10000,
-                                        },
-                                    })
-                                }
-                            >
-                                Export to CSV
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            type="secondary"
+                            onClick={() =>
+                                triggerExport({
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: {
+                                        path: results[selectedRow]?.people_url,
+                                        max_limit: 10000,
+                                    },
+                                })
+                            }
+                        >
+                            Export to CSV
+                        </LemonButton>
                         <LemonButton type="secondary" onClick={dismissModal}>
                             Close
                         </LemonButton>
