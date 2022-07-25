@@ -49,10 +49,10 @@ export const scene: SceneExport = {
 
 export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, eventDefinitionsLoading, filters, eventTypeFilter, shouldSimplifyActions } =
+    const { eventDefinitions, eventDefinitionsLoading, filters, shouldSimplifyActions } =
         useValues(eventDefinitionsTableLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { loadEventDefinitions, setFilters, setEventTypeFilter } = useActions(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<CombinedEvent> = [
@@ -247,13 +247,13 @@ export function EventDefinitionsTable(): JSX.Element {
                         <Col style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                             Type:
                             <LemonSelect
-                                value={eventTypeFilter}
+                                value={filters.event_type}
                                 options={chartTypeOptions}
                                 data-attr="event-type-filter"
                                 dropdownMatchSelectWidth={false}
                                 bordered
                                 onChange={(value) => {
-                                    setEventTypeFilter(value as CombinedEventType)
+                                    setFilters({ event_type: value as CombinedEventType })
                                 }}
                                 size="small"
                             />
