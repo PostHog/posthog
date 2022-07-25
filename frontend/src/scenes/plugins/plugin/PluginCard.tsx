@@ -79,7 +79,6 @@ export function PluginCard({
         hasMoved,
         is_global,
         organization_id,
-        organization_name,
     } = plugin
 
     const {
@@ -163,7 +162,7 @@ export function PluginCard({
                             ) : null}
                             {is_global && (
                                 <Tag color="blue">
-                                    <GlobalOutlined /> Managed by {organization_name}
+                                    <GlobalOutlined /> Global
                                 </Tag>
                             )}
                             {canInstallPlugins(user?.organization, organization_id) && (
