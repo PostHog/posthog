@@ -12,6 +12,7 @@ import {
 } from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
+import { dayjs } from 'lib/dayjs'
 
 export interface OperatorValueSelectProps {
     type?: string
@@ -34,7 +35,7 @@ interface OperatorSelectProps extends SelectProps<any> {
     defaultOpen?: boolean
 }
 
-function getValidationError(operator: PropertyOperator, value: any): string | null {
+function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     if (isOperatorRegex(operator)) {
         try {
             new RegExp(value)
@@ -43,7 +44,12 @@ function getValidationError(operator: PropertyOperator, value: any): string | nu
         }
     }
     if (isOperatorRange(operator) && isNaN(value)) {
-        return 'Range operators only work with numeric values'
+        let message = `Range operators only work with numeric values`
+        if (dayjs(value).isValid()) {
+            const propertyReference = property ? `property ${property}` : 'this property'
+            message += `. If you'd like to compare dates and times, make sure ${propertyReference} is typed as DateTime in Data Management. You will then be able to use operators "before" and "after"`
+        }
+        return message
     }
     return null
 }
@@ -85,7 +91,7 @@ export function OperatorValueSelect({
                     operators={operators}
                     onChange={(newOperator: PropertyOperator) => {
                         const tentativeValidationError =
-                            newOperator && value ? getValidationError(newOperator, value) : null
+                            newOperator && value ? getValidationError(newOperator, value, propkey) : null
                         if (tentativeValidationError) {
                             setValidationError(tentativeValidationError)
                             return
@@ -123,7 +129,9 @@ export function OperatorValueSelect({
                         value={value}
                         onSet={(newValue: string | number | string[] | null) => {
                             const tentativeValidationError =
-                                currentOperator && newValue ? getValidationError(currentOperator, newValue) : null
+                                currentOperator && newValue
+                                    ? getValidationError(currentOperator, newValue, propkey)
+                                    : null
                             if (tentativeValidationError) {
                                 setValidationError(tentativeValidationError)
                                 return
