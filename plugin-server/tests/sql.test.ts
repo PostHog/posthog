@@ -84,7 +84,6 @@ describe('sql', () => {
                 name: 'test-maxmind-plugin',
                 plugin_type: 'custom',
                 public_jobs: null,
-                source: null,
                 source__plugin_json:
                     '{"name":"posthog-maxmind-plugin","description":"just for testing","url":"http://example.com/plugin","config":{},"main":"index.js"}',
                 source__index_ts: 'const processEvent = event => event',
