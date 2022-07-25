@@ -5,7 +5,6 @@ import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
-import { getPluginRows } from 'utils/db/sql'
 
 import { defaultConfig } from '../config/config'
 import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
@@ -17,6 +16,7 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { createHub } from '../utils/db/hub'
+import { getPluginRows } from '../utils/db/sql'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
