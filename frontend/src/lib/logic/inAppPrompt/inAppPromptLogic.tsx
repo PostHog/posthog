@@ -14,16 +14,26 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { now } from 'lib/dayjs'
+import wcmatch from 'wildcard-match'
+import { IconBarChart, IconGauge, IconLive } from 'lib/components/icons'
 
 /** To be extended with other types of notifications e.g. modals, bars */
 export type PromptType = 'tooltip'
 
+export type PromptButton = {
+    url?: string
+    action?: string
+    label: string
+}
+
 export type Prompt = {
-    step: number // starting from 1, so that tracking prompts events is human readable (e.g. step 1 out of 3)
+    step: number
     type: PromptType
     text: string
     placement: Placement
     reference: string
+    buttons: PromptButton[]
+    icon?: string
 }
 
 export type Tooltip = Prompt & { type: 'tooltip' }
@@ -51,12 +61,27 @@ export type PromptState = {
     dismissed?: boolean
 }
 
+export type ValidSequenceWithState = {
+    sequence: PromptSequence
+    state: { step: number; completed?: boolean; dismissed?: boolean }
+}
+
 export type PromptUserState = {
     [key: string]: PromptState
 }
 
+// we show a new sequence with 1 second delay, because users immediately dismiss prompts that are invasive
+const NEW_SEQUENCE_DELAY = 1000
+
+const iconMap = {
+    'live-events': <IconLive />,
+    dashboard: <IconGauge />,
+    insight: <IconBarChart />,
+}
+
 function cancellableTooltipWithRetries(
     tooltip: Tooltip,
+    onAction: (action: string) => void,
     options: { maxSteps: number; onClose: () => void; next: () => void; previous: () => void }
 ): { close: () => void; show: Promise<unknown> } {
     let trigger = (): void => {}
@@ -93,6 +118,21 @@ function cancellableTooltipWithRetries(
                         options.onClose()
                     },
                     visible: true,
+                    buttons: tooltip.buttons
+                        ? tooltip.buttons.map((button) => {
+                              if (button.action) {
+                                  return {
+                                      ...button,
+                                      action: () => onAction(button.action as string),
+                                  }
+                              }
+                              return {
+                                  url: button.url,
+                                  label: button.label,
+                              }
+                          })
+                        : [],
+                    icon: tooltip.icon ? iconMap[tooltip.icon] : null,
                 }
                 if (tooltip.reference) {
                     const element = tooltip.reference
@@ -131,8 +171,12 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
     connect([inAppPromptEventCaptureLogic]),
     actions({
         tooltip: (tooltip: Tooltip) => ({ tooltip }),
+        findValidSequences: true,
+        setValidSequences: (validSequences: ValidSequenceWithState[]) => ({ validSequences }),
         runFirstValidSequence: (options: { runDismissedOrCompleted?: boolean; restart?: boolean }) => ({ options }),
         runSequence: (sequence: PromptSequence, step: number) => ({ sequence, step }),
+        runPrompt: (prompt: Prompt) => ({ prompt }),
+        closePrompts: true,
         dismissSequence: true,
         clearSequence: true,
         nextPrompt: true,
@@ -141,6 +185,8 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         setUserState: (state: PromptUserState) => ({ state }),
         syncState: (options: { forceRun?: boolean }) => ({ options }),
         setSequences: (sequences: PromptSequence[]) => ({ sequences }),
+        promptAction: (action: string) => ({ action }),
+        skipTutorial: true,
     }),
     reducers(() => ({
         sequences: [
@@ -171,44 +217,31 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                 setUserState: (_, { state }) => state,
             },
         ],
+        hasSkippedTutorial: [
+            false,
+            // { persist: true },
+            {
+                skipTutorial: () => true,
+            },
+        ],
+        validSequences: [
+            [] as { sequence: PromptSequence; state: { step: number; completed?: boolean; dismissed?: boolean } }[],
+            {
+                setValidSequences: (_, { validSequences }) => validSequences,
+            },
+        ],
+        isPromptVisible: [
+            false,
+            {
+                runPrompt: () => true,
+                closePrompts: () => false,
+                dismissSequence: () => false,
+            },
+        ],
     })),
     selectors(() => ({
         prompts: [(s) => [s.currentSequence], (sequence: PromptSequence | null) => sequence?.prompts ?? []],
         sequenceKey: [(s) => [s.currentSequence], (sequence: PromptSequence | null) => sequence?.key],
-        validSequences: [
-            (s) => [s.sequences, s.userState, router.selectors.currentLocation],
-            (sequences: PromptSequence[], userState: PromptUserState, currentLocation: { pathname: string }) => {
-                const pathname = currentLocation.pathname
-                const valid = []
-                for (const sequence of sequences) {
-                    // for now the only valid rule is related to the pathname, can be extended
-                    if (sequence.rule.path === pathname) {
-                        if (userState[sequence.key]) {
-                            const sequenceState = userState[sequence.key]
-                            const completed = !!sequenceState.completed
-                            const dismissed = !!sequenceState.dismissed
-                            if (
-                                sequence.type !== 'product-tour' &&
-                                (completed || dismissed || sequenceState.step === sequence.prompts.length)
-                            ) {
-                                continue
-                            }
-                            valid.push({
-                                sequence,
-                                state: {
-                                    step: sequenceState.step + 1,
-                                    completed,
-                                    dismissed,
-                                },
-                            })
-                        } else {
-                            valid.push({ sequence, state: { step: 0 } })
-                        }
-                    }
-                }
-                return valid
-            },
-        ],
     })),
     listeners(({ actions, values, cache }) => ({
         syncState: async ({ options }) => {
@@ -218,35 +251,49 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     values.userState
                 )
                 if (updatedState) {
+                    if (JSON.stringify(values.userState) !== JSON.stringify(updatedState['state'])) {
+                        actions.setUserState(updatedState['state'])
+                    }
                     if (
                         JSON.stringify(values.sequences) !== JSON.stringify(updatedState['sequences']) ||
                         options.forceRun
                     ) {
                         actions.setSequences(updatedState['sequences'])
                     }
-                    if (JSON.stringify(values.userState) !== JSON.stringify(updatedState['state'])) {
-                        actions.setUserState(updatedState['state'])
-                    }
                 }
             } catch (error: any) {
                 console.error(error)
             }
         },
-        setSequences: () => actions.runFirstValidSequence({}),
+        closePrompts: () => cache.runOnClose?.(),
+        setSequences: actions.findValidSequences,
         runSequence: ({ sequence, step = 0 }) => {
             const prompt = sequence.prompts.find((prompt) => prompt.step === step)
             if (prompt) {
-                switch (prompt.type) {
-                    case 'tooltip':
-                        actions.tooltip(prompt)
-                        break
-                    default:
-                        break
+                actions.runPrompt(prompt)
+                if (step === sequence.prompts.length - 1) {
+                    actions.updatePromptState({
+                        completed: true,
+                    })
+                    inAppPromptEventCaptureLogic.actions.reportPromptSequenceCompleted(
+                        sequence.key,
+                        step,
+                        values.prompts.length
+                    )
                 }
             }
         },
+        runPrompt: ({ prompt }) => {
+            switch (prompt.type) {
+                case 'tooltip':
+                    actions.tooltip(prompt)
+                    break
+                default:
+                    break
+            }
+        },
         tooltip: async ({ tooltip }) => {
-            const { close, show } = cancellableTooltipWithRetries(tooltip, {
+            const { close, show } = cancellableTooltipWithRetries(tooltip, actions.promptAction, {
                 maxSteps: values.prompts.length,
                 onClose: () => {
                     actions.dismissSequence()
@@ -292,31 +339,61 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     values.currentStep,
                     values.currentSequence.prompts.length
                 )
-                if (values.currentStep === values.currentSequence.prompts.length) {
-                    actions.updatePromptState({
-                        completed: true,
-                    })
-                    inAppPromptEventCaptureLogic.actions.reportPromptSequenceCompleted(
-                        values.currentSequence.key,
-                        values.currentStep,
-                        values.prompts.length
-                    )
-                }
             }
         },
+        findValidSequences: () => {
+            const pathname = router.values.currentLocation.pathname
+            const valid = []
+            for (const sequence of values.sequences) {
+                // for now the only valid rule is related to the pathname, can be extended
+                const isWildcardMatch = wcmatch(sequence.rule.path)
+                if (isWildcardMatch(pathname)) {
+                    if (sequence.type === 'product-tour' && values.hasSkippedTutorial) {
+                        continue
+                    }
+                    if (values.userState[sequence.key]) {
+                        const sequenceState = values.userState[sequence.key]
+                        const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
+                        const dismissed = !!sequenceState.dismissed
+                        if (
+                            sequence.type !== 'product-tour' &&
+                            (completed || dismissed || sequenceState.step === sequence.prompts.length)
+                        ) {
+                            continue
+                        }
+                        valid.push({
+                            sequence,
+                            state: {
+                                step: sequenceState.step + 1,
+                                completed,
+                                dismissed,
+                            },
+                        })
+                    } else {
+                        valid.push({ sequence, state: { step: 0 } })
+                    }
+                }
+            }
+            actions.setValidSequences(valid)
+        },
+        setValidSequences: () => actions.runFirstValidSequence({}),
         runFirstValidSequence: ({ options }) => {
             if (values.validSequences) {
+                actions.closePrompts()
                 let firstValid = null
                 if (options.runDismissedOrCompleted) {
                     firstValid = values.validSequences[0]
                 } else {
                     firstValid = values.validSequences.filter(
-                        (sequence) => !sequence.state.completed || !sequence.state.dismissed
+                        (sequence) => !sequence.state.completed && !sequence.state.dismissed
                     )?.[0]
                 }
                 if (firstValid) {
                     const { sequence, state } = firstValid
-                    actions.runSequence(sequence, options.restart ? 0 : state.step)
+                    setTimeout(
+                        () => actions.runSequence(sequence, options.restart ? 0 : state.step),
+                        NEW_SEQUENCE_DELAY
+                    )
                 }
             }
         },
@@ -340,10 +417,21 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             }
         },
         setUserState: () => actions.syncState({}),
+        promptAction: ({ action }) => {
+            switch (action) {
+                case 'skip':
+                    actions.closePrompts()
+                    actions.skipTutorial()
+                    inAppPromptEventCaptureLogic.actions.reportTutorialSkipped()
+                    break
+                default:
+                    break
+            }
+        },
         //@ts-expect-error
         [router.actions.locationChanged]: () => {
-            cache.runOnClose?.()
-            actions.runFirstValidSequence({})
+            actions.closePrompts()
+            actions.findValidSequences()
         },
     })),
     events(({ actions, cache }) => ({

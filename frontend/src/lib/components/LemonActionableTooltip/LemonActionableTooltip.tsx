@@ -1,7 +1,7 @@
 import React from 'react'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { Popup } from 'lib/components/Popup/Popup'
-import { IconBroadcast } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/components/icons'
 import { CloseOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './LemonActionableTooltip.scss'
@@ -16,6 +16,8 @@ export type LemonActionableTooltipProps = {
     element?: HTMLElement
     next?: () => void
     previous?: () => void
+    buttons?: { label: string; url?: string; action?: () => void }[]
+    icon?: JSX.Element
 }
 
 export const LemonActionableTooltip = ({
@@ -28,6 +30,8 @@ export const LemonActionableTooltip = ({
     next,
     step,
     maxSteps,
+    buttons,
+    icon,
 }: LemonActionableTooltipProps): JSX.Element | null => {
     return (
         <Popup
@@ -37,9 +41,7 @@ export const LemonActionableTooltip = ({
             overlay={
                 <div className="LemonActionableTooltip">
                     <div className="LemonActionableTooltip__header">
-                        <div className="LemonActionableTooltip__icon">
-                            <IconBroadcast />
-                        </div>
+                        {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
                         <LemonButton size="small" type="stealth" onClick={close}>
                             <CloseOutlined />
                         </LemonButton>
@@ -71,9 +73,31 @@ export const LemonActionableTooltip = ({
                                 </LemonButton>
                             </div>
                         )}
-                        {/* <div>
-                            <LemonButton>Hello</LemonButton>
-                        </div> */}
+                        {buttons && (
+                            <div>
+                                {buttons.map((button, index) => {
+                                    if (button.url) {
+                                        return (
+                                            <LemonButton
+                                                key={index}
+                                                type="secondary"
+                                                icon={<IconOpenInNew />}
+                                                onClick={() => window.open(button.url, '_noblank')}
+                                            >
+                                                {button.label}
+                                            </LemonButton>
+                                        )
+                                    }
+                                    if (button.action) {
+                                        return (
+                                            <LemonButton key={index} type="secondary" onClick={button.action}>
+                                                {button.label}
+                                            </LemonButton>
+                                        )
+                                    }
+                                })}
+                            </div>
+                        )}
                     </div>
                 </div>
             }

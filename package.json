@@ -112,6 +112,7 @@
         "sass": "^1.26.2",
         "use-debounce": "^6.0.1",
         "use-resize-observer": "^8.0.0",
+        "wildcard-match": "^5.1.2",
         "zxcvbn": "^4.4.2"
     },
     "devDependencies": {

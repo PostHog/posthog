@@ -6,11 +6,18 @@ import { HelpType } from '~/types'
 import type { helpButtonLogicType } from './HelpButtonType'
 import { Popup } from '../Popup/Popup'
 import { LemonButton } from '../LemonButton'
-import { IconArrowDropDown, IconArticle, IconGithub, IconHelpOutline, IconMail, IconQuestionAnswer } from '../icons'
+import {
+    IconArrowDropDown,
+    IconArticle,
+    IconGithub,
+    IconHelpOutline,
+    IconMail,
+    IconQuestionAnswer,
+    IconMessages,
+} from '../icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { QuestionOutlined } from '@ant-design/icons'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -71,7 +78,10 @@ export function HelpButton({
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
     const { validSequences } = useValues(inAppPromptLogic)
-    const { runFirstValidSequence } = useActions(inAppPromptLogic)
+    const { runFirstValidSequence, closePrompts } = useActions(inAppPromptLogic)
+    const { isPromptVisible } = useValues(inAppPromptLogic)
+
+    console.log(isPromptVisible)
 
     return (
         <Popup
@@ -133,15 +143,19 @@ export function HelpButton({
                     )}
                     {validSequences.length > 0 && (
                         <LemonButton
-                            icon={<QuestionOutlined />}
+                            icon={<IconMessages />}
                             type="stealth"
                             fullWidth
                             onClick={() => {
-                                runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
+                                if (isPromptVisible) {
+                                    closePrompts()
+                                } else {
+                                    runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
+                                }
                                 hideHelp()
                             }}
                         >
-                            Explain this page
+                            {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
                         </LemonButton>
                     )}
                 </>

@@ -6,9 +6,16 @@
         justify-content: space-between;
     }
     .LemonActionableTooltip__icon {
-        padding-left: 0.5rem;
+        color: var(--primary);
+        margin-left: 0.5rem;
         display: flex;
         align-items: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        > svg {
+            width: 100%;
+            height: 100%;
+        }
     }
     .LemonActionableTooltip__body {
         padding: 0.5rem;

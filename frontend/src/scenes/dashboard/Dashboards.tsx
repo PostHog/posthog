@@ -25,6 +25,7 @@ import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -39,6 +40,7 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { closePrompts } = useActions(inAppPromptLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -187,7 +189,15 @@ export function Dashboards(): JSX.Element {
             <PageHeader
                 title="Dashboards"
                 buttons={
-                    <LemonButton data-attr={'new-dashboard'} onClick={showNewDashboardModal} type="primary">
+                    <LemonButton
+                        data-attr={'new-dashboard'}
+                        data-tooltip="experiment-dashboards-product-tour"
+                        onClick={() => {
+                            closePrompts()
+                            showNewDashboardModal()
+                        }}
+                        type="primary"
+                    >
                         New dashboard
                     </LemonButton>
                 }
