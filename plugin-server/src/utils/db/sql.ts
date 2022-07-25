@@ -11,7 +11,21 @@ import {
 } from '../../types'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
-    return `SELECT posthog_pluginconfig.${specificField || '*'}
+    const fields = specificField
+        ? `posthog_pluginconfig.${specificField}`
+        : `
+        posthog_pluginconfig.id,
+        posthog_pluginconfig.team_id,
+        posthog_pluginconfig.plugin_id,
+        posthog_pluginconfig.enabled,
+        posthog_pluginconfig.order,
+        posthog_pluginconfig.config,
+        posthog_pluginconfig.updated_at,
+        posthog_pluginconfig.created_at,
+        posthog_pluginconfig.error IS NOT NULL AS has_error
+    `
+
+    return `SELECT ${fields}
        FROM posthog_pluginconfig
        LEFT JOIN posthog_team ON posthog_team.id = posthog_pluginconfig.team_id
        LEFT JOIN posthog_organization ON posthog_organization.id = posthog_team.organization_id
