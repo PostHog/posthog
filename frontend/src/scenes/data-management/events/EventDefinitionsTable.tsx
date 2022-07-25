@@ -27,7 +27,7 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
-const chartTypeOptions: LemonSelectOptions = {
+const eventTypeOptions: LemonSelectOptions = {
     [CombinedEventType.All]: {
         label: 'All types',
     },
@@ -248,7 +248,7 @@ export function EventDefinitionsTable(): JSX.Element {
                             Type:
                             <LemonSelect
                                 value={filters.event_type}
-                                options={chartTypeOptions}
+                                options={eventTypeOptions}
                                 data-attr="event-type-filter"
                                 dropdownMatchSelectWidth={false}
                                 bordered
