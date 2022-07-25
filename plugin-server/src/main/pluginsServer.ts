@@ -5,6 +5,7 @@ import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
+import { getPluginRows } from 'utils/db/sql'
 
 import { defaultConfig } from '../config/config'
 import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
@@ -185,7 +186,8 @@ export async function startPluginsServer(
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                 status.info('⚡', 'Reloading plugins!')
-                await piscina?.broadcastTask({ task: 'reloadPlugins' })
+                const pluginRows = await getPluginRows(hub!)
+                await piscina?.broadcastTask({ task: 'reloadPlugins', args: { pluginRows } })
                 await pluginScheduleControl?.reloadSchedule()
             },
             ...(hub.capabilities.processAsyncHandlers

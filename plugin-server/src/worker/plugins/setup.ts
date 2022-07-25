@@ -7,8 +7,8 @@ import { LazyPluginVM } from '../vm/lazy'
 import { loadPlugin } from './loadPlugin'
 import { teardownPlugins } from './teardown'
 
-export async function setupPlugins(server: Hub): Promise<void> {
-    const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(server)
+export async function setupPlugins(server: Hub, pluginRows?: Plugin[]): Promise<void> {
+    const { plugins, pluginConfigs, pluginConfigsPerTeam } = await loadPluginsFromDB(server, pluginRows)
     const pluginVMLoadPromises: Array<Promise<any>> = []
     const statelessVms = {} as StatelessVmMap
 
@@ -52,9 +52,12 @@ export async function setupPlugins(server: Hub): Promise<void> {
     await loadSchedule(server)
 }
 
-async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
+async function loadPluginsFromDB(
+    hub: Hub,
+    pluginRows?: Plugin[]
+): Promise<Pick<Hub, 'plugins' | 'pluginConfigs' | 'pluginConfigsPerTeam'>> {
     const startTimer = new Date()
-    const pluginRows = await getPluginRows(hub)
+    pluginRows = pluginRows || (await getPluginRows(hub))
     const plugins = new Map<PluginId, Plugin>()
 
     for (const row of pluginRows) {

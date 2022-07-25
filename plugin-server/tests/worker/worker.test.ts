@@ -193,9 +193,9 @@ describe('worker', () => {
         })
 
         it('handles `reloadPlugins` task', async () => {
-            await taskRunner({ task: 'reloadPlugins' })
+            await taskRunner({ task: 'reloadPlugins', args: { pluginRows: [] } })
 
-            expect(setupPlugins).toHaveBeenCalled()
+            expect(setupPlugins).toHaveBeenCalledWith(hub, [])
         })
 
         it('handles `reloadSchedule` task', async () => {
