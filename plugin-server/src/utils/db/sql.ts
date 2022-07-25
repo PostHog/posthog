@@ -38,7 +38,6 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
             posthog_plugin.from_web,
             posthog_plugin.error,
             posthog_plugin.plugin_type,
-            posthog_plugin.source,
             posthog_plugin.organization_id,
             posthog_plugin.is_global,
             posthog_plugin.capabilities,
