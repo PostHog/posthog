@@ -1,1 +1,3 @@
 dist/
+loadTest/kafkaEvents.txt
+loadTest/clickhouseRecordingEvents.json
