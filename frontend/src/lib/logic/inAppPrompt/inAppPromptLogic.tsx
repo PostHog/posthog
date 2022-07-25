@@ -191,7 +191,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
     reducers(() => ({
         sequences: [
             [] as PromptSequence[],
-            // { persist: true },
+            { persist: true },
             {
                 setSequences: (_, { sequences }) => sequences,
             },
@@ -212,14 +212,14 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         ],
         userState: [
             {} as PromptUserState,
-            // { persist: true },
+            { persist: true },
             {
                 setUserState: (_, { state }) => state,
             },
         ],
         hasSkippedTutorial: [
             false,
-            // { persist: true },
+            { persist: true },
             {
                 skipTutorial: () => true,
             },
