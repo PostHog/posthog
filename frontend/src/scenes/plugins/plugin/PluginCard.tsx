@@ -1,267 +1,386 @@
-import { Button, Card, Col, Row, Space, Tag } from 'antd'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginConfigType, PluginErrorType } from '~/types'
-import {
-    CheckOutlined,
-    CloudDownloadOutlined,
-    LoadingOutlined,
-    UnorderedListOutlined,
-    SettingOutlined,
-    WarningOutlined,
-    InfoCircleOutlined,
-    DownOutlined,
-    GlobalOutlined,
-    ClockCircleOutlined,
-} from '@ant-design/icons'
-import { PluginImage } from './PluginImage'
-import { PluginError } from './PluginError'
-import { LocalPluginTag } from './LocalPluginTag'
-import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
-import { SourcePluginTag } from './SourcePluginTag'
-import { CommunityPluginTag } from './CommunityPluginTag'
-import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
+import { Button, Form, Popconfirm, Space, Switch, Tag } from 'antd'
+import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
-import { endWithPunctation } from '../../../lib/utils'
-import { canInstallPlugins } from '../access'
-import { LinkButton } from 'lib/components/LinkButton'
-import { PluginUpdateButton } from './PluginUpdateButton'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { Drawer } from 'lib/components/Drawer'
+import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
+import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
+import ReactMarkdown from 'react-markdown'
+import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
+import { PluginSource } from '../source/PluginSource'
+import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { endWithPunctation } from 'lib/utils'
+import { canGloballyManagePlugins, canInstallPlugins } from '../access'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
 
-export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
+window.process = MOCK_NODE_PROCESS
+
+function EnabledDisabledSwitch({
+    value,
+    onChange,
+}: {
+    value?: boolean
+    onChange?: (value: boolean) => void
+}): JSX.Element {
     return (
-        <Space>
-            <Tooltip title="About">
-                <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                    <InfoCircleOutlined />
-                </LinkButton>
-            </Tooltip>
-        </Space>
+        <>
+            <Switch checked={value} onChange={onChange} />
+            <strong style={{ paddingLeft: 10 }}>{value ? 'Enabled' : 'Disabled'}</strong>
+        </>
     )
 }
 
-interface PluginCardProps {
-    plugin: Partial<PluginTypeWithConfig>
-    pluginConfig?: PluginConfigType
-    error?: PluginErrorType
-    maintainer?: string
-    showUpdateButton?: boolean
-    order?: number
-    maxOrder?: number
-    rearranging?: boolean
-    DragColumn?: React.ComponentClass | React.FC
-    unorderedPlugin?: boolean
-}
+const SecretFieldIcon = (): JSX.Element => (
+    <>
+        <Tooltip
+            placement="topLeft"
+            title="This is a secret write-only field. Its value is not available after saving."
+        >
+            <LockFilled style={{ marginRight: 5 }} />
+        </Tooltip>
+    </>
+)
 
-export function PluginCard({
-    plugin,
-    error,
-    maintainer,
-    showUpdateButton,
-    order,
-    maxOrder,
-    rearranging,
-    DragColumn = ({ children }) => <Col className="order-handle">{children}</Col>,
-    unorderedPlugin = false,
-}: PluginCardProps): JSX.Element {
-    const {
-        name,
-        description,
-        url,
-        plugin_type: pluginType,
-        pluginConfig,
-        tag,
-        latest_tag: latestTag,
-        id: pluginId,
-        updateStatus,
-        hasMoved,
-        is_global,
-        organization_id,
-    } = plugin
-
-    const {
-        editPlugin,
-        toggleEnabled,
-        installPlugin,
-        resetPluginConfigError,
-        rearrange,
-        showPluginLogs,
-        showPluginHistory,
-    } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
+export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded, patchPlugin } =
+        useActions(pluginsLogic)
 
-    const hasSpecifiedMaintainer = maintainer || (plugin.url && pluginUrlToMaintainer[plugin.url])
-    const pluginMaintainer = maintainer || pluginUrlToMaintainer[plugin.url || '']
+    const [form] = Form.useForm()
+
+    const [invisibleFields, setInvisibleFields] = useState<string[]>([])
+    const [requiredFields, setRequiredFields] = useState<string[]>([])
+
+    useEffect(() => {
+        if (editingPlugin) {
+            form.setFieldsValue({
+                ...(editingPlugin.pluginConfig.config || defaultConfigForPlugin(editingPlugin)),
+                __enabled: editingPlugin.pluginConfig.enabled,
+                ...editingPluginInitialChanges,
+            })
+            generateApiKeysIfNeeded(form)
+        } else {
+            form.resetFields()
+        }
+        updateInvisibleAndRequiredFields()
+    }, [editingPlugin?.id, editingPlugin?.config_schema])
+
+    const updateInvisibleAndRequiredFields = (): void => {
+        determineAndSetInvisibleFields()
+        determineAndSetRequiredFields()
+    }
+
+    const determineAndSetInvisibleFields = (): void => {
+        const fieldsToSetAsInvisible = []
+        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
+            if (!field.visible_if || !field.key) {
+                continue
+            }
+            const shouldBeVisible = field.visible_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
+
+            if (!shouldBeVisible) {
+                fieldsToSetAsInvisible.push(field.key)
+            }
+        }
+        setInvisibleFields(fieldsToSetAsInvisible)
+    }
+
+    const determineAndSetRequiredFields = (): void => {
+        const fieldsToSetAsRequired = []
+        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
+            if (!field.required_if || !Array.isArray(field.required_if) || !field.key) {
+                continue
+            }
+            const shouldBeRequired = field.required_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
+            if (shouldBeRequired) {
+                fieldsToSetAsRequired.push(field.key)
+            }
+        }
+
+        setRequiredFields(fieldsToSetAsRequired)
+    }
+
+    const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
+        return (
+            Array.isArray(fieldConfig.choices) &&
+            !!fieldConfig.choices.length &&
+            !fieldConfig.choices.find((c) => typeof c !== 'string') &&
+            !fieldConfig.secret
+        )
+    }
+
+    const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
+        fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
 
     return (
-        <Col
-            style={{ width: '100%', marginBottom: 20 }}
-            className={`plugins-scene-plugin-card-col${rearranging ? ` rearranging` : ''}`}
-            data-attr={`plugin-card-${pluginConfig ? 'installed' : 'available'}`}
-        >
-            <Card className="plugins-scene-plugin-card">
-                <Row align="middle" className="plugin-card-row">
-                    {typeof order === 'number' && typeof maxOrder === 'number' ? (
-                        <DragColumn>
-                            <div className={`arrow${order === 1 ? ' hide' : ''}`}>
-                                <DownOutlined />
-                            </div>
-                            <div>
-                                <Tag color={hasMoved ? '#bd0225' : '#555'} onClick={rearrange}>
-                                    {order}
-                                </Tag>
-                            </div>
-                            <div className={`arrow${order === maxOrder ? ' hide' : ''}`}>
-                                <DownOutlined />
-                            </div>
-                        </DragColumn>
-                    ) : null}
-                    {unorderedPlugin ? (
-                        <Tooltip title="This app does not do any processing in order." placement="topRight">
-                            <Col>
-                                <Tag color="#555">-</Tag>
-                            </Col>
-                        </Tooltip>
-                    ) : null}
-                    {pluginConfig && (
-                        <Col>
-                            {pluginConfig.id ? (
-                                <LemonSwitch
-                                    checked={pluginConfig.enabled ?? false}
-                                    disabled={rearranging}
-                                    onChange={() =>
-                                        toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
-                                    }
-                                />
-                            ) : (
-                                <Tooltip title="Please configure this plugin before enabling it">
-                                    <LemonSwitch checked={false} disabled={true} />
-                                </Tooltip>
-                            )}
-                        </Col>
-                    )}
-                    <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
-                        <PluginImage pluginType={pluginType} url={url} />
-                    </Col>
-                    <Col style={{ flex: 1 }}>
-                        <div>
-                            <strong style={{ marginRight: 8 }}>{name}</strong>
-                            {hasSpecifiedMaintainer && (
-                                <CommunityPluginTag isCommunity={pluginMaintainer === 'community'} />
-                            )}
-                            {pluginConfig?.error ? (
-                                <PluginError
-                                    error={pluginConfig.error}
-                                    reset={() => resetPluginConfigError(pluginConfig?.id || 0)}
-                                />
-                            ) : error ? (
-                                <PluginError error={error} />
-                            ) : null}
-                            {is_global && (
-                                <Tag color="blue">
-                                    <GlobalOutlined /> Global
-                                </Tag>
-                            )}
-                            {canInstallPlugins(user?.organization, organization_id) && (
-                                <>
-                                    {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
-                                    {updateStatus?.error ? (
-                                        <Tag color="red">
-                                            <WarningOutlined /> Error checking for updates
-                                        </Tag>
-                                    ) : checkingForUpdates &&
-                                      !updateStatus &&
-                                      pluginType !== PluginInstallationType.Source &&
-                                      !url?.startsWith('file:') ? (
-                                        <Tag color="blue">
-                                            <LoadingOutlined /> Checking for updates…
-                                        </Tag>
-                                    ) : url && latestTag && tag ? (
-                                        tag === latestTag ? (
-                                            <Tag color="green">
-                                                <CheckOutlined /> Up to date
-                                            </Tag>
-                                        ) : (
-                                            <UpdateAvailable url={url} tag={tag} latestTag={latestTag} />
-                                        )
-                                    ) : null}
-                                    {pluginType === PluginInstallationType.Source ? <SourcePluginTag /> : null}
-                                </>
-                            )}
-                        </div>
-                        <div>{endWithPunctation(description)}</div>
-                    </Col>
-                    <Col>
-                        <Space>
-                            {url && <PluginAboutButton url={url} disabled={rearranging} />}
-                            {showUpdateButton && pluginId ? (
-                                <PluginUpdateButton
-                                    updateStatus={updateStatus}
-                                    pluginId={pluginId}
-                                    rearranging={rearranging}
-                                />
-                            ) : pluginId ? (
-                                <>
-                                    <Tooltip title="Activity history">
+        <>
+            <Drawer
+                forceRender={true}
+                visible={!!editingPlugin}
+                onClose={() => editPlugin(null)}
+                width="min(90vw, 500px)"
+                title={editingPlugin?.name}
+                data-attr="plugin-drawer"
+                footer={
+                    <div style={{ display: 'flex' }}>
+                        <Space style={{ flexGrow: 1 }}>
+                            {editingPlugin &&
+                                !editingPlugin.is_global &&
+                                canInstallPlugins(user?.organization, editingPlugin.organization_id) && (
+                                    <Popconfirm
+                                        placement="topLeft"
+                                        title="Are you sure you wish to uninstall this app completely?"
+                                        onConfirm={() => uninstallPlugin(editingPlugin.name)}
+                                        okText="Uninstall"
+                                        cancelText="Cancel"
+                                        className="plugins-popconfirm"
+                                    >
                                         <Button
-                                            className="padding-under-500"
-                                            disabled={rearranging}
-                                            onClick={() => showPluginHistory(pluginId)}
-                                            data-attr="plugin-history"
+                                            style={{ color: 'var(--danger)', padding: 4 }}
+                                            type="text"
+                                            icon={<DeleteOutlined />}
+                                            data-attr="plugin-uninstall"
                                         >
-                                            <ClockCircleOutlined />
+                                            Uninstall
                                         </Button>
-                                    </Tooltip>
+                                    </Popconfirm>
+                                )}
+                            {preflight?.cloud &&
+                                editingPlugin &&
+                                canGloballyManagePlugins(user?.organization) &&
+                                (editingPlugin.is_global ? (
                                     <Tooltip
                                         title={
-                                            pluginConfig?.id
-                                                ? 'Logs'
-                                                : 'Logs – enable the app for the first time to view them'
+                                            <>
+                                                This app can currently be used by other organizations in this instance
+                                                of PostHog. This action will <b>disable and hide it</b> for all
+                                                organizations other than yours.
+                                            </>
                                         }
                                     >
                                         <Button
-                                            className="padding-under-500"
-                                            disabled={rearranging || !pluginConfig?.id}
-                                            onClick={() => showPluginLogs(pluginId)}
-                                            data-attr="plugin-logs"
+                                            type="text"
+                                            icon={<RollbackOutlined />}
+                                            onClick={() => patchPlugin(editingPlugin.id, { is_global: false })}
+                                            style={{ padding: 4 }}
                                         >
-                                            <UnorderedListOutlined />
+                                            Make local
                                         </Button>
                                     </Tooltip>
-                                    <Tooltip title="Configure">
+                                ) : (
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                This action will mark this app as installed for <b>all organizations</b>{' '}
+                                                in this instance of PostHog.
+                                            </>
+                                        }
+                                    >
                                         <Button
-                                            type="primary"
-                                            className="padding-under-500"
-                                            disabled={rearranging}
-                                            onClick={() => editPlugin(pluginId)}
-                                            data-attr="plugin-configure"
+                                            type="text"
+                                            icon={<GlobalOutlined />}
+                                            onClick={() => patchPlugin(editingPlugin.id, { is_global: true })}
+                                            style={{ padding: 4 }}
                                         >
-                                            <SettingOutlined />
+                                            Make global
                                         </Button>
                                     </Tooltip>
-                                </>
-                            ) : !pluginId ? (
-                                <Button
-                                    type="primary"
-                                    className="padding-under-500"
-                                    loading={loading && installingPluginUrl === url}
-                                    disabled={loading && installingPluginUrl !== url}
-                                    onClick={
-                                        url ? () => installPlugin(url, PluginInstallationType.Repository) : undefined
-                                    }
-                                    icon={<CloudDownloadOutlined />}
-                                    data-attr="plugin-install"
-                                >
-                                    <span className="show-over-500">Install</span>
-                                </Button>
-                            ) : null}
+                                ))}
                         </Space>
-                    </Col>
-                </Row>
-            </Card>
-        </Col>
+                        <Space>
+                            <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
+                                Cancel
+                            </Button>
+                            <Button
+                                type="primary"
+                                loading={loading}
+                                onClick={form.submit}
+                                data-attr="plugin-drawer-save"
+                            >
+                                Save
+                            </Button>
+                        </Space>
+                    </div>
+                }
+            >
+                <Form form={form} layout="vertical" name="basic" onFinish={savePluginConfig}>
+                    {/* TODO: Rework as Kea form with Lemon UI components */}
+                    {editingPlugin ? (
+                        <div>
+                            <div style={{ display: 'flex', marginBottom: 16 }}>
+                                <PluginImage
+                                    pluginType={editingPlugin.plugin_type}
+                                    url={editingPlugin.url}
+                                    size="large"
+                                />
+                                <div style={{ flexGrow: 1, paddingLeft: 16 }}>
+                                    {endWithPunctation(editingPlugin.description)}
+                                    <div style={{ marginTop: 5 }}>
+                                        {editingPlugin?.plugin_type === 'local' && editingPlugin.url ? (
+                                            <LocalPluginTag url={editingPlugin.url} title="Installed Locally" />
+                                        ) : editingPlugin.plugin_type === 'source' ? (
+                                            <SourcePluginTag />
+                                        ) : null}
+                                        {editingPlugin.url && (
+                                            <a href={editingPlugin.url}>
+                                                <i>⤷ Learn more</i>
+                                            </a>
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
+                                        <Form.Item
+                                            fieldKey="__enabled"
+                                            name="__enabled"
+                                            style={{ display: 'inline-block', marginBottom: 0 }}
+                                            data-attr="plugin-enabled-switch"
+                                        >
+                                            <EnabledDisabledSwitch />
+                                        </Form.Item>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
+                                <div>
+                                    <Button
+                                        type={editingSource ? 'default' : 'primary'}
+                                        icon={<CodeOutlined />}
+                                        onClick={() => setEditingSource(!editingSource)}
+                                        data-attr="plugin-edit-source"
+                                    >
+                                        Edit Source
+                                    </Button>
+                                </div>
+                            ) : null}
+
+                            {editingPlugin.capabilities && Object.keys(editingPlugin.capabilities).length > 0 ? (
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Capabilities
+                                    </h3>
+
+                                    <div style={{ marginTop: 5 }}>
+                                        {[
+                                            ...editingPlugin.capabilities.methods,
+                                            ...editingPlugin.capabilities.scheduled_tasks,
+                                        ]
+                                            .filter(
+                                                (capability) => !['setupPlugin', 'teardownPlugin'].includes(capability)
+                                            )
+                                            .map((capability) => (
+                                                <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
+                                                    <Tag className="plugin-capabilities-tag">{capability}</Tag>
+                                                </Tooltip>
+                                            ))}
+                                        {editingPlugin.capabilities.jobs.map((jobName) => (
+                                            <Tooltip title="Custom job" key={jobName}>
+                                                <Tag className="plugin-capabilities-tag">{jobName}</Tag>
+                                            </Tooltip>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : null}
+
+                            {!!(
+                                editingPlugin.pluginConfig.id &&
+                                editingPlugin.capabilities?.jobs?.length &&
+                                editingPlugin.public_jobs &&
+                                Object.keys(editingPlugin.public_jobs).length
+                            ) && (
+                                <PluginJobOptions
+                                    pluginId={editingPlugin.id}
+                                    pluginConfigId={editingPlugin.pluginConfig.id}
+                                    capabilities={editingPlugin.capabilities}
+                                    publicJobs={editingPlugin.public_jobs}
+                                />
+                            )}
+
+                            <h3 className="l3" style={{ marginTop: 32 }}>
+                                Configuration
+                            </h3>
+                            {getConfigSchemaArray(editingPlugin.config_schema).length === 0 ? (
+                                <div>This app is not configurable.</div>
+                            ) : null}
+                            {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
+                                <React.Fragment key={fieldConfig.key || `__key__${index}`}>
+                                    {fieldConfig.markdown && (
+                                        <ReactMarkdown source={fieldConfig.markdown} linkTarget="_blank" />
+                                    )}
+                                    {fieldConfig.type && isValidField(fieldConfig) ? (
+                                        <Form.Item
+                                            hidden={!!fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
+                                            label={
+                                                <>
+                                                    {fieldConfig.secret && <SecretFieldIcon />}
+                                                    {fieldConfig.name || fieldConfig.key}
+                                                </>
+                                            }
+                                            extra={
+                                                fieldConfig.hint && (
+                                                    <small>
+                                                        <div style={{ height: 2 }} />
+                                                        <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                    </small>
+                                                )
+                                            }
+                                            name={fieldConfig.key}
+                                            required={
+                                                fieldConfig.required ||
+                                                (!!fieldConfig.key && requiredFields.includes(fieldConfig.key))
+                                            }
+                                            rules={[
+                                                {
+                                                    required:
+                                                        fieldConfig.required ||
+                                                        (!!fieldConfig.key && requiredFields.includes(fieldConfig.key)),
+                                                    message: 'Please enter a value!',
+                                                },
+                                            ]}
+                                        >
+                                            <PluginField
+                                                fieldConfig={fieldConfig}
+                                                onChange={updateInvisibleAndRequiredFields}
+                                            />
+                                        </Form.Item>
+                                    ) : (
+                                        <>
+                                            {fieldConfig.type ? (
+                                                <p style={{ color: 'var(--danger)' }}>
+                                                    Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
+                                                </p>
+                                            ) : null}
+                                        </>
+                                    )}
+                                </React.Fragment>
+                            ))}
+                        </div>
+                    ) : null}
+                </Form>
+            </Drawer>
+            {editingPlugin?.plugin_type === 'source' && editingPlugin.id ? (
+                <PluginSource
+                    visible={editingSource}
+                    close={() => setEditingSource(false)}
+                    pluginId={editingPlugin.id}
+                    pluginConfigId={editingPlugin.pluginConfig?.id}
+                />
+            ) : null}
+        </>
     )
 }
