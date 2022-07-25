@@ -74,7 +74,6 @@ def update_cached_items() -> Tuple[int, int]:
         .order_by(F("last_refresh").asc(nulls_first=True), F("insight__last_refresh").asc(nulls_first=True))
     )
 
-    dashboard_tiles.update(refreshing=True)
     for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
         tasks.append(task_for_cache_update_candidate(dashboard_tile))
 
@@ -87,15 +86,17 @@ def update_cached_items() -> Tuple[int, int]:
         .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
-    shared_insights.update(refreshing=True)
     for insight in shared_insights[0:PARALLEL_INSIGHT_CACHE]:
         tasks.append(task_for_cache_update_candidate(insight))
 
     gauge_cache_update_candidates(dashboard_tiles, shared_insights)
+    queue_length = dashboard_tiles.count() + shared_insights.count()
+    dashboard_tiles.update(refreshing=True)
+    shared_insights.update(refreshing=True)
 
     tasks = list(filter(None, tasks))
     group(tasks).apply_async()
-    return len(tasks), dashboard_tiles.count() + shared_insights.count()
+    return len(tasks), queue_length
 
 
 def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) -> Optional[Signature]:
