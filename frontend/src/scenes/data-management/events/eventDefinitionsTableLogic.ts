@@ -1,5 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { ActionType, AnyPropertyFilter, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
+import {
+    ActionType,
+    AnyPropertyFilter,
+    CombinedEvent,
+    CombinedEventType,
+    EventDefinition,
+    PropertyDefinition,
+} from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
@@ -99,6 +106,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
+        setEventTypeFilter: (eventType: CombinedEventType) => ({ eventType }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
@@ -112,6 +120,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     ...filters,
                     properties: convertPropertyGroupToProperties(filters.properties) ?? [],
                 }),
+            },
+        ],
+        eventTypeFilter: [
+            CombinedEventType.All as CombinedEventType,
+            {
+                setEventTypeFilter: (_, { eventType }) => eventType,
             },
         ],
         eventDefinitionPropertiesLoading: [

@@ -14,14 +14,14 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { ActionHeader, EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Alert, Col, Input, Row, Select } from 'antd'
+import { Alert, Col, Input, Row } from 'antd'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
-import { IconWebhook } from 'lib/components/icons'
+import { ActionEvent, IconWebhook, UnverifiedEvent } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -33,9 +33,11 @@ const chartTypeOptions: LemonSelectOptions = {
     },
     [CombinedEventType.ActionEvent]: {
         label: 'Events',
+        icon: <ActionEvent />,
     },
     [CombinedEventType.Event]: {
         label: 'Raw events',
+        icon: <UnverifiedEvent />,
     },
 }
 
@@ -47,10 +49,10 @@ export const scene: SceneExport = {
 
 export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, eventDefinitionsLoading, filters, shouldSimplifyActions } =
+    const { eventDefinitions, eventDefinitionsLoading, filters, eventTypeFilter, shouldSimplifyActions } =
         useValues(eventDefinitionsTableLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters, setEventTypeFilter } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<CombinedEvent> = [
@@ -242,25 +244,19 @@ export function EventDefinitionsTable(): JSX.Element {
                 </Col>
                 {shouldSimplifyActions && (
                     <Row style={{ gap: '0.75rem' }}>
-                        <Col>
+                        <Col style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                             Type:
                             <LemonSelect
+                                value={eventTypeFilter}
                                 options={chartTypeOptions}
                                 data-attr="event-type-filter"
-                                dropdownPlacement={'bottom-end'}
                                 dropdownMatchSelectWidth={false}
                                 bordered
+                                onChange={(value) => {
+                                    setEventTypeFilter(value as CombinedEventType)
+                                }}
+                                size="small"
                             />
-                            <Select
-                                className="event-type-icon-dropdown"
-                                value={CombinedEventType.All}
-                                style={{ paddingLeft: 8, width: 140 }}
-                                // onChange={(it) => setSavedInsightsFilters({ insightType: it })}
-                            >
-                                <Select.Option value={CombinedEventType.All}>All types</Select.Option>
-                                <Select.Option value={CombinedEventType.ActionEvent}>Events</Select.Option>
-                                <Select.Option value={CombinedEventType.Event}>Raw events</Select.Option>
-                            </Select>
                         </Col>
                     </Row>
                 )}
