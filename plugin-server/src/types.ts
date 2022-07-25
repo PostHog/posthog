@@ -315,7 +315,7 @@ export interface PluginConfig {
     enabled: boolean
     order: number
     config: Record<string, unknown>
-    error?: PluginError
+    has_error: boolean
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
