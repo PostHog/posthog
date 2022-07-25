@@ -79,6 +79,7 @@ const iconMap = {
     insight: <IconBarChart />,
 }
 
+/** Display a <LemonActionableTooltip> with the ability to remove it from the DOM */
 function cancellableTooltipWithRetries(
     tooltip: Tooltip,
     onAction: (action: string) => void,
@@ -355,12 +356,14 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                         const sequenceState = values.userState[sequence.key]
                         const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
                         const dismissed = !!sequenceState.dismissed
-                        if (
-                            sequence.type !== 'product-tour' &&
-                            (completed || dismissed || sequenceState.step === sequence.prompts.length)
-                        ) {
-                            continue
-                        }
+                        // for now, the only type is product-tour, which can be run multiple times
+                        // we can uncomment this to enable this behavior
+                        // if (
+                        //     sequence.type !== 'product-tour' &&
+                        //     (completed || dismissed || sequenceState.step === sequence.prompts.length)
+                        // ) {
+                        //     continue
+                        // }
                         valid.push({
                             sequence,
                             state: {

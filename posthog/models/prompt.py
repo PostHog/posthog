@@ -20,6 +20,8 @@ class PromptSequenceState(models.Model):
     dismissed: models.BooleanField = models.BooleanField(default=False)
 
 
+# this model is currently unused as we are running an experimentation config, might be used in the future
+# or completely removed if we allow feature flags to carry a payload, which would be a prompts configuration JSON
 class PromptSequence(models.Model):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique sequence key for team")]
@@ -34,16 +36,18 @@ class PromptSequence(models.Model):
 
 experimentConfig = [
     {
-        "key": "experiment-events-product-tour",
+        "key": "experiment-events-product-tour",  # sequence key
         "prompts": [
             {
-                "step": 0,
-                "type": "tooltip",
+                "step": 0,  # step in the flow
+                "type": "tooltip",  # type of prompt, for now only tooltip
                 "text": "Welcome! We'd like to give you a quick tour!",
                 "placement": "top-start",
-                "buttons": [{"action": "skip", "label": "Skip tutorial"}],
-                "reference": "experiment-events-product-tour",
-                "icon": "live-events",
+                "buttons": [
+                    {"action": "skip", "label": "Skip tutorial"}
+                ],  # buttons, can open external urls or trigger actions
+                "reference": "experiment-events-product-tour",  # should match a `data-tooltip` reference to attach to a component
+                "icon": "live-events",  # tbd if makes sense to add to the config, displays a different icon in the tooltips
             },
             {
                 "step": 1,
@@ -63,8 +67,8 @@ experimentConfig = [
                 "reference": "experiment-events-product-tour",
             },
         ],
-        "rule": {"path": "/events"},
-        "type": "product-tour",
+        "rule": {"path": "/events"},  # currently the only rule is by pathname, using wildcard matching
+        "type": "product-tour",  # currently the only type is product-tour, can be extended
     },
     {
         "key": "experiment-dashboards-product-tour",

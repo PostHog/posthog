@@ -28,7 +28,7 @@ class PromptSequenceStateSerializer(serializers.HyperlinkedModelSerializer):
 
 class PromptSequenceViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
-    Create, read, update and delete prompt sequence state for a person.
+    Create, read, update and delete prompt sequences state for a person.
     """
 
     serializer_class = PromptSequenceSerializer
@@ -72,6 +72,7 @@ class PromptSequenceViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets
             )
 
             state = None
+            # check if the local state is more recent than the one in the db, then update accordingly
             if local_state:
                 if saved_state and local_state["last_updated_at"] > saved_state.last_updated_at:
                     saved_state.last_updated_at = local_state["last_updated_at"]
