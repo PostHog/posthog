@@ -74,6 +74,7 @@ def update_cached_items() -> Tuple[int, int]:
         .order_by(F("last_refresh").asc(nulls_first=True), F("insight__last_refresh").asc(nulls_first=True))
     )
 
+    dashboard_tiles.update(refreshing=True)
     for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
         tasks.append(task_for_cache_update_candidate(dashboard_tile))
 
@@ -86,6 +87,7 @@ def update_cached_items() -> Tuple[int, int]:
         .order_by(F("last_refresh").asc(nulls_first=True))
     )
 
+    shared_insights.update(refreshing=True)
     for insight in shared_insights[0:PARALLEL_INSIGHT_CACHE]:
         tasks.append(task_for_cache_update_candidate(insight))
 
@@ -197,7 +199,6 @@ def _update_cache_for_queryset(
     if not queryset.exists():
         return None
 
-    queryset.update(refreshing=True)
     try:
         if cache_type == CacheType.FUNNEL:
             result = _calculate_funnel(filter, key, team)
