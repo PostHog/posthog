@@ -7,7 +7,7 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 
 # Global Sprint Planning
 
-## 3 things that might take us down (@guidoiaquinti)
+## 3 things that might take us down (owner: @guidoiaquinti)
 
 1.
 2.
