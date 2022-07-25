@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 
 import { initApp } from '../init'
-import { Hub, PluginsServerConfig } from '../types'
+import { Hub, Plugin, PluginsServerConfig } from '../types'
 import { processError } from '../utils/db/error'
 import { createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
@@ -11,13 +11,17 @@ import { workerTasks } from './tasks'
 
 export type PiscinaTaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 
-export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<PiscinaTaskWorker> {
+export async function createWorker(
+    config: PluginsServerConfig,
+    threadId: number,
+    pluginRows?: Plugin[] | undefined
+): Promise<PiscinaTaskWorker> {
     initApp(config)
 
     status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
     const [hub, closeHub] = await createHub(config, threadId)
-    await setupPlugins(hub)
+    await setupPlugins(hub, pluginRows)
 
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
         process.on(signal, closeHub)

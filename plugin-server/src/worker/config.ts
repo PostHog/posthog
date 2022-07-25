@@ -22,10 +22,17 @@ export interface PiscinaOptions {
     atomicsTimeout?: number
 }
 
-export function createConfig(serverConfig: PluginsServerConfig, filename: string): PiscinaOptions {
+export function createConfig(
+    serverConfig: PluginsServerConfig,
+    filename: string,
+    workerData?: any | undefined
+): PiscinaOptions {
     const config: PiscinaOptions = {
         filename,
-        workerData: { serverConfig },
+        workerData: {
+            serverConfig,
+            ...workerData,
+        },
         resourceLimits: {
             stackSizeMb: 10,
         },

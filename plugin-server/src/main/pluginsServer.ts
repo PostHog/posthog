@@ -46,7 +46,7 @@ export type ServerInstance = {
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (config: PluginsServerConfig) => Piscina,
+    makePiscina: (config: PluginsServerConfig, workerData?: any | undefined) => Piscina,
     capabilities: PluginServerCapabilities | null = null
 ): Promise<ServerInstance> {
     const timer = new Date()
@@ -165,7 +165,8 @@ export async function startPluginsServer(
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
         }
 
-        piscina = makePiscina(serverConfig)
+        const pluginRows = await getPluginRows(hub)
+        piscina = makePiscina(serverConfig, { pluginRows })
 
         if (hub.capabilities.pluginScheduledTasks) {
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
