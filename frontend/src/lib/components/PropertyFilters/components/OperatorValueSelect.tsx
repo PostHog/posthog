@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { allOperatorsMapping, chooseOperatorMap, isMobile, isOperatorFlag, isOperatorMulti } from 'lib/utils'
+import {
+    allOperatorsMapping,
+    chooseOperatorMap,
+    isMobile,
+    isOperatorFlag,
+    isOperatorMulti,
+    isOperatorRange,
+    isOperatorRegex,
+} from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 
@@ -26,6 +34,20 @@ interface OperatorSelectProps extends SelectProps<any> {
     defaultOpen?: boolean
 }
 
+function getValidationError(operator: PropertyOperator, value: any): string | null {
+    if (isOperatorRegex(operator)) {
+        try {
+            new RegExp(value)
+        } catch (e: any) {
+            return e.message
+        }
+    }
+    if (isOperatorRange(operator) && isNaN(value)) {
+        return 'Range operators only work with numeric values'
+    }
+    return null
+}
+
 export function OperatorValueSelect({
     type,
     propkey,
@@ -47,6 +69,7 @@ export function OperatorValueSelect({
             ? PropertyOperator.IsDateExact
             : operator || PropertyOperator.Exact
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
+    const [validationError, setValidationError] = useState<string | null>(null)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
@@ -61,6 +84,14 @@ export function OperatorValueSelect({
                     operator={currentOperator || PropertyOperator.Exact}
                     operators={operators}
                     onChange={(newOperator: PropertyOperator) => {
+                        const tentativeValidationError =
+                            newOperator && value ? getValidationError(newOperator, value) : null
+                        if (tentativeValidationError) {
+                            setValidationError(tentativeValidationError)
+                            return
+                        } else {
+                            setValidationError(null)
+                        }
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
@@ -91,6 +122,14 @@ export function OperatorValueSelect({
                         placeholder={placeholder}
                         value={value}
                         onSet={(newValue: string | number | string[] | null) => {
+                            const tentativeValidationError =
+                                currentOperator && newValue ? getValidationError(currentOperator, newValue) : null
+                            if (tentativeValidationError) {
+                                setValidationError(tentativeValidationError)
+                                return
+                            } else {
+                                setValidationError(null)
+                            }
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter
@@ -98,6 +137,7 @@ export function OperatorValueSelect({
                     />
                 </Col>
             )}
+            {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
         </>
     )
 }
