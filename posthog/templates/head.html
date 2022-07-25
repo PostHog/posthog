@@ -35,5 +35,13 @@
     window.JS_URL = "{{ js_url|default:"" }}";
 </script>
 
+<script type="module">
+  import RefreshRuntime from 'http://localhost:3000/@react-refresh'
+  RefreshRuntime.injectIntoGlobalHook(window)
+  window.$RefreshReg$ = () => {}
+  window.$RefreshSig$ = () => (type) => type
+  window.__vite_plugin_react_preamble_installed__ = true
+</script>
+
 {% vite_hmr_client %}
 {% vite_asset 'index.tsx' %}
