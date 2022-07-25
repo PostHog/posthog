@@ -2,7 +2,7 @@ import './EventDefinitionsTable.scss'
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { CombinedEvent } from '~/types'
+import { CombinedEvent, CombinedEventType } from '~/types'
 import {
     EVENT_DEFINITIONS_PER_PAGE,
     eventDefinitionsTableLogic,
@@ -14,9 +14,8 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { ActionHeader, EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Alert, Input, Row } from 'antd'
-import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
-import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { Alert, Col, Input, Row, Select } from 'antd'
+import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
@@ -25,6 +24,20 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IconWebhook } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+
+const chartTypeOptions: LemonSelectOptions = {
+    [CombinedEventType.All]: {
+        label: 'All types',
+    },
+    [CombinedEventType.ActionEvent]: {
+        label: 'Events',
+    },
+    [CombinedEventType.Event]: {
+        label: 'Raw events',
+    },
+}
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,
@@ -181,7 +194,12 @@ export function EventDefinitionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <DataManagementPageHeader activeTab={DataManagementTab.EventDefinitions} />
+            <PageHeader
+                title="Data Management"
+                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
+                tabbedPage
+                buttons={shouldSimplifyActions && <NewActionButton />}
+            />
             {shouldSimplifyActions && (
                 <Alert
                     style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}
@@ -197,37 +215,56 @@ export function EventDefinitionsTable(): JSX.Element {
                     closable
                 />
             )}
+            <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
             {preflight && !preflight?.is_event_property_usage_enabled && (
                 <UsageDisabledWarning tab="Event Definitions" />
             )}
-            <div
+            <Row
+                justify="space-between"
                 style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '0.5rem',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    width: '100%',
+                    paddingBottom: '1rem',
                     marginBottom: '1rem',
+                    borderBottom: '1px solid var(--border)',
+                    gap: '0.75rem',
                 }}
             >
-                <Input.Search
-                    placeholder="Search for events"
-                    allowClear
-                    enterButton
-                    value={filters.event}
-                    style={{ maxWidth: 600, width: 'initial' }}
-                    onChange={(e) => {
-                        setFilters({ event: e.target.value || '' })
-                    }}
-                />
+                <Col>
+                    <Input.Search
+                        placeholder="Search for events"
+                        allowClear
+                        enterButton
+                        value={filters.event}
+                        style={{ maxWidth: 600, width: 'initial' }}
+                        onChange={(e) => {
+                            setFilters({ event: e.target.value || '' })
+                        }}
+                    />
+                </Col>
                 {shouldSimplifyActions && (
-                    <>
-                        <div style={{ flex: 1 }} />
-                        <NewActionButton />
-                    </>
+                    <Row style={{ gap: '0.75rem' }}>
+                        <Col>
+                            Type:
+                            <LemonSelect
+                                options={chartTypeOptions}
+                                data-attr="event-type-filter"
+                                dropdownPlacement={'bottom-end'}
+                                dropdownMatchSelectWidth={false}
+                                bordered
+                            />
+                            <Select
+                                className="event-type-icon-dropdown"
+                                value={CombinedEventType.All}
+                                style={{ paddingLeft: 8, width: 140 }}
+                                // onChange={(it) => setSavedInsightsFilters({ insightType: it })}
+                            >
+                                <Select.Option value={CombinedEventType.All}>All types</Select.Option>
+                                <Select.Option value={CombinedEventType.ActionEvent}>Events</Select.Option>
+                                <Select.Option value={CombinedEventType.Event}>Raw events</Select.Option>
+                            </Select>
+                        </Col>
+                    </Row>
                 )}
-            </div>
+            </Row>
             <LemonTable
                 columns={columns}
                 className="events-definition-table"
