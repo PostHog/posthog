@@ -9,21 +9,22 @@
     display: flex;
     flex-direction: column;
 
-    .ExportedInsight-header {
+    .ExportedInsight__header {
         padding: 1rem;
         border-bottom: 1px solid var(--border);
         display: flex;
         justify-content: space-between;
 
-        .ExportedInsight-header-title {
+        .ExportedInsight__header__title {
             font-size: 1rem;
             font-weight: 600;
         }
     }
 
-    .ExportedInsight-content {
+    .ExportedInsight__content {
         flex: 1;
         position: relative;
+        z-index: 1;
         .FunnelBarChart {
             min-height: 50vw;
         }
@@ -39,11 +40,22 @@
         }
     }
 
+    .ExportedInsight__watermark {
+        position: absolute;
+        right: 0;
+        top: 0;
+        z-index: 2;
+        svg {
+            font-size: 0.75rem;
+            margin: 0.25rem;
+        }
+    }
+
     &.ExportedInsight--fit-screen {
         height: 100vh;
         max-height: 100vh;
 
-        .ExportedInsight-content {
+        .ExportedInsight__content {
             display: flex;
             flex-direction: column;
 
@@ -58,6 +70,10 @@
                 flex: 1;
                 min-height: 100px;
                 max-height: 100%;
+            }
+
+            &.ExportedInsight__content--with-watermark {
+                padding-top: 1rem;
             }
         }
     }

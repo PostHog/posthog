@@ -1,15 +1,15 @@
 import './Insight.scss'
 import React, { useEffect } from 'react'
-import { useActions, useMountedLogic, useValues, BindLogic } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { ItemMode, AvailableFeature, InsightShortId, InsightModel, InsightType } from '~/types'
+import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { SaveCohortModal } from 'scenes/trends/SaveCohortModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { InsightsNav } from './InsightsNav'
-import { SaveToDashboard } from 'lib/components/SaveToDashboard/SaveToDashboard'
+import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -27,7 +27,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EditorFilters } from './EditorFilters/EditorFilters'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { deleteWithUndo } from 'lib/utils'
@@ -35,10 +34,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -58,6 +58,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightChanged,
         tagLoading,
         insightSaving,
+        exporterResourceParams,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
@@ -76,9 +77,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     // const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
-    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
-    const usingEmbedFeature = featureFlags[FEATURE_FLAGS.EMBED_INSIGHTS]
-    const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -119,9 +117,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             !canEditInsight
                                 ? {
                                       icon: <IconLock />,
-                                      tooltip: featureFlags[FEATURE_FLAGS.MULTI_DASHBOARD_INSIGHTS]
-                                          ? "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you."
-                                          : "You don't have edit permissions in the dashboard this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
+                                      tooltip:
+                                          "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
                                   }
                                 : undefined
                         }
@@ -154,25 +151,35 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             </LemonButton>
                                             <LemonDivider />
 
-                                            {usingEmbedFeature && (
-                                                <LemonButton
-                                                    type="stealth"
-                                                    onClick={() =>
-                                                        insight.short_id
-                                                            ? push(urls.insightSharing(insight.short_id))
-                                                            : null
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    Share or embed
-                                                </LemonButton>
-                                            )}
-                                            {usingExportFeature && insight.short_id && (
+                                            <LemonButton
+                                                type="stealth"
+                                                onClick={() =>
+                                                    insight.short_id
+                                                        ? push(urls.insightSharing(insight.short_id))
+                                                        : null
+                                                }
+                                                fullWidth
+                                            >
+                                                Share or embed
+                                            </LemonButton>
+                                            {insight.short_id && (
                                                 <>
-                                                    {usingSubscriptionFeature && (
-                                                        <SubscribeButton insightShortId={insight.short_id} />
-                                                    )}
-                                                    <ExportButton insightShortId={insight.short_id} fullWidth />
+                                                    <SubscribeButton insightShortId={insight.short_id} />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={[
+                                                                {
+                                                                    export_format: ExporterFormat.PNG,
+                                                                    insight: insight.id,
+                                                                },
+                                                                {
+                                                                    export_format: ExporterFormat.CSV,
+                                                                    export_context: exporterResourceParams,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ) : null}
                                                     <LemonDivider />
                                                 </>
                                             )}
@@ -206,7 +213,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             </LemonButton>
                         )}
                         {insightMode !== ItemMode.Edit && insight.short_id && (
-                            <SaveToDashboard insight={insight} canEditInsight={canEditInsight} />
+                            <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (

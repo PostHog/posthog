@@ -6,7 +6,6 @@ import {
     getPluginConfigRows,
     getPluginRows,
     setError,
-    setPluginMetrics,
 } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
@@ -74,32 +73,11 @@ describe('sql', () => {
     test('getPluginRows', async () => {
         const rowsExpected = [
             {
-                config_schema: {
-                    localhostIP: {
-                        default: '',
-                        hint: 'Useful if testing locally',
-                        name: 'IP to use instead of 127.0.0.1',
-                        order: 2,
-                        required: false,
-                        type: 'string',
-                    },
-                    maxmindMmdb: {
-                        hint: 'The "GeoIP2 City" or "GeoLite2 City" database file',
-                        markdown:
-                            'Sign up for a [MaxMind.com](https://www.maxmind.com) account, download and extract the database and then upload the `.mmdb` file below',
-                        name: 'GeoIP .mddb database',
-                        order: 1,
-                        required: true,
-                        type: 'attachment',
-                    },
-                },
-                description: 'Ingest GeoIP data via MaxMind',
                 error: null,
                 from_json: false,
                 from_web: false,
                 id: 60,
                 is_global: false,
-                is_preinstalled: false,
                 is_stateless: false,
                 organization_id: commonOrganizationId,
                 log_level: null,
@@ -113,10 +91,7 @@ describe('sql', () => {
                 source__frontend_tsx: null,
                 tag: '0.0.2',
                 url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
-                created_at: expect.anything(),
-                updated_at: expect.anything(),
                 capabilities: {},
-                metrics: {},
             },
         ]
 
@@ -184,31 +159,6 @@ describe('sql', () => {
             await expect(receivedMessage).resolves.toEqual(1)
 
             await hub.db.redisPool.release(redis)
-        })
-    })
-
-    describe('setPluginMetrics', () => {
-        test('setPluginMetrics sets metrics correctly', async () => {
-            const pluginConfig39: PluginConfig = {
-                id: 39,
-                team_id: 2,
-                plugin_id: 60,
-                enabled: true,
-                order: 0,
-                config: {},
-                error: undefined,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-            }
-
-            const rowsBefore = await getPluginRows(hub)
-            expect(rowsBefore[0].id).toEqual(60)
-            expect(rowsBefore[0].metrics).toEqual({})
-
-            await setPluginMetrics(hub, pluginConfig39, { metric1: 'sum' })
-
-            const rowsAfter = await getPluginRows(hub)
-            expect(rowsAfter[0].metrics).toEqual({ metric1: 'sum' })
         })
     })
 })

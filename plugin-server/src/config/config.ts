@@ -86,7 +86,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CONVERSION_BUFFER_ENABLED: false,
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
-        BUFFER_CONVERSION_SECONDS: 60,
+        BUFFER_CONVERSION_SECONDS: 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_TO_REDIS_TEAMS: '',
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
@@ -160,8 +160,6 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',
         PISCINA_ATOMICS_TIMEOUT:
             '(advanced) corresponds to the length of time a piscina worker should block for when looking for tasks',
-        NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS:
-            '(advanced) teams for which to run the new person properties update flow on',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: '(advanced) enable experimental feature to track lastSeenAt',
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
         MAX_PENDING_PROMISES_PER_WORKER:

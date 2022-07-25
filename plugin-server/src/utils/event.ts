@@ -16,6 +16,7 @@ export function convertToProcessedPluginEvent(event: IngestionEvent | ClonableIn
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
+        elements: event.elementsList,
     }
 }
 

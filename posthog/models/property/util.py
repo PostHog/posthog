@@ -714,17 +714,13 @@ def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIden
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
     if prop.key == "$session_duration":
         try:
-            duration = int(prop.value)  # type: ignore
+            duration = float(prop.value)  # type: ignore
         except ValueError:
             raise (exceptions.ValidationError(f"$session_duration value must be a number. Received '{prop.value}'"))
         value = f"session_duration_value{prepend}_{idx}"
-        if prop.operator == "gt":
-            return (f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration > %({value})s", {value: duration})
-        if prop.operator == "lt":
-            return (f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration < %({value})s", {value: duration})
-        if not prop.operator or prop.operator == "exact":
-            return (f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration = %({value})s", {value: duration})
-        else:
-            raise exceptions.ValidationError(f"Operator '{prop.operator}' is not allowed in $session_duration filters.")
+
+        operator = get_count_operator(prop.operator)
+        return (f"{SessionQuery.SESSION_TABLE_ALIAS}.session_duration {operator} %({value})s", {value: duration})
+
     else:
         raise exceptions.ValidationError(f"Property '{prop.key}' is not allowed in session property filters.")

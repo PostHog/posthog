@@ -8,13 +8,13 @@ export enum ExportType {
 
 export interface ExportOptions {
     whitelabel?: boolean
-    noLegend?: boolean
-    fitScreen?: boolean
+    noHeader?: boolean
+    legend?: boolean
 }
 
 export interface ExportedData extends ExportOptions {
     type: ExportType
-    dashboard?: Partial<DashboardType>
+    dashboard?: DashboardType
     insight?: InsightModel
     team?: Partial<TeamType>
 }

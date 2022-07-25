@@ -3,8 +3,10 @@ import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
+from uuid import UUID
 
-from ratelimit import limits
+import structlog
+from django.db.models import QuerySet
 from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
@@ -17,6 +19,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import cors_response, load_data_from_request
+
+logger = structlog.get_logger(__name__)
 
 
 class PaginationMode(Enum):
@@ -141,22 +145,13 @@ def get_project_id(data, request) -> Optional[int]:
     return None
 
 
-@limits(calls=10, period=1)
-def capture_as_common_error_to_sentry_ratelimited(common_message, error):
-    try:
-        raise Exception(common_message) from error
-    except Exception as error_for_sentry:
-        capture_exception(error_for_sentry)
-
-
 def get_data(request):
     data = None
     try:
         data = load_data_from_request(request)
     except RequestParsingError as error:
-        capture_as_common_error_to_sentry_ratelimited(
-            "Invalid payload", error
-        )  # We still capture this on Sentry to identify actual potential bugs
+        statsd.incr("capture_endpoint_invalid_payload")
+        logger.exception(f"Invalid payload", error=error)
         return (
             None,
             cors_response(
@@ -418,3 +413,12 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
         {ordering}
     """
     )
+
+
+def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
+    try:
+        # Test if value is a UUID
+        UUID(key)  # type: ignore
+        return queryset.filter(uuid=key)
+    except ValueError:
+        return queryset.filter(pk=key)

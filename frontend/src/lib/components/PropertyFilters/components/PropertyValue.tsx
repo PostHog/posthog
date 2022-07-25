@@ -79,7 +79,7 @@ export function PropertyValue({
     const [shouldBlur, setShouldBlur] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
-    const { formatForDisplay, describeProperty } = useValues(propertyDefinitionsModel)
+    const { formatPropertyValueForDisplay, describeProperty } = useValues(propertyDefinitionsModel)
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -220,7 +220,7 @@ export function PropertyValue({
                 >
                     {input && !displayOptions.some(({ name }) => input.toLowerCase() === toString(name).toLowerCase()) && (
                         <Select.Option key="specify-value" value={input} className="ph-no-capture">
-                            Specify: {formatForDisplay(propertyKey, input)}
+                            Specify: {formatPropertyValueForDisplay(propertyKey, input)}
                         </Select.Option>
                     )}
                     {displayOptions.map(({ name: _name }, index) => {
@@ -233,7 +233,7 @@ export function PropertyValue({
                                 className="ph-no-capture"
                                 title={name}
                             >
-                                {name === '' ? <i>(empty string)</i> : formatForDisplay(propertyKey, name)}
+                                {name === '' ? <i>(empty string)</i> : formatPropertyValueForDisplay(propertyKey, name)}
                             </Select.Option>
                         )
                     })}

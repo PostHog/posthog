@@ -2,7 +2,7 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer } from 'kafkajs'
+import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
@@ -16,7 +16,6 @@ import {
     PluginsServerConfig,
 } from '../types'
 import { createHub } from '../utils/db/hub'
-import { determineNodeEnv, NodeEnv } from '../utils/env-utils'
 import { killProcess } from '../utils/kill'
 import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
@@ -128,9 +127,23 @@ export async function startPluginsServer(
     })
 
     process.on('unhandledRejection', (error: Error) => {
-        Sentry.captureException(error)
         status.error('🤮', 'Unhandled Promise Rejection!')
         status.error('🤮', error)
+
+        // Don't send some Kafka normal operation "errors" to Sentry - kafkajs handles these correctly
+        if (error instanceof KafkaJSProtocolError) {
+            if (error.message.includes('The group is rebalancing, so a rejoin is needed')) {
+                hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
+                return
+            }
+
+            if (error.message.includes('Specified group generation id is not valid')) {
+                hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
+                return
+            }
+        }
+
+        Sentry.captureException(error)
     })
 
     try {
@@ -156,7 +169,7 @@ export async function startPluginsServer(
         if (hub.capabilities.pluginScheduledTasks) {
             pluginScheduleControl = await startPluginSchedules(hub, piscina)
         }
-        if (hub.capabilities.processJobs) {
+        if (hub.capabilities.ingestion || hub.capabilities.processPluginJobs) {
             jobQueueConsumer = await startJobQueueConsumer(hub, piscina)
         }
 
@@ -171,12 +184,6 @@ export async function startPluginsServer(
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
             [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                // KLUDGE:  wait for 30 seconds before reloading plugins to reduce joint load from "rage" config updates
-                // we should be smarter about reloads using some breakpoint-like mechanism
-                if (determineNodeEnv() === NodeEnv.Production) {
-                    await delay(30 * 1000)
-                }
-
                 status.info('⚡', 'Reloading plugins!')
                 await piscina?.broadcastTask({ task: 'reloadPlugins' })
                 await pluginScheduleControl?.reloadSchedule()

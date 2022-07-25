@@ -11,25 +11,24 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import React from 'react'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
+import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
 import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId } =
+    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
         useValues(dashboardLogic)
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
@@ -38,9 +37,6 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const usingExportFeature = featureFlags[FEATURE_FLAGS.EXPORT_DASHBOARD_INSIGHTS]
-    const usingSubscriptionFeature = featureFlags[FEATURE_FLAGS.INSIGHT_SUBSCRIPTIONS]
     const { push } = useActions(router)
 
     return dashboard || allItemsLoading ? (
@@ -181,10 +177,26 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
-                                            {usingSubscriptionFeature && <SubscribeButton dashboardId={dashboard.id} />}
-                                            {usingExportFeature && (
-                                                <ExportButton dashboardId={dashboard.id} fullWidth type="stealth" />
-                                            )}
+                                            <SubscribeButton dashboardId={dashboard.id} />
+                                            <ExportButton
+                                                fullWidth
+                                                type="stealth"
+                                                items={[
+                                                    {
+                                                        export_format: ExporterFormat.PNG,
+                                                        dashboard: dashboard?.id,
+                                                        export_context: {
+                                                            path: apiUrl(),
+                                                        },
+                                                    },
+                                                    {
+                                                        export_format: ExporterFormat.CSV,
+                                                        export_context: {
+                                                            path: apiUrl(),
+                                                        },
+                                                    },
+                                                ]}
+                                            />
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>
@@ -298,7 +310,7 @@ function CollaboratorBubbles({
 
     const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
     const tooltipParts: string[] = []
-    if (effectiveRestrictionLevelOption?.label) {
+    if (typeof effectiveRestrictionLevelOption?.label === 'string') {
         tooltipParts.push(effectiveRestrictionLevelOption.label)
     }
     if (dashboard.is_shared) {

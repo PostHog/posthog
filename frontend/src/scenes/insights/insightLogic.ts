@@ -39,6 +39,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -247,6 +249,7 @@ export const insightLogic = kea<insightLogicType>({
                     cache.abortController = new AbortController()
 
                     const { filters } = values
+
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                     const params = { ...filters, ...(refresh ? { refresh: true } : {}) }
 
@@ -263,6 +266,16 @@ export const insightLogic = kea<insightLogicType>({
                     }
                     try {
                         if (
+                            values.savedInsight?.id &&
+                            objectsEqual(cleanFilters(filters), cleanFilters(values.savedInsight.filters ?? {}))
+                        ) {
+                            // Instead of making a search for filters, reload the insight via its id if possible.
+                            // This makes sure we update the insight's cache key if we get new default filters.
+                            response = await api.get(
+                                `api/projects/${currentTeamId}/insights/${values.savedInsight.id}/?refresh=true`,
+                                cache.abortController.signal
+                            )
+                        } else if (
                             insight === InsightType.TRENDS ||
                             insight === InsightType.STICKINESS ||
                             insight === InsightType.LIFECYCLE
@@ -542,23 +555,73 @@ export const insightLogic = kea<insightLogicType>({
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
-        supportsCsvExport: [
-            (s) => [s.insight],
-            ({ filters }): boolean => {
-                return filters?.insight === InsightType.TRENDS
+        exporterResourceParams: [
+            (s) => [s.filters, s.currentTeamId, s.insight],
+            (
+                filters: Partial<FilterType>,
+                currentTeamId: number,
+                insight: Partial<InsightModel>
+            ): TriggerExportProps['export_context'] | null => {
+                const insightType = (filters.insight as InsightType | undefined) || InsightType.TRENDS
+                const params = { ...filters }
+
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+
+                if (
+                    insightType === InsightType.TRENDS ||
+                    insightType === InsightType.STICKINESS ||
+                    insightType === InsightType.LIFECYCLE
+                ) {
+                    return {
+                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                            filterTrendsClientSideParams(params)
+                        )}`,
+                        filename,
+                    }
+                } else if (insightType === InsightType.RETENTION) {
+                    return { filename, path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}` }
+                } else if (insightType === InsightType.FUNNELS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/funnel`,
+                        body: params,
+                    }
+                } else if (insightType === InsightType.PATHS) {
+                    return {
+                        filename,
+                        method: 'POST',
+                        path: `api/projects/${currentTeamId}/insights/path`,
+                        body: params,
+                    }
+                } else {
+                    return null
+                }
             },
         ],
-        csvExportUrl: [
-            (s) => [s.insight, s.currentTeamId, s.supportsCsvExport],
-            (insight: Partial<InsightModel>, currentTeamId: number, supportsCsvExport: boolean) => {
-                const { filters, name, short_id, derived_name } = insight
-                if (filters && supportsCsvExport) {
-                    return `/api/projects/${currentTeamId}/insights/trend.csv/?${toParams({
-                        ...filterTrendsClientSideParams(filters),
-                        export_name: name || derived_name,
-                        export_insight_id: short_id,
-                    })}`
-                }
+        isUsingSessionAnalysis: [
+            (s) => [s.filters],
+            (filters: Partial<FilterType>): boolean => {
+                const entities = (filters.events || []).concat(filters.actions ?? [])
+                const using_session_breakdown = filters.breakdown_type === 'session'
+                const using_session_math = entities.some((entity) => entity.math === 'unique_session')
+                const using_session_property_math = entities.some((entity) => {
+                    // Should be made more generic is we ever add more session properties
+                    return entity.math_property === '$session_duration'
+                })
+                const using_entity_session_property_filter = entities.some((entity) => {
+                    return parseProperties(entity.properties).some((property) => property.type === 'session')
+                })
+                const using_global_session_property_filter = parseProperties(filters.properties).some(
+                    (property) => property.type === 'session'
+                )
+                return (
+                    using_session_breakdown ||
+                    using_session_math ||
+                    using_session_property_math ||
+                    using_entity_session_property_filter ||
+                    using_global_session_property_filter
+                )
             },
         ],
     },
@@ -631,7 +694,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     0,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
 
                 actions.setNotFirstLoad()
@@ -644,7 +708,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     10,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
             }
         },

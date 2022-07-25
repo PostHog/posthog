@@ -226,7 +226,7 @@ export function AsyncMigrations(): JSX.Element {
                                 <p>Manage async migrations in your instance.</p>
                                 <p>
                                     Read about async migrations on our{' '}
-                                    <a href="https://posthog.com/docs/self-host/configure/async-migrations">
+                                    <a href="https://posthog.com/docs/self-host/configure/async-migrations/overview">
                                         dedicated docs page
                                     </a>
                                     .

@@ -117,7 +117,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v2
 
-            - name: Start stack with Docker Compose
+            - name: Stop/Start stack with Docker Compose
               run: |
                   docker-compose -f docker-compose.dev.yml down
                   docker-compose -f docker-compose.dev.yml up -d
@@ -165,6 +165,7 @@ jobs:
               uses: cypress-io/github-action@v2
               with:
                   config-file: cypress.e2e.config.ts
+                  config: retries=2
                   spec: ${{ matrix.specs }}
 
             - name: Archive test screenshots

@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { ComputationTimeWithRefresh } from 'scenes/insights/ComputationTimeWithRefresh'
-import { ChartDisplayType, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
@@ -26,13 +26,13 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconExport } from 'lib/components/icons'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -65,7 +65,8 @@ export function InsightContainer(
         filters,
         showTimeoutMessage,
         showErrorMessage,
-        csvExportUrl,
+        exporterResourceParams,
+        isUsingSessionAnalysis,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
         funnelLogic(insightProps)
@@ -135,17 +136,19 @@ export function InsightContainer(
         ) {
             return (
                 <>
-                    {csvExportUrl && (
+                    {exporterResourceParams && (
                         <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
                             <h2>Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
-                                <LemonButton
+                                <ExportButton
                                     type="secondary"
-                                    icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                    href={csvExportUrl}
-                                >
-                                    Export
-                                </LemonButton>
+                                    items={[
+                                        {
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: exporterResourceParams,
+                                        },
+                                    ]}
+                                />
                             </Tooltip>
                         </div>
                     )}
@@ -167,6 +170,15 @@ export function InsightContainer(
 
     return (
         <>
+            {isUsingSessionAnalysis ? (
+                <div className="mb">
+                    <AlertMessage type="info">
+                        When using sessions and session properties, events without session IDs will be excluded from the
+                        set of results.{' '}
+                        <a href="https://posthog.com/docs/user-guides/sessions">Learn more about sessions.</a>
+                    </AlertMessage>
+                </div>
+            ) : null}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
                 title={

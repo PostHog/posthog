@@ -6,7 +6,7 @@ import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connection
+from django.db import connections
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
@@ -589,6 +589,7 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
         params = [payload_json]
         try:
+            connection = connections["graphile"] if "graphile" in connections else connections["default"]
             with connection.cursor() as cursor:
                 cursor.execute(sql, params)
         except Exception as e:

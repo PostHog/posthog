@@ -405,7 +405,7 @@ const api = {
         determinePeopleCsvUrl(peopleParams: PeopleParamType, filters: Partial<FilterType>): string {
             return new ApiRequest()
                 .actions()
-                .withAction('people.csv')
+                .withAction('people')
                 .withQueryString(parsePeopleParams(peopleParams, filters))
                 .assembleFullUrl(true)
         },
@@ -628,6 +628,9 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
+        determineCSVUrl(cohortId: number | 'new', filters: PersonFilters): string {
+            return `/api/cohort/${cohortId}/persons?${toParams(filters)}`
+        },
     },
 
     dashboards: {
@@ -655,7 +658,7 @@ const api = {
 
     person: {
         determineCSVUrl(filters: PersonFilters): string {
-            return new ApiRequest().persons().withAction('.csv').withQueryString(toParams(filters)).assembleFullUrl()
+            return new ApiRequest().persons().withQueryString(toParams(filters)).assembleFullUrl()
         },
     },
 

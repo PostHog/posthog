@@ -13,6 +13,9 @@ import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { asDisplay } from 'scenes/persons/PersonHeader'
+import { LemonButton } from '@posthog/lemon-ui'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { ExporterFormat } from '~/types'
 
 export function RetentionModal({
     results,
@@ -40,7 +43,30 @@ export function RetentionModal({
             visible={visible}
             closable={true}
             onCancel={dismissModal}
-            footer={<Button onClick={dismissModal}>Close</Button>}
+            footer={
+                <div className="flex space-between-items">
+                    <div />
+                    <div className="flex gap-05">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() =>
+                                triggerExport({
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: {
+                                        path: results[selectedRow]?.people_url,
+                                        max_limit: 10000,
+                                    },
+                                })
+                            }
+                        >
+                            Export to CSV
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={dismissModal}>
+                            Close
+                        </LemonButton>
+                    </div>
+                </div>
+            }
             style={{
                 top: 20,
                 minWidth: results[selectedRow]?.values[0]?.count === 0 ? '10%' : '90%',

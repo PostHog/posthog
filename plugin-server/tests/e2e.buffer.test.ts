@@ -1,16 +1,15 @@
 import IORedis from 'ioredis'
 
 import { ONE_HOUR } from '../src/config/constants'
-import { KAFKA_BUFFER } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
-import { delay, UUIDT } from '../src/utils/utils'
+import { UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
-import { spyOnKafka } from './helpers/kafka'
+import { resetKafka } from './helpers/kafka'
 import { pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
@@ -51,8 +50,6 @@ export function onEvent (event, { global }) {
 }`
 
 describe('E2E with buffer enabled', () => {
-    const delayUntilBufferMessageProduced = spyOnKafka(KAFKA_BUFFER, extraServerConfig)
-
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
@@ -62,6 +59,7 @@ describe('E2E with buffer enabled', () => {
         testConsole.reset()
         await resetTestDatabase(indexJs)
         await resetTestDatabaseClickhouse(extraServerConfig)
+        await resetKafka(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
@@ -83,11 +81,9 @@ describe('E2E with buffer enabled', () => {
             await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
             await hub.kafkaProducer.flush()
 
-            const bufferTopicMessages = await delayUntilBufferMessageProduced()
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 200)
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 500)
             const events = await hub.db.fetchEvents()
 
-            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid).length).toBe(1)
             expect(events.length).toBe(1)
 
             // processEvent ran and modified
@@ -96,59 +92,6 @@ describe('E2E with buffer enabled', () => {
 
             // onEvent ran
             expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event via buffer']])
-        })
-
-        test('three events captured, processed, ingested', async () => {
-            expect((await hub.db.fetchEvents()).length).toBe(0)
-
-            const uuid1 = new UUIDT().toString()
-            const uuid2 = new UUIDT().toString()
-            const uuid3 = new UUIDT().toString()
-
-            // Batch 1
-            await posthog.capture('custom event via buffer', { name: 'hehe', uuid: uuid1 })
-            await posthog.capture('custom event via buffer', { name: 'hoho', uuid: uuid2 })
-            await hub.kafkaProducer.flush()
-            // Batch 2 - waiting for a few seconds so that the event lands into a separate consumer batch
-            await delay(5000)
-            await posthog.capture('custom event via buffer', { name: 'hihi', uuid: uuid3 })
-            await hub.kafkaProducer.flush()
-
-            const bufferTopicMessages = await delayUntilBufferMessageProduced(3)
-            const events = await delayUntilEventIngested(() => hub.db.fetchEvents(), 3, undefined, 200)
-
-            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid1).length).toBe(1)
-            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid2).length).toBe(1)
-            expect(bufferTopicMessages.filter((message) => message.properties.uuid === uuid3).length).toBe(1)
-            expect(events.length).toBe(3)
-
-            // At least BUFFER_CONVERSION_SECONDS must have elapsed for each event between queuing and saving
-            expect(events[0].created_at.diff(events[0].timestamp).toMillis()).toBeGreaterThan(
-                hub.BUFFER_CONVERSION_SECONDS * 1000
-            )
-            expect(events[1].created_at.diff(events[1].timestamp).toMillis()).toBeGreaterThan(
-                hub.BUFFER_CONVERSION_SECONDS * 1000
-            )
-            expect(events[2].created_at.diff(events[2].timestamp).toMillis()).toBeGreaterThan(
-                hub.BUFFER_CONVERSION_SECONDS * 1000
-            )
-
-            // processEvent ran and modified
-            expect(events[0].properties.processed).toEqual('hell yes')
-            expect(events[1].properties.processed).toEqual('hell yes')
-            expect(events[2].properties.processed).toEqual('hell yes')
-            const eventPluginUuids = events.map((event) => event.properties.upperUuid).sort()
-            expect(eventPluginUuids).toStrictEqual([uuid1.toUpperCase(), uuid2.toUpperCase(), uuid3.toUpperCase()])
-
-            // onEvent ran
-            expect(testConsole.read()).toEqual([
-                ['processEvent'],
-                ['onEvent', 'custom event via buffer'],
-                ['processEvent'],
-                ['onEvent', 'custom event via buffer'],
-                ['processEvent'],
-                ['onEvent', 'custom event via buffer'],
-            ])
         })
     })
 })

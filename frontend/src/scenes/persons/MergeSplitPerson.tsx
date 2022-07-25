@@ -85,7 +85,7 @@ function MergePerson(): JSX.Element {
                     .filter((p: PersonType) => p.id && p.uuid !== person.uuid)
                     .map((p) => ({
                         key: `${p.id}`,
-                        label: p.name,
+                        label: `${p.name || p.id}`,
                     }))}
                 disabled={executedLoading}
             />

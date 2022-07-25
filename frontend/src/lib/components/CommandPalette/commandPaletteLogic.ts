@@ -119,7 +119,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
-        logic: [preflightLogic],
+        logic: [preflightLogic, dashboardsModel],
     },
     actions: {
         hidePalette: true,
@@ -237,7 +237,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
         setInput: async ({ input }, breakpoint) => {
             await breakpoint(300)
             if (input.length > 8) {
-                const response = await api.get('api/person/?key_identifier=' + encodeURIComponent(input))
+                const response = await api.get('api/person/?search=' + encodeURIComponent(input))
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({
