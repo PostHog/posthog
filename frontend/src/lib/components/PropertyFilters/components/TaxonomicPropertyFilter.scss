@@ -4,7 +4,6 @@
     &.in-dropdown {
         width: 900px;
         min-width: 300px;
-        max-width: 95%;
         background: white;
     }
 
@@ -31,6 +30,11 @@
         }
         .taxonomic-value-select {
             grid-row: 1;
+            grid-column: 4;
+        }
+        .taxonomic-validation-error {
+            color: var(--danger);
+            grid-row: 2;
             grid-column: 4;
         }
 
