@@ -27,6 +27,7 @@ from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
+from posthog.settings.geoip import *
 from posthog.settings.logs import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *

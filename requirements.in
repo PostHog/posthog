@@ -32,6 +32,7 @@ dnspython==2.2.1
 drf-exceptions-hog==0.2.0
 drf-extensions==0.7.0
 drf-spectacular==0.21.1
+geoip2==4.6.0
 google-cloud-sqlcommenter==2.0.0
 gunicorn==20.1.0
 idna==2.8
