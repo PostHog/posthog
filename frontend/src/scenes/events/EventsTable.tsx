@@ -401,7 +401,7 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 {(showEventFilter || showPropertyFilter) && (
-                    <div className="flex pt pb space-x border-top">
+                    <div className="flex py-4 space-x-4 border-top">
                         {showEventFilter && (
                             <LemonEventName
                                 value={eventFilter}

@@ -137,7 +137,7 @@ function DashboardScene(): JSX.Element {
                         </div>
                     )}
                     {placement !== DashboardPlacement.Export && (
-                        <div className="flex pt pb space-x dashoard-items-actions">
+                        <div className="flex pt pb space-x-4 dashoard-items-actions">
                             <div
                                 className="left-item"
                                 style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
