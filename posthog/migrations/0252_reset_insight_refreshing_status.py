@@ -4,17 +4,11 @@ from django.db import migrations
 
 
 def reset_insight_refreshing_status(apps, _) -> None:
-    # https://github.com/PostHog/posthog/pull/10960
-    # was intended to mark _chosen_ cache update candidates as refreshing earlier in processing
-    # but marked all candidate items as refreshing *even when they weren't*
-    # This issues two SQL statements to reset the refreshing flag on all potential candidates
-    # For most installations this will be a very small number of items
-    # It is safe to reprocess items
-    DashboardTile = apps.get_model("posthog", "DashboardTile")
-    Insight = apps.get_model("posthog", "Insight")
-
-    DashboardTile.objects.filter(refreshing=True).update(refreshing=False)
-    Insight.objects.filter(refreshing=True).update(refreshing=False)
+    # https://github.com/PostHog/posthog/pull/10960 introduced a bug.
+    # That set all Insights and DashboardTiles to have refreshing = True
+    # Which meant they couldn't be refreshed
+    # This migration fixed that. And has now been made a no-op as it has done its job
+    pass
 
 
 def reverse(_apps, _schema_editor) -> None:
