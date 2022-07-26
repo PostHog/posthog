@@ -29,6 +29,8 @@ import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSwitch } from '@posthog/lemon-ui'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { PluginsAccessLevel } from 'lib/constants'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -92,6 +94,7 @@ export function PluginCard({
         showPluginHistory,
     } = useActions(pluginsLogic)
     const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
 
     const hasSpecifiedMaintainer = maintainer || (plugin.url && pluginUrlToMaintainer[plugin.url])
@@ -161,11 +164,15 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-                            {is_global && (
-                                <Tag color="blue">
-                                    <GlobalOutlined /> Managed by {organization_name}
-                                </Tag>
-                            )}
+                            {is_global &&
+                                !!currentOrganization &&
+                                currentOrganization.plugins_access_level >= PluginsAccessLevel.Install && (
+                                    <Tooltip title={`This plugin is managed by the ${organization_name} organization`}>
+                                        <Tag color="blue" icon={<GlobalOutlined />}>
+                                            Global
+                                        </Tag>
+                                    </Tooltip>
+                                )}
                             {canInstallPlugins(user?.organization, organization_id) && (
                                 <>
                                     {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}

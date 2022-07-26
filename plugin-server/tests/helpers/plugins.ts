@@ -52,7 +52,6 @@ export const pluginConfig39: PluginConfig = {
     enabled: true,
     order: 0,
     config: { localhostIP: '94.224.212.175' },
-    error: undefined,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
 }
