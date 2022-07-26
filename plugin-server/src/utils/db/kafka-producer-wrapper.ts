@@ -50,7 +50,7 @@ export class KafkaProducerWrapper {
     async queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
         const messageSize = this.estimateMessageSize(kafkaMessage)
 
-        if (this.currentBatchSize + messageSize > this.maxBatchSize) {
+        if (this.currentBatch.length > 0 && this.currentBatchSize + messageSize > this.maxBatchSize) {
             // :TRICKY: We want to first flush then immediately add the message to the queue. Awaiting and then pushing would result in a race condition.
             await this.flush(kafkaMessage)
         } else {
@@ -58,7 +58,11 @@ export class KafkaProducerWrapper {
             this.currentBatchSize += messageSize
 
             const timeSinceLastFlush = Date.now() - this.lastFlushTime
-            if (timeSinceLastFlush > this.flushFrequencyMs || this.currentBatch.length >= this.maxQueueSize) {
+            if (
+                this.currentBatchSize > this.maxBatchSize ||
+                timeSinceLastFlush > this.flushFrequencyMs ||
+                this.currentBatch.length >= this.maxQueueSize
+            ) {
                 await this.flush()
             }
         }

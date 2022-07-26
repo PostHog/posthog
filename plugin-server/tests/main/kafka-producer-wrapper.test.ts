@@ -79,6 +79,21 @@ describe('KafkaProducerWrapper', () => {
             })
         })
 
+        it('flushes immediately when message exceeds KAFKA_MAX_MESSAGE_BATCH_SIZE', async () => {
+            await producer.queueMessage({
+                topic: 'a',
+                messages: [{ value: '1'.repeat(10000) }],
+            })
+
+            expect(flushSpy).toHaveBeenCalled()
+
+            expect(producer.currentBatch.length).toEqual(0)
+            expect(producer.currentBatchSize).toEqual(0)
+            expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
+                topicMessages: [expect.anything()],
+            })
+        })
+
         it('respects KAFKA_FLUSH_FREQUENCY_MS', async () => {
             await producer.queueMessage({
                 topic: 'a',
