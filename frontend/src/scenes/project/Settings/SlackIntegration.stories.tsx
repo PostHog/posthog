@@ -40,7 +40,7 @@ const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }):
     })
 
     return (
-        <div className="border-all pa ma">
+        <div className="rounded border-all pa ma">
             <SlackIntegration />
         </div>
     )

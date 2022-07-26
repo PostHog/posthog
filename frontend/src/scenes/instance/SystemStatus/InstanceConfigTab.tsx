@@ -101,7 +101,7 @@ export function InstanceConfigTab(): JSX.Element {
 
     return (
         <div>
-            <div className="flex-center">
+            <div className="flex items-center">
                 <div style={{ flexGrow: 1 }}>
                     <h3 className="l3" style={{ marginTop: 16 }}>
                         Instance configuration

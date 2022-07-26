@@ -169,7 +169,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                 <Col>
                     {metrics.map((metric, idx) => (
                         <Row key={idx} className="mt">
-                            <Row align="middle" className="full-width border-all" style={{ padding: 8 }}>
+                            <Row align="middle" className="full-width rounded border-all" style={{ padding: 8 }}>
                                 <div style={{ fontWeight: 500 }}>Name</div>{' '}
                                 <div className="metric-name">{metric.name}</div>
                                 <DeleteOutlined

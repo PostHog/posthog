@@ -80,7 +80,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                         <>
                             <LemonDivider large />
                             <div className="space-y-05">
-                                <div className="space-between-items">
+                                <div className="flex justify-between">
                                     <TitleWithIcon
                                         icon={
                                             <Tooltip
@@ -106,7 +106,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
 
                             <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="space-y-05">
                                 {insight && (
-                                    <div className="border-all">
+                                    <div className="rounded border-all">
                                         <LemonButton
                                             fullWidth
                                             type="stealth"

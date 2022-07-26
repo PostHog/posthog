@@ -99,7 +99,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <PageHeader
                         title="Feature Flag"
                         buttons={
-                            <div className="flex-center">
+                            <div className="flex items-center">
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <LemonSwitch

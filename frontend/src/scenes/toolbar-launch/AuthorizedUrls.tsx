@@ -89,8 +89,8 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
 
     return (
         <div>
-            <div className="flex-center mb">
-                <div className="flex-grow">
+            <div className="flex items-center mb">
+                <div className="flex grow">
                     <Input.Search
                         allowClear
                         enterButton
@@ -133,7 +133,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                 className={clsx(
                                     'AuthorizedUrlRow',
                                     keyedAppURL.type,
-                                    'flex-center',
+                                    'flex items-center',
                                     'mr',
                                     editUrlIndex !== index && 'highlight-on-hover'
                                 )}
@@ -142,7 +142,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                     <AuthorizedUrlForm actionId={actionId} />
                                 ) : (
                                     <>
-                                        <div className="Url flex-grow">
+                                        <div className="Url flex grow">
                                             {keyedAppURL.type === 'suggestion' && (
                                                 <LemonTag type="highlight" className="mr">
                                                     Suggestion

@@ -26,7 +26,7 @@ export function VerifyDomainModal(): JSX.Element {
                             <div className="mt mb">
                                 <div className="input-set">
                                     <label htmlFor="record-name">Name</label>
-                                    <div className="flex-center">
+                                    <div className="flex items-center">
                                         <Input disabled value={challengeName} name="record-name" />
                                         <CopyToClipboardInline
                                             explicitValue={challengeName}
@@ -36,7 +36,7 @@ export function VerifyDomainModal(): JSX.Element {
                                 </div>
                                 <div className="input-set">
                                     <label htmlFor="record-value">Value or content</label>
-                                    <div className="flex-center">
+                                    <div className="flex items-center">
                                         <Input
                                             disabled
                                             value={domainBeingVerified?.verification_challenge}
@@ -50,7 +50,7 @@ export function VerifyDomainModal(): JSX.Element {
                                 </div>
                                 <div className="input-set">
                                     <label htmlFor="record-value">TTL</label>
-                                    <div className="flex-center">
+                                    <div className="flex items-center">
                                         <Input disabled value="Default or 3600" name="record-value" />
                                         <CopyToClipboardInline explicitValue="3600" style={{ marginLeft: 4 }} />
                                     </div>

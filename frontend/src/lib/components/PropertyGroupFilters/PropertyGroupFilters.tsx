@@ -53,7 +53,7 @@ export function PropertyGroupFilters({
                 <div className="property-group-filters">
                     <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                         {showHeader ? (
-                            <div className="flex-center space-between-items">
+                            <div className="flex items-center justify-between">
                                 {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
                                 {propertyGroupFilter.type && propertyGroupFilter.values.length > 1 && (
                                     <AndOrFilterSelect

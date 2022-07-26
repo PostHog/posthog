@@ -38,7 +38,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                 )}{' '}
                 who performed event or action
             </div>
-            <div className="flex-center">
+            <div className="flex items-center">
                 <ActionFilter
                     entitiesLimit={1}
                     mathAvailability={MathAvailability.None}

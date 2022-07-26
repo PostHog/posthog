@@ -44,7 +44,7 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
 
     return (
         <div
-            className={clsx('funnel-options-container text-muted', horizontal && 'flex-center')}
+            className={clsx('funnel-options-container text-muted', horizontal && 'flex items-center')}
             style={horizontal ? { flexDirection: 'row' } : undefined}
         >
             <span className="funnel-options-label">

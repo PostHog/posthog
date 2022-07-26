@@ -155,7 +155,7 @@ export function AddToDashboardModal({
                     </AutoSizer>
                 </div>
             </section>
-            <section className="space-between-items">
+            <section className="flex justify-between">
                 <LemonButton type="secondary" size="small" onClick={addNewDashboard} disabled={!canEditInsight}>
                     Add to a new dashboard
                 </LemonButton>

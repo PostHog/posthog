@@ -45,7 +45,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                 },
             }}
         >
-            <div className="space-between-items flex-auto items-center pa-05">
+            <div className="flex justify-between flex-auto items-center pa-05">
                 <div>
                     <div>{subscription.title}</div>
                     <div className="text-default">{capitalizeFirstLetter(subscription.summary)}</div>
@@ -117,7 +117,7 @@ export function ManageSubscriptions({
                         ))}
                     </>
                 ) : (
-                    <div className="flex-column pa items-center text-center">
+                    <div className="flex flex-col pa items-center text-center">
                         <h3>There are no subscriptions for this insight</h3>
 
                         <p>Once subscriptions are created they will display here. </p>
@@ -129,7 +129,7 @@ export function ManageSubscriptions({
                 )}
             </section>
 
-            <footer className="space-between-items pt">
+            <footer className="flex justify-between pt">
                 <div>
                     {!!subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>

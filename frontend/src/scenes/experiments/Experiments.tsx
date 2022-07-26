@@ -117,7 +117,7 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader
                 title={
-                    <div className="flex-center">
+                    <div className="flex items-center">
                         Experiments
                         <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
                             BETA

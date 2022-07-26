@@ -179,7 +179,7 @@ export function Members({ user }: MembersProps): JSX.Element {
             key: 'joined_at',
             render: function RenderJoinedAt(joinedAt) {
                 return (
-                    <div className="no-wrap">
+                    <div className="whitespace-nowrap">
                         <TZLabel time={joinedAt as string} />
                     </div>
                 )

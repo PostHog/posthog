@@ -633,7 +633,7 @@ export function Experiment(): JSX.Element {
                                 </span>
                             </Col>
                             {experimentData && !experimentData.start_date && (
-                                <div className="flex-center">
+                                <div className="flex items-center">
                                     <LemonButton
                                         type="secondary"
                                         className="mr-05"

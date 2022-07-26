@@ -254,7 +254,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       : '–',
                               align: 'right',
                               width: 0,
-                              className: 'no-wrap',
+                              className: 'whitespace-nowrap',
                           },
                           {
                               title: (
@@ -270,7 +270,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       : '–',
                               align: 'right',
                               width: 0,
-                              className: 'no-wrap',
+                              className: 'whitespace-nowrap',
                           },
                       ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],

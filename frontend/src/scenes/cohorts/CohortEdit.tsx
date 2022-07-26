@@ -39,7 +39,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <PageHeader
                     title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
-                        <div className="flex-center">
+                        <div className="flex items-center">
                             {isNewCohort ? (
                                 <LemonButton
                                     data-attr="cancel-cohort"
@@ -208,7 +208,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <div>
                             <h3 className="l3">Persons in this cohort</h3>
                             {cohort.is_calculating ? (
-                                <div className="cohort-recalculating flex-center">
+                                <div className="cohort-recalculating flex items-center">
                                     <Spinner size="sm" style={{ marginRight: 4 }} />
                                     We're recalculating who belongs to this cohort. This could take up to a couple of
                                     minutes.

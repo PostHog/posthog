@@ -163,7 +163,7 @@ export function InsightTooltip({
             key: 'datum',
             className: 'datum-label-column',
             width: 120,
-            title: <span className="no-wrap">{title}</span>,
+            title: <span className="whitespace-nowrap">{title}</span>,
             sticky: true,
             render: function renderDatum(_, datum, rowIdx) {
                 return renderSeries(

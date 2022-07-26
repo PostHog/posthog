@@ -44,7 +44,7 @@ export function RetentionModal({
             closable={true}
             onCancel={dismissModal}
             footer={
-                <div className="flex space-between-items">
+                <div className="flex justify-between">
                     <div />
                     <div className="flex gap-05">
                         <LemonButton

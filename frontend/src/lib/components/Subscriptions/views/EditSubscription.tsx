@@ -225,7 +225,7 @@ export function EditSubscription({
                                     <>
                                         {addToSlackButtonUrl() ? (
                                             <AlertMessage type="info">
-                                                <div className="space-between-items gap-05">
+                                                <div className="flex justify-between gap-05">
                                                     <span>
                                                         Slack is not yet configured for this project. Add PostHog to
                                                         your Slack workspace to continue.
@@ -338,7 +338,7 @@ export function EditSubscription({
                             <div className="ant-form-item-label">
                                 <label title="Recurrence">Recurrence</label>
                             </div>
-                            <div className="flex gap-05 items-center border-all pa-05 flex-wrap">
+                            <div className="flex gap-05 items-center rounded border-all pa-05 flex-wrap">
                                 <span>Send every</span>
                                 <Field name={'interval'} style={{ marginBottom: 0 }}>
                                     <LemonSelect {...commonSelectProps} options={intervalOptions} />
@@ -418,7 +418,7 @@ export function EditSubscription({
                     </section>
                 )}
 
-                <footer className="space-between-items pt">
+                <footer className="flex justify-between pt">
                     <div>
                         {subscription && id !== 'new' && (
                             <LemonButton

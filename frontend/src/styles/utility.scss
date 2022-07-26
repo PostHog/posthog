@@ -20,18 +20,6 @@
     font-size: 8px;
 }
 
-.text-ellipsis {
-    @extend %mixin-text-ellipsis;
-}
-
-.no-wrap {
-    white-space: nowrap !important;
-}
-
-.subtitle-row {
-    margin-top: 8px;
-}
-
 .subtitle {
     display: flex;
     align-items: center;
@@ -61,18 +49,6 @@
     // DEPRECATED: Shouldn't be used
     font-size: 13px;
     font-weight: bold;
-}
-
-.text-right {
-    text-align: right;
-}
-
-.text-left {
-    text-align: left;
-}
-
-.text-center {
-    text-align: center;
 }
 
 .text-muted {
@@ -291,56 +267,9 @@
     float: left;
 }
 
-.space-between-items {
-    display: flex;
-    justify-content: space-between;
-}
-
-// .items-center {
-//     align-items: center;
-// }
-
-// .justify-center {
-//     justify-content: center;
-// }
-
-.justify-end {
-    justify-content: end;
-}
-
-.flex {
-    display: flex;
-}
-
-.flex-column {
-    display: flex;
-    flex-direction: column;
-}
-
-.flex-row {
-    flex-direction: row;
-}
-
-.flex-wrap {
-    flex-wrap: wrap;
-}
-
-.flex-auto {
-    flex: auto;
-}
-
-.flex-grow {
-    flex-grow: 1;
-}
-
-.flex-center {
-    display: flex;
-    align-items: center;
-}
-
+// TODO: Remove needs colors setup for tailwind...
 .border-all {
     border: 1px solid var(--border);
-    border-radius: 4px;
 }
 
 .border-top {

@@ -23,10 +23,10 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     // TODO: Sort out title offset
     return (
         <>
-            <div className="mb-05 space-between-items items-center">
+            <div className="mb-05 flex justify-between items-center">
                 <EditorFilterItemTitle label={'Query Steps'} />
 
-                <div className="flex-center">
+                <div className="flex items-center">
                     <span
                         style={{
                             marginRight: 6,
@@ -66,7 +66,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
 
             <div className="mt space-y">
                 {showGroupsOptions && (
-                    <div className="flex-center full-width">
+                    <div className="flex items-center full-width">
                         <span className="text-muted mr-05">Aggregating by </span>
                         <AggregationSelect
                             aggregationGroupTypeIndex={filters.aggregation_group_type_index}

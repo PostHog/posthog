@@ -137,7 +137,7 @@ export function InsightContainer(
             return (
                 <>
                     {exporterResourceParams && (
-                        <div className="flex-center space-between-items" style={{ margin: '1rem 0' }}>
+                        <div className="flex items-center justify-between" style={{ margin: '1rem 0' }}>
                             <h2>Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <ExportButton
