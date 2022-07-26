@@ -217,7 +217,7 @@ export function Signup(): JSX.Element | null {
                                         {signupResponse?.success
                                             ? 'Opening PostHog…'
                                             : !preflight?.demo
-                                            ? 'Get started free'
+                                            ? 'Get started for free'
                                             : !signupResponseLoading
                                             ? 'Enter the demo environment'
                                             : 'Preparing demo data…'}
@@ -225,8 +225,10 @@ export function Signup(): JSX.Element | null {
                                 </Form.Item>
 
                                 <Form.Item className="text-center terms-and-conditions-text">
-                                    First 1 million events/month are free<br />
-                                    Looking for <a href="https://posthog.com/signup/self-host">self-hosted instead</a>?<br />  
+                                    First 1 million events/month are free.
+                                    <br />
+                                    Looking for <a href="https://posthog.com/signup/self-host">self-hosted instead</a>?
+                                    <br /> <br />
                                     By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you
                                     agree to our{' '}
                                     <a href={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank" rel="noopener">
