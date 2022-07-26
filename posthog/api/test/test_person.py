@@ -11,6 +11,7 @@ from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
+from posthog.models.person.util import create_person
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -598,19 +599,27 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     def test_pagination_limit(self):
         created_ids = []
-        for index in range(0, 20):
+
+        for index in range(0, 19):
             created_ids.append(str(index + 100))
-            Person.objects.create(
+            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
                 team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"},
             )
 
+        # Very occasionally, a person might be deleted in postgres but not in Clickhouse due to network issues or whatever
+        # In this case Clickhouse will return a user that then doesn't get returned by postgres.
+        # We would return an empty "next" url.
+        # Now we just return 9 people instead
+        create_person(team_id=self.team.pk, version=0)
+
         returned_ids = []
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(6):
             response = self.client.get("/api/person/?limit=10").json()
-        self.assertEqual(len(response["results"]), 10)
+        self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response = self.client.get(response["next"]).json()
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
+        self.assertEqual(len(response["results"]), 10)
 
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
