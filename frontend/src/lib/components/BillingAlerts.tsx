@@ -1,102 +1,103 @@
 import React from 'react'
 import { Link } from 'lib/components/Link'
 import { useValues } from 'kea'
-import { WarningOutlined, AlertOutlined, ToolFilled } from '@ant-design/icons'
-import { Button, Card } from 'antd'
+import { WarningOutlined, AlertOutlined } from '@ant-design/icons'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
-import { LinkButton } from './LinkButton'
-import { LemonButton } from './LemonButton'
 
 export function BillingAlerts(): JSX.Element | null {
-    const { billing } = useValues(billingLogic)
+    const { billing, trialMissingDays } = useValues(billingLogic)
     const { alertToShow, percentage, strokeColor } = useValues(billingLogic)
 
     if (!alertToShow) {
         return null
     }
 
+    let message: JSX.Element | undefined
+    let isWarning = false
+    let isAlert = false
+    if (alertToShow === BillingAlertType.SetupBilling) {
+        isWarning = true
+        message = (
+            <p>
+                <b>Action needed!&nbsp;</b>
+                <Link href={billing?.subscription_url} data-attr="alert_setup_billing">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'Please finish setting up your billing information.'}
+                </Link>
+            </p>
+        )
+    }
+    if (alertToShow === BillingAlertType.TrialStarted) {
+        message = (
+            <p>
+                <b>Welcome to PostHog!&nbsp;</b>
+                <Link to="/organization/billing" data-attr="trial_started_find_out_more">
+                    We've given you access to all premium features for {trialMissingDays}{' '}
+                    {trialMissingDays > 1 ? 'days' : 'day'}. Find out more!
+                </Link>
+            </p>
+        )
+    }
+    if (alertToShow === BillingAlertType.TrialOngoing) {
+        message = (
+            <p>
+                <b>
+                    Your trial of premium features ends in {trialMissingDays === 0 && 'less than 1 day'}
+                    {trialMissingDays > 0 && `${trialMissingDays} ${trialMissingDays > 1 ? 'days' : 'day'}`}.&nbsp;
+                </b>
+                <Link to="/organization/billing" data-attr="trial_started_find_out_more">
+                    Find out how to unlock them forever.
+                </Link>
+            </p>
+        )
+    }
+    if (alertToShow === BillingAlertType.TrialExpired) {
+        message = (
+            <p>
+                <b>You're on a limited plan.&nbsp;</b>
+                <Link to="/organization/billing" data-attr="trial_expired_link">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'Find out how to get premium features back and get 1M events free each month.'}
+                </Link>
+            </p>
+        )
+    }
+
+    if (alertToShow === BillingAlertType.UsageNearLimit) {
+        isWarning = true
+        message = (
+            <p>
+                <b>Warning!</b> You have already used{' '}
+                <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
+                    {percentage && percentage * 100}%
+                </b>{' '}
+                of your event allocation this month.{' '}
+                <Link to="/organization/billing" data-attr="trial_expired_link">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'To avoid losing data or access to it, upgrade your billing plan now.'}
+                </Link>
+            </p>
+        )
+    }
+
+    if (alertToShow === BillingAlertType.UsageLimitExceeded) {
+        isAlert = true
+        message = (
+            <p>
+                <b>Alert!</b> The monthly limit of events or billing limit for your organization has been exceeded.{' '}
+                <Link to="/organization/billing" data-attr="trial_expired_link">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'To avoid losing data or access to it, increase your billing limit now.'}
+                </Link>
+            </p>
+        )
+    }
+
     return (
-        <>
-            <div style={{ marginTop: '1.5rem' }} />
-            {alertToShow === BillingAlertType.SetupBilling && (
-                <Card>
-                    <div style={{ display: 'flex' }}>
-                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                            <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
-                            <b>Action needed!&nbsp;</b>
-                            {billing?.plan?.custom_setup_billing_message ||
-                                'Please finish setting up your billing information.'}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <Button type="primary" href={billing?.subscription_url} icon={<ToolFilled />}>
-                                Set up now
-                            </Button>
-                        </div>
-                    </div>
-                </Card>
-            )}
-            {alertToShow === BillingAlertType.TrialExpired && (
-                <Card>
-                    <div style={{ display: 'flex' }}>
-                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                            <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
-                            Your free trial has expired. To continue using all features,{' '}
-                            <Link to="/organization/billing" data-attr="trial_expired_link">
-                                {' '}
-                                add your card details
-                            </Link>
-                            .
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <LemonButton to="/organization/billing" data-attr="trial_expired_button" type="primary">
-                                Subscribe
-                            </LemonButton>
-                        </div>
-                    </div>
-                </Card>
-            )}
-            {alertToShow === BillingAlertType.UsageNearLimit && (
-                <Card>
-                    <div style={{ display: 'flex' }}>
-                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                            <WarningOutlined className="text-warning" style={{ paddingRight: 16 }} />
-                            <div>
-                                <b>Warning!</b> Nearing the monthly limit of events or billing limit for your
-                                organization. You have already used{' '}
-                                <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
-                                    {percentage && percentage * 100}%
-                                </b>{' '}
-                                of your event allocation this month. To avoid losing data or access to it,{' '}
-                                <b>we recommend upgrading</b> your billing plan now.
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
-                            <LinkButton type="primary" to="/organization/billing">
-                                <ToolFilled /> Manage billing
-                            </LinkButton>
-                        </div>
-                    </div>
-                </Card>
-            )}
-            {alertToShow === BillingAlertType.UsageLimitExceeded && (
-                <Card>
-                    <div style={{ display: 'flex' }}>
-                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                            <AlertOutlined className="text-warning" style={{ paddingRight: 16 }} />
-                            <div>
-                                <b>Alert!</b> The monthly limit of events or billing limit for your organization has
-                                been exceeded. To avoid losing data or access to it, <b>we recommend increasing</b> your
-                                billing limit.
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
-                            <LinkButton type="primary" to="/organization/billing">
-                                <ToolFilled /> Manage billing
-                            </LinkButton>
-                        </div>
-                    </div>
-                </Card>
-            )}
-        </>
+        <div className={'Announcement'}>
+            {isWarning && <WarningOutlined className="text-warning" style={{ paddingRight: '1rem' }} />}
+            {isAlert && <AlertOutlined className="text-warning" style={{ paddingRight: '1rem' }} />}
+            {message}
+        </div>
     )
 }

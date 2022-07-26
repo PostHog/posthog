@@ -16,6 +16,8 @@ export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
     UsageLimitExceeded = 'usage_limit_exceeded',
+    TrialStarted = 'trial_started',
+    TrialOngoing = 'trial_ongoing',
     TrialExpired = 'trial_expired',
 }
 
@@ -93,13 +95,20 @@ export const billingLogic = kea<billingLogicType>({
                 return color
             },
         ],
+        trialMissingDays: [
+            (s) => [s.billing],
+            (billing: BillingType) => {
+                return Math.round(dayjs(billing?.free_trial_until).diff(dayjs()) / (3600 * 24 * 1000))
+            },
+        ],
         alertToShow: [
-            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene],
+            (s) => [s.eventAllocation, s.percentage, s.billing, sceneLogic.selectors.scene, s.trialMissingDays],
             (
                 eventAllocation: number | null,
                 percentage: number,
                 billing: BillingType,
-                scene: Scene
+                scene: Scene,
+                trialMissingDays: number
             ): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
@@ -113,10 +122,6 @@ export const billingLogic = kea<billingLogicType>({
                     return BillingAlertType.UsageLimitExceeded
                 }
 
-                if (dayjs().isAfter(billing?.free_trial_until)) {
-                    return BillingAlertType.TrialExpired
-                }
-
                 if (
                     scene !== Scene.Billing &&
                     billing?.current_usage &&
@@ -124,6 +129,18 @@ export const billingLogic = kea<billingLogicType>({
                     percentage >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
+                }
+
+                if (!billing?.plan && trialMissingDays >= 6) {
+                    return BillingAlertType.TrialStarted
+                }
+
+                if (!billing?.plan && dayjs().isAfter(billing?.free_trial_until)) {
+                    return BillingAlertType.TrialExpired
+                }
+
+                if (!billing?.plan && trialMissingDays >= 0) {
+                    return BillingAlertType.TrialOngoing
                 }
             },
         ],

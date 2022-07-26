@@ -1,6 +1,5 @@
 import { Layout } from 'antd'
 import { useValues } from 'kea'
-import { BillingAlerts } from 'lib/components/BillingAlerts'
 import React from 'react'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -22,7 +21,6 @@ export function Navigation({ children }: { children: any }): JSX.Element {
                     {!sceneConfig?.plain && (
                         <>
                             {!sceneConfig?.hideDemoWarnings && <DemoWarnings />}
-                            <BillingAlerts />
                             <Breadcrumbs />
                         </>
                     )}

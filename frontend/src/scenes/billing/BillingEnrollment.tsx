@@ -72,7 +72,7 @@ export function BillingEnrollment(): JSX.Element | null {
                 </Card>
             ) : (
                 <Card title="Billing Plan Enrollment">
-                    {billing.free_trial_until && (
+                    {billing?.free_trial_until && (
                         <>
                             {dayjs().isBefore(billing.free_trial_until) && (
                                 <>
