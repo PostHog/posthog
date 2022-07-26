@@ -501,7 +501,7 @@ class TestUpdateCache(APIBaseTest):
     def test_errors_refreshing(self, patch_calculate_by_filter: MagicMock) -> None:
         """
         When there are no filters on the dashboard the tile and insight cache key match
-        the cache only updates cache counts on the Insight not the dashboard tile
+        the cache should updates cache counts on the Insight _and_ the dashboard tile
         """
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
@@ -524,10 +524,11 @@ class TestUpdateCache(APIBaseTest):
 
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 1)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            self.assertEqual(Insight.objects.get().refreshing, False)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 2)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
 
             # Magically succeeds, reset counter
             patch_calculate_by_filter.side_effect = None
@@ -547,7 +548,7 @@ class TestUpdateCache(APIBaseTest):
             _update_cached_items()
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 3)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
             self.assertEqual(patch_calculate_by_filter.call_count, 3)
 
             # If a user later comes back and manually refreshes we should reset refresh_attempt
@@ -1053,3 +1054,39 @@ class TestUpdateCacheForSharedInsights(APIBaseTest):
 
         assert insight.filters_hash is not None
         assert insight.last_refresh is not None
+
+    @patch("posthog.tasks.update_cache.cache.set")
+    @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_mark_candidates_as_refreshing_before_processing(
+        self,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
+        _patched_cache_set: MagicMock,
+    ) -> None:
+        filters = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        # create one more than the number of candidates that will be selected
+        for _ in range(6):
+            create_shared_insight(team=self.team, is_shared=True, filters=filters)
+
+        assert Insight.objects.all().count() == 6
+        assert Insight.objects.filter(refreshing=True).count() == 0
+
+        update_cached_items()
+
+        assert Insight.objects.filter(refreshing=True).count() == 5
+        assert Insight.objects.filter(refreshing=False).count() == 1
+
+        # pass the caught calls straight to the function
+        # we do this to skip Redis
+        for call_item in patch_update_cache_item.call_args_list:
+            update_cache_item(*call_item[0])
+
+        assert Insight.objects.filter(refreshing=True).count() == 0
+        assert Insight.objects.filter(refreshing=False).count() == 6

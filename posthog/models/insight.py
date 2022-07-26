@@ -166,7 +166,12 @@ class InsightViewed(models.Model):
 @receiver(pre_save, sender=Insight)
 def insight_saving(sender, instance: Insight, **kwargs):
     update_fields = kwargs.get("update_fields")
-    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"filters"})]:
+    if update_fields in [
+        frozenset({"filters_hash"}),
+        frozenset({"last_refresh"}),
+        frozenset({"filters"}),
+        frozenset({"refreshing"}),
+    ]:
         # Don't always update the filters_hash
         return
 

@@ -29,17 +29,20 @@ class DashboardTile(models.Model):
         ]
 
     def save(self, *args, **kwargs) -> None:
-        has_no_filters_hash = self.filters_hash is None
-        if has_no_filters_hash and self.insight.filters != {}:
-            self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
+        update_fields = kwargs.get("update_fields", None)
+        if update_fields not in [frozenset({"refreshing"})]:
+            # Don't always update the filters_hash
+            has_no_filters_hash = self.filters_hash is None
+            if has_no_filters_hash and self.insight.filters != {}:
+                self.filters_hash = generate_insight_cache_key(self.insight, self.dashboard)
 
         super(DashboardTile, self).save(*args, **kwargs)
 
 
 @receiver(post_save, sender=Insight)
 def on_insight_saved(sender, instance: Insight, **kwargs):
-    update_fields = kwargs.get("update_fields")
-    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"})]:
+    update_fields = kwargs.get("update_fields", None)
+    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"refreshing"})]:
         # Don't always update the filters_hash
         return
 
