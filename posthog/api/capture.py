@@ -24,7 +24,7 @@ from posthog.api.utils import (
 )
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import (
-    RecordingEventForObjectStorage,
+    ChunkedRecordingEvent,
     get_session_recording_events_for_object_storage,
     preprocess_session_recording_events_for_clickhouse,
 )
@@ -65,7 +65,7 @@ def parse_kafka_event_data(
 
 
 def parse_kafka_recording_for_object_storage_event_data(
-    team_id: int, recording_event: RecordingEventForObjectStorage,
+    team_id: int, recording_event: ChunkedRecordingEvent,
 ) -> Tuple[List[Tuple[str, str]], str]:
     headers = [
         ("unixTimestamp", str(recording_event.unix_timestamp)),

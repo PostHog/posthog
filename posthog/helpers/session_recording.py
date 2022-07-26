@@ -18,7 +18,7 @@ WindowId = Optional[str]
 
 
 @dataclasses.dataclass
-class RecordingEventForObjectStorage:
+class ChunkedRecordingEvent:
     unix_timestamp: int
     recording_event_id: str
     session_id: str
@@ -337,7 +337,7 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
 
 def get_session_recording_events_for_object_storage(
     events: List[Event], chunk_size=512 * 1024
-) -> List[RecordingEventForObjectStorage]:
+) -> List[ChunkedRecordingEvent]:
     recording_events_for_object_storage = []
     for event in events:
         if is_unchunked_snapshot(event):
@@ -369,7 +369,7 @@ def get_session_recording_events_for_object_storage(
             chunk_count = len(chunked_recording_event_string)
             for chunk_index, chunk in enumerate(chunked_recording_event_string):
                 recording_events_for_object_storage.append(
-                    RecordingEventForObjectStorage(
+                    ChunkedRecordingEvent(
                         recording_event_id=recording_event_id,
                         distinct_id=distinct_id,
                         session_id=session_id,
