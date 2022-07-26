@@ -1,6 +1,6 @@
 from copy import copy
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from unittest.mock import MagicMock, patch
 
 import pytz
@@ -523,24 +523,18 @@ class TestUpdateCache(APIBaseTest):
                     pass
 
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, 1)
-            self.assertEqual(Insight.objects.get().refreshing, False)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
-            self.assertEqual(DashboardTile.objects.get().refreshing, False)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), 1)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 1)
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, 2)
-            self.assertEqual(Insight.objects.get().refreshing, False)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
-            self.assertEqual(DashboardTile.objects.get().refreshing, False)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), 2)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 2)
 
             # Magically succeeds, reset counter
             patch_calculate_by_filter.side_effect = None
             patch_calculate_by_filter.return_value = {"some": "exciting results"}
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, 0)
-            self.assertEqual(Insight.objects.get().refreshing, False)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
-            self.assertEqual(DashboardTile.objects.get().refreshing, False)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), 0)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 0)
 
             # tick forwards since we ignore recently refreshed tiles
             frozen_datetime.tick(timedelta(minutes=4))
@@ -552,19 +546,14 @@ class TestUpdateCache(APIBaseTest):
             _update_cached_items()
             _update_cached_items()
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, 3)
-            self.assertEqual(Insight.objects.get().refreshing, False)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
-            self.assertEqual(DashboardTile.objects.get().refreshing, False)
-            self.assertEqual(patch_calculate_by_filter.call_count, 3)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), 3)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 3)
 
             # If a user later comes back and manually refreshes we should reset refresh_attempt
             patch_calculate_by_filter.side_effect = None
             self.client.get(f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true")
-            self.assertEqual(Insight.objects.get().refresh_attempt, 0)
-            self.assertEqual(Insight.objects.get().refreshing, False)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
-            self.assertEqual(DashboardTile.objects.get().refreshing, False)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), 0)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 0)
 
     @patch("posthog.tasks.update_cache._calculate_by_filter")
     def test_errors_refreshing_dashboard_tile(self, patch_calculate_by_filter: MagicMock) -> None:
@@ -594,18 +583,18 @@ class TestUpdateCache(APIBaseTest):
                     pass
 
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, None)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), None)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 1)
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, None)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), None)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 2)
 
             # Magically succeeds, reset counter
             patch_calculate_by_filter.side_effect = None
             patch_calculate_by_filter.return_value = {"some": "exciting results"}
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, None)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), None)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 0)
 
             # tick forwards since we ignore recently refreshed tiles
             frozen_datetime.tick(timedelta(minutes=4))
@@ -616,17 +605,23 @@ class TestUpdateCache(APIBaseTest):
             _update_cached_items()
             _update_cached_items()
             _update_cached_items()
-            self.assertEqual(Insight.objects.get().refresh_attempt, None)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), None)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 3)
             self.assertEqual(patch_calculate_by_filter.call_count, 3)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
 
             # If a user later comes back and manually refreshes we should reset refresh_attempt
             patch_calculate_by_filter.side_effect = None
             self.client.get(
                 f"/api/projects/{self.team.pk}/insights/{item_to_cache.pk}/?refresh=true&from_dashboard={dashboard_to_cache.id}"
             )
-            self.assertEqual(Insight.objects.get().refresh_attempt, None)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            self.assert_has_finished_refreshing_after_N_attempts(Insight.objects.get(), None)
+            self.assert_has_finished_refreshing_after_N_attempts(DashboardTile.objects.get(), 0)
+
+    def assert_has_finished_refreshing_after_N_attempts(
+        self, candidate: Union[Insight, DashboardTile], refresh_attempts: Optional[int]
+    ) -> None:
+        self.assertEqual(candidate.refresh_attempt, refresh_attempts)
+        self.assertEqual(candidate.refreshing, False)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_filters_multiple_dashboard(self) -> None:
