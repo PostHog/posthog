@@ -16,7 +16,6 @@ import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 const DAYS_FIRST_FETCH = 5
@@ -233,10 +232,6 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 orderBy: [orderBy],
             }),
         ],
-        exportUrl: [
-            () => [selectors.currentTeamId, selectors.listParams],
-            (teamId, listParams) => `/api/projects/${teamId}/events.csv?${toParams(listParams)}`,
-        ],
 
         eventsUrl: [
             () => [selectors.currentTeamId, selectors.listParams],
@@ -296,18 +291,13 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
 
     listeners: ({ actions, values, props }) => ({
         startDownload: () => {
-            if (!!values.featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-                triggerExport({
-                    export_format: ExporterFormat.CSV,
-                    export_context: {
-                        path: values.eventsUrl(),
-                        max_limit: 3500,
-                    },
-                })
-            } else {
-                lemonToast.success('The export is starting. It should finish soon')
-                window.location.href = values.exportUrl
-            }
+            triggerExport({
+                export_format: ExporterFormat.CSV,
+                export_context: {
+                    path: values.eventsUrl(),
+                    max_limit: 3500,
+                },
+            })
         },
         setProperties: () => actions.fetchEvents(),
         setEventFilter: () => actions.fetchEvents(),

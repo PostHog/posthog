@@ -73,6 +73,24 @@ RUN apk --update --no-cache add \
     "chromium-chromedriver~=93" \
     "xmlsec~=1.2"
 
+# Curl the GeoLite2-City database that will be used for IP geolocation within Django 
+#
+# Notes:
+#
+# - We are doing this here because it makes sense to ensure the stack will work
+#   even if the database is not available at the time of boot.
+#   It's better here to fail at build then it is to fail at boot time.
+
+RUN apk --update --no-cache --virtual .geolite-deps add \
+    "curl~=7" \
+    "brotli~=1.0.9" \
+    && \
+    mkdir share \
+    && \
+    ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) \
+    && \
+    apk del .geolite-deps
+
 
 # Compile and install Python dependencies.
 #
@@ -96,6 +114,7 @@ RUN apk --update --no-cache --virtual .build-deps add \
     "libxslt-dev~=1.1" \
     "xmlsec-dev~=1.2" \
     "postgresql-dev~=13" \
+    "libmaxminddb~=1.5" \
     && \
     pip install -r requirements.txt --compile --no-cache-dir \
     && \

@@ -1,4 +1,4 @@
-// Keep this in sync with ee/kafka_client/topics.py
+// Keep this in sync with posthog/kafka_client/topics.py
 
 import { isTestEnv } from '../utils/env-utils'
 

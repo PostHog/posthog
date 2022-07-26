@@ -33,7 +33,7 @@ export async function processError(
 
 export async function clearError(server: Hub, pluginConfig: PluginConfig): Promise<void> {
     // running this may causes weird deadlocks with piscina and vms, so avoiding if possible
-    if (pluginConfig.error) {
+    if (pluginConfig.has_error) {
         await setError(server, null, pluginConfig)
     }
 }

@@ -1,4 +1,4 @@
-import { Hub, PluginConfig, PluginError } from '../src/types'
+import { Hub, PluginError } from '../src/types'
 import { createHub } from '../src/utils/db/hub'
 import {
     disablePlugin,
@@ -7,10 +7,11 @@ import {
     getPluginRows,
     setError,
 } from '../src/utils/db/sql'
-import { commonOrganizationId } from './helpers/plugins'
+import { commonOrganizationId, pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20_000)
+jest.mock('../src/utils/status')
 
 describe('sql', () => {
     let hub: Hub
@@ -47,27 +48,34 @@ describe('sql', () => {
     })
 
     test('getPluginConfigRows', async () => {
-        const rowsExpected = [
-            {
-                config: {
-                    localhostIP: '94.224.212.175',
-                },
-                enabled: true,
-                error: null,
-                id: 39,
-                order: 0,
-                plugin_id: 60,
-                team_id: 2,
-                created_at: expect.anything(),
-                updated_at: expect.anything(),
+        const expectedRow = {
+            config: {
+                localhostIP: '94.224.212.175',
             },
-        ]
+            enabled: true,
+            has_error: false,
+            id: 39,
+            order: 0,
+            plugin_id: 60,
+            team_id: 2,
+            created_at: expect.anything(),
+            updated_at: expect.anything(),
+        }
 
         const rows1 = await getPluginConfigRows(hub)
-        expect(rows1).toEqual(rowsExpected)
+        expect(rows1).toEqual([expectedRow])
+
         await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
+        const pluginError: PluginError = { message: 'error happened', time: 'now' }
+        await setError(hub, pluginError, pluginConfig39)
+
         const rows2 = await getPluginConfigRows(hub)
-        expect(rows2).toEqual(rowsExpected)
+        expect(rows2).toEqual([
+            {
+                ...expectedRow,
+                has_error: true,
+            },
+        ])
     })
 
     test('getPluginRows', async () => {
@@ -84,7 +92,6 @@ describe('sql', () => {
                 name: 'test-maxmind-plugin',
                 plugin_type: 'custom',
                 public_jobs: null,
-                source: null,
                 source__plugin_json:
                     '{"name":"posthog-maxmind-plugin","description":"just for testing","url":"http://example.com/plugin","config":{},"main":"index.js"}',
                 source__index_ts: 'const processEvent = event => event',
@@ -103,17 +110,6 @@ describe('sql', () => {
     })
 
     test('setError', async () => {
-        const pluginConfig39: PluginConfig = {
-            id: 39,
-            team_id: 2,
-            plugin_id: 60,
-            enabled: true,
-            order: 0,
-            config: {},
-            error: undefined,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        }
         hub.db.postgresQuery = jest.fn() as any
 
         await setError(hub, null, pluginConfig39)

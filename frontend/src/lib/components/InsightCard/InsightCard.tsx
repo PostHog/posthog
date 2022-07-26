@@ -17,6 +17,7 @@ import {
     ChartDisplayType,
     ChartParams,
     DashboardType,
+    ExporterFormat,
     FilterType,
     InsightColor,
     InsightLogicProps,
@@ -51,6 +52,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../AlertMessage'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -187,7 +189,7 @@ function InsightMeta({
     showDetailsControls = true,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboards } = insight
-
+    const { exporterResourceParams } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
@@ -368,6 +370,22 @@ function InsightMeta({
                                                     <LemonButton type="stealth" onClick={duplicate} fullWidth>
                                                         Duplicate
                                                     </LemonButton>
+                                                    <LemonDivider />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={[
+                                                                {
+                                                                    export_format: ExporterFormat.PNG,
+                                                                    insight: insight.id,
+                                                                },
+                                                                {
+                                                                    export_format: ExporterFormat.CSV,
+                                                                    export_context: exporterResourceParams,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ) : null}
                                                     {editable && (
                                                         <>
                                                             <LemonDivider />
