@@ -90,10 +90,13 @@ def update_cached_items() -> Tuple[int, int]:
         tasks.append(task_for_cache_update_candidate(insight))
 
     gauge_cache_update_candidates(dashboard_tiles, shared_insights)
+    queue_length = dashboard_tiles.count() + shared_insights.count()
+    dashboard_tiles.update(refreshing=True)
+    shared_insights.update(refreshing=True)
 
     tasks = list(filter(None, tasks))
     group(tasks).apply_async()
-    return len(tasks), dashboard_tiles.count() + shared_insights.count()
+    return len(tasks), queue_length
 
 
 def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) -> Optional[Signature]:
@@ -197,7 +200,6 @@ def _update_cache_for_queryset(
     if not queryset.exists():
         return None
 
-    queryset.update(refreshing=True)
     try:
         if cache_type == CacheType.FUNNEL:
             result = _calculate_funnel(filter, key, team)
