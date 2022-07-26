@@ -73,7 +73,7 @@ export class KafkaProducerWrapper {
     async queueSingleJsonMessage(topic: string, key: Message['key'], object: Record<string, any>): Promise<void> {
         await this.queueMessage({
             topic,
-            messages: [{ key, value: Buffer.from(JSON.stringify(object)) }],
+            messages: [{ key, value: JSON.stringify(object) }],
         })
     }
 
@@ -119,16 +119,7 @@ export class KafkaProducerWrapper {
     }
 
     private getMessageSize(kafkaMessage: ProducerRecord): number {
-        return kafkaMessage.messages
-            .map((message) => {
-                if (message.value === null) {
-                    return 4
-                }
-                if (!Buffer.isBuffer(message.value)) {
-                    message.value = Buffer.from(message.value)
-                }
-                return message.value.length
-            })
-            .reduce((a, b) => a + b)
+        // :TRICKY: This length respects unicode
+        return Buffer.from(JSON.stringify(kafkaMessage)).length
     }
 }
