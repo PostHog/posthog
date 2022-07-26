@@ -1,10 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Placement } from '@floating-ui/react-dom-interactions'
-import { kea, path, actions, reducers, listeners, events, selectors, connect } from 'kea'
+import { kea, path, actions, reducers, listeners, selectors, connect, afterMount, beforeUnmount } from 'kea'
 import type { inAppPromptLogicType } from './inAppPromptLogicType'
-import { router } from 'kea-router'
-import posthog from 'posthog-js'
+import { router, urlToAction } from 'kea-router'
 import {
     LemonActionableTooltip,
     LemonActionableTooltipProps,
@@ -16,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { now } from 'lib/dayjs'
 import wcmatch from 'wildcard-match'
 import { IconBarChart, IconGauge, IconLive } from 'lib/components/icons'
+import posthog from 'posthog-js'
 
 /** To be extended with other types of notifications e.g. modals, bars */
 export type PromptType = 'tooltip'
@@ -169,7 +169,7 @@ function cancellableTooltipWithRetries(
 
 export const inAppPromptLogic = kea<inAppPromptLogicType>([
     path(['lib', 'logic', 'inAppPrompt']),
-    connect([inAppPromptEventCaptureLogic]),
+    connect(inAppPromptEventCaptureLogic),
     actions({
         tooltip: (tooltip: Tooltip) => ({ tooltip }),
         findValidSequences: true,
@@ -304,9 +304,12 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             })
             cache.runOnClose = close
 
-            show.then(() => {
+            try {
+                await show
                 actions.updatePromptState({ step: values.currentStep })
-            }).catch((err) => console.error(err))
+            } catch (e) {
+                console.error(e)
+            }
         },
         updatePromptState: ({ update }) => {
             if (values.sequenceKey) {
@@ -431,24 +434,19 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     break
             }
         },
-        //@ts-expect-error
-        [router.actions.locationChanged]: () => {
+    })),
+    urlToAction(({ actions }) => ({
+        '*': () => {
             actions.closePrompts()
             actions.findValidSequences()
         },
     })),
-    events(({ actions, cache }) => ({
-        afterMount: () => {
-            posthog.onFeatureFlags(async (_, variants) => {
-                if (variants[FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT] === 'test') {
-                    actions.syncState({ forceRun: true })
-                }
-            })
-        },
-        beforeUnmount: [
-            () => {
-                cache.runOnClose?.()
-            },
-        ],
-    })),
+    afterMount(({ actions }) => {
+        posthog.onFeatureFlags((_, variants) => {
+            if (variants[FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT] === 'test') {
+                actions.syncState({ forceRun: true })
+            }
+        })
+    }),
+    beforeUnmount(({ cache }) => cache.runOnClose?.()),
 ])

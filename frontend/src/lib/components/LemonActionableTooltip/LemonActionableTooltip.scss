@@ -29,10 +29,7 @@
         display: flex;
         align-items: center;
 
-        .LemonActionableTooltip__navigation--left {
-            margin-right: 0.25rem;
-        }
-        .LemonActionableTooltip__navigation--right {
+        > * + * {
             margin-left: 0.25rem;
         }
     }

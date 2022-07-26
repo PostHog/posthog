@@ -81,8 +81,6 @@ export function HelpButton({
     const { runFirstValidSequence, closePrompts } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
 
-    console.log(isPromptVisible)
-
     return (
         <Popup
             overlay={
