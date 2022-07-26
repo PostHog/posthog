@@ -172,6 +172,7 @@
        AND event = '$pageview'
        AND timestamp >= toDateTime('2020-01-02 00:00:00')
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
+       AND (has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
