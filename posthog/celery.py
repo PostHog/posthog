@@ -423,13 +423,9 @@ def calculate_cohort():
 
 @app.task(ignore_result=True)
 def check_cached_items():
-    from posthog.redis import get_client
     from posthog.tasks.update_cache import update_cached_items
 
-    # Multiple workers could call this method close together in time.
-    # This is fine _if each worker has time to mark the items it reserves as refreshing_
-    with get_client().lock(name="check_cached_items_lock", timeout=20, blocking_timeout=5):
-        update_cached_items()
+    update_cached_items()
 
 
 @app.task(ignore_result=False)
