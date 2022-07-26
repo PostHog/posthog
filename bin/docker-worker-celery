@@ -59,6 +59,9 @@ while test $# -gt 0; do
   esac
 done
 
+# Stop any background jobs on exit
+trap 'kill $(jobs -p)' EXIT
+
 if [ "$with_scheduler" == "true" ]; then
   ./bin/docker-worker-beat &
 fi
@@ -80,7 +83,9 @@ echo
 
 ./bin/migrate-check
 
-SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}
+SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]} &
 
-# Stop the beat!
-trap 'kill $(jobs -p)' EXIT
+# Exit if any processes exit, and exit with it's exit code
+wait -n
+exit $?
+

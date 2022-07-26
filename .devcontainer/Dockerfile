@@ -49,3 +49,4 @@ WORKDIR /workspace
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir
+

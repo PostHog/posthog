@@ -12,7 +12,7 @@ describe('personsLogic', () => {
         useMocks({
             get: {
                 '/api/person/': (req) => {
-                    if (['abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+                    if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
                         return [200, { results: ['person from api'] }]
                     }
                     if (['test@test.com'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
@@ -101,6 +101,16 @@ describe('personsLogic', () => {
         it('loads a person', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadPerson('abc')
+            })
+                .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+                .toMatchValues({
+                    person: 'person from api',
+                })
+        })
+
+        it('loads a person where id includes +', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('+')
             })
                 .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
                 .toMatchValues({
