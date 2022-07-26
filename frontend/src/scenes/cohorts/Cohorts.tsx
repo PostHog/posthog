@@ -160,7 +160,7 @@ export function Cohorts(): JSX.Element {
                         setSearchTerm(e.target.value)
                     }}
                 />
-                <div className="mb float-right">
+                <div className="mb-4 float-right">
                     <LemonButton
                         type="primary"
                         data-attr="create-cohort"

@@ -100,7 +100,7 @@ function SubscriptionFailure(): JSX.Element {
                     Try again
                 </Button>
             )}
-            <div className="mt text-center">
+            <div className="mt-4 text-center">
                 <Link to="/">
                     Go to PostHog <ArrowRightOutlined />
                 </Link>

@@ -32,7 +32,7 @@ export function ActionsList(): JSX.Element {
                     </Button>
                 </Row>
                 {allActions.length === 0 && allActionsLoading ? (
-                    <div className="text-center mt mb">
+                    <div className="text-center my-4">
                         <Spinner />
                     </div>
                 ) : (

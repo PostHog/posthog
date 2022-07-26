@@ -113,7 +113,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </Col>
                 </Row>
                 {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                    <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
+                    <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
                         <Col span={24}>
                             <Field name="description" label="Description" data-attr="cohort-description">
                                 <LemonTextArea />
@@ -122,12 +122,12 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </Row>
                 )}
                 {cohort.is_static ? (
-                    <Row gutter={24} className="mt ph-ignore-input">
+                    <Row gutter={24} className="mt-4 ph-ignore-input">
                         <Col span={24}>
                             <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
                                 {({ onChange }) => (
                                     <>
-                                        <span className="mb">
+                                        <span className="mb-4">
                                             Upload a CSV file to add users to your cohort. The CSV file only requires a
                                             single column with the user’s distinct ID.
                                         </span>
@@ -171,7 +171,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 ) : (
                     <>
                         <Divider />
-                        <Row gutter={24} className="mt">
+                        <Row gutter={24} className="mt-4">
                             <Col span={24}>
                                 <>
                                     <Row align="middle" justify="space-between" wrap={false}>

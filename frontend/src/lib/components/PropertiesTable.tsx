@@ -277,7 +277,7 @@ export function PropertiesTable({
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
                         <Input.Search
                             placeholder="Search for property keys and values"
-                            className="mb"
+                            className="mb-4"
                             allowClear
                             enterButton
                             style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}

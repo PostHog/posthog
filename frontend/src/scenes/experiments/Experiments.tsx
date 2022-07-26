@@ -134,7 +134,7 @@ export function Experiments(): JSX.Element {
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div className="mb">
+                    <div className="mb-4">
                         Check out our
                         <a
                             data-attr="experiment-help"

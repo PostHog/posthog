@@ -38,7 +38,7 @@ export function PersonsScene(): JSX.Element {
     return (
         <div className="persons-list">
             {!cohortId && <PersonPageHeader />}
-            <div className="space-y-05">
+            <div className="space-y-2">
                 <div className="flex justify-between" style={{ gap: '0.75rem' }}>
                     <PersonsSearch autoFocus={!cohortId} />
 

@@ -52,7 +52,7 @@ export function ThirdPartyPanel(): JSX.Element {
                             <Row align="middle" justify="space-between">
                                 <Row align="middle">
                                     {source.icon}
-                                    <Col className="ml-05">
+                                    <Col className="ml-2">
                                         <h3
                                             className="mb-0"
                                             style={{
@@ -78,7 +78,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                 </Row>
                                 <Row>
                                     <LemonButton
-                                        className="mr-05"
+                                        className="mr-2"
                                         type="secondary"
                                         onClick={() => {
                                             window.open(

@@ -4,7 +4,7 @@ import { Card, Col, Row, Skeleton } from 'antd'
 export function InsightSkeleton(): JSX.Element {
     return (
         <>
-            <Skeleton active title paragraph={{ rows: 3 }} className="page-title-row page-caption mb-025" />
+            <Skeleton active title paragraph={{ rows: 3 }} className="page-title-row page-caption mb-1" />
             <Skeleton active title={false} paragraph={{ rows: 1 }} />
             <Card>
                 <Row gutter={16}>

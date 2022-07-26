@@ -1,3 +1,5 @@
+// className="(.+\s)*mb(\s.+)*"
+
 .text-default {
     color: var(--text-default);
     font-size: 14px;
@@ -67,122 +69,11 @@
     color: var(--primary-alt);
 }
 
-.uppercase {
-    text-transform: uppercase;
-}
-
 // Spacing & layout
-
-.ma {
-    // Margin all
-    margin: 1rem;
-}
-
-.mb {
-    margin-bottom: 1rem;
-}
-
-.mt {
-    margin-top: 1rem;
-}
-
-.mb-2 {
-    margin-bottom: 2rem;
-}
-
-.mt-2 {
-    margin-top: 2rem;
-}
-
-.mb-05 {
-    margin-bottom: 0.5rem;
-}
-
-.mb-025 {
-    margin-bottom: 0.25rem;
-}
-
-.mt-05 {
-    margin-top: 0.5rem;
-}
-
-.mt-025 {
-    margin-top: 0.25rem;
-}
-
-.mb-0 {
-    margin-bottom: 0;
-}
-
-.mr {
-    margin-right: 1rem;
-}
-
-.ml {
-    margin-left: 1rem;
-}
-
-.ml-2 {
-    margin-left: 2rem;
-}
-
-.mr-05 {
-    margin-right: 0.5rem;
-}
-
-.mr-025 {
-    margin-right: 0.25rem;
-}
-
-.ml-05 {
-    margin-left: 0.5rem;
-}
-
-.ml-025 {
-    margin-left: 0.25rem;
-}
-
-.mx-auto {
-    margin-left: auto;
-    margin-right: auto;
-}
-
-.mx-0 {
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-}
-
-.mx-05 {
-    margin-left: 0.5rem;
-    margin-right: 0.5rem;
-}
-
-.my-0 {
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-}
-
-.my-05 {
-    margin-top: 0.5rem;
-    margin-bottom: 0.5rem;
-}
-
-.pa {
-    // Padding all
-    padding: 1rem;
-}
-
-.pa-05 {
-    // Padding all
-    padding: 0.5rem;
-}
+//className="(.+\s)*gap(\s.+)*"
 
 .pb {
     padding-bottom: 1rem;
-}
-
-.pb-05 {
-    padding-bottom: 0.5rem;
 }
 
 .pt {
@@ -202,69 +93,15 @@
     padding-right: 1rem;
 }
 
-.px-05 {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-}
-
 .py {
     padding-top: 1rem;
     padding-bottom: 1rem;
-}
-
-.py-05 {
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
-}
-
-.space-y-05 {
-    & > * + * {
-        @extend .mt-05;
-    }
-}
-
-.space-y {
-    & > * + * {
-        @extend .mt;
-    }
-}
-
-.space-x-05 {
-    & > * + * {
-        @extend .ml-05;
-    }
-}
-
-.space-x {
-    & > * + * {
-        @extend .ml;
-    }
-}
-
-.gap {
-    gap: 1rem;
-}
-
-.gap-05 {
-    gap: 0.5rem;
 }
 
 .col {
     position: relative;
     max-width: 100%;
     min-height: 1px;
-}
-
-.full-width {
-    width: 100%;
-}
-
-.float-right {
-    float: right;
-}
-
-.float-left {
-    float: left;
 }
 
 // TODO: Remove needs colors setup for tailwind...
@@ -307,12 +144,6 @@
 
 .text-muted-alt {
     color: var(--text-muted-alt) !important;
-}
-
-// Random general styles
-
-.cursor-pointer {
-    cursor: pointer;
 }
 
 .highlighted {

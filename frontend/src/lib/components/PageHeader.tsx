@@ -37,7 +37,7 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <Row className="mt-2" justify={buttons ? 'space-between' : 'start'} align="middle">
+        <Row className="mt-8" justify={buttons ? 'space-between' : 'start'} align="middle">
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
         </Row>

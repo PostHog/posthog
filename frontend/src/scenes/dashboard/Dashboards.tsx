@@ -250,7 +250,7 @@ export function Dashboards(): JSX.Element {
                     nouns={['dashboard', 'dashboards']}
                 />
             ) : (
-                <div className="mt">
+                <div className="mt-4">
                     <p>Create your first dashboard:</p>
                     <Row gutter={[16, 16]}>
                         <Col xs={24} xl={6}>

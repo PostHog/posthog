@@ -32,13 +32,13 @@ export function FrameworkPanel(): JSX.Element {
                             fullWidth
                             size="large"
                             center
-                            className="mb-05"
+                            className="mb-2"
                             onClick={() => setFramework(item)}
                         >
                             {frameworks[item]}
                         </LemonButton>
                     ))}
-                    <Row justify="center" className="mt pb">
+                    <Row justify="center" className="mt-4 pb-4">
                         <p className="text-center mb-0 text-muted" style={{ fontSize: 16 }}>
                             Don't see your framework here?{' '}
                             <a onClick={() => setFramework(API)}>

@@ -147,7 +147,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
                 </div>
                 <h2>{title || 'There was an error completing this query'}</h2>
                 {!excludeDetail && (
-                    <div className="mt">
+                    <div className="mt-4">
                         We apologize for this unexpected situation. There are a few things you can do:
                         <ol>
                             <li>
@@ -214,7 +214,7 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
                 {actionable && (
-                    <div className="mt text-center">
+                    <div className="mt-4 text-center">
                         <Button
                             size="large"
                             onClick={() => addFilter()}
@@ -226,7 +226,7 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         </Button>
                     </div>
                 )}
-                <div className="mt">
+                <div className="mt-4">
                     <a
                         data-attr="funnels-single-step-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
@@ -256,7 +256,7 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                     You're excluding events or actions that are part of the funnel steps. Try changing your funnel step
                     filters, or removing the overlapping exclusion event.
                 </p>
-                <div className="mt">
+                <div className="mt-4">
                     <a
                         data-attr="insight-funnels-emptystate-help"
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"

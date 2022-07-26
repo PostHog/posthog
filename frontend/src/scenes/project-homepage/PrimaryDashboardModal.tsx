@@ -59,7 +59,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                                 </div>
                                 {isPrimary ? (
                                     <div className="default-indicator">
-                                        <IconCottage className="mr-05 text-warning" style={{ fontSize: '1.5rem' }} />
+                                        <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
                                         <span>Default</span>
                                     </div>
                                 ) : (

@@ -113,7 +113,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
             )}
             <LemonButton
                 data-attr={`cohort-add-filter-group`}
-                className="mb mt"
+                className="mb-4 mt-4"
                 type="secondary"
                 onClick={() => addFilter()}
                 icon={<IconPlusMini color="var(--primary)" />}

@@ -81,7 +81,7 @@ export function Sidebar(): JSX.Element {
                             href={`https://posthog.com/docs/integrate/ingest-live-data${HELP_UTM_TAGS}`}
                             rel="noopener"
                             target="_blank"
-                            className="mt-05"
+                            className="mt-2"
                         >
                             <LemonButton
                                 icon={<IconArticle style={{ color: 'var(--primary)' }} />}

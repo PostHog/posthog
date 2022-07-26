@@ -68,7 +68,7 @@ export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Elem
                 <h2 style={{ color: 'var(--danger)' }} className="subtitle">
                     Danger Zone
                 </h2>
-                <div className="mt">
+                <div className="mt-4">
                     {!isRestricted && (
                         <Paragraph type="danger">
                             This is <b>irreversible</b>. Please be certain.
@@ -78,7 +78,7 @@ export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Elem
                         type="default"
                         danger
                         onClick={() => setIsModalVisible(true)}
-                        className="mr-05"
+                        className="mr-2"
                         data-attr="delete-project-button"
                         icon={<DeleteOutlined />}
                         disabled={isRestricted}

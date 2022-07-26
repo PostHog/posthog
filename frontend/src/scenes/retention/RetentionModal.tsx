@@ -46,7 +46,7 @@ export function RetentionModal({
             footer={
                 <div className="flex justify-between">
                     <div />
-                    <div className="flex gap-05">
+                    <div className="flex gap-2">
                         <LemonButton
                             type="secondary"
                             onClick={() =>
@@ -80,7 +80,7 @@ export function RetentionModal({
                         <span>No {aggregationTargetLabel.plural} during this period.</span>
                     ) : (
                         <div>
-                            <table className="table-bordered full-width">
+                            <table className="table-bordered w-full">
                                 <tbody>
                                     <tr>
                                         <th />

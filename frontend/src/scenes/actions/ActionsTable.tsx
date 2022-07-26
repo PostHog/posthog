@@ -219,7 +219,7 @@ export function ActionsTable(): JSX.Element {
                 <Radio.Button value={false}>All actions</Radio.Button>
                 <Radio.Button value={true}>My actions</Radio.Button>
             </Radio.Group>
-            <div className="mb float-right">
+            <div className="mb-4 float-right">
                 <NewActionButton />
             </div>
             <LemonTable

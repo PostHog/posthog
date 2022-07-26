@@ -17,7 +17,7 @@ export function BookmarkletPanel(): JSX.Element {
         <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
             {currentTeam && (
                 <div style={{ padding: '0px 16px' }}>
-                    <h1 className="ingestion-title mb-05">Just exploring?</h1>
+                    <h1 className="ingestion-title mb-2">Just exploring?</h1>
                     <h2 style={{ fontSize: 20, fontWeight: 800 }}>
                         Immediately run PostHog on your website for some initial exploring
                     </h2>

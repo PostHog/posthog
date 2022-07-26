@@ -60,7 +60,7 @@ export function VerificationPanel(): JSX.Element {
                             You will now be able to explore PostHog and take advantage of all its features to understand
                             your users.
                         </p>
-                        <div className="mb">
+                        <div className="mb-4">
                             <LemonButton
                                 data-attr="wizard-complete-button"
                                 type="primary"

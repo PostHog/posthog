@@ -97,7 +97,7 @@ function ErrorView(): JSX.Element | null {
             detail: (
                 <>
                     <div>{error?.detail}</div>
-                    <div className="mt">
+                    <div className="mt-4">
                         {user ? (
                             <span>
                                 You can either log out and create a new account under the new email address or ask the
@@ -107,7 +107,7 @@ function ErrorView(): JSX.Element | null {
                         ) : (
                             <div>
                                 You need to log in with the email address above, or create your own password.
-                                <div className="mt">
+                                <div className="mt-4">
                                     <Button icon={<ArrowLeftOutlined />} href={window.location.pathname}>
                                         Try again
                                     </Button>
@@ -183,7 +183,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                             >
                                 Accept invite
                             </Button>
-                            <div className="mt">
+                            <div className="mt-4">
                                 <Link to="/">
                                     <ArrowLeftOutlined /> Go back to PostHog
                                 </Link>
@@ -329,7 +329,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                         </span>
                                     )}
                                 </div>
-                                <div className="mb">
+                                <div className="mb-4">
                                     <Checkbox
                                         checked={formValues.emailOptIn}
                                         onChange={(e) => setFormValues({ ...formValues, emailOptIn: e.target.checked })}
@@ -350,7 +350,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                     Continue
                                 </Button>
                             </form>
-                            <div className="mt text-center">
+                            <div className="mt-4 text-center">
                                 By clicking continue you agree to our{' '}
                                 <a href="https://posthog.com/terms" target="_blank" rel="noopener">
                                     Terms of Service
@@ -361,7 +361,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                 </a>
                                 .
                             </div>
-                            <div className="mt text-center text-muted" style={{ marginBottom: 60 }}>
+                            <div className="mt-4 text-center text-muted" style={{ marginBottom: 60 }}>
                                 Already have an account? <Link to="/login">Log in</Link>
                             </div>
                         </div>

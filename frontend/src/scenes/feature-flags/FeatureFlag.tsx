@@ -94,7 +94,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     props={props}
                     formKey="featureFlag"
                     enableFormOnSubmit
-                    className="space-y"
+                    className="space-y-4"
                 >
                     <PageHeader
                         title="Feature Flag"
@@ -149,8 +149,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </AlertMessage>
                     )}
                     <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
-                    <h3 className="l3 mt">General configuration</h3>
-                    <div className="text-muted mb">
+                    <h3 className="l3 mt-4">General configuration</h3>
+                    <div className="text-muted mb-4">
                         General settings for your feature flag and integration instructions.
                     </div>
                     <Row gutter={16} style={{ marginBottom: 32 }}>
@@ -277,9 +277,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </Col>
                     </Row>
 
-                    <div className="mb-2">
+                    <div className="mb-8">
                         <h3 className="l3">Served value</h3>
-                        <div className="mb-05">
+                        <div className="mb-2">
                             <Popconfirm
                                 placement="top"
                                 title="Change value type? The variants below will be lost."
@@ -338,7 +338,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 />
                             </Popconfirm>
                         </div>
-                        <div className="text-muted mb">
+                        <div className="text-muted mb-4">
                             {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
                             {multivariateEnabled ? (
                                 <>
@@ -352,7 +352,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             if they match one or more release condition groups.
                         </div>
                         {multivariateEnabled && (
-                            <div className="variant-form-list space-y-05">
+                            <div className="variant-form-list space-y-2">
                                 <Row gutter={8} className="label-row">
                                     <Col span={7}>Variant key</Col>
                                     <Col span={7}>Description</Col>
@@ -469,7 +469,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <div className="feature-flag-form-row">
                         <div>
                             <h3 className="l3">Release conditions</h3>
-                            <div className="text-muted mb">
+                            <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that
                                 condition sets are rolled out independently of each other.
                             </div>
@@ -516,7 +516,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                                 {index > 0 && (
                                     <div style={{ display: 'flex', marginLeft: 16 }}>
-                                        <div className="stateful-badge or-light-grey mb">OR</div>
+                                        <div className="stateful-badge or-light-grey mb-4">OR</div>
                                     </div>
                                 )}
                                 <Card style={{ marginBottom: 16 }}>
@@ -556,7 +556,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </div>
 
                                     <LemonDivider large />
-                                    <div className="ml">
+                                    <div className="ml-4">
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${
                                                 featureFlag.filters.groups.length

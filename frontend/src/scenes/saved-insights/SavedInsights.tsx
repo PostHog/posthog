@@ -396,7 +396,7 @@ export function SavedInsights(): JSX.Element {
                                     ))}
                                 </Select>
                             </Col>
-                            <div className="flex items-center gap-05">
+                            <div className="flex items-center gap-2">
                                 <span>Last modified:</span>
                                 <DateFilter
                                     defaultValue="All time"
@@ -448,11 +448,11 @@ export function SavedInsights(): JSX.Element {
                                 buttonStyle="solid"
                             >
                                 <Radio.Button value={LayoutView.List}>
-                                    <UnorderedListOutlined className="mr-05" />
+                                    <UnorderedListOutlined className="mr-2" />
                                     List
                                 </Radio.Button>
                                 <Radio.Button value={LayoutView.Card}>
-                                    <AppstoreFilled className="mr-05" />
+                                    <AppstoreFilled className="mr-2" />
                                     Cards
                                 </Radio.Button>
                             </Radio.Group>

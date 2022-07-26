@@ -27,7 +27,7 @@ export function PlatformPanel(): JSX.Element {
                         center
                         size="large"
                         type="primary"
-                        className="mb-05"
+                        className="mb-2"
                         onClick={() => setPlatform(platform)}
                     >
                         {platform}
@@ -38,7 +38,7 @@ export function PlatformPanel(): JSX.Element {
                     fullWidth
                     center
                     size="large"
-                    className="mb-05"
+                    className="mb-2"
                     type="primary"
                 >
                     {THIRD_PARTY}

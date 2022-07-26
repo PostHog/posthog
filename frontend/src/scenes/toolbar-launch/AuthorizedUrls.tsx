@@ -54,7 +54,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             props={{ actionId }}
             formKey="proposedUrl"
             enableFormOnSubmit
-            className="AuthorizedURLForm full-width"
+            className="AuthorizedURLForm w-full"
         >
             <Field name="url">
                 <LemonInput
@@ -70,7 +70,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                 <LemonButton
                     htmlType="submit"
                     type="primary"
-                    className="form-submit ml"
+                    className="form-submit ml-4"
                     disabled={isProposedUrlSubmitting}
                     data-attr="url-save"
                 >
@@ -89,7 +89,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
 
     return (
         <div>
-            <div className="flex items-center mb">
+            <div className="flex items-center mb-4">
                 <div className="flex grow">
                     <Input.Search
                         allowClear
@@ -112,7 +112,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     <Spinner size="md" />
                 </LemonRow>
             ) : (
-                <div className="space-y-05">
+                <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <LemonRow outlined fullWidth size="large">
                             <AuthorizedUrlForm actionId={actionId} />
@@ -144,7 +144,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                     <>
                                         <div className="Url flex grow">
                                             {keyedAppURL.type === 'suggestion' && (
-                                                <LemonTag type="highlight" className="mr">
+                                                <LemonTag type="highlight" className="mr-4">
                                                     Suggestion
                                                 </LemonTag>
                                             )}
@@ -155,7 +155,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                 {keyedAppURL.url}
                                             </Typography.Text>
                                         </div>
-                                        <div className="Actions flex flex-row space-x">
+                                        <div className="Actions flex flex-row space-x-4">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
                                                     onClick={() => addUrl(keyedAppURL.url)}

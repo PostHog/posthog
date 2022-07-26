@@ -165,7 +165,7 @@ export function Experiment(): JSX.Element {
                         <Row>
                             <LemonButton
                                 type="secondary"
-                                className="mr-05"
+                                className="mr-2"
                                 onClick={() => router.actions.push(urls.experiments())}
                             >
                                 Cancel
@@ -194,7 +194,7 @@ export function Experiment(): JSX.Element {
                             <BindLogic logic={insightLogic} props={insightProps}>
                                 <Row>
                                     <Col span={12} style={{ paddingRight: 24 }}>
-                                        <Row className="full-width">
+                                        <Row className="w-full">
                                             <Form.Item
                                                 style={{ marginRight: 16 }}
                                                 label="Name"
@@ -357,7 +357,7 @@ export function Experiment(): JSX.Element {
                                         )}
 
                                         <Row className="person-selection">
-                                            <div className="mb-05">
+                                            <div className="mb-2">
                                                 <strong>Select participants</strong>
                                             </div>
                                             <Col>
@@ -365,7 +365,7 @@ export function Experiment(): JSX.Element {
                                                     Select the entities who will participate in this experiment. If no
                                                     filters are set, 100% of participants will be targeted.
                                                 </div>
-                                                <div className="mt mb-05">
+                                                <div className="mt-4 mb-2">
                                                     <strong>Participant type</strong>
                                                 </div>
                                                 <Select
@@ -411,10 +411,10 @@ export function Experiment(): JSX.Element {
                                                         </Select.Option>
                                                     ))}
                                                 </Select>
-                                                <div className="mt mb-05">
+                                                <div className="mt-4 mb-2">
                                                     <strong>Filters</strong>
                                                 </div>
-                                                <div className="mb">
+                                                <div className="mb-4">
                                                     <PropertyFilters
                                                         pageKey={'experiment-participants-property'}
                                                         propertyFilters={
@@ -446,7 +446,7 @@ export function Experiment(): JSX.Element {
 
                                     <Row className="metrics-selection">
                                         <Col span={12}>
-                                            <div className="mb-05">
+                                            <div className="mb-2">
                                                 <b>Goal type</b>
                                                 <div className="text-muted">
                                                     {experimentInsightType === InsightType.TRENDS
@@ -476,7 +476,7 @@ export function Experiment(): JSX.Element {
                                                     </Col>
                                                 </Select.Option>
                                             </Select>
-                                            <div className="mb mt">
+                                            <div className="my-4">
                                                 <b>Experiment goal</b>
                                                 {experimentInsightType === InsightType.TRENDS && (
                                                     <div className="text-muted">
@@ -533,7 +533,7 @@ export function Experiment(): JSX.Element {
                                             <Col className="secondary-metrics">
                                                 <div>
                                                     <b>Secondary metrics</b>
-                                                    <span className="text-muted ml-05">(optional)</span>
+                                                    <span className="text-muted ml-2">(optional)</span>
                                                 </div>
                                                 <div className="text-muted" style={{ marginTop: 4 }}>
                                                     Use secondary metrics to monitor metrics related to your experiment
@@ -546,7 +546,7 @@ export function Experiment(): JSX.Element {
                                             </Col>
                                         </Col>
                                         <Col span={12} className="pl">
-                                            <div className="card-secondary mb">Goal preview</div>
+                                            <div className="card-secondary mb-4">Goal preview</div>
                                             <InsightContainer
                                                 disableHeader={experimentInsightType === InsightType.TRENDS}
                                                 disableTable={true}
@@ -577,7 +577,7 @@ export function Experiment(): JSX.Element {
             ) : !experimentDataLoading && experimentData ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="full-width pb">
+                        <Row justify="space-between" align="middle" className="w-full pb-4">
                             <Col>
                                 <Row>
                                     <PageHeader
@@ -636,7 +636,7 @@ export function Experiment(): JSX.Element {
                                 <div className="flex items-center">
                                     <LemonButton
                                         type="secondary"
-                                        className="mr-05"
+                                        className="mr-2"
                                         onClick={() => setEditExperiment(true)}
                                     >
                                         Edit
@@ -726,7 +726,7 @@ export function Experiment(): JSX.Element {
                         )}
                     </Row>
                     <Row>
-                        <Collapse className="full-width" defaultActiveKey="experiment-details">
+                        <Collapse className="w-full" defaultActiveKey="experiment-details">
                             <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
                                 <Row>
                                     <Col span={experimentData?.start_date ? 12 : 24}>
@@ -750,7 +750,7 @@ export function Experiment(): JSX.Element {
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
                                             {!!experimentData?.secondary_metrics.length && (
                                                 <Col className="border-bottom">
-                                                    <Row align="middle" justify="space-between" className="mb-05">
+                                                    <Row align="middle" justify="space-between" className="mb-2">
                                                         <Col className="card-secondary" span={2 * secondaryColumnSpan}>
                                                             Secondary metrics
                                                         </Col>
@@ -861,8 +861,8 @@ export function Experiment(): JSX.Element {
                                                 </Col>
                                             )}
                                             {experimentResults && (
-                                                <Col className="mt">
-                                                    <div className="mb-05">
+                                                <Col className="mt-4">
+                                                    <div className="mb-2">
                                                         <b>Experiment progress</b>
                                                     </div>
                                                     <Progress
@@ -873,7 +873,7 @@ export function Experiment(): JSX.Element {
                                                     />
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experimentData.start_date && (
-                                                            <Row justify="space-between" className="mt-05">
+                                                            <Row justify="space-between" className="mt-2">
                                                                 {experimentData.end_date ? (
                                                                     <div>
                                                                         Ran for{' '}
@@ -909,7 +909,7 @@ export function Experiment(): JSX.Element {
                                                             </Row>
                                                         )}
                                                     {experimentInsightType === InsightType.FUNNELS && (
-                                                        <Row justify="space-between" className="mt-05">
+                                                        <Row justify="space-between" className="mt-2">
                                                             {experimentData.end_date ? (
                                                                 <div>
                                                                     Saw{' '}
@@ -946,7 +946,7 @@ export function Experiment(): JSX.Element {
                             </Collapse.Panel>
                         </Collapse>
                         {!experimentData?.start_date && (
-                            <div className="mt full-width">
+                            <div className="mt-4 w-full">
                                 <ExperimentImplementationDetails experiment={experimentData} />
                             </div>
                         )}
@@ -1049,7 +1049,7 @@ export function Experiment(): JSX.Element {
                                     doNotLoad: true,
                                 }}
                             >
-                                <div className="mt">
+                                <div className="mt-4">
                                     <InsightContainer
                                         disableHeader={true}
                                         disableCorrelationTable={experimentInsightType === InsightType.FUNNELS}

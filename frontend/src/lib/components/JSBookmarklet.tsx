@@ -26,7 +26,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
                     <p style={{ marginBottom: 0, fontSize: 16, fontWeight: 700 }}>PostHog Bookmarklet</p>
                 </Row>
             </a>
-            <p className="text-center text-muted font-medium mt-05">
+            <p className="text-center text-muted font-medium mt-2">
                 Drag to your bookmarks. Do not click on this link. The bookmarklet only works for the current browser
                 session.
             </p>

@@ -37,7 +37,7 @@ export function ProjectHomepage(): JSX.Element {
                 onClick={() => {
                     showInviteModal()
                 }}
-                className="mr-05"
+                className="mr-2"
                 type="secondary"
             >
                 Invite members
@@ -85,7 +85,7 @@ export function ProjectHomepage(): JSX.Element {
                                 {!dashboard && <Skeleton active paragraph={false} />}
                                 {dashboard?.name && (
                                     <>
-                                        <IconCottage className="mr-05 text-warning" style={{ fontSize: '1.5rem' }} />
+                                        <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
                                         <Typography.Title className="dashboard-name" level={4}>
                                             {dashboard?.name}
                                         </Typography.Title>
@@ -109,9 +109,9 @@ export function ProjectHomepage(): JSX.Element {
                 </div>
             ) : (
                 <div className="empty-state-container">
-                    <IconCottage className="mb-05 text-warning" style={{ fontSize: '2rem' }} />
+                    <IconCottage className="mb-2 text-warning" style={{ fontSize: '2rem' }} />
                     <h1>There isn’t a default dashboard set for this project</h1>
-                    <p className="mb">
+                    <p className="mb-4">
                         Default dashboards are shown to everyone in the project. When you set a default, it’ll show up
                         here.
                     </p>

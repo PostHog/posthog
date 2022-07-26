@@ -73,7 +73,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                 </div>
             </div>
 
-            <div className="flex justify-center mt">
+            <div className="flex justify-center mt-4">
                 <LemonButton onClick={() => setModalOpen(true)} type="primary">
                     Open as Modal
                 </LemonButton>

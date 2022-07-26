@@ -33,7 +33,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           </Tooltip>
                           Total conversion rate
                       </span>
-                      <span className="text-muted-alt mr-025">:</span>
+                      <span className="text-muted-alt mr-1">:</span>
                       <span className="l4">{percentage(conversionMetrics.totalRate, 1, true)}</span>
                   </>,
               ]
@@ -50,7 +50,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           Average time to convert{' '}
                       </span>
                       {filters.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
-                      <span className="text-muted-alt mr-025">:</span>
+                      <span className="text-muted-alt mr-1">:</span>
                       <Button
                           type="link"
                           onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}

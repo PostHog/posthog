@@ -96,7 +96,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
         <div className="session-recordings-table" data-attr="session-recordings-table">
             <Row className="filter-row">
                 <div className="filter-container" style={{ display: showFilters ? undefined : 'none' }}>
-                    <div className="space-y-05">
+                    <div className="space-y-2">
                         <Typography.Text strong>
                             {`Filter by events and actions `}
                             <Tooltip title="Show recordings where all of the events or actions listed below happen.">
@@ -127,7 +127,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                         />
                     </div>
                     {!isPersonPage && (
-                        <div className="mt-2 space-y-05">
+                        <div className="mt-8 space-y-2">
                             <Typography.Text strong>
                                 {`Filter by persons and cohorts `}
                                 <Tooltip title="Show recordings by persons who match the set criteria">

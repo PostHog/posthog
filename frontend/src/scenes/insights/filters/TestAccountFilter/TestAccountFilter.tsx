@@ -36,7 +36,7 @@ export function TestAccountFilter({
                         to="/project/settings#internal-users-filtering"
                         type="stealth"
                         size="small"
-                        className="ml-025"
+                        className="ml-1"
                     />
                 </div>
             }

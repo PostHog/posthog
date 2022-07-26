@@ -89,7 +89,7 @@ export function PreflightCheck(): JSX.Element {
                                 fullWidth
                                 center
                                 type="primary"
-                                className="mt-05"
+                                className="mt-2"
                                 size="large"
                                 data-attr="preflight-live"
                                 onClick={() => setPreflightMode('live')}
@@ -100,7 +100,7 @@ export function PreflightCheck(): JSX.Element {
                                 type="secondary"
                                 fullWidth
                                 center
-                                className="mt-05"
+                                className="mt-2"
                                 size="large"
                                 data-attr="preflight-experimentation"
                                 onClick={() => setPreflightMode('experimentation')}
@@ -200,7 +200,7 @@ export function PreflightCheck(): JSX.Element {
                                     fullWidth
                                     center
                                     type="primary"
-                                    className="mt-05"
+                                    className="mt-2"
                                     size="large"
                                     data-attr="preflight-complete"
                                     onClick={handlePreflightFinished}
@@ -208,14 +208,14 @@ export function PreflightCheck(): JSX.Element {
                                     Continue
                                 </LemonButton>
                             ) : (
-                                <LemonRow fullWidth center className="mt-05 Preflight__cannot-continue" size="large">
+                                <LemonRow fullWidth center className="mt-2 Preflight__cannot-continue" size="large">
                                     <p className="text-center text-muted">
                                         All required checks must pass before you can continue
                                     </p>
                                 </LemonRow>
                             )}
 
-                            <p className="text-center mt mb-0">
+                            <p className="text-center mt-4 mb-0">
                                 Need help? Take a look at our{' '}
                                 <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
                                     documentation

@@ -156,7 +156,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                         </BindLogic>
                     </Form.Item>
                     <Row justify="end">
-                        <LemonButton type="secondary" className="mr-05" onClick={() => hideModal()}>
+                        <LemonButton type="secondary" className="mr-2" onClick={() => hideModal()}>
                             Cancel
                         </LemonButton>
                         <LemonButton type="primary" htmlType="submit">
@@ -168,8 +168,8 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
             <Row>
                 <Col>
                     {metrics.map((metric, idx) => (
-                        <Row key={idx} className="mt">
-                            <Row align="middle" className="full-width rounded border-all" style={{ padding: 8 }}>
+                        <Row key={idx} className="mt-4">
+                            <Row align="middle" className="w-full rounded border-all" style={{ padding: 8 }}>
                                 <div style={{ fontWeight: 500 }}>Name</div>{' '}
                                 <div className="metric-name">{metric.name}</div>
                                 <DeleteOutlined
@@ -238,7 +238,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                     ))}
                     {metrics && !(metrics.length > 2) && (
                         <Col>
-                            <div className="mb-05 mt">
+                            <div className="mb-2 mt-4">
                                 <Button style={{ color: 'var(--primary)', minWidth: 240 }} onClick={showModal}>
                                     Add metric
                                 </Button>

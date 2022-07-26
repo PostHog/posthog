@@ -40,7 +40,7 @@ function Plan({ plan, onSubscribe }: { plan: PlanInterface; onSubscribe: (plan: 
                 </Button>
             </div>
             {isDetailLoading ? (
-                <Skeleton paragraph={{ rows: 6 }} title={false} className="mt" active />
+                <Skeleton paragraph={{ rows: 6 }} title={false} className="mt-4" active />
             ) : (
                 <div className="plan-description" dangerouslySetInnerHTML={{ __html: detail }} />
             )}

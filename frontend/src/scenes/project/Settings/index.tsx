@@ -135,7 +135,7 @@ export function ProjectSettings(): JSX.Element {
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
                 <Divider />
-                <h2 id="project-variables" className="subtitle mb">
+                <h2 id="project-variables" className="subtitle mb-4">
                     Project Variables
                 </h2>
                 <h3 id="project-api-key" className="l3">
@@ -172,7 +172,7 @@ export function ProjectSettings(): JSX.Element {
                     Write-only means it can only create new events. It can't read events or any of your other data
                     stored with PostHog, so it's safe to use in public apps.
                 </p>
-                <h3 id="project-id" className="l3 mt">
+                <h3 id="project-id" className="l3 mt-4">
                     Project ID
                 </h3>
                 <p>

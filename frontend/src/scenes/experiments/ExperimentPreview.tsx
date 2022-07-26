@@ -75,7 +75,7 @@ export function ExperimentPreview({
                     </Row>
                 )}
                 {(experimentId === 'new' || editingExistingExperiment) && (
-                    <Row className="mb">
+                    <Row className="mb-4">
                         <Col span={24}>
                             <div>
                                 <b>Minimum acceptable improvement</b>
@@ -180,7 +180,7 @@ export function ExperimentPreview({
                             )}
                         </>
                     )}
-                    <Row className="full-width mt">
+                    <Row className="w-full mt-4">
                         <Col span={12}>
                             <div className="card-secondary">Experiment variants</div>
                             <ul className="variants-list">
@@ -220,10 +220,10 @@ export function ExperimentPreview({
                             </div>
                         </Col>
                     </Row>
-                    <Row className="full-width">
+                    <Row className="w-full">
                         {experimentId !== 'new' && !editingExistingExperiment && (
                             <Col span={12}>
-                                <div className="card-secondary mt">Start date</div>
+                                <div className="card-secondary mt-4">Start date</div>
                                 {experiment?.start_date ? (
                                     <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
                                 ) : (
@@ -233,7 +233,7 @@ export function ExperimentPreview({
                         )}
                         {experimentInsightType === InsightType.FUNNELS && showEndDate ? (
                             <Col span={12}>
-                                <div className="card-secondary mt">Expected end date</div>
+                                <div className="card-secondary mt-4">Expected end date</div>
                                 <span>
                                     {expectedEndDate.isAfter(dayjs())
                                         ? expectedEndDate.format('D MMM YYYY')
@@ -244,7 +244,7 @@ export function ExperimentPreview({
                         {/* The null prevents showing a 0 while loading */}
                         {experiment?.end_date && (
                             <Col span={12}>
-                                <div className="card-secondary mt">Completed date</div>
+                                <div className="card-secondary mt-4">Completed date</div>
                                 <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
                             </Col>
                         )}
@@ -253,7 +253,7 @@ export function ExperimentPreview({
                 {experimentId !== 'new' && !editingExistingExperiment && (
                     <Row className="experiment-preview-row">
                         <Col>
-                            <div className="card-secondary mb-05">
+                            <div className="card-secondary mb-2">
                                 {experimentInsightType === InsightType.FUNNELS ? 'Conversion goal steps' : 'Trend goal'}
                             </div>
                             {(
@@ -264,7 +264,7 @@ export function ExperimentPreview({
                             )
                                 .sort((a, b) => (a.order || 0) - (b.order || 0))
                                 .map((event: ActionFilter, idx: number) => (
-                                    <Col key={idx} className="mb-05">
+                                    <Col key={idx} className="mb-2">
                                         <Row style={{ marginBottom: 4 }}>
                                             <div className="preview-conversion-goal-num">
                                                 {experimentInsightType === InsightType.FUNNELS

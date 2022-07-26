@@ -92,7 +92,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                 />
             ))}
             {loading && (
-                <div className="mt text-success">
+                <div className="mt-4 text-success">
                     <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
                 </div>
             )}

@@ -64,7 +64,7 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
                 </Tooltip>
             </span>
             <Row className="funnel-options-inputs" style={horizontal ? { paddingLeft: 8 } : undefined}>
-                <span className="mr-05">
+                <span className="mr-2">
                     <InputNumber
                         min={intervalBounds[0]}
                         max={intervalBounds[1]}

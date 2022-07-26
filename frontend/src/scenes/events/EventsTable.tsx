@@ -439,7 +439,7 @@ export function EventsTable({
                                 onChange={toggleAutomaticLoad}
                             />
                         )}
-                        <div className="flex space-x-05">
+                        <div className="flex space-x-2">
                             {showCustomizeColumns && (
                                 <LemonTableConfig
                                     immutableColumns={['event', 'person']}

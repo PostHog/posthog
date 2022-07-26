@@ -103,14 +103,14 @@ export function EditSubscription({
     return (
         <>
             <VerticalForm logic={subscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
-                <header className="flex items-center border-bottom pb-05">
+                <header className="flex items-center border-bottom pb-4">
                     <LemonButton type="stealth" onClick={onCancel} size="small">
                         <IconChevronLeft fontSize={'1rem'} />
                         Back
                     </LemonButton>
                     <LemonDivider vertical />
 
-                    <h4 className="mt-05">{id === 'new' ? 'New' : 'Edit '} Subscription</h4>
+                    <h4 className="mt-2">{id === 'new' ? 'New' : 'Edit '} Subscription</h4>
                 </header>
 
                 {!subscription ? (
@@ -121,7 +121,7 @@ export function EditSubscription({
                             <Skeleton />
                         </>
                     ) : (
-                        <section className="pa text-center">
+                        <section className="p-4 text-center">
                             <h2>Not found</h2>
                             <p>This subscription could not be found. It may have been deleted.</p>
                         </section>
@@ -206,7 +206,7 @@ export function EditSubscription({
                                                 loading={membersLoading}
                                                 placeholder="Enter an email address"
                                             />
-                                            <div className="text-small text-muted mt-05">
+                                            <div className="text-small text-muted mt-2">
                                                 Enter the email addresses of the users you want to share with
                                             </div>
                                         </>
@@ -225,7 +225,7 @@ export function EditSubscription({
                                     <>
                                         {addToSlackButtonUrl() ? (
                                             <AlertMessage type="info">
-                                                <div className="flex justify-between gap-05">
+                                                <div className="flex justify-between gap-2">
                                                     <span>
                                                         Slack is not yet configured for this project. Add PostHog to
                                                         your Slack workspace to continue.
@@ -275,7 +275,7 @@ export function EditSubscription({
                                                         options={slackChannelOptions}
                                                         loading={slackChannelsLoading}
                                                     />
-                                                    <div className="text-small text-muted mt-05">
+                                                    <div className="text-small text-muted mt-2">
                                                         Private channels are only shown if you have{' '}
                                                         <a
                                                             href="https://posthog.com/docs/integrate/third-party/slack"
@@ -293,7 +293,7 @@ export function EditSubscription({
                                         {showSlackMembershipWarning ? (
                                             <Field name={'memberOfSlackChannel'}>
                                                 <AlertMessage type="info">
-                                                    <div className="flex gap-05 items-center">
+                                                    <div className="flex gap-2 items-center">
                                                         <span>
                                                             The PostHog Slack App is not in this channel. Please add it
                                                             to the channel otherwise Subscriptions will fail to be
@@ -327,7 +327,7 @@ export function EditSubscription({
                                 <Field name={'target_value'} label={'Webhook URL'}>
                                     <LemonInput placeholder="https://example.com/webhooks/1234" />
                                 </Field>
-                                <div className="text-small text-muted mt-05">
+                                <div className="text-small text-muted mt-2">
                                     Webhooks will be called with a HTTP POST request. The webhook endpoint should
                                     respond with a healthy HTTP code (2xx).
                                 </div>
@@ -338,7 +338,7 @@ export function EditSubscription({
                             <div className="ant-form-item-label">
                                 <label title="Recurrence">Recurrence</label>
                             </div>
-                            <div className="flex gap-05 items-center rounded border-all pa-05 flex-wrap">
+                            <div className="flex gap-2 items-center rounded border-all pa-2 flex-wrap">
                                 <span>Send every</span>
                                 <Field name={'interval'} style={{ marginBottom: 0 }}>
                                     <LemonSelect {...commonSelectProps} options={intervalOptions} />
@@ -431,7 +431,7 @@ export function EditSubscription({
                             </LemonButton>
                         )}
                     </div>
-                    <div className="flex gap-05">
+                    <div className="flex gap-2">
                         <LemonButton type="secondary" onClick={onCancel}>
                             Cancel
                         </LemonButton>

@@ -171,7 +171,7 @@ export function InsightContainer(
     return (
         <>
             {isUsingSessionAnalysis ? (
-                <div className="mb">
+                <div className="mb-4">
                     <AlertMessage type="info">
                         When using sessions and session properties, events without session IDs will be excluded from the
                         set of results.{' '}

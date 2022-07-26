@@ -26,7 +26,7 @@ export function PathCleanFilters({
     style = {},
 }: PropertyFiltersProps): JSX.Element {
     return (
-        <div className="mb" style={style}>
+        <div className="mb-4" style={style}>
             {pathCleaningFilters.length > 0 &&
                 pathCleaningFilters.map((item, index) => {
                     return (

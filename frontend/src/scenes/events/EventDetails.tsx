@@ -47,7 +47,7 @@ export function EventDetails({ event }: { event: EventType }): JSX.Element {
                     useDetectedPropertyType={true}
                 />
                 {hiddenPropsCount > 0 && (
-                    <LemonButton className="mb-05" onClick={() => setShowHiddenProps(!showHiddenProps)} size="small">
+                    <LemonButton className="mb-2" onClick={() => setShowHiddenProps(!showHiddenProps)} size="small">
                         {showHiddenProps ? 'Hide' : 'Show'}{' '}
                         {pluralize(hiddenPropsCount, 'hidden property', 'hidden properties')}
                     </LemonButton>

@@ -23,7 +23,7 @@ export function VerifyDomainModal(): JSX.Element {
                         <li>Sign in to your DNS provider.</li>
                         <li>
                             Add the following <b>TXT</b> record.
-                            <div className="mt mb">
+                            <div className="my-4">
                                 <div className="input-set">
                                     <label htmlFor="record-name">Name</label>
                                     <div className="flex items-center">
