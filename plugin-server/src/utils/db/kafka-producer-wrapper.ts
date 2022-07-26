@@ -89,7 +89,9 @@ export class KafkaProducerWrapper {
             this.currentBatch = append ? [append] : []
             this.currentBatchSize = append ? this.estimateMessageSize(append) : 0
 
+            this.statsd?.histogram('query.kafka_send.size', batchSize)
             const timeout = timeoutGuard('Kafka message sending delayed. Waiting over 30 sec to send messages.')
+
             try {
                 await this.producer.sendBatch({
                     topicMessages: messages,
