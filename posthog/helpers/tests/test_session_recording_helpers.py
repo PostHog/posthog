@@ -14,13 +14,13 @@ from posthog.helpers.session_recording import (
     get_active_segments_from_event_list,
     is_active_event,
     paginate_list,
-    preprocess_session_recording_events_for_clickhouse,
+    preprocess_session_recording_events,
 )
 
 
 def test_preprocess_with_no_recordings():
     events = [{"event": "$pageview"}, {"event": "$pageleave"}]
-    assert preprocess_session_recording_events_for_clickhouse(events) == events
+    assert preprocess_session_recording_events(events) == events
 
 
 def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_id():
@@ -53,7 +53,7 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
         },
     ]
 
-    preprocessed = preprocess_session_recording_events_for_clickhouse(events)
+    preprocessed = preprocess_session_recording_events(events)
     assert preprocessed != events
     assert len(preprocessed) == 3
     expected_session_ids = ["1234", "5678", "5678"]
@@ -67,7 +67,7 @@ def test_preprocess_recording_event_creates_chunks_split_by_session_and_window_i
         assert result["event"] == "$snapshot"
 
     # it does not rechunk already chunked events
-    assert preprocess_session_recording_events_for_clickhouse(preprocessed) == preprocessed
+    assert preprocess_session_recording_events(preprocessed) == preprocessed
 
 
 def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):

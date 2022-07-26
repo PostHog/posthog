@@ -145,10 +145,6 @@ KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
 )
 
-KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION: str = (
-    f"{KAFKA_PREFIX}recording_events{SUFFIX}"  # can be overridden in settings.py
-)
-
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")
