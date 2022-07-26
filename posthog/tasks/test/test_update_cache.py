@@ -516,10 +516,6 @@ class TestUpdateCache(APIBaseTest):
             patch_calculate_by_filter.side_effect = Exception()
 
             def _update_cached_items() -> None:
-                # fake that any processing has completed and items are no longer refreshing
-                Insight.objects.update(refreshing=False)
-                DashboardTile.objects.update(refreshing=False)
-
                 # This function will throw an exception every time which is what we want in production
                 try:
                     update_cached_items()
@@ -529,7 +525,6 @@ class TestUpdateCache(APIBaseTest):
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 1)
             self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
-
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 2)
             self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
@@ -537,7 +532,6 @@ class TestUpdateCache(APIBaseTest):
             # Magically succeeds, reset counter
             patch_calculate_by_filter.side_effect = None
             patch_calculate_by_filter.return_value = {"some": "exciting results"}
-
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 0)
             self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
