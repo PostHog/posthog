@@ -314,6 +314,34 @@
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
+# name: TestFOSSTrends.test_timezone_weekly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59') - toIntervalWeek(number), 0, 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific'), toDateTime('2020-01-26 23:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toDateTime(timestamp), 0, 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0), 'US/Pacific'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-26 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
 # name: TestFOSSTrends.test_timezones
   '
   
