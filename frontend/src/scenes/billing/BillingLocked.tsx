@@ -12,7 +12,7 @@ export const scene: SceneExport = {
     component: BillingLocked,
 }
 
-function BillingLocked(): JSX.Element | null {
+export function BillingLocked(): JSX.Element | null {
     const { billing } = useValues(billingLogic)
     return billing ? (
         <BillingSubscribedTheme>

@@ -41,7 +41,7 @@ export function BillingSubscribedTheme({ children }: PropsWithChildren<unknown>)
     )
 }
 
-function BillingSubscribed(): JSX.Element {
+export function BillingSubscribed(): JSX.Element {
     const { push } = useActions(router)
     const { billing } = useValues(billingLogic)
 
