@@ -11,7 +11,7 @@ from posthog.models.feature_flag import (
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import BaseTest, QueryMatchingTest
 
 
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
@@ -62,7 +62,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
-    @snapshot_postgres_queries
     def test_multiple_flags(self):
         Person.objects.create(
             team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},

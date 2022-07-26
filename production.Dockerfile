@@ -89,6 +89,8 @@ RUN apk --update --no-cache --virtual .geolite-deps add \
     && \
     ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) \
     && \
+    chmod -R 755 ./share/GeoLite2-City.mmdb \
+    && \
     apk del .geolite-deps
 
 
