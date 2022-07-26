@@ -84,6 +84,7 @@ export class KafkaProducerWrapper {
 
         return instrumentQuery(this.statsd, 'query.kafka_send', undefined, async () => {
             const messages = this.currentBatch
+            const batchSize = this.currentBatchSize
             this.lastFlushTime = Date.now()
             this.currentBatch = append ? [append] : []
             this.currentBatchSize = append ? this.getMessageSize(append) : 0
@@ -94,7 +95,14 @@ export class KafkaProducerWrapper {
                     topicMessages: messages,
                 })
             } catch (err) {
-                Sentry.captureException(err)
+                Sentry.captureException(err, {
+                    extra: {
+                        batchCount: messages.length,
+                        topics: messages.map((record) => record.topic),
+                        messageCounts: messages.map((record) => record.messages.length),
+                        estimatedSize: batchSize,
+                    },
+                })
                 // :TODO: Implement some retrying, https://github.com/PostHog/plugin-server/issues/511
                 this.statsd?.increment('query.kafka_send.failure')
                 throw err
