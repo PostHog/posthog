@@ -35,7 +35,7 @@
         .taxonomic-validation-error {
             color: var(--danger);
             grid-row: 2;
-            grid-column: 4;
+            grid-column: 3 / 5;
         }
 
         &.logical-operator-filtering {
@@ -49,19 +49,20 @@
                 grid-row: 1;
                 grid-column: 1;
             }
-
             .taxonomic-button {
                 grid-row: 1;
                 grid-column: 2 / 4;
             }
-
             .taxonomic-operator {
                 grid-row: 2;
                 grid-column: 2 / 4;
             }
-
             .taxonomic-value-select {
                 grid-row: 3;
+                grid-column: 2 / 4;
+            }
+            .taxonomic-validation-error {
+                grid-row: 4;
                 grid-column: 2 / 4;
             }
         }
@@ -86,6 +87,10 @@
         &.width-small {
             .taxonomic-value-select {
                 grid-row: 2;
+                grid-column: 2 / 4;
+            }
+            .taxonomic-validation-error {
+                grid-row: 3;
                 grid-column: 2 / 4;
             }
         }
