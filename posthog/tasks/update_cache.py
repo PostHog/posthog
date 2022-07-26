@@ -149,16 +149,16 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
     result = []
 
+    filter_dict = json.loads(payload["filter"])
+    team_id = int(payload["team_id"])
+    team = Team.objects.get(pk=team_id)
+    filter = get_filter(data=filter_dict, team=team)
+
+    # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
+    insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
+    dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
+
     try:
-        filter_dict = json.loads(payload["filter"])
-        team_id = int(payload["team_id"])
-        team = Team.objects.get(pk=team_id)
-        filter = get_filter(data=filter_dict, team=team)
-
-        # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
-        insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
-        dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
-
         # at least one must return something, if they both return they will be identical
         insight_result = _update_cache_for_queryset(cache_type, filter, key, team, insights_queryset)
         tiles_result = _update_cache_for_queryset(cache_type, filter, key, team, dashboard_tiles_queryset)
@@ -184,16 +184,18 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
         raise e
     finally:
         if not result:
-            # there is strong likelihood these querysets match no insights or dashboard tiles
             _mark_refresh_attempt_for(insights_queryset)
             _mark_refresh_attempt_for(dashboard_tiles_queryset)
-            # so mark the item that triggered the update
-            if insight_id != "unknown":
-                _mark_refresh_attempt_for(
-                    Insight.objects.filter(id=insight_id)
-                    if not dashboard_id
-                    else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
-                )
+            if insights_queryset.count() == 0 and dashboard_tiles_queryset.count() == 0:
+                # the triggering insight/tile is out-of-synch with the filters_hash being attempted
+                insight_id = payload.get("insight_id", "unknown")
+                dashboard_id = payload.get("dashboard_id", None)
+                if insight_id != "unknown":
+                    _mark_refresh_attempt_for(
+                        Insight.objects.filter(id=insight_id)
+                        if not dashboard_id
+                        else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
+                    )
 
     logger.info(
         "update_insight_cache.processed_item",
