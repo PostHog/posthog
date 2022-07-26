@@ -110,9 +110,9 @@ function DashboardScene(): JSX.Element {
                         DashboardPlacement.Export,
                         DashboardPlacement.InternalMetrics,
                     ].includes(placement) && (
-                        <div className="flex pb border-bottom space-x">
-                            <div className="flex-grow flex" style={{ height: 30 }}>
-                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
+                        <div className="flex pb border-bottom space-x-05">
+                            <div className="flex-center" style={{ height: '2rem' }}>
+                                <TZIndicator style={{ marginRight: '0.5rem' }} />
                                 <DateFilter
                                     defaultValue="Custom"
                                     showCustom
