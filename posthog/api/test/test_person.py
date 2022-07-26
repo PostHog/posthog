@@ -1,6 +1,5 @@
 import json
 import unittest
-from datetime import datetime
 from typing import Dict, List, Optional
 from unittest import mock
 
@@ -601,20 +600,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids = []
         for index in range(0, 20):
             created_ids.append(str(index + 100))
-            _create_person(
+            Person.objects.create(
                 team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"},
             )
 
-        with freeze_time(datetime(2022, 1, 1, 0, 0)):
-            flush_persons_and_events()
         returned_ids = []
-        response = self.client.get("/api/person/?limit=10").json()
+        with self.assertNumQueries(1):
+            response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 10)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response = self.client.get(response["next"]).json()
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
 
-        self.assertCountEqual(returned_ids, created_ids, returned_ids)
+        created_ids.reverse()  # ids are returned in desc order
+        self.assertEqual(returned_ids, created_ids, returned_ids)
 
     def _get_person_activity(self, person_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK):
         if person_id:
