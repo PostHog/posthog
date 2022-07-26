@@ -51,7 +51,7 @@
   
   
   
-  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
         GROUP BY day_start,
                  breakdown_value))
   GROUP BY day_start,
@@ -115,7 +115,7 @@
   
   
   
-  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59') AND toFloat64OrNull(toString(replaceRegexpAll(JSONExtractRaw(properties, 'movie_length'), '^"|"$', ''))) is not null
         GROUP BY day_start,
                  breakdown_value))
   GROUP BY day_start,
@@ -195,7 +195,7 @@
               GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
              AND sessions.session_duration in ([120, 180, 60, 91, 0])
            GROUP BY day_start,
@@ -252,7 +252,7 @@
      GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
   WHERE e.team_id = 2
     AND event = 'watched movie'
-    AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
+    AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC')
     AND timestamp <= toDateTime('2020-01-12 23:59:59')
     AND toFloat64OrNull(toString(sessions.session_duration)) is not null
   GROUP BY breakdown_value
@@ -336,7 +336,7 @@
                       ON sessions.$session_id = e.$session_id
   
   
-  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
            AND toFloat64OrNull(toString(sessions.session_duration)) is not null
            GROUP BY day_start,
                     breakdown_value))
@@ -417,7 +417,7 @@
               GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59')
              AND sessions.session_duration in ([180, 120, 91, 60, 0])
            GROUP BY day_start,
@@ -507,7 +507,7 @@
                       ON sessions.$session_id = e.$session_id
   
   
-  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toStartOfDay(toDateTime('2020-01-02 00:00:00'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
+  WHERE e.team_id = 2 AND event = 'watched movie'  AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00')), 'UTC'), 'UTC') AND timestamp <= toDateTime('2020-01-12 23:59:59')
            AND toFloat64OrNull(toString(sessions.session_duration)) is not null
            GROUP BY day_start,
                     breakdown_value))
