@@ -170,7 +170,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                         >
                             {thirdPartyIntegrationSource.type === ThirdPartySourceType.Integration ? (
                                 <div>
-                                    <p className="text-muted fw-500">Configure integration</p>
+                                    <p className="text-muted font-medium">Configure integration</p>
                                     {thirdPartyIntegrationSource.icon}
                                     <h1 className="ingestion-title">
                                         Integrate with {thirdPartyIntegrationSource.name}{' '}

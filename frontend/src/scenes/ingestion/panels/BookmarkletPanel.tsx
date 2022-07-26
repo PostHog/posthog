@@ -30,7 +30,7 @@ export function BookmarkletPanel(): JSX.Element {
                             <IconInfo style={{ fontSize: '2em', color: 'var(--muted-alt)' }} />
                         </Col>
                         <Col span={22}>
-                            <p className="text-muted fw-500">
+                            <p className="text-muted font-medium">
                                 Please note this installation is only temporary and intended just for testing. It will
                                 only work for the current page and only in your browser session. The bookmarklet is not
                                 a permanent form of ingestion.
@@ -39,7 +39,7 @@ export function BookmarkletPanel(): JSX.Element {
                     </Row>
                     <Row className="bookmarklet-steps">
                         <Col>
-                            <h3 className="fw-700">Steps</h3>
+                            <h3 className="font-light">Steps</h3>
                             <ol style={{ paddingLeft: 18 }}>
                                 <li>Drag the PostHog Bookmarklet link below to your bookmarks toolbar.</li>
                                 <li>Open the website you want to track and click on the bookmark you just added.</li>

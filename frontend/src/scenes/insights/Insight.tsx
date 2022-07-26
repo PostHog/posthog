@@ -125,7 +125,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     />
                 }
                 buttons={
-                    <div className="space-between-items items-center gap-05">
+                    <div className="flex justify-between items-center gap-05">
                         {insightMode !== ItemMode.Edit && (
                             <>
                                 <More

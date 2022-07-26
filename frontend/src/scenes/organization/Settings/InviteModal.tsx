@@ -143,7 +143,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </div>
                 }
             >
-                <h1 className="fw-800">Invite others to {user?.organization?.name || 'PostHog'}</h1>
+                <h1 className="font-extrabold">Invite others to {user?.organization?.name || 'PostHog'}</h1>
                 {preflight?.email_service_available ? (
                     <p>
                         Invite others to your project to collaborate together in PostHog. An invite is specific to an
