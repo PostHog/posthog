@@ -109,7 +109,7 @@ export const definitionLogic = kea<definitionLogicType>([
                         path: isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions(),
                     },
                     {
-                        name: isEvent ? 'Events' : 'Event Properties',
+                        name: isEvent ? 'Events' : 'Properties',
                         path: isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions(),
                     },
                     {
