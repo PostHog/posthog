@@ -151,10 +151,27 @@ class TestEventDefinitionAPI(APIBaseTest):
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["watched_movie"])
 
-    def test_include_actions(self):
+    def test_event_type_event(self):
         action = Action.objects.create(team=self.demo_team, name="action1_app")
 
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&include_actions=true")
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertNotEqual(response.json()["results"][0]["name"], action.name)
+
+    def test_event_type_action_event(self):
+        action = Action.objects.create(team=self.demo_team, name="action1_app")
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=action_event")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["action_id"], action.id)
+        self.assertEqual(response.json()["results"][0]["name"], action.name)
+
+    def test_event_type_all(self):
+        action = Action.objects.create(team=self.demo_team, name="action1_app")
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=all")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 3)
         self.assertEqual(response.json()["results"][0]["action_id"], action.id)
