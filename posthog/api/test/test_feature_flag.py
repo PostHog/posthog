@@ -942,6 +942,89 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
         self.assertEqual(groups_flag["value"], True)
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        # old style feature flags
+        FeatureFlag.objects.create(
+            name="Beta feature",
+            key="beta-feature",
+            team=self.team,
+            rollout_percentage=51,
+            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/feature_flag/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 2)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": True,
+                "rollout_percentage": 20,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[0],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}
+                    ]
+                },
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": False,
+                "rollout_percentage": None,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[1],
+        )
+
     def test_validation_person_properties(self):
         person_request = self._create_flag_with_properties(
             "person-flag", [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains",},]

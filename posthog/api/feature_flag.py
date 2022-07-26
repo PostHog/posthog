@@ -237,12 +237,18 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             .order_by("-created_at")
         )
 
+        parsed_flags = []
+        for feature_flag in feature_flags:
+            filters = feature_flag.get_filters()
+            feature_flag.filters = filters
+            parsed_flags.append(feature_flag)
+
         # TODO: Handle cohorts the same way as feature evaluation would, by simplifying cohort properties to
         # person properties
 
         return Response(
             {
-                "flags": [FeatureFlagSerializer(feature_flag).data for feature_flag in feature_flags],
+                "flags": [FeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
                 "group_type_mapping": {
                     row.group_type: row.group_type_index
                     for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
