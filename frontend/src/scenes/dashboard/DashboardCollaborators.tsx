@@ -75,7 +75,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                             filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"
-                                            options={usersLemonSelectOptions(addableMembers)}
+                                            options={usersLemonSelectOptions(addableMembers, 'uuid')}
                                         />
                                     </div>
                                     <LemonButton
