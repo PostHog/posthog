@@ -2,7 +2,7 @@ import React from 'react'
 import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { EditorFilterProps } from '~/types'
+import { EditorFilterProps, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
@@ -20,7 +20,7 @@ export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilter
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.Sessions,
+        ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
 
     return (

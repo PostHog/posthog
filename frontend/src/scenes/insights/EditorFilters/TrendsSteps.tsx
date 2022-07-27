@@ -19,7 +19,7 @@ export function TrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        TaxonomicFilterGroupType.Sessions,
+        ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
     return (
         <>
