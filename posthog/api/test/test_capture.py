@@ -642,9 +642,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + missing ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -814,9 +818,13 @@ class TestCapture(BaseTest):
             },
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + invalid ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -833,9 +841,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + invalid ID metric
         self.assertEqual(statsd_incr.call_count, 2)
