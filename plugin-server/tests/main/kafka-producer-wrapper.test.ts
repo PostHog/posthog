@@ -74,6 +74,7 @@ describe('KafkaProducerWrapper', () => {
 
             expect(producer.currentBatch.length).toEqual(1)
             expect(producer.currentBatchSize).toBeGreaterThan(40)
+            expect(producer.currentBatchSize).toBeLessThan(100)
             expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
                 topicMessages: [expect.anything(), expect.anything()],
             })
