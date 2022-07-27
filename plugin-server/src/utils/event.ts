@@ -57,7 +57,7 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
 export function formPluginEvent(message: KafkaMessage): PluginEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
+    const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
     const event: PluginEvent = normalizeEvent({
         ...combinedEvent,
         site_url: combinedEvent.site_url || null,
