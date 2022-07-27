@@ -358,6 +358,7 @@ def validate_events(events, ingestion_context):
 
         payload_uuid = event.get("uuid", None)
         if payload_uuid:
+            del event["uuid"]
             if UUIDT.is_valid_uuid(payload_uuid):
                 event_uuid = UUIDT(uuid_str=payload_uuid)
             else:
