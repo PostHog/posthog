@@ -1,4 +1,6 @@
-import { normalizeEvent } from '../../src/utils/event'
+import { KafkaMessage } from 'kafkajs'
+
+import { formPluginEvent, normalizeEvent } from '../../src/utils/event'
 
 describe('normalizeEvent()', () => {
     describe('distinctId', () => {
@@ -38,6 +40,48 @@ describe('normalizeEvent()', () => {
             key1_once: 'value1',
             key2_once: 'value2',
             key3_once: 'value4',
+        })
+    })
+})
+
+describe('formPluginEvent()', () => {
+    it('forms pluginEvent from a raw message', () => {
+        const message = {
+            value: Buffer.from(
+                JSON.stringify({
+                    uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
+                    distinct_id: 'some_distinct_id',
+                    ip: null,
+                    site_url: 'http://example.com',
+                    team_id: 2,
+                    now: '2020-02-23T02:15:00Z',
+                    sent_at: '2020-02-23T02:15:00Z',
+                    data: JSON.stringify({
+                        event: 'some-event',
+                        properties: { foo: 123 },
+                        timestamp: '2020-02-24T02:15:00Z',
+                        offset: 0,
+                        $set: {},
+                        $set_once: {},
+                    }),
+                })
+            ),
+        } as any as KafkaMessage
+
+        expect(formPluginEvent(message)).toEqual({
+            uuid: '01823e89-f75d-0000-0d4d-3d43e54f6de5',
+            distinct_id: 'some_distinct_id',
+            ip: null,
+            site_url: 'http://example.com',
+            team_id: 2,
+            now: '2020-02-23T02:15:00Z',
+            sent_at: '2020-02-23T02:15:00Z',
+            event: 'some-event',
+            properties: { foo: 123, $set: {}, $set_once: {} },
+            timestamp: '2020-02-24T02:15:00Z',
+            offset: 0,
+            $set: {},
+            $set_once: {},
         })
     })
 })
