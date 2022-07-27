@@ -4,6 +4,7 @@ import {
     ActionType,
     ActorType,
     CohortType,
+    CombinedEventType,
     DashboardCollaboratorType,
     DashboardType,
     EventDefinition,
@@ -515,7 +516,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            include_actions?: boolean
+            event_type?: CombinedEventType
         }): Promise<PaginatedResponse<EventDefinition>> {
             return new ApiRequest()
                 .eventDefinitions(teamId)
@@ -530,7 +531,7 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
-            include_actions?: boolean
+            event_type?: CombinedEventType
         }): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)

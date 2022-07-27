@@ -247,7 +247,7 @@ export const personsLogic = kea<personsLogicType>({
             null as PersonType | null,
             {
                 loadPerson: async ({ id }): Promise<PersonType | null> => {
-                    const response = await api.get(`api/person/?distinct_id=${id}`)
+                    const response = await api.get(`api/person/?${toParams({ distinct_id: id })}`)
                     const person = response.results[0] || (null as PersonType | null)
                     if (person) {
                         actions.reportPersonDetailViewed(person)

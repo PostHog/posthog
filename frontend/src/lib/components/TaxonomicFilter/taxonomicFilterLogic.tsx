@@ -33,7 +33,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
-import { ActionStack, CohortIcon } from 'lib/components/icons'
+import { ActionEvent, CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -44,15 +44,20 @@ import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Tooltip } from 'lib/components/Tooltip'
 
-export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
-    getPopupHeader: (eventDefinition: EventDefinition): string => {
-        if (!!keyMapping.event[eventDefinition.name]) {
-            return 'Verified Event'
-        }
-        return `${eventDefinition.verified ? 'Verified' : 'Unverified'} Event`
-    },
-    getIcon: getEventDefinitionIcon,
+export function createEventTaxonomicGroupProps(
+    shouldSimplifyActions: boolean = false
+): Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> {
+    return {
+        getPopupHeader: (eventDefinition: EventDefinition): string => {
+            if (!!keyMapping.event[eventDefinition.name]) {
+                return 'PostHog event'
+            }
+            return `${eventDefinition.verified ? 'Verified' : 'Unverified'}${shouldSimplifyActions ? ' raw' : ''} event`
+        },
+        getIcon: getEventDefinitionIcon,
+    }
 }
 
 export const propertyTaxonomicGroupProps = (
@@ -60,7 +65,7 @@ export const propertyTaxonomicGroupProps = (
 ): Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> => ({
     getPopupHeader: (propertyDefinition: PropertyDefinition): string => {
         if (verified || !!keyMapping.event[propertyDefinition.name]) {
-            return 'Verified Property'
+            return 'PostHog property'
         }
         return 'Property'
     },
@@ -169,7 +174,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         endpoint: `api/projects/${teamId}/event_definitions`,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                        ...eventTaxonomicGroupProps,
+                        ...createEventTaxonomicGroupProps(shouldSimplifyActions),
                     },
                     {
                         name: shouldSimplifyActions ? 'Events' : 'Actions',
@@ -183,7 +188,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getIcon: shouldSimplifyActions
                             ? getEventDefinitionIcon
                             : function _getIcon(): JSX.Element {
-                                  return <ActionStack className="taxonomy-icon taxonomy-icon-muted" />
+                                  return (
+                                      <Tooltip title="Action">
+                                          <ActionEvent className="taxonomy-icon taxonomy-icon-muted" />
+                                      </Tooltip>
+                                  )
                               },
                     },
                     {
@@ -300,7 +309,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'customEvents',
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                        ...eventTaxonomicGroupProps,
+                        ...createEventTaxonomicGroupProps(shouldSimplifyActions),
                     },
                     {
                         name: 'Wildcards',

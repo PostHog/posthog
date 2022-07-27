@@ -11,13 +11,13 @@ from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
-    AsyncMigrationType,
 )
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
+from posthog.models.async_migration import AsyncMigration
 from posthog.models.person.person import Person
 from posthog.models.person.sql import PERSONS_TABLE_MV_SQL
 from posthog.redis import get_client
@@ -246,7 +246,7 @@ class Migration(AsyncMigrationDefinition):
             params,
         )
 
-    def progress(self, migration_instance: AsyncMigrationType) -> int:
+    def progress(self, migration_instance: AsyncMigration) -> int:
         # We weigh each step before copying persons as equal, and the persons copy as ~50% of progress
         result = 0.5 * migration_instance.current_operation_index / len(self.operations)
 
