@@ -30,7 +30,8 @@ export function ActionsTab(): JSX.Element {
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
-                                View &amp; edit all {shouldSimplifyActions ? 'events' : 'actions'} <ExportOutlined />
+                                View &amp; edit all {shouldSimplifyActions ? 'calculated events' : 'actions'}{' '}
+                                <ExportOutlined />
                             </a>
                         </div>
                     </>
