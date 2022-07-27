@@ -52,6 +52,7 @@ class TestCapture(BaseTest):
         args = patch_process_event_with_plugins.call_args[1]["data"]
 
         return {
+            "uuid": args["uuid"],
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
             "site_url": args["site_url"],
@@ -874,6 +875,42 @@ class TestCapture(BaseTest):
         statsd_incr_first_call = statsd_incr.call_args_list[0]
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_event_name"}})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_custom_uuid(self, kafka_produce) -> None:
+        uuid = "01823e89-f75d-0000-0d4d-3d43e54f6de5"
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": uuid},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        arguments = self._to_arguments(kafka_produce)
+        self.assertEqual(arguments["uuid"], uuid)
+        self.assertEqual(arguments["data"]["uuid"], uuid)
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_custom_uuid_invalid(self, statsd_incr) -> None:
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": "invalid_uuid"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "uuid" is not a valid UUID!', code="invalid_payload",
+            ),
+        )
+
+        # endpoint success metric + invalid UUID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event_uuid")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_if_missing(self, kafka_produce) -> None:

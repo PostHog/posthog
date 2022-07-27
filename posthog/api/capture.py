@@ -355,11 +355,11 @@ def validate_events(events, ingestion_context):
         distinct_id = get_distinct_id(event)
         payload_uuid = event.get("uuid", None)
         if payload_uuid:
-            del event["uuid"]
             if UUIDT.is_valid_uuid(payload_uuid):
                 event_uuid = UUIDT(uuid_str=payload_uuid)
             else:
                 statsd.incr("invalid_event_uuid")
+                raise ValueError('Event field "uuid" is not a valid UUID!')
 
         event = parse_event(event, distinct_id, ingestion_context)
         if not event:
