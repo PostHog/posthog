@@ -45,7 +45,7 @@ router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be co
 router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be deleted - unified into insight viewset
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for server side feature flag evaluation
+router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)

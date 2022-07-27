@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -975,7 +976,24 @@ class TestFeatureFlag(APIBaseTest):
             created_by=self.user,
         )
 
+        key = PersonalAPIKey(label="Test", user=self.user)
+        key.save()
+        personal_api_key = key.value
+
+        self.client.logout()
+        # `local_evaluation` is called by logged out clients!
+
+        # missing API key
+        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
         response = self.client.get(f"/api/feature_flag/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
