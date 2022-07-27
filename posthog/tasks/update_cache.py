@@ -203,16 +203,16 @@ def _mark_refresh_attempt_when_no_results(
     insight_id: Union[int, str],
     insights_queryset: QuerySet,
 ) -> None:
-    # there is a possibility these querysets match no insights or dashboard tiles
-    _mark_refresh_attempt_for(insights_queryset)
-    _mark_refresh_attempt_for(dashboard_tiles_queryset)
-    # so mark the item that triggered the update
-    if insight_id != "unknown":
-        _mark_refresh_attempt_for(
-            Insight.objects.filter(id=insight_id)
-            if not dashboard_id
-            else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
-        )
+    if insights_queryset.exists() or dashboard_tiles_queryset.exists():
+        _mark_refresh_attempt_for(insights_queryset)
+        _mark_refresh_attempt_for(dashboard_tiles_queryset)
+    else:
+        if insight_id != "unknown":
+            _mark_refresh_attempt_for(
+                Insight.objects.filter(id=insight_id)
+                if not dashboard_id
+                else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
+            )
 
 
 def _update_cache_for_queryset(
