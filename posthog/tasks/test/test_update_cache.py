@@ -363,7 +363,7 @@ class TestUpdateCache(APIBaseTest):
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        self.assertEqual(funnel_mock.call_count, 2)  # once for Insight check, once for dashboard tile check
+        self.assertEqual(funnel_mock.call_count, 1)
 
         # trends funnel
         filter = base_filter.with_data({"funnel_viz_type": "trends"})
@@ -375,7 +375,7 @@ class TestUpdateCache(APIBaseTest):
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        self.assertEqual(funnel_trends_mock.call_count, 2)
+        self.assertEqual(funnel_trends_mock.call_count, 1)
 
         # time to convert funnel
         filter = base_filter.with_data({"funnel_viz_type": "time_to_convert", "funnel_order_type": "strict"})
@@ -387,7 +387,7 @@ class TestUpdateCache(APIBaseTest):
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        self.assertEqual(funnel_time_to_convert_mock.call_count, 2)
+        self.assertEqual(funnel_time_to_convert_mock.call_count, 1)
 
         # strict funnel
         filter = base_filter.with_data({"funnel_order_type": "strict"})
@@ -399,7 +399,7 @@ class TestUpdateCache(APIBaseTest):
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        self.assertEqual(funnel_strict_mock.call_count, 2)
+        self.assertEqual(funnel_strict_mock.call_count, 1)
 
         # unordered funnel
         filter = base_filter.with_data({"funnel_order_type": "unordered"})
@@ -411,7 +411,7 @@ class TestUpdateCache(APIBaseTest):
             CacheType.FUNNEL,
             {"filter": filter.toJSON(), "team_id": self.team.pk,},
         )
-        self.assertEqual(funnel_unordered_mock.call_count, 2)
+        self.assertEqual(funnel_unordered_mock.call_count, 1)
 
     def _test_refresh_dashboard_cache_types(
         self, filter: FilterType, cache_type: CacheType, patch_update_cache_item: MagicMock,
@@ -496,8 +496,8 @@ class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache._calculate_by_filter")
     def test_errors_refreshing(self, patch_calculate_by_filter: MagicMock) -> None:
         """
-        When there are no filters on the dashboard the tile and insight cache key match
-        the cache only updates cache counts on the Insight not the dashboard tile
+        When there are no filters on the dashboard, the tile and insight cache keys match
+        The cache updates cache counts on both the Insight and the dashboard tile
         """
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             dashboard_to_cache = create_shared_dashboard(team=self.team, is_shared=True, last_accessed_at=now())
@@ -520,10 +520,10 @@ class TestUpdateCache(APIBaseTest):
 
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 1)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 1)
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 2)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, None)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 2)
 
             # Magically succeeds, reset counter
             patch_calculate_by_filter.side_effect = None
@@ -543,7 +543,7 @@ class TestUpdateCache(APIBaseTest):
             _update_cached_items()
             _update_cached_items()
             self.assertEqual(Insight.objects.get().refresh_attempt, 3)
-            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 0)
+            self.assertEqual(DashboardTile.objects.get().refresh_attempt, 3)
             self.assertEqual(patch_calculate_by_filter.call_count, 3)
 
             # If a user later comes back and manually refreshes we should reset refresh_attempt

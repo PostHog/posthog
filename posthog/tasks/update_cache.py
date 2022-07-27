@@ -142,40 +142,50 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
 
 @timed("update_cache_item_timer")
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
+    dashboard_id = payload.get("dashboard_id", None)
+    insight_id = payload.get("insight_id", "unknown")
+
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
     team = Team.objects.get(pk=team_id)
     filter = get_filter(data=filter_dict, team=team)
 
-    # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
     insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
+    insights_queryset.update(refreshing=True)
     dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
+    dashboard_tiles_queryset.update(refreshing=True)
 
-    # at least one must return something, if they both return they will be identical
-    insight_result = _update_cache_for_queryset(cache_type, filter, key, team, insights_queryset)
-    tiles_result = _update_cache_for_queryset(cache_type, filter, key, team, dashboard_tiles_queryset)
+    result = None
+    try:
+        if dashboard_id:
+            if dashboard_tiles_queryset.exists():
+                result = _update_cache_for_queryset(cache_type, filter, key, team)
+        else:
+            if insights_queryset.exists():
+                result = _update_cache_for_queryset(cache_type, filter, key, team)
+    except Exception as e:
+        statsd.incr("update_cache_item_error", tags={"team": team.id})
+        _mark_refresh_attempt_for(insights_queryset)
+        _mark_refresh_attempt_for(dashboard_tiles_queryset)
+        with push_scope() as scope:
+            scope.set_tag("cache_key", key)
+            scope.set_tag("team_id", team.id)
+            capture_exception(e)
+        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
+        raise e
 
-    if tiles_result is not None:
-        result = tiles_result
-    elif insight_result is not None:
-        result = insight_result
+    if result:
+        statsd.incr("update_cache_item_success", tags={"team": team.id})
+        insights_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+        dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
     else:
-        dashboard_id = payload.get("dashboard_id", None)
-        insight_id = payload.get("insight_id", "unknown")
+        insights_queryset.update(last_refresh=timezone.now(), refreshing=False)
+        dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False)
         statsd.incr(
             "update_cache_item_no_results",
             tags={"team": team_id, "cache_key": key, "insight_id": insight_id, "dashboard_id": dashboard_id,},
         )
-        # there is strong likelihood these querysets match no insights or dashboard tiles
-        _mark_refresh_attempt_for(insights_queryset)
-        _mark_refresh_attempt_for(dashboard_tiles_queryset)
-        # so mark the item that triggered the update
-        if insight_id != "unknown":
-            _mark_refresh_attempt_for(
-                Insight.objects.filter(id=insight_id)
-                if not dashboard_id
-                else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
-            )
+        _mark_refresh_attempt_when_no_results(dashboard_id, dashboard_tiles_queryset, insight_id, insights_queryset)
         result = []
 
     logger.info(
@@ -189,36 +199,34 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     return result
 
 
-def _update_cache_for_queryset(
-    cache_type: CacheType, filter: Filter, key: str, team: Team, queryset: QuerySet
-) -> Optional[List[Dict[str, Any]]]:
-    if not queryset.exists():
-        return None
-
-    queryset.update(refreshing=True)
-    try:
-        if cache_type == CacheType.FUNNEL:
-            result = _calculate_funnel(filter, key, team)
-        else:
-            result = _calculate_by_filter(filter, key, team, cache_type)
-        cache.set(
-            key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL
+def _mark_refresh_attempt_when_no_results(
+    dashboard_id: Optional[int],
+    dashboard_tiles_queryset: QuerySet,
+    insight_id: Union[int, str],
+    insights_queryset: QuerySet,
+) -> None:
+    # there is a possibility these querysets match no insights or dashboard tiles
+    _mark_refresh_attempt_for(insights_queryset)
+    _mark_refresh_attempt_for(dashboard_tiles_queryset)
+    # so mark the item that triggered the update
+    if insight_id != "unknown":
+        _mark_refresh_attempt_for(
+            Insight.objects.filter(id=insight_id)
+            if not dashboard_id
+            else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
         )
-    except Exception as e:
-        statsd.incr("update_cache_item_error", tags={"team": team.id})
-        _mark_refresh_attempt_for(queryset)
-        with push_scope() as scope:
-            scope.set_tag("cache_key", key)
-            scope.set_tag("team_id", team.id)
-            capture_exception(e)
-        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
-        raise e
 
-    if result:
-        statsd.incr("update_cache_item_success", tags={"team": team.id})
-        queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+
+def _update_cache_for_queryset(
+    cache_type: CacheType, filter: Filter, key: str, team: Team
+) -> Optional[List[Dict[str, Any]]]:
+
+    if cache_type == CacheType.FUNNEL:
+        result = _calculate_funnel(filter, key, team)
     else:
-        queryset.update(last_refresh=timezone.now(), refreshing=False)
+        result = _calculate_by_filter(filter, key, team, cache_type)
+
+    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
 
     return result
 
