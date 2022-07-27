@@ -5,8 +5,7 @@ import { AvailableFeature, InsightShortId, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { uuid } from 'lib/utils'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from '../LemonButton'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
 
@@ -24,7 +23,6 @@ const Template = (
     const [modalOpen, setModalOpen] = useState(false)
 
     useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
-    useFeatureFlags([FEATURE_FLAGS.SUBSCRIPTIONS_SLACK])
 
     useStorybookMocks({
         get: {
