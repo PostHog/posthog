@@ -126,8 +126,3 @@ class AsyncMigrationDefinition:
         else:
             # Return the default value
             return self.parameters[parameter_name][0]
-
-    def __str__(self) -> str:
-        return (
-            f"{self.name} - must be ran on PostHog version {self.posthog_min_version} up to {self.posthog_max_version}"
-        )

@@ -1,14 +1,14 @@
-from typing import Sequence
+from typing import List, Sequence
 
 import structlog
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
 from semantic_version.base import Version
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations, setup_model
 from posthog.models.async_migration import (
+    AsyncMigration,
     AsyncMigrationError,
     MigrationStatus,
     get_async_migrations_by_status,
@@ -20,8 +20,8 @@ from posthog.utils import print_warning
 logger = structlog.get_logger(__name__)
 
 
-def get_necessary_migrations():
-    necessary_migrations = []
+def get_necessary_migrations() -> Sequence[AsyncMigration]:
+    necessary_migrations: List[AsyncMigration] = []
     for migration_name, definition in sorted(ALL_ASYNC_MIGRATIONS.items()):
         if is_async_migration_complete(migration_name):
             continue
@@ -55,7 +55,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-
         setup_async_migrations(ignore_posthog_version=True)
         necessary_migrations = get_necessary_migrations()
 
@@ -67,15 +66,15 @@ class Command(BaseCommand):
             handle_run(necessary_migrations)
 
 
-def handle_check(necessary_migrations: Sequence[AsyncMigrationDefinition]):
+def handle_check(necessary_migrations: Sequence[AsyncMigration]):
     if not get_instance_setting("ASYNC_MIGRATIONS_BLOCK_UPGRADE"):
         return
 
-    if len(necessary_migrations) > 0:
+    if necessary_migrations:
         print_warning(
             [
                 "Stopping PostHog!",
-                f"Required async migration{' is' if necessary_migrations == 1 else 's are'} not completed:",
+                f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:",
                 *(f"- {migration}" for migration in necessary_migrations),
                 "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
             ],
@@ -112,7 +111,7 @@ def handle_check(necessary_migrations: Sequence[AsyncMigrationDefinition]):
         exit(1)
 
 
-def handle_run(necessary_migrations):
+def handle_run(necessary_migrations: Sequence[AsyncMigration]):
     for migration in necessary_migrations:
         logger.info(f"Applying async migration {migration.name}")
         started_successfully = start_async_migration(migration.name, ignore_posthog_version=True)
@@ -128,15 +127,15 @@ def handle_run(necessary_migrations):
         logger.info(f"✅ Migration {migration.name} successful")
 
 
-def handle_plan(necessary_migrations):
+def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
     print()
 
-    if len(necessary_migrations) == 0:
+    if not necessary_migrations:
         print("Async migrations up to date!")
     else:
         print_warning(
             [
-                f"Required async migration{' is' if necessary_migrations == 1 else 's are'} not completed:",
+                f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:",
                 *(f"- {migration}" for migration in necessary_migrations),
             ]
         )
