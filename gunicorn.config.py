@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
+
+from prometheus_client import CollectorRegistry, multiprocess, start_http_server
 
 loglevel = "error"
 keepalive = 120
@@ -31,9 +34,20 @@ def on_starting(server):
     print("\nTo stop, press CTRL + C")
 
 
+def when_ready(server):
+    """
+    To ease being able to hide the /metrics endpoint when running in production,
+    we serve the metrics on a separate port, using the
+    prometheus_client.multiprocess Collector to pull in data from the worker
+    processes.
+    """
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)
+    port = int(os.environ.get("PROMETHEUS_METRICS_EXPORT_PORT", 8001))
+    start_http_server(port=port, registry=registry)
+
+
 def worker_exit(server, worker):
     # Ensure that we mark workers as dead with the prometheus_client such that
     # any cleanup can happen.
-    from prometheus_client import multiprocess
-
     multiprocess.mark_process_dead(worker.pid)

@@ -81,10 +81,6 @@ rm -f Caddyfile
 envsubst > Caddyfile <<EOF
 $DOMAIN, :80, :443 {
 $TLS_BLOCK
-respond /_* "Access denied" 403 {
-	close
-}
-
 reverse_proxy http://web:8000
 }
 EOF

@@ -40,7 +40,6 @@ INSTALLED_APPS = [
     "django_filters",
     "axes",
     "drf_spectacular",
-    "django_prometheus",
 ]
 
 MIDDLEWARE = [
