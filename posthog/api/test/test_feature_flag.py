@@ -946,6 +946,8 @@ class TestFeatureFlag(APIBaseTest):
     @patch("posthog.api.feature_flag.report_user_action")
     def test_local_evaluation(self, mock_capture):
         FeatureFlag.objects.all().delete()
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
 
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -962,6 +964,16 @@ class TestFeatureFlag(APIBaseTest):
                         ],
                     },
                 },
+            },
+            format="json",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 21}],},
             },
             format="json",
         )
@@ -997,7 +1009,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 2)
+        self.assertEqual(len(response_data["flags"]), 3)
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
@@ -1042,6 +1054,22 @@ class TestFeatureFlag(APIBaseTest):
             },
             sorted_flags[1],
         )
+        self.assertDictContainsSubset(
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0,},
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": False,
+                "rollout_percentage": None,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[2],
+        )
+
+        self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company",})
 
     def test_validation_person_properties(self):
         person_request = self._create_flag_with_properties(
