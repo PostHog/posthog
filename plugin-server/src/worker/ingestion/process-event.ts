@@ -243,18 +243,16 @@ export class EventsProcessor {
         // proto ingestion is deprecated and we won't support new additions to the schema
         const message = useExternalSchemas
             ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
-            : Buffer.from(
-                  JSON.stringify({
-                      ...eventPayload,
-                      person_id: personInfo?.uuid,
-                      person_properties: eventPersonProperties,
-                      person_created_at: personInfo
-                          ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
-                          : null,
-                      ...groupsProperties,
-                      ...groupsCreatedAt,
-                  })
-              )
+            : JSON.stringify({
+                  ...eventPayload,
+                  person_id: personInfo?.uuid,
+                  person_properties: eventPersonProperties,
+                  person_created_at: personInfo
+                      ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
+                      : null,
+                  ...groupsProperties,
+                  ...groupsCreatedAt,
+              })
 
         await this.kafkaProducer.queueMessage({
             topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
