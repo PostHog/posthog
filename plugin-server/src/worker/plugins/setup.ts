@@ -121,6 +121,7 @@ async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'plugi
 }
 
 export async function loadSchedule(server: Hub): Promise<void> {
+    const timer = new Date()
     server.pluginSchedule = null
 
     // gather runEvery* tasks into a schedule
@@ -143,4 +144,5 @@ export async function loadSchedule(server: Hub): Promise<void> {
     }
 
     server.pluginSchedule = pluginSchedule
+    server.statsd?.timing('load_schedule.success', timer)
 }
