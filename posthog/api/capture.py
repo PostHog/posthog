@@ -353,9 +353,6 @@ def validate_events(events, ingestion_context):
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
-        if not distinct_id:
-            continue
-
         payload_uuid = event.get("uuid", None)
         if payload_uuid:
             del event["uuid"]
