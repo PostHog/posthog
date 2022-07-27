@@ -30,7 +30,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         rollback_settings: Optional[Dict] = None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
-        per_shard: bool = False
+        per_shard: bool = False,
     ):
         self.sql = sql
         self.sql_settings = sql_settings
@@ -126,3 +126,8 @@ class AsyncMigrationDefinition:
         else:
             # Return the default value
             return self.parameters[parameter_name][0]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.name} - must be ran on PostHog version {self.posthog_min_version} up to {self.posthog_max_version}"
+        )

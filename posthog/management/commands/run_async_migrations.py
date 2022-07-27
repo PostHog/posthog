@@ -1,8 +1,11 @@
+from typing import Sequence
+
 import structlog
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand
 from semantic_version.base import Version
 
+from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION, setup_async_migrations, setup_model
 from posthog.models.async_migration import (
@@ -12,6 +15,7 @@ from posthog.models.async_migration import (
     is_async_migration_complete,
 )
 from posthog.models.instance_setting import get_instance_setting
+from posthog.utils import print_warning
 
 logger = structlog.get_logger(__name__)
 
@@ -63,44 +67,48 @@ class Command(BaseCommand):
             handle_run(necessary_migrations)
 
 
-def print_necessary_migrations(necessary_migrations):
-    print("List of async migrations to be applied:")
-
-    for migration in necessary_migrations:
-        print(
-            f"- {migration.name} - Available on Posthog versions {migration.posthog_min_version} - {migration.posthog_max_version}"
-        )
-
-    print()
-
-
-def handle_check(necessary_migrations):
+def handle_check(necessary_migrations: Sequence[AsyncMigrationDefinition]):
     if not get_instance_setting("ASYNC_MIGRATIONS_BLOCK_UPGRADE"):
         return
 
     if len(necessary_migrations) > 0:
-        print_necessary_migrations(necessary_migrations)
-        print(
-            "Async migrations are not completed. See more info https://posthog.com/docs/self-host/configure/async-migrations/overview"
+        print_warning(
+            [
+                "Stopping PostHog!",
+                f"Required async migration{' is' if necessary_migrations == 1 else 's are'} not completed:",
+                *(f"- {migration}" for migration in necessary_migrations),
+                "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+            ],
+            top_emoji="💥",
+            bottom_emoji="💥",
         )
         exit(1)
 
     running_migrations = get_async_migrations_by_status([MigrationStatus.Running, MigrationStatus.Starting])
     if running_migrations.exists():
-        print(
-            f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding."
+        print_warning(
+            [
+                "Stopping PostHog!",
+                f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding",
+                "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+            ],
+            top_emoji="⏳",
+            bottom_emoji="⏳",
         )
         exit(1)
 
     errored_migrations = get_async_migrations_by_status([MigrationStatus.Errored])
     if errored_migrations.exists():
-        print(
-            "Some async migrations are currently in an 'Errored' state. If you're trying to update PostHog, please make sure they complete successfully first."
+        print_warning(
+            [
+                f"Stopping PostHog!",
+                "Some async migrations are currently in an 'Errored' state. If you're trying to update PostHog, please make sure they complete successfully first:",
+                *(f"- {migration.name}" for migration in errored_migrations),
+                "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+            ],
+            top_emoji="❗️",
+            bottom_emoji="❗️",
         )
-        print()
-        print("Errored migrations:")
-        for migration in errored_migrations:
-            print(f"- {migration.name}")
         exit(1)
 
 
@@ -125,8 +133,10 @@ def handle_plan(necessary_migrations):
 
     if len(necessary_migrations) == 0:
         print("Async migrations up to date!")
-        return
-
-    print()
-
-    print_necessary_migrations(necessary_migrations)
+    else:
+        print_warning(
+            [
+                f"Required async migration{' is' if necessary_migrations == 1 else 's are'} not completed:",
+                *(f"- {migration}" for migration in necessary_migrations),
+            ]
+        )
