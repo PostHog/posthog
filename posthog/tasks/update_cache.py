@@ -157,12 +157,8 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
 
     result = None
     try:
-        if dashboard_id:
-            if dashboard_tiles_queryset.exists():
-                result = _update_cache_for_queryset(cache_type, filter, key, team)
-        else:
-            if insights_queryset.exists():
-                result = _update_cache_for_queryset(cache_type, filter, key, team)
+        if (dashboard_id and dashboard_tiles_queryset.exists()) or insights_queryset.exists():
+            result = _update_cache_for_queryset(cache_type, filter, key, team)
     except Exception as e:
         statsd.incr("update_cache_item_error", tags={"team": team.id})
         _mark_refresh_attempt_for(insights_queryset)
@@ -170,6 +166,8 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
         with push_scope() as scope:
             scope.set_tag("cache_key", key)
             scope.set_tag("team_id", team.id)
+            scope.set_tag("insight_id", insight_id)
+            scope.set_tag("dashboard_id", dashboard_id)
             capture_exception(e)
         logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
         raise e
