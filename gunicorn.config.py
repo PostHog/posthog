@@ -48,6 +48,8 @@ def when_ready(server):
 
 
 def worker_exit(server, worker):
-    # Ensure that we mark workers as dead with the prometheus_client such that
-    # any cleanup can happen.
+    """
+    Ensure that we mark workers as dead with the prometheus_client such that
+    any cleanup can happen.
+    """
     multiprocess.mark_process_dead(worker.pid)
