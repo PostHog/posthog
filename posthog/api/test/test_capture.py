@@ -5,6 +5,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from datetime import timezone as tz
 from typing import Any, Dict, List, Union
+from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
@@ -268,6 +269,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -305,6 +307,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "94b03e599131fd5026b",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -472,6 +475,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -493,12 +497,14 @@ class TestCapture(BaseTest):
             "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json",
         )
 
-        # We should return a 200 but not process the invalid event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(kafka_produce.call_count, 4)
-
-        events_processed = [json.loads(call.kwargs["data"]["data"])["event"] for call in kafka_produce.call_args_list]
-        self.assertEqual(events_processed, ["event1", "event3", "event4", "event5"])  # event2 not processed
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_header(self, kafka_produce):
@@ -521,6 +527,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -549,6 +556,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -578,6 +586,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -683,7 +692,13 @@ class TestCapture(BaseTest):
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
-            {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
+            {
+                "uuid": mock.ANY,
+                "distinct_id": "3",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "team_id": self.team.pk,
+            },
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
