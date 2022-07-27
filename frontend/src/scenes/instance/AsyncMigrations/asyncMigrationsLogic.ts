@@ -3,6 +3,7 @@ import { kea } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import type { asyncMigrationsLogicType } from './asyncMigrationsLogicType'
+import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { InstanceSetting } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
 export type TabName = 'overview' | 'internal_metrics'
@@ -187,6 +188,8 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                 })
                 lemonToast.success(`Instance setting ${settingKey} updated`)
                 actions.loadAsyncMigrationSettings()
+                actions.loadAsyncMigrations()
+                systemStatusLogic.actions.loadSystemStatus()
             } catch {
                 lemonToast.error('Failed to trigger migration')
             }
