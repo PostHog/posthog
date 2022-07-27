@@ -16,8 +16,10 @@ export function BillingLocked(): JSX.Element | null {
     const { billing } = useValues(billingLogic)
     return billing ? (
         <BillingSubscribedTheme>
-            <CloseCircleOutlined style={{ color: 'var(--danger)' }} className="title-icon" />
-            <h2 className="subtitle">Please enter a credit card</h2>
+            <div className="title">
+                <CloseCircleOutlined style={{ color: 'var(--danger)' }} className="title-icon" />
+                <h2 className="subtitle">Please enter a credit card</h2>
+            </div>
             <p>
                 You've used <strong>{compactNumber(billing.current_usage)}</strong> events this month. To continue using
                 PostHog, you'll need to enter a credit card. See{' '}
@@ -26,7 +28,13 @@ export function BillingLocked(): JSX.Element | null {
                 </a>
             </p>
             <div className="mt text-center">
-                <LemonButton type="primary" size="large" href={billing.subscription_url}>
+                <LemonButton
+                    className="cta-button"
+                    type="primary"
+                    size="large"
+                    center={true}
+                    href={billing.subscription_url}
+                >
                     Continue to verify card
                 </LemonButton>
             </div>

@@ -10,6 +10,7 @@ import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { billingLogic } from './billingLogic'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: BillingSubscribed,
@@ -47,8 +48,10 @@ export function BillingSubscribed(): JSX.Element {
 
     return (
         <BillingSubscribedTheme>
-            <CheckCircleOutlined style={{ color: 'var(--success)' }} className="title-icon" />
-            <h2 className="subtitle">You're all set!</h2>
+            <div className="title">
+                <CheckCircleOutlined style={{ color: 'var(--success)' }} className="title-icon" />
+                <h2 className="subtitle">You're all set!</h2>
+            </div>
             <p>
                 You are now subscribed
                 {billing?.is_billing_active && billing.plan && (
@@ -69,9 +72,9 @@ export function BillingSubscribed(): JSX.Element {
                 Please reach out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing
                 questions.
             </p>
-            <Button className="btn-bridge outlined" block onClick={() => push('/')}>
+            <LemonButton className="cta-button" type="primary" size="large" center={true} onClick={() => push('/')}>
                 Finish
-            </Button>
+            </LemonButton>
         </BillingSubscribedTheme>
     )
 }
