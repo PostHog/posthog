@@ -1,8 +1,8 @@
-import posthog, { PostHogConfig } from 'posthog-js'
+import posthog from 'posthog-js'
 import * as Sentry from '@sentry/react'
 import { Integration } from '@sentry/types'
 
-const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig> => {
+const configWithSentry = (config: posthog.Config): posthog.Config => {
     if ((window as any).SENTRY_DSN) {
         config.on_xhr_error = (failedRequest: XMLHttpRequest) => {
             const status = failedRequest.status
@@ -22,6 +22,7 @@ export function loadPostHogJS(): void {
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
                 api_host: window.JS_POSTHOG_HOST,
+                // @ts-expect-error
                 _capture_metrics: true,
                 rageclick: true,
                 debug: window.JS_POSTHOG_SELF_CAPTURE,
