@@ -53,16 +53,29 @@ export interface AsyncMigration {
     posthog_min_version: string
     posthog_max_version: string
     error_count: number
+    parameters: Record<string, number>
+    parameter_definitions: Record<string, [number, string]>
+}
+
+export interface AsyncMigrationModalProps {
+    migration: AsyncMigration
+    endpoint: string
+    message: string
 }
 
 export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
     path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
     actions: {
-        triggerMigration: (migrationId: number) => ({ migrationId }),
-        resumeMigration: (migrationId: number) => ({ migrationId }),
-        rollbackMigration: (migrationId: number) => ({ migrationId }),
-        forceStopMigration: (migrationId: number) => ({ migrationId }),
-        forceStopMigrationWithoutRollback: (migrationId: number) => ({ migrationId }),
+        triggerMigration: (migration: AsyncMigration) => ({ migration }),
+        resumeMigration: (migration: AsyncMigration) => ({ migration }),
+        rollbackMigration: (migration: AsyncMigration) => ({ migration }),
+        forceStopMigration: (migration: AsyncMigration) => ({ migration }),
+        forceStopMigrationWithoutRollback: (migration: AsyncMigration) => ({ migration }),
+        updateMigrationStatus: (migration: AsyncMigration, endpoint: string, message: string) => ({
+            migration,
+            endpoint,
+            message,
+        }),
         setActiveTab: (tab: AsyncMigrationsTab) => ({ tab }),
         updateSetting: (settingKey: string, newValue: string) => ({ settingKey, newValue }),
         loadAsyncMigrationErrors: (migrationId: number) => ({ migrationId }),
@@ -71,6 +84,12 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
             errors,
         }),
         loadAsyncMigrationErrorsFailure: (migrationId: number, error: any) => ({ migrationId, error }),
+        openAsyncMigrationsModal: (migration: AsyncMigration, endpoint: string, message: string) => ({
+            migration,
+            endpoint,
+            message,
+        }),
+        closeAsyncMigrationsModal: true,
     },
 
     reducers: {
@@ -95,6 +114,14 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                 loadAsyncMigrationErrorsFailure: (state, { migrationId }) => {
                     return { ...state, [migrationId]: false }
                 },
+            },
+        ],
+        activeAsyncMigrationModal: [
+            null as AsyncMigrationModalProps | null,
+            {
+                openAsyncMigrationsModal: (_, payload) => payload,
+                closeAsyncMigrationsModal: () => null,
+                updateMigrationStatus: () => null,
             },
         ],
     },
@@ -135,46 +162,39 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
     },
 
     listeners: ({ actions }) => ({
-        triggerMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/async_migrations/${migrationId}/trigger`)
-            if (res.success) {
-                lemonToast.success('Migration triggered successfully')
-                actions.loadAsyncMigrations()
+        triggerMigration: async ({ migration }) => {
+            if (Object.keys(migration.parameter_definitions).length > 0) {
+                actions.openAsyncMigrationsModal(migration, 'trigger', 'Migration triggered successfully')
             } else {
-                lemonToast.error(res.error)
+                actions.updateMigrationStatus(migration, 'trigger', 'Migration triggered successfully')
             }
         },
-        resumeMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/async_migrations/${migrationId}/resume`)
-            if (res.success) {
-                lemonToast.success('Migration resume triggered successfully')
-                actions.loadAsyncMigrations()
+        resumeMigration: async ({ migration }) => {
+            if (Object.keys(migration.parameter_definitions).length > 0) {
+                actions.openAsyncMigrationsModal(migration, 'resume', 'Migration resume triggered successfully')
             } else {
-                lemonToast.error(res.error)
+                actions.updateMigrationStatus(migration, 'resume', 'Migration resume triggered successfully')
             }
         },
-        rollbackMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/async_migrations/${migrationId}/rollback`)
-            if (res.success) {
-                lemonToast.success('Migration rolledback triggered successfully')
-                actions.loadAsyncMigrations()
-            } else {
-                lemonToast.error(res.error)
-            }
+        rollbackMigration: async ({ migration }) => {
+            actions.updateMigrationStatus(migration, 'rollback', 'Migration rollback triggered successfully')
         },
-        forceStopMigration: async ({ migrationId }) => {
-            const res = await api.create(`/api/async_migrations/${migrationId}/force_stop`)
-            if (res.success) {
-                lemonToast.success('Force stop triggered successfully')
-                actions.loadAsyncMigrations()
-            } else {
-                lemonToast.error(res.error)
-            }
+        forceStopMigration: async ({ migration }) => {
+            actions.updateMigrationStatus(migration, 'force_stop', 'Force stop triggered successfully')
         },
-        forceStopMigrationWithoutRollback: async ({ migrationId }) => {
-            const res = await api.create(`/api/async_migrations/${migrationId}/force_stop_without_rollback`)
+        forceStopMigrationWithoutRollback: async ({ migration }) => {
+            actions.updateMigrationStatus(
+                migration,
+                'force_stop_without_rollback',
+                'Force stop without rollback triggered successfully'
+            )
+        },
+        updateMigrationStatus: async ({ migration, endpoint, message }) => {
+            const res = await api.create(`/api/async_migrations/${migration.id}/${endpoint}`, {
+                parameters: migration.parameters,
+            })
             if (res.success) {
-                lemonToast.success('Force stop without rollback triggered successfully')
+                lemonToast.success(message)
                 actions.loadAsyncMigrations()
             } else {
                 lemonToast.error(res.error)
