@@ -1,10 +1,13 @@
+import asyncio
+from concurrent.futures import Future
 import json
 from enum import Enum
+from threading import Thread
 from typing import Any, Callable, Dict, Optional
 
-import kafka.errors
-from kafka import KafkaConsumer as KC
-from kafka import KafkaProducer as KP
+from confluent_kafka import Producer as KP
+from confluent_kafka.cimpl import KafkaError, KafkaException
+from prometheus_kafka_producer.metrics_manager import ProducerMetricsManager
 from structlog import get_logger
 
 from posthog.client import async_execute, sync_execute
@@ -25,11 +28,14 @@ KAFKA_PRODUCER_RETRIES = 5
 logger = get_logger(__file__)
 
 
+producer_metric_manager = ProducerMetricsManager()
+
+
 class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def send(self, topic: str, value: Any, key: Any = None):
+    def produce(self, topic: str, value: Any, key: Any = None):
         return
 
     def flush(self):
@@ -87,11 +93,27 @@ class _KafkaProducer:
             self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES, value_serializer=lambda d: d)
         else:
             self.producer = KP(
-                retries=KAFKA_PRODUCER_RETRIES,
-                bootstrap_servers=KAFKA_HOSTS,
-                security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
-                **_sasl_params(),
+                {
+                    "retries": KAFKA_PRODUCER_RETRIES,
+                    "bootstrap.servers": KAFKA_HOSTS,
+                    "security.protocol": KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT.value,
+                    "statistics.interval.ms": 1000,
+                    "stats_cb": producer_metric_manager.send,
+                    **_sasl_params(),
+                }
             )
+
+        self._cancelled = False
+        self._poll_thread = Thread(target=self._poll_loop)
+        self._poll_thread.start()
+
+    def _poll_loop(self):
+        while not self._cancelled:
+            self.producer.poll(0.1)
+    
+    def close(self):
+        self._cancelled = True
+        self._poll_thread.join()
 
     @staticmethod
     def json_serializer(d):
@@ -104,10 +126,17 @@ class _KafkaProducer:
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        self.producer.send(topic, value=b, key=key)
+        
+        result = Future()
 
-    def close(self):
-        self.producer.flush()
+        def ack(err, msg):
+            if err:
+                result.set_exception(KafkaException(err))
+            else:
+                result.set_result(msg)
+                    
+        self.producer.produce(topic, value=b, key=key, on_delivery=ack)
+        return result
 
 
 def can_connect():
@@ -124,7 +153,7 @@ def can_connect():
     """
     try:
         _KafkaProducer(test=TEST)
-    except kafka.errors.KafkaError:
+    except KafkaError:
         logger.debug("kafka_connection_failure", exc_info=True)
         return False
     return True
@@ -155,13 +184,16 @@ def build_kafka_consumer(
         )
     else:
         consumer = KC(
-            bootstrap_servers=KAFKA_HOSTS,
-            auto_offset_reset=auto_offset_reset,
-            value_deserializer=value_deserializer,
-            group_id=group_id,
-            consumer_timeout_ms=consumer_timeout_ms,
-            security_protocol=KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT,
-            **_sasl_params(),
+            {
+                "bootstrap.servers": KAFKA_HOSTS,
+                "auto_offset_reset": auto_offset_reset,
+                "value_deserializer": value_deserializer,
+                "group_id": group_id,
+                "consumer_timeout_ms": consumer_timeout_ms,
+                "security.protocol": KAFKA_SECURITY_PROTOCOL or _KafkaSecurityProtocol.PLAINTEXT.value,
+                "statistics.interval.ms": 1000,
+                **_sasl_params(),
+            }
         )
         if topic:
             consumer.subscribe([topic])

@@ -16,9 +16,10 @@ except ImportError:
 
 from base64 import standard_b64encode
 
+from confluent_kafka import Consumer as KafkaConsumer
+from confluent_kafka import Producer as KafkaProducer
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from kafka import KafkaConsumer, KafkaProducer
 
 
 def get_kafka_ssl_context():
@@ -104,12 +105,14 @@ def get_kafka_producer(acks="all", value_serializer=lambda v: json.dumps(v).enco
     """
 
     producer = KafkaProducer(
-        bootstrap_servers=get_kafka_brokers(),
-        security_protocol="SSL",
-        ssl_context=get_kafka_ssl_context(),
-        value_serializer=value_serializer,
-        acks=acks,
-        **kwargs,
+        {
+            "bootstrap.servers": get_kafka_brokers(),
+            "security.protocol": "SSL",
+            "ssl_context": get_kafka_ssl_context(),
+            "value_serializer": value_serializer,
+            "acks": acks,
+            **kwargs,
+        }
     )
 
     return producer
@@ -123,11 +126,13 @@ def get_kafka_consumer(topic=None, value_deserializer=lambda v: json.loads(v.dec
     # Create the KafkaConsumer connected to the specified brokers. Use the
     # SSLContext that is created with create_ssl_context.
     consumer = KafkaConsumer(
-        bootstrap_servers=get_kafka_brokers(),
-        security_protocol="SSL",
-        ssl_context=get_kafka_ssl_context(),
-        value_deserializer=value_deserializer,
-        **kwargs,
+        {
+            "bootstrap.servers": get_kafka_brokers(),
+            "security.protocol": "SSL",
+            "ssl_context": get_kafka_ssl_context(),
+            "value_deserializer": value_deserializer,
+            **kwargs,
+        }
     )
 
     if topic:

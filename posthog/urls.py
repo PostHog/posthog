@@ -140,6 +140,7 @@ urlpatterns = [
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
+    path('_', include('django_prometheus.urls')),
 ]
 
 if settings.TEST:
