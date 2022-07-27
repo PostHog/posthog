@@ -26,6 +26,9 @@ export function BillingLocked(): JSX.Element | null {
                 <a href="https://posthog.com/pricing" target="_blank">
                     our website for pricing information.
                 </a>
+                <br />
+                <br />
+                You'll only be charged for events from the moment you put your credit card details in.
             </p>
             <div className="mt text-center">
                 <LemonButton
