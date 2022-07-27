@@ -120,7 +120,7 @@ CLICKHOUSE_HTTP_URL = f"{_clickhouse_http_protocol}{CLICKHOUSE_HOST}:{_clickhous
 _parse_kafka_hosts = lambda kafka_url: ",".join(urlparse(host).netloc for host in kafka_url.split(","))
 
 # URL(s) used by Kafka clients/producers - KEEP IN SYNC WITH plugin-server/src/config/config.ts
-KAFKA_URL = os.getenv("KAFKA_URL", "kafka://localhost:9092")
+KAFKA_URL = os.getenv("KAFKA_URL", "kafka://kafka:9092")
 KAFKA_HOSTS = _parse_kafka_hosts(KAFKA_URL)
 
 # To support e.g. Multi-tenanted plans on Heroko, we support specifying a prefix for
@@ -143,6 +143,10 @@ SUFFIX = "_test" if TEST else ""
 
 KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
+)
+
+KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION: str = (
+    f"{KAFKA_PREFIX}recording_events{SUFFIX}"  # can be overridden in settings.py
 )
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.

@@ -1,12 +1,13 @@
 import React from 'react'
 import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
 import {
+    ActionEvent,
     AutocaptureIcon,
     PageleaveIcon,
     PageviewIcon,
     PropertyIcon,
-    UnverifiedEventStack,
-    VerifiedEventStack,
+    UnverifiedEvent,
+    VerifiedEvent,
     VerifiedPropertyIcon,
 } from 'lib/components/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -17,59 +18,69 @@ import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import {
-    eventTaxonomicGroupProps,
+    createEventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { actionsModel } from '~/models/actionsModel'
-
-export enum DefinitionType {
-    Event = 'event',
-    Property = 'property',
-    Action = 'action',
-}
+import { isActionEvent } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (!!keyMapping.event[definition.name]) {
         return (
-            <Tooltip title="Verified PostHog event property">
+            <Tooltip title="PostHog event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+    return (
+        <Tooltip title="Event property">
+            <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+        </Tooltip>
+    )
 }
 
-export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
+export function getEventDefinitionIcon(definition: CombinedEvent, shouldSimplifyActions: boolean = false): JSX.Element {
+    if (isActionEvent(definition)) {
+        return (
+            <Tooltip title="Event">
+                <ActionEvent className="taxonomy-icon taxonomy-icon-muted" />
+            </Tooltip>
+        )
+    }
     // Rest are events
     if (definition.name === '$pageview') {
         return (
-            <Tooltip title="Verified PostHog event">
+            <Tooltip title="PostHog event">
                 <PageviewIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$pageleave') {
         return (
-            <Tooltip title="Verified PostHog event">
+            <Tooltip title="PostHog event">
                 <PageleaveIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$autocapture') {
         return (
-            <Tooltip title="Verified PostHog event">
+            <Tooltip title="PostHog event">
                 <AutocaptureIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name && (definition.verified || !!keyMapping.event[definition.name])) {
         return (
-            <Tooltip title={`Verified${!!keyMapping.event[definition.name] ? ' PostHog' : ' event'}`}>
-                <VerifiedEventStack className="taxonomy-icon taxonomy-icon-verified" />
+            <Tooltip title={`${!!keyMapping.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
+                <VerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    return <UnverifiedEventStack className="taxonomy-icon taxonomy-icon-muted" />
+    return (
+        <Tooltip title={`Unverified${shouldSimplifyActions ? ' raw' : ''} event`}>
+            <UnverifiedEvent className="taxonomy-icon taxonomy-icon-muted" />
+        </Tooltip>
+    )
 }
 
 interface SharedDefinitionHeaderProps {
@@ -173,7 +184,7 @@ export function EventDefinitionHeader({
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getFullDetailUrl: (eventDefinition: EventDefinition) => urls.eventDefinition(eventDefinition.id),
-                ...eventTaxonomicGroupProps,
+                ...createEventTaxonomicGroupProps(shouldSimplifyActions),
             }}
             shouldSimplifyActions={shouldSimplifyActions}
             {...props}

@@ -26,15 +26,15 @@ describe('KafkaProducerWrapper', () => {
         it('respects MAX_QUEUE_SIZE', async () => {
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(10) }],
+                messages: [{ value: '1'.repeat(10) }],
             })
             await producer.queueMessage({
                 topic: 'b',
-                messages: [{ value: Buffer.alloc(30) }],
+                messages: [{ value: '1'.repeat(30) }],
             })
             await producer.queueMessage({
                 topic: 'b',
-                messages: [{ value: Buffer.alloc(30) }],
+                messages: [{ value: '1'.repeat(30) }],
             })
 
             expect(flushSpy).not.toHaveBeenCalled()
@@ -42,7 +42,7 @@ describe('KafkaProducerWrapper', () => {
 
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(30) }],
+                messages: [{ value: '1'.repeat(30) }],
             })
 
             expect(flushSpy).toHaveBeenCalled()
@@ -56,39 +56,55 @@ describe('KafkaProducerWrapper', () => {
         it('respects KAFKA_MAX_MESSAGE_BATCH_SIZE', async () => {
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(450) }],
+                messages: [{ value: '1'.repeat(400) }],
             })
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(40) }],
+                messages: [{ value: '1'.repeat(20) }],
             })
             expect(flushSpy).not.toHaveBeenCalled()
             expect(producer.currentBatch.length).toEqual(2)
 
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(40) }],
+                messages: [{ value: '1'.repeat(40) }],
             })
 
             expect(flushSpy).toHaveBeenCalled()
 
             expect(producer.currentBatch.length).toEqual(1)
-            expect(producer.currentBatchSize).toEqual(40)
+            expect(producer.currentBatchSize).toBeGreaterThan(40)
+            expect(producer.currentBatchSize).toBeLessThan(100)
             expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
                 topicMessages: [expect.anything(), expect.anything()],
+            })
+        })
+
+        it('flushes immediately when message exceeds KAFKA_MAX_MESSAGE_BATCH_SIZE', async () => {
+            await producer.queueMessage({
+                topic: 'a',
+                messages: [{ value: '1'.repeat(10000) }],
+            })
+
+            expect(flushSpy).toHaveBeenCalled()
+
+            expect(producer.currentBatch.length).toEqual(0)
+            expect(producer.currentBatchSize).toEqual(0)
+            expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
+                topicMessages: [expect.anything()],
             })
         })
 
         it('respects KAFKA_FLUSH_FREQUENCY_MS', async () => {
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(10) }],
+                messages: [{ value: '1'.repeat(10) }],
             })
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:20').getTime())
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(10) }],
+                messages: [{ value: '1'.repeat(10) }],
             })
 
             expect(flushSpy).not.toHaveBeenCalled()
@@ -97,7 +113,7 @@ describe('KafkaProducerWrapper', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:26').getTime())
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(10) }],
+                messages: [{ value: '1'.repeat(10) }],
             })
 
             expect(flushSpy).toHaveBeenCalled()
@@ -114,7 +130,7 @@ describe('KafkaProducerWrapper', () => {
         it('flushes messages in memory', async () => {
             await producer.queueMessage({
                 topic: 'a',
-                messages: [{ value: Buffer.alloc(10) }],
+                messages: [{ value: '1'.repeat(10) }],
             })
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:15').getTime())
@@ -125,7 +141,7 @@ describe('KafkaProducerWrapper', () => {
                 topicMessages: [
                     {
                         topic: 'a',
-                        messages: [{ value: Buffer.alloc(10) }],
+                        messages: [{ value: '1'.repeat(10) }],
                     },
                 ],
             })

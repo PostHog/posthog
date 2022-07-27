@@ -1,6 +1,5 @@
 import datetime
 import json
-import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
@@ -13,7 +12,7 @@ from django.db.models import Q
 from django.db.models.expressions import F
 from django.db.models.query import QuerySet
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog.celery import update_cache_item_task
@@ -31,6 +30,7 @@ from posthog.logging.timing import timed
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -39,8 +39,6 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key
-
-PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +51,8 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 
 
 def update_cached_items() -> Tuple[int, int]:
+    PARALLEL_INSIGHT_CACHE = get_instance_setting("PARALLEL_DASHBOARD_ITEM_CACHE")
+
     tasks: List[Optional[Signature]] = []
 
     dashboard_tiles = (
@@ -117,21 +117,22 @@ def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) ->
 
 def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: QuerySet) -> None:
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
-    oldest_previously_refreshed_tiles: List[DashboardTile] = list(
-        dashboard_tiles.exclude(last_refresh=None)[0:PARALLEL_INSIGHT_CACHE]
-    )
+    oldest_previously_refreshed_tiles: List[DashboardTile] = list(dashboard_tiles.exclude(last_refresh=None)[0:10])
+    ages = []
     for candidate_tile in oldest_previously_refreshed_tiles:
         dashboard_cache_age = (datetime.datetime.now(timezone.utc) - candidate_tile.last_refresh).total_seconds()
 
+        tags = {
+            "insight_id": candidate_tile.insight_id,
+            "dashboard_id": candidate_tile.dashboard_id,
+            "cache_key": candidate_tile.filters_hash,
+        }
         statsd.gauge(
-            "update_cache_queue.dashboards_lag",
-            round(dashboard_cache_age),
-            tags={
-                "insight_id": candidate_tile.insight_id,
-                "dashboard_id": candidate_tile.dashboard_id,
-                "cache_key": candidate_tile.filters_hash,
-            },
+            "update_cache_queue.dashboards_lag", round(dashboard_cache_age), tags=tags,
         )
+        ages.append({**tags, "age": round(dashboard_cache_age)})
+
+    logger.info("update_cache_queue.seen_ages", ages=ages)
 
     # this is the number of cacheable items that match the query
     statsd.gauge("update_cache_queue_depth.shared_insights", shared_insights.count())
@@ -206,6 +207,11 @@ def _update_cache_for_queryset(
     except Exception as e:
         statsd.incr("update_cache_item_error", tags={"team": team.id})
         _mark_refresh_attempt_for(queryset)
+        with push_scope() as scope:
+            scope.set_tag("cache_key", key)
+            scope.set_tag("team_id", team.id)
+            capture_exception(e)
+        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
         raise e
 
     if result:

@@ -8,7 +8,7 @@ import { AnyPropertyFilter } from '~/types'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { CloseButton } from 'lib/components/CloseButton'
-import { IconCohort, IconPerson, UnverifiedEventStack } from 'lib/components/icons'
+import { IconCohort, IconPerson, UnverifiedEvent } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 
 export interface PropertyFilterButtonProps {
@@ -38,7 +38,7 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
         case 'event':
             iconElement = (
                 <Tooltip title={'Event property'}>
-                    <UnverifiedEventStack width={'14'} height={'14'} />
+                    <UnverifiedEvent width={14} height={14} />
                 </Tooltip>
             )
             break

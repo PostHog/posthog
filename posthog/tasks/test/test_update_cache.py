@@ -13,15 +13,11 @@ from posthog.models import Dashboard, DashboardTile, Filter, Insight
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
 from posthog.queries.util import get_earliest_timestamp
-from posthog.tasks.update_cache import (
-    PARALLEL_INSIGHT_CACHE,
-    synchronously_update_insight_cache,
-    update_cache_item,
-    update_cached_items,
-)
+from posthog.tasks.update_cache import synchronously_update_insight_cache, update_cache_item, update_cached_items
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -705,6 +701,8 @@ class TestUpdateCache(APIBaseTest):
     @patch("posthog.celery.update_cache_item_task.s")
     @freeze_time("2022-01-03T00:00:00.000Z")
     def test_refresh_insight_cache(self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock) -> None:
+        parallel_insight_cache = 5
+        set_instance_setting(key="PARALLEL_INSIGHT_CACHE", value=parallel_insight_cache)
         filter_dict: Dict[str, Any] = {
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -723,7 +721,7 @@ class TestUpdateCache(APIBaseTest):
                 filters=filter_dict,
                 last_refresh=datetime(2022, 1, 1).replace(tzinfo=pytz.utc),
             )
-            for _ in range(PARALLEL_INSIGHT_CACHE - 1)
+            for _ in range(parallel_insight_cache - 1)
         ]
 
         # Valid insights outside of the PARALLEL_INSIGHT_CACHE count with later refresh date to ensure order
@@ -740,7 +738,7 @@ class TestUpdateCache(APIBaseTest):
         tasks, queue_length = update_cached_items()
 
         assert tasks == 5
-        assert queue_length == PARALLEL_INSIGHT_CACHE + 5
+        assert queue_length == parallel_insight_cache + 5
 
         for call_item in patch_update_cache_item.call_args_list:
             update_cache_item(*call_item[0])

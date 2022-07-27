@@ -11,7 +11,7 @@ from posthog.models.feature_flag import (
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import BaseTest, QueryMatchingTest
 
 
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
@@ -62,7 +62,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
-    @snapshot_postgres_queries
     def test_multiple_flags(self):
         Person.objects.create(
             team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},
@@ -205,9 +204,43 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ]
             }
         )
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             self.assertEqual(
                 FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={}).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+            # can be computed locally
+            self.assertIsNone(
+                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(
+                    feature_flag
+                )
+            )
+
+        with self.assertNumQueries(1):
+            self.assertIsNone(FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag))
+
+            # can be computed locally
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+
+    def test_override_properties_where_person_doesnt_exist_yet(self):
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
+                    {"properties": [{"key": "email", "value": "example@example.com"}]},
+                ]
+            }
+        )
+        with self.assertNumQueries(0):
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag], "example_id", property_value_overrides={"email": "tim@posthog.com"}
+                ).get_match(feature_flag),
                 FeatureFlagMatch(),
             )
             self.assertIsNone(
@@ -216,13 +249,83 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 )
             )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             self.assertIsNone(FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag))
+
+        with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
                     [feature_flag], "random_id", property_value_overrides={"email": "example@example.com"}
                 ).get_match(feature_flag),
                 FeatureFlagMatch(),
+            )
+
+    def test_override_properties_where_person_doesnt_exist_yet_multiple_conditions(self):
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "value": "tim@posthog.com"},
+                            {"key": "another_prop", "value": "slow"},
+                        ],
+                        "rollout_percentage": 50,
+                    },
+                ]
+            }
+        )
+        with self.assertNumQueries(2):
+            # None in both because all conditions don't match
+            # and user doesn't exist yet
+            self.assertIsNone(
+                FeatureFlagMatcher(
+                    [feature_flag], "example_id", property_value_overrides={"email": "tim@posthog.com"}
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+            self.assertIsNone(
+                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={"email": "bzz"}).get_match(
+                    feature_flag
+                )
+            )
+
+        with self.assertNumQueries(1):
+            self.assertIsNone(FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag))
+
+        with self.assertNumQueries(0):
+            # Both of these match properties, but second one is outside rollout %.
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "random_id_without_rollout",
+                    property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+            self.assertIsNone(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "random_id_within_rollout",
+                    property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow", "blah": "blah"},
+                ).get_match(feature_flag),
+            )
+
+        with self.assertNumQueries(0):
+            # These don't match properties
+            self.assertIsNone(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "random_id_without_rollout",
+                    property_value_overrides={"email": "tim@posthog.com", "another_prop": "slow2", "blah": "blah"},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+            self.assertIsNone(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "random_id_without_rollout",
+                    property_value_overrides={"email": "tim2@posthog.com", "another_prop": "slow", "blah": "blah"},
+                ).get_match(feature_flag),
             )
 
     def test_multi_property_filters_with_override_properties_with_is_not_set(self):

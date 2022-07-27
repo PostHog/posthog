@@ -1946,6 +1946,12 @@ export type Duration = {
 
 export type CombinedEvent = EventDefinition | ActionType
 
+export enum CombinedEventType {
+    All = 'all',
+    Event = 'event',
+    ActionEvent = 'action_event',
+}
+
 export interface IntegrationType {
     id: number
     kind: 'slack'

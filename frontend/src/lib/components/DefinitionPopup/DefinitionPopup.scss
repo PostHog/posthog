@@ -76,7 +76,6 @@
 
             svg.taxonomy-icon {
                 margin-right: 8px;
-                width: 28px;
                 flex-shrink: 0;
 
                 &.taxonomy-icon-muted {
@@ -88,10 +87,6 @@
                 &.taxonomy-icon-verified {
                     path {
                         fill: var(--success);
-                    }
-
-                    &:not(.taxonomy-icon-ph) {
-                        margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
                     }
                 }
             }

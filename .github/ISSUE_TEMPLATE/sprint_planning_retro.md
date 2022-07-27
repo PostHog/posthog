@@ -7,6 +7,12 @@ title: Sprint 1.n.0 m/2 - Jan 1 to Jan 12
 
 # Global Sprint Planning
 
+## 3 things that might take us down
+
+1.
+2.
+3.
+
 ## Retro: Status of Outcomes from Previous Sprint
 
 1.
