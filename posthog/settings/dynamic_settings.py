@@ -134,6 +134,11 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "PARALLEL_DASHBOARD_ITEM_CACHE": (
+        get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
+        "user to determine how many insight cache updates to run at a time",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -160,6 +165,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "PARALLEL_DASHBOARD_ITEM_CACHE",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
