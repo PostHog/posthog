@@ -7804,10 +7804,12 @@ postgres-interval@^1.1.0:
   dependencies:
     xtend "^4.0.0"
 
-posthog-js-lite@^0.0.5:
-  version "0.0.5"
-  resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.5.tgz#984a619190d1c4ef003cb81194d0a6276491d2e8"
-  integrity sha512-xHVZ9qbBdoqK7G1JVA4k6nheWu50aiEwjJIPQw7Zhi705aX5wr2W8zxdmvtadeEE5qbJNg+/uZ7renOQoqcbJw==
+posthog-node@2.0.0-alpha3:
+  version "2.0.0-alpha3"
+  resolved "https://registry.yarnpkg.com/posthog-node/-/posthog-node-2.0.0-alpha3.tgz#c6ab31937796832508ffb69f9dd4ac6883258219"
+  integrity sha512-dOymntdAIB7EtoZ9/3PD+9vl2rOIHbCxwymio3wA4DxWC+vbGS+uny2xfgR46iTj1BNW5jMVUi5eFf6sb7BiFQ==
+  dependencies:
+    undici "^5.8.0"
 
 prelude-ls@^1.2.1:
   version "1.2.1"
@@ -9206,6 +9208,11 @@ unbox-primitive@^1.0.1:
     has-bigints "^1.0.1"
     has-symbols "^1.0.2"
     which-boxed-primitive "^1.0.2"
+
+undici@^5.8.0:
+  version "5.8.0"
+  resolved "https://registry.yarnpkg.com/undici/-/undici-5.8.0.tgz#dec9a8ccd90e5a1d81d43c0eab6503146d649a4f"
+  integrity sha512-1F7Vtcez5w/LwH2G2tGnFIihuWUlc58YidwLiCv+jR2Z50x0tNXpRRw7eOIJ+GvqCqIkg9SB7NWAJ/T9TLfv8Q==
 
 unicode-canonical-property-names-ecmascript@^1.0.4:
   version "1.0.4"

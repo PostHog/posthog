@@ -91,7 +91,7 @@
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
         "posthog-js": "1.27.0-alpha4",
-        "posthog-js-lite": "^0.0.3",
+        "posthog-js-lite": "2.0.0-alpha3",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "^1.0.0",
         "rc-trigger": "^5.2.5",

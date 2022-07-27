@@ -14100,10 +14100,10 @@ postcss@^8.4.14:
     picocolors "^1.0.0"
     source-map-js "^1.0.2"
 
-posthog-js-lite@^0.0.3:
-  version "0.0.3"
-  resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
-  integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
+posthog-js-lite@2.0.0-alpha3:
+  version "2.0.0-alpha3"
+  resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-2.0.0-alpha3.tgz#d3c9e89d0e3ef76d8a667a3a864257a634309789"
+  integrity sha512-3h0ZIKgpqIokcgt2nzSP2TgT9Fr4Zi+LTp+5M/AdJ0cJExxsfml9xCJ7DTBk1ROBa3H8LIel4WAKvqDF3POEcw==
 
 posthog-js@1.27.0-alpha4:
   version "1.27.0-alpha4"
