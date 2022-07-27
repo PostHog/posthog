@@ -261,12 +261,12 @@ class TestDecide(BaseTest):
 
         with override_instance_config("GEOIP_PROPERTY_OVERRIDES_TEAMS", f"{self.team.pk}"):
 
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(3):
                 response = self._post_decide(api_version=2, ip=australia_ip)
                 self.assertTrue(response.json()["featureFlags"]["beta-feature"])
                 self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
 
-            with self.assertNumQueries(4):
+            with self.assertNumQueries(3):
                 response = self._post_decide(api_version=2, distinct_id="other_id", ip=australia_ip)
                 self.assertTrue(response.json()["featureFlags"]["beta-feature"])
                 self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
