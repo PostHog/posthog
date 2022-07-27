@@ -10,9 +10,9 @@ from posthog.async_migrations.setup import (
     get_async_migration_dependency,
 )
 from posthog.async_migrations.utils import (
+    async_migration_from_starting_to_running_atomic,
     complete_migration,
     execute_op,
-    mark_async_migration_as_running,
     process_error,
     send_analytics_to_posthog,
     trigger_migration,
@@ -96,7 +96,7 @@ def start_async_migration(
         )
         return False
 
-    if not mark_async_migration_as_running(migration_instance):
+    if not async_migration_from_starting_to_running_atomic(migration_instance):
         logger.error(f"Migration state has unexpectedly changed for async migration {migration_name}")
         return False
 

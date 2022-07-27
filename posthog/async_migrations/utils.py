@@ -293,10 +293,10 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
 
 
 def async_migration_from_starting_to_running_atomic(migration_instance: AsyncMigration) -> bool:
-    # update to running iff the state was Starting
+    # update to running iff the state was Starting (ui triggered) or NotStarted (api triggered)
     with transaction.atomic():
         instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
-        if instance.status != MigrationStatus.Starting:
+        if instance.status not in [MigrationStatus.Starting, MigrationStatus.NotStarted]:
             return False
         instance.status = MigrationStatus.Running
         instance.current_query_id = ""
