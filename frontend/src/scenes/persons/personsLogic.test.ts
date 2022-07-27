@@ -4,6 +4,7 @@ import { personsLogic } from './personsLogic'
 import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
 import { useMocks } from '~/mocks/jest'
+import api from 'lib/api'
 
 describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
@@ -109,8 +110,11 @@ describe('personsLogic', () => {
         })
 
         it('loads a person where id includes +', async () => {
+            jest.spyOn(api, 'get')
             await expectLogic(logic, () => {
                 logic.actions.loadPerson('+')
+                // has encoded from + in the action to %2B in the API call
+                expect(api.get).toHaveBeenCalledWith('api/person/?distinct_id=%2B')
             })
                 .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
                 .toMatchValues({

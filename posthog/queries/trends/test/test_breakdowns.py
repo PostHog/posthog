@@ -102,7 +102,13 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_events(self):
-        response = self._run({"breakdown": "$session_duration", "breakdown_type": "session"})
+        response = self._run(
+            {
+                "breakdown": "$session_duration",
+                "breakdown_type": "session",
+                "properties": [{"key": "$current_url", "operator": "is_not", "value": ["https://test.com"]}],
+            }
+        )
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
@@ -118,7 +124,12 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_events_with_bucketing(self):
         response = self._run(
-            {"breakdown": "$session_duration", "breakdown_type": "session", "breakdown_histogram_bin_count": 3}
+            {
+                "breakdown": "$session_duration",
+                "breakdown_type": "session",
+                "breakdown_histogram_bin_count": 3,
+                "properties": [{"key": "$current_url", "operator": "is_not", "value": ["https://test.com"]}],
+            }
         )
 
         self.assertEqual(

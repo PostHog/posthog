@@ -1,6 +1,5 @@
 import datetime
 import json
-import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
@@ -31,6 +30,7 @@ from posthog.logging.timing import timed
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -39,8 +39,6 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key
-
-PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +51,8 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 
 
 def update_cached_items() -> Tuple[int, int]:
+    PARALLEL_INSIGHT_CACHE = get_instance_setting("PARALLEL_DASHBOARD_ITEM_CACHE")
+
     tasks: List[Optional[Signature]] = []
 
     dashboard_tiles = (
@@ -117,9 +117,7 @@ def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) ->
 
 def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: QuerySet) -> None:
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
-    oldest_previously_refreshed_tiles: List[DashboardTile] = list(
-        dashboard_tiles.exclude(last_refresh=None)[0:PARALLEL_INSIGHT_CACHE]
-    )
+    oldest_previously_refreshed_tiles: List[DashboardTile] = list(dashboard_tiles.exclude(last_refresh=None)[0:10])
     ages = []
     for candidate_tile in oldest_previously_refreshed_tiles:
         dashboard_cache_age = (datetime.datetime.now(timezone.utc) - candidate_tile.last_refresh).total_seconds()
