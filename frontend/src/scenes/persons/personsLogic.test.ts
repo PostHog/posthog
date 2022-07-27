@@ -113,14 +113,13 @@ describe('personsLogic', () => {
             jest.spyOn(api, 'get')
             await expectLogic(logic, () => {
                 logic.actions.loadPerson('+')
+                // has encoded from + in the action to %2B in the API call
+                expect(api.get).toHaveBeenCalledWith('api/person/?distinct_id=%2B')
             })
                 .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
                 .toMatchValues({
                     person: 'person from api',
                 })
-
-            // has encoded from + in the action to %2B in the API call
-            expect(api.get).toHaveBeenCalledWith('api/person/?distinct_id=%2B')
         })
 
         it('clears the person when switching between people', async () => {
