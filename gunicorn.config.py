@@ -29,3 +29,11 @@ def on_starting(server):
     print("Server running on \x1b[4mhttp://{}:{}\x1b[0m".format(*server.address[0]))
     print("Questions? Please shoot us an email at \x1b[4mhey@posthog.com\x1b[0m")
     print("\nTo stop, press CTRL + C")
+
+
+def worker_exit(server, worker):
+    # Ensure that we mark workers as dead with the prometheus_client such that
+    # any cleanup can happen.
+    from prometheus_client import multiprocess
+
+    multiprocess.mark_process_dead(worker.pid)
