@@ -131,7 +131,17 @@ export async function runPluginTask(
                 `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfig}`
             )
         }
-        response = await (payload ? task?.exec(payload) : task?.exec())
+        response = await runInSpan(
+            {
+                op: 'plugin.runTask',
+                description: pluginConfig?.plugin?.name || '?',
+                data: {
+                    taskName,
+                    taskType,
+                },
+            },
+            () => (payload ? task?.exec(payload) : task?.exec())
+        )
     } catch (error) {
         await processError(hub, pluginConfig || null, error)
 
