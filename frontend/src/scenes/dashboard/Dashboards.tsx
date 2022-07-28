@@ -73,7 +73,7 @@ export function Dashboards(): JSX.Element {
                             </Link>
                             {!canEditDashboard && (
                                 <Tooltip title="You don't have edit permissions for this dashboard.">
-                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em' }} />
+                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em', display: 'inline' }} />
                                 </Tooltip>
                             )}
                             {is_shared && (
@@ -89,6 +89,7 @@ export function Dashboards(): JSX.Element {
                                             color: 'var(--warning)',
                                             fontSize: '1rem',
                                             verticalAlign: '-0.125em',
+                                            display: 'inline',
                                         }}
                                     />
                                 </Tooltip>
