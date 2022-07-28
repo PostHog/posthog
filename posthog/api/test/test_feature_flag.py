@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -809,18 +810,47 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(instance.key, "alpha-feature")
 
     def test_my_flags_is_not_nplus1(self) -> None:
-        with self.assertNumQueries(6):
-            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={"name": f"flag", "key": f"flag", "filters": {"groups": [{"rollout_percentage": 5,}]},},
             format="json",
         ).json()
 
-        with self.assertNumQueries(6):
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 4):
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_getting_flags_is_not_nplus1(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for i in range(1, 5):
+            self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": f"flag", "key": f"flag_{i}", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+                format="json",
+            ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -876,6 +906,16 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(first_flag["feature_flag"]["key"], "alpha-feature")
         self.assertEqual(first_flag["value"], False)
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_my_flags_empty_flags(self, mock_capture):
+        # Ensure empty feature flag list
+        FeatureFlag.objects.all().delete()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data), 0)
+
     @patch("posthoganalytics.capture")
     def test_my_flags_groups(self, mock_capture):
         self.client.post(
@@ -902,6 +942,134 @@ class TestFeatureFlag(APIBaseTest):
         groups_flag = response.json()[0]
         self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
         self.assertEqual(groups_flag["value"], True)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 21}],},
+            },
+            format="json",
+        )
+
+        # old style feature flags
+        FeatureFlag.objects.create(
+            name="Beta feature",
+            key="beta-feature",
+            team=self.team,
+            rollout_percentage=51,
+            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
+            created_by=self.user,
+        )
+
+        key = PersonalAPIKey(label="Test", user=self.user)
+        key.save()
+        personal_api_key = key.value
+
+        self.client.logout()
+        # `local_evaluation` is called by logged out clients!
+
+        # missing API key
+        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        response = self.client.get(f"/api/feature_flag/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 3)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": True,
+                "rollout_percentage": 20,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[0],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}
+                    ]
+                },
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": False,
+                "rollout_percentage": None,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[1],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0,},
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": False,
+                "rollout_percentage": None,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[2],
+        )
+
+        self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company",})
 
     def test_validation_person_properties(self):
         person_request = self._create_flag_with_properties(

@@ -12,6 +12,8 @@ from posthog.models.filters.mixins.common import (
     CompareMixin,
     DateMixin,
     DisplayDerivedMixin,
+    DistinctIdMixin,
+    EmailMixin,
     EntitiesMixin,
     EntityIdMixin,
     EntityMathMixin,
@@ -83,6 +85,8 @@ class Filter(
     SimplifyFilterMixin,
     IncludeRecordingsMixin,
     SearchMixin,
+    DistinctIdMixin,
+    EmailMixin,
     BaseFilter,
 ):
     """

@@ -4,17 +4,13 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
-from django.conf import settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.logging.timing import timed
-from posthog.models.exported_asset import ExportedAsset
-from posthog.models.utils import UUIDT
-from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
+from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -55,8 +51,13 @@ def _modifiy_query(url: str, params: Dict[str, List[str]]) -> str:
 
 def _convert_response_to_csv_data(data: Any) -> List[Any]:
     if isinstance(data.get("results"), list):
+        results = data.get("results")
+        # persons modal like
+        if len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
+            return results[0].get("people")
+
         # Pagination object
-        return data.get("results")
+        return results
     elif data.get("result") and isinstance(data.get("result"), list):
         items = data["result"]
         first_result = items[0]
@@ -134,7 +135,7 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 10_000,) -> None:
+def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500,) -> None:
     resource = exported_asset.export_context
 
     path: str = resource["path"]
@@ -155,6 +156,9 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
+        if response.status_code != 200:
+            raise Exception(f"export API call failed with status_code: {response.status_code}")
+
         # Figure out how to handle funnel polling....
         data = response.json()
         csv_rows = _convert_response_to_csv_data(data)
@@ -176,41 +180,11 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             renderer.header = all_csv_rows[0].keys()
 
     rendered_csv_content = renderer.render(all_csv_rows)
-
-    try:
-        if settings.OBJECT_STORAGE_ENABLED:
-            _write_to_object_storage(exported_asset, rendered_csv_content)
-        else:
-            _write_to_exported_asset(exported_asset, rendered_csv_content)
-    except ObjectStorageError as ose:
-        with push_scope() as scope:
-            scope.set_tag("celery_task", "csv_export")
-            capture_exception(ose)
-        logger.error("csv_exporter.object-storage-error", exception=ose, exc_info=True)
-        _write_to_exported_asset(exported_asset, rendered_csv_content)
-
-
-def _write_to_exported_asset(exported_asset: ExportedAsset, rendered_csv_content: bytes) -> None:
-    exported_asset.content = rendered_csv_content
-    exported_asset.save(update_fields=["content"])
-
-
-def _write_to_object_storage(exported_asset: ExportedAsset, rendered_csv_content: bytes) -> None:
-    path_parts: List[str] = [
-        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
-        "csvs",
-        f"team-{exported_asset.team.id}",
-        f"task-{exported_asset.id}",
-        str(UUIDT()),
-    ]
-    object_path = f'/{"/".join(path_parts)}'
-    object_storage.write(object_path, rendered_csv_content)
-    exported_asset.content_location = object_path
-    exported_asset.save(update_fields=["content_location"])
+    save_content(exported_asset, rendered_csv_content)
 
 
 @timed("csv_exporter")
-def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 10_000,) -> None:
+def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500,) -> None:
     if not limit:
         limit = 1000
 

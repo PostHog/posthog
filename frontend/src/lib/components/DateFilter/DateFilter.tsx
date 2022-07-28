@@ -13,7 +13,6 @@ import { CalendarOutlined } from '@ant-design/icons'
 export interface DateFilterProps {
     defaultValue: string
     showCustom?: boolean
-    bordered?: boolean
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     className?: string
@@ -43,7 +42,6 @@ export function DateFilter({
     dateTo,
     dateOptions = dateMapping,
     isDateFormatted = true,
-    bordered,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps = { key, dateFrom, dateTo, onChange, defaultValue, dateOptions, isDateFormatted }
@@ -141,7 +139,7 @@ export function DateFilter({
             disabled={disabled}
             className={className}
             style={style}
-            bordered={bordered}
+            bordered={true}
             size={'small'}
             type={'stealth'}
             popup={{

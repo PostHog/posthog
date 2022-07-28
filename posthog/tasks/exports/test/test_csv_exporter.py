@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from boto3 import resource
@@ -24,6 +24,7 @@ class TestCSVExporter(APIBaseTest):
     def patched_request(self):
         with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
             mock_response = Mock()
+            mock_response.status_code = 200
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
             mock_response.json.side_effect = [
                 {
@@ -75,16 +76,14 @@ class TestCSVExporter(APIBaseTest):
             patched_request.return_value = mock_response
             yield patched_request
 
-    exported_asset: ExportedAsset
-
-    def setup_method(self, method):
+    def _create_asset(self) -> ExportedAsset:
         asset = ExportedAsset(
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={"path": "/api/literally/anything"},
         )
         asset.save()
-        self.exported_asset = asset
+        return asset
 
     def teardown_method(self, method):
         s3 = resource(
@@ -99,48 +98,65 @@ class TestCSVExporter(APIBaseTest):
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
     def test_csv_exporter_writes_to_asset_when_object_storage_is_disabled(self) -> None:
+        exported_asset = self._create_asset()
         with self.settings(OBJECT_STORAGE_ENABLED=False):
-            csv_exporter.export_csv(self.exported_asset)
+            csv_exporter.export_csv(exported_asset)
 
             assert (
-                self.exported_asset.content
+                exported_asset.content
                 == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
             )
-            assert self.exported_asset.content_location is None
+            assert exported_asset.content_location is None
 
-    @patch("posthog.tasks.exports.csv_exporter.UUIDT")
+    @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt) -> None:
+        exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
+
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(self.exported_asset)
+            csv_exporter.export_csv(exported_asset)
 
             assert (
-                self.exported_asset.content_location
-                == f"/{TEST_BUCKET}/csvs/team-{self.team.id}/task-{self.exported_asset.id}/a-guid"
+                exported_asset.content_location
+                == f"/{TEST_BUCKET}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
             )
 
-            content = object_storage.read(self.exported_asset.content_location)
+            content = object_storage.read(exported_asset.content_location)
             assert (
                 content
                 == "distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
             )
 
-            assert self.exported_asset.content is None
+            assert exported_asset.content is None
 
-    @patch("posthog.tasks.exports.csv_exporter.UUIDT")
-    @patch("posthog.tasks.exports.csv_exporter.object_storage.write")
-    def test_csv_exporter_writes_to_object_storage_when_object_storage_write_fails(
-        self, mocked_uuidt, mocked_object_storage_write
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_writes_to_asset_when_object_storage_write_fails(
+        self, mocked_object_storage_write, mocked_uuidt
     ) -> None:
+        exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
-            csv_exporter.export_csv(self.exported_asset)
+            csv_exporter.export_csv(exported_asset)
 
-            assert self.exported_asset.content_location is None
+            assert exported_asset.content_location is None
 
             assert (
-                self.exported_asset.content
+                exported_asset.content
                 == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
             )
+
+    @patch("posthog.tasks.exports.csv_exporter.logger")
+    @patch("posthog.tasks.exports.csv_exporter.statsd")
+    def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
+        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            exported_asset = self._create_asset()
+            mock_response = MagicMock()
+            mock_response.status_code = 403
+            mock_response.ok = False
+            patched_request.return_value = mock_response
+
+            with pytest.raises(Exception, match="export API call failed with status_code: 403"):
+                csv_exporter.export_csv(exported_asset)

@@ -8,11 +8,24 @@ import {
     PluginError,
     PluginLogEntrySource,
     PluginLogEntryType,
-    StoredPluginMetrics,
 } from '../../types'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
-    return `SELECT posthog_pluginconfig.${specificField || '*'}
+    const fields = specificField
+        ? `posthog_pluginconfig.${specificField}`
+        : `
+        posthog_pluginconfig.id,
+        posthog_pluginconfig.team_id,
+        posthog_pluginconfig.plugin_id,
+        posthog_pluginconfig.enabled,
+        posthog_pluginconfig.order,
+        posthog_pluginconfig.config,
+        posthog_pluginconfig.updated_at,
+        posthog_pluginconfig.created_at,
+        posthog_pluginconfig.error IS NOT NULL AS has_error
+    `
+
+    return `SELECT ${fields}
        FROM posthog_pluginconfig
        LEFT JOIN posthog_team ON posthog_team.id = posthog_pluginconfig.team_id
        LEFT JOIN posthog_organization ON posthog_organization.id = posthog_team.organization_id
@@ -33,22 +46,15 @@ export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
         `SELECT
             posthog_plugin.id,
             posthog_plugin.name,
-            posthog_plugin.description,
             posthog_plugin.url,
-            posthog_plugin.config_schema,
             posthog_plugin.tag,
             posthog_plugin.from_json,
             posthog_plugin.from_web,
             posthog_plugin.error,
             posthog_plugin.plugin_type,
-            posthog_plugin.source,
             posthog_plugin.organization_id,
-            posthog_plugin.created_at,
-            posthog_plugin.updated_at,
             posthog_plugin.is_global,
-            posthog_plugin.is_preinstalled,
             posthog_plugin.capabilities,
-            posthog_plugin.metrics,
             posthog_plugin.public_jobs,
             posthog_plugin.is_stateless,
             posthog_plugin.log_level,
@@ -99,18 +105,6 @@ export async function setPluginCapabilities(
         'UPDATE posthog_plugin SET capabilities = ($1) WHERE id = $2',
         [capabilities, pluginConfig.plugin_id],
         'setPluginCapabilities'
-    )
-}
-
-export async function setPluginMetrics(
-    hub: Hub,
-    pluginConfig: PluginConfig,
-    metrics: StoredPluginMetrics
-): Promise<void> {
-    await hub.db.postgresQuery(
-        'UPDATE posthog_plugin SET metrics = ($1) WHERE id = $2',
-        [metrics, pluginConfig.plugin_id],
-        'setPluginMetrics'
     )
 }
 

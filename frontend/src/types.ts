@@ -1385,6 +1385,7 @@ export interface FeatureFlagType {
     is_simple_flag: boolean
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
+    experiment_set: string[] | null
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -1427,6 +1428,10 @@ export interface PreflightStatus {
     opt_out_capture?: boolean
     posthog_version?: string
     email_service_available: boolean
+    slack_service: {
+        available: boolean
+        client_id?: string
+    }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     is_event_property_usage_enabled?: boolean
@@ -1935,6 +1940,12 @@ export type Duration = {
 
 export type CombinedEvent = EventDefinition | ActionType
 
+export enum CombinedEventType {
+    All = 'all',
+    Event = 'event',
+    ActionEvent = 'action_event',
+}
+
 export interface IntegrationType {
     id: number
     kind: 'slack'
@@ -1974,6 +1985,7 @@ export interface ExportedAssetType {
         query?: any
         body?: any
         filename?: string
+        max_limit?: number
     }
     has_content: boolean
     filename: string

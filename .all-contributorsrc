@@ -1935,6 +1935,33 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "klink",
+      "name": "Kate Klink",
+      "avatar_url": "https://avatars.githubusercontent.com/u/5008686?v=4",
+      "profile": "http://kateklink.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "rafalmierzwiak",
+      "name": "Rafal Mierzwiak",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11348586?v=4",
+      "profile": "https://www.rm.pl",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "gitstart",
+      "name": "GitStart",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1501599?v=4",
+      "profile": "http://gitstart.github.io/",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

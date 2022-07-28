@@ -24,7 +24,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.update_cache import update_insight_cache
+from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -401,6 +401,24 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile.filters_hash)
 
+    def test_adding_insight_to_a_dashboard_sets_filters_hash(self) -> None:
+        dashboard_id, _ = self._create_dashboard({})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            }
+        )
+
+        self._add_insight_to_dashboard(dashboard_ids=[dashboard_id], insight_id=insight_id)
+
+        tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
+        self.assertIsNotNone(tile.filters_hash)
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_logs_derived_name_if_there_is_no_name(self):
         response = self.client.post(
@@ -680,7 +698,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @patch("posthog.api.insight.update_insight_cache", wraps=update_insight_cache)
+    @patch("posthog.api.insight.synchronously_update_insight_cache", wraps=synchronously_update_insight_cache)
     def test_insight_refreshing(self, spy_update_insight_cache):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d",}})
 
@@ -1480,6 +1498,72 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "changing when restricted"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(self):
+        # create insight and dashboard separately with default user
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+
+        insight_id, response_data = self._create_insight(data={"name": "starts un-restricted dashboard"})
+
+        # user with no permissions on the dashboard cannot add insight to it
+        user_without_permissions = User.objects.create_and_join(
+            organization=self.organization, email="no_access_user@posthog.com", password=None,
+        )
+        self.client.force_login(user_without_permissions)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted.id]},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_non_admin_user_with_privilege_can_add_an_insight_to_a_restricted_dashboard(self):
+        # create insight and dashboard separately with default user
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+
+        insight_id, response_data = self._create_insight(data={"name": "starts un-restricted dashboard"})
+
+        user_with_permissions = User.objects.create_and_join(
+            organization=self.organization, email="with_access_user@posthog.com", password=None,
+        )
+
+        DashboardPrivilege.objects.create(
+            dashboard=dashboard_restricted,
+            user=user_with_permissions,
+            level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        self.client.force_login(user_with_permissions)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted.id]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_admin_user_can_add_an_insight_to_a_restricted_dashboard(self):
+        # create insight and dashboard separately with default user
+        dashboard_restricted: Dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
+
+        insight_id, response_data = self._create_insight(data={"name": "starts un-restricted dashboard"})
+
+        # an admin user has implicit permissions on the dashboard and can add the insight to it
+        admin = User.objects.create_and_join(
+            organization=self.organization,
+            email="team2@posthog.com",
+            password=None,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        self.client.force_login(admin)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted.id]},
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_saving_an_insight_with_new_filters_updates_the_dashboard_tile(self):
         dashboard_id, _ = self._create_dashboard({})

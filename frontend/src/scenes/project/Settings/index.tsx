@@ -15,7 +15,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
@@ -29,13 +29,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { CorrelationConfig } from './CorrelationConfig'
 import { urls } from 'scenes/urls'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
 import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
 import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -86,7 +85,6 @@ export function ProjectSettings(): JSX.Element {
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -266,7 +264,7 @@ export function ProjectSettings(): JSX.Element {
                     <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
-                <AuthorizedUrlsTable />
+                <AuthorizedUrls />
                 <Divider />
                 <h2 className="subtitle" id="attributes">
                     Data attributes
@@ -283,15 +281,13 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <WebhookIntegration />
                 <Divider />
-                {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
-                    <>
-                        <h2 className="subtitle" id="slack">
-                            Slack integration
-                        </h2>
-                        <SlackIntegration />
-                        <Divider />
-                    </>
-                )}
+                <>
+                    <h2 className="subtitle" id="slack">
+                        Slack integration
+                    </h2>
+                    <SlackIntegration />
+                    <Divider />
+                </>
                 <h2 className="subtitle" id="datacapture">
                     Data capture configuration
                 </h2>

@@ -25,9 +25,9 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         if (typeof change?.after === 'string') {
             isActive = change?.after.toLowerCase() === 'true'
         }
-        const describeChange: string = isActive ? 'enabled the flag' : 'disabled the flag'
+        const describeChange: string = isActive ? 'enabled' : 'disabled'
 
-        return [<>{describeChange}</>]
+        return [<>{describeChange} the flag</>]
     },
     filters: function onChangedFilter(change) {
         const filtersBefore = change?.before as FeatureFlagFilters
@@ -157,6 +157,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
     created_at: () => null,
     created_by: () => null,
     is_simple_flag: () => null,
+    experiment_set: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {

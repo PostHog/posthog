@@ -61,7 +61,7 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/insights/7/activity/`]: {
+                    [`/api/projects/${MOCK_TEAM_ID}/insights/activity/`]: {
                         results: insightsActivityResponseJson,
                         next: 'a provided url',
                     },

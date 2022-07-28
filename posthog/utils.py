@@ -520,7 +520,8 @@ def load_data_from_request(request):
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:
-        scope.set_context("data", data)
+        if isinstance(data, dict):
+            scope.set_context("data", data)
         scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
         scope.set_tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
@@ -990,3 +991,19 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     except Exception as err:
         capture_exception(err)
         return None
+
+
+def should_write_recordings_to_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
+    )
+
+
+def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
+    )

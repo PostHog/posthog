@@ -6,7 +6,8 @@
             .definition-column-name-icon {
                 display: flex;
                 align-items: center;
-                justify-content: flex-start;
+                justify-content: center;
+                width: 30px;
 
                 svg.taxonomy-icon {
                     flex-shrink: 0;
@@ -18,14 +19,8 @@
                     }
 
                     &.taxonomy-icon-verified {
-                        height: 28px;
-
                         path {
                             fill: var(--success);
-                        }
-
-                        &:not(.taxonomy-icon-ph) {
-                            margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
                         }
                     }
                 }
