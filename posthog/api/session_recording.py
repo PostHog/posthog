@@ -67,8 +67,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         files = list_all_objects(folder)
         has_next = False
         if limit is not None:
-            files = files[offset : offset + limit]
             has_next = len(files) > limit + offset
+            files = files[offset : offset + limit]
 
         file_names = [object["Key"] for object in files]
 
