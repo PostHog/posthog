@@ -63,6 +63,8 @@ class AllowIPMiddleware:
             "e",
             "static",
             "_health",
+            "_readyz",
+            "_livez",
         ]:
             return response
         ip = self.extract_client_ip(request)
