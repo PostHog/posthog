@@ -108,6 +108,7 @@ export class KafkaProducerWrapper {
             } catch (err) {
                 Sentry.captureException(err, {
                     extra: {
+                        messages: messages,
                         batchCount: messages.length,
                         topics: messages.map((record) => record.topic),
                         messageCounts: messages.map((record) => record.messages.length),
