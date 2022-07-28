@@ -452,8 +452,7 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str
     By setting a rate limit we can keep the queue of tasks full so that workers aren't idle
     Without overwhelming ClickHouse
 
-    The `set_update_cache_consumer_rate_limit` task periodically checks an instance setting
-    and updates the rate limit
+    The `update_cache_consumer_rate_limit` can be used to update the rate limit
     """
     from posthog.tasks.update_cache import update_cache_item
 
