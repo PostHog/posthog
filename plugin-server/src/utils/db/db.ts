@@ -226,6 +226,7 @@ export class DB {
     }
 
     public postgresTransaction<ReturnType extends any>(
+        tag: string,
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
         return instrumentQuery(this.statsd, 'query.postgres_transation', undefined, async () => {
@@ -925,7 +926,7 @@ export class DB {
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
-        const person = await this.postgresTransaction(async (client) => {
+        const person = await this.postgresTransaction('createPerson', async (client) => {
             const insertResult = await this.postgresQuery(
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
@@ -1963,7 +1964,7 @@ export class DB {
         jobName: string,
         jobPayloadJson: Record<string, any>
     ): Promise<void> {
-        await this.postgresTransaction(async (client) => {
+        await this.postgresTransaction('addOrUpdatePublicJob', async (client) => {
             let publicJobs: Record<string, any> = (
                 await this.postgresQuery(
                     'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
