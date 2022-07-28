@@ -21,7 +21,7 @@ export function initSentry(config: PluginsServerConfig): void {
                     PLUGIN_SERVER_MODE: config.PLUGIN_SERVER_MODE,
                 },
             },
-            tracesSampleRate: 1,
+            tracesSampleRate: config.SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE,
         })
     }
 }
