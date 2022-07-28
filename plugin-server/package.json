@@ -60,7 +60,6 @@
         "ioredis": "^4.27.6",
         "jsonwebtoken": "^8.5.1",
         "kafkajs": "^2.0.2",
-        "kafkajs-snappy": "^1.1.0",
         "lru-cache": "^6.0.0",
         "luxon": "^1.27.0",
         "node-fetch": "^2.6.1",

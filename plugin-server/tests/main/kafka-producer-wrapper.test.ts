@@ -1,4 +1,4 @@
-import { CompressionTypes, Producer } from 'kafkajs'
+import { Producer } from 'kafkajs'
 
 import { PluginsServerConfig } from '../../src/types'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
@@ -49,7 +49,6 @@ describe('KafkaProducerWrapper', () => {
             expect(producer.currentBatch.length).toEqual(0)
             expect(producer.currentBatchSize).toEqual(0)
             expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
-                compression: CompressionTypes.Snappy,
                 topicMessages: [expect.anything(), expect.anything(), expect.anything(), expect.anything()],
             })
         })
@@ -77,7 +76,6 @@ describe('KafkaProducerWrapper', () => {
             expect(producer.currentBatchSize).toBeGreaterThan(40)
             expect(producer.currentBatchSize).toBeLessThan(100)
             expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
-                compression: CompressionTypes.Snappy,
                 topicMessages: [expect.anything(), expect.anything()],
             })
         })
@@ -93,7 +91,6 @@ describe('KafkaProducerWrapper', () => {
             expect(producer.currentBatch.length).toEqual(0)
             expect(producer.currentBatchSize).toEqual(0)
             expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
-                compression: CompressionTypes.Snappy,
                 topicMessages: [expect.anything()],
             })
         })
@@ -124,7 +121,6 @@ describe('KafkaProducerWrapper', () => {
             expect(producer.currentBatch.length).toEqual(0)
             expect(producer.lastFlushTime).toEqual(Date.now())
             expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
-                compression: CompressionTypes.Snappy,
                 topicMessages: [expect.anything(), expect.anything(), expect.anything()],
             })
         })
@@ -142,7 +138,6 @@ describe('KafkaProducerWrapper', () => {
             await producer.flush()
 
             expect(mockKafkaProducer.sendBatch).toHaveBeenCalledWith({
-                compression: CompressionTypes.Snappy,
                 topicMessages: [
                     {
                         topic: 'a',

@@ -1,14 +1,10 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { CompressionCodecs, CompressionTypes, Message, Producer, ProducerRecord } from 'kafkajs'
-// @ts-expect-error no type definitions
-import SnappyCodec from 'kafkajs-snappy'
+import { Message, Producer, ProducerRecord } from 'kafkajs'
 
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../metrics'
 import { timeoutGuard } from './utils'
-
-CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 /** This class wraps kafkajs producer, adding batching to optimize performance.
  *
@@ -108,7 +104,6 @@ export class KafkaProducerWrapper {
             try {
                 await this.producer.sendBatch({
                     topicMessages: messages,
-                    compression: CompressionTypes.Snappy,
                 })
             } catch (err) {
                 Sentry.captureException(err, {
