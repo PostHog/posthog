@@ -7804,10 +7804,10 @@ postgres-interval@^1.1.0:
   dependencies:
     xtend "^4.0.0"
 
-posthog-node@2.0.0-alpha4:
-  version "2.0.0-alpha4"
-  resolved "https://registry.yarnpkg.com/posthog-node/-/posthog-node-2.0.0-alpha4.tgz#26617622508f701ed4e9d12285c6c17e803cb57c"
-  integrity sha512-/WgjomY5G2XMf0mTZPv70WZqRE880YJJHoL21a4XHltyA4+LMAdz3Tbfruinn0wEm2hHLIi2swA0EhDhb2z5RQ==
+posthog-node@2.0.0-alpha5:
+  version "2.0.0-alpha5"
+  resolved "https://registry.yarnpkg.com/posthog-node/-/posthog-node-2.0.0-alpha5.tgz#911765defb8a135f97083398055d5c5f54ebc3ca"
+  integrity sha512-W/O6YNwYMHcZhus/RjZF93hnnqAhJAYRmJD3uWF8iWgh7mnmMebhqbZ8aB0NWY/drRynplXWsSRscFEVKUXpag==
   dependencies:
     undici "^5.8.0"
 
