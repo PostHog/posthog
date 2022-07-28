@@ -1,24 +1,38 @@
 import { Kafka } from 'kafkajs'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
-import { RecordingEvent, RecordingEventGroup } from '../types'
+import { RecordingEvent, RecordingEventGroup, RecordingMessage } from '../types'
 import { s3Client } from '../s3'
 import { meterProvider, metricRoutes } from './metrics'
 import { performance } from 'perf_hooks'
-import { getEventGroupDataString, getEventSummaryMetadata } from './utils'
+import {
+    convertKafkaMessageToRecordingMessage,
+    convertRecordingMessageToKafkaMessage,
+    getEventGroupDataString,
+    getEventSize,
+    getEventSummaryMetadata,
+} from './utils'
 import { getHealthcheckRoutes } from './healthcheck'
 import express from 'express'
 import pino from 'pino'
+import { randomUUID } from 'crypto'
 
 const logger = pino({ name: 'ingester', level: process.env.LOG_LEVEL || 'info' })
 
 const maxEventGroupAge = Number.parseInt(
     process.env.MAX_EVENT_GROUP_AGE || process.env.NODE_ENV === 'dev' ? '1000' : '300000'
 )
-const maxEventGroupSize = Number.parseInt(
+const eventGroupSizeUploadThreshold = Number.parseInt(
     process.env.MAX_EVENT_GROUP_SIZE || process.env.NODE_ENV === 'dev' ? '1000' : '1000000'
 )
 
-const RECORDING_EVENTS_TOPIC = 'recording_events'
+const RECORDING_EVENTS_DEAD_LETTER_TOPIC = 'recording_events_dead_letter'
+const RECORDING_EVENTS_TOPICS_CONFIGS = {
+    recording_events: { timeout: 0, retryTopic: 'recording_events_retry_1' },
+    recording_events_retry_1: { timeout: 2 * 1000, retryTopic: 'recording_events_retry_2' },
+    recording_events_retry_2: { timeout: 30 * 1000, retryTopic: 'recording_events_retry_3' },
+    recording_events_retry_3: { timeout: 5 * 60 * 1000, retryTopic: RECORDING_EVENTS_DEAD_LETTER_TOPIC },
+}
+const RECORDING_EVENTS_TOPICS = Object.keys(RECORDING_EVENTS_TOPICS_CONFIGS)
 
 const kafka = new Kafka({
     clientId: 'ingester',
@@ -31,16 +45,29 @@ const consumerConfig = {
     heartbeatInterval: 6000,
 }
 const consumer = kafka.consumer(consumerConfig)
-
 consumer.connect()
-consumer.subscribe({ topic: RECORDING_EVENTS_TOPIC })
+consumer.subscribe({ topics: RECORDING_EVENTS_TOPICS })
+
+const producerConfig = {
+    // Question: Should we disable this setting? We'd need to ensure the retry queues are created somewhere else
+    allowAutoTopicCreation: true,
+}
+const producer = kafka.producer(producerConfig)
+producer.connect()
 
 const app = express()
 app.use(getHealthcheckRoutes({ consumer, consumerConfig }))
 app.use(metricRoutes)
+
+// TODO: Handle when this port is in use
 const httpServer = app.listen(3001)
 
-const eventsBySessionId: { [key: string]: RecordingEventGroup } = {}
+// We hold multiple event groups per session at once. This is to avoid
+// committing an offset for messages that haven't been sent yet.
+const eventGroupsBySessionId: { [key: string]: RecordingEventGroup[] } = {}
+
+// TODO: Handle old messages in this buffer. They could stop the Kafka offset from progressing
+const eventBuffers: Record<string, RecordingEvent> = {}
 
 // Define the metrics we'll be exposing at /metrics
 const meter = meterProvider.getMeter('ingester')
@@ -53,158 +80,227 @@ const eventGroupsInFlight = meter.createObservableGauge('event_groups_in_flight'
 })
 const s3PutObjectTime = meter.createHistogram('s3_put_object_time')
 
+// TODO: Handle transactions when retrying messages
+const retryMessage = async (message: RecordingMessage) => {
+    const retryTopic =
+        RECORDING_EVENTS_TOPICS_CONFIGS[message.kafkaTopic as keyof typeof RECORDING_EVENTS_TOPICS_CONFIGS].retryTopic
+    producer.send({
+        topic: retryTopic,
+        messages: [convertRecordingMessageToKafkaMessage(message)],
+    })
+}
+
+const retryEventGroup = async (eventGroup: RecordingEventGroup) => {
+    Object.values(eventGroup.events)
+        .flat()
+        .forEach((event) => {
+            event.messages.forEach((message) => {
+                retryMessage(message)
+            })
+        })
+}
+
+// TODO: Make this handle multiple topics + partitions
+const getOffsetOfOldestMessageInBuffers = (topic: string, partition: number): number => {
+    const oldestMessageOffsetInEventBuffer = Object.values(eventBuffers).reduce((acc, event) => {
+        return Math.min(acc, event.oldestOffset)
+    }, -1)
+
+    const oldestMessageOffsetInEventGroups = Object.values(eventGroupsBySessionId)
+        .flat()
+        .reduce((acc, eventGroup) => {
+            return Math.min(acc, eventGroup.oldestOffset)
+        }, -1)
+
+    return Math.min(oldestMessageOffsetInEventBuffer, oldestMessageOffsetInEventGroups)
+}
+
+const commitEventGroupToS3 = async (eventGroupToSend: RecordingEventGroup, topic: string, partition: number) => {
+    const baseKey = `session_recordings/team_id/${eventGroupToSend.teamId}/session_id/${eventGroupToSend.sessionId}`
+    const dataKey = `${baseKey}/data/${eventGroupToSend.oldestEventTimestamp}-${eventGroupToSend.oldestOffset}`
+    const metaDataEventSummaryKey = `${baseKey}/metadata/event_summaries/${eventGroupToSend.oldestEventTimestamp}-${eventGroupToSend.oldestOffset}`
+    const metaDataKey = `${baseKey}/metadata/metadata.json`
+
+    logger.debug({ action: 'committing_event_group', sessionId: eventGroupToSend.sessionId, key: dataKey })
+
+    try {
+        const sendStartTime = performance.now()
+        await s3Client.send(
+            new PutObjectCommand({
+                Bucket: 'posthog',
+                Key: metaDataEventSummaryKey,
+                Body: getEventSummaryMetadata(eventGroupToSend),
+            })
+        )
+        await s3Client.send(
+            new PutObjectCommand({
+                Bucket: 'posthog',
+                Key: metaDataKey,
+                Body: JSON.stringify({ distinctId: eventGroupToSend.distinctId }),
+            })
+        )
+        await s3Client.send(
+            new PutObjectCommand({
+                Bucket: 'posthog',
+                Key: dataKey,
+                Body: getEventGroupDataString(eventGroupToSend),
+            })
+        )
+        const sendEndTime = performance.now()
+        s3PutObjectTime.record(sendEndTime - sendStartTime)
+    } catch (err) {
+        logger.error({
+            action: 'failed_to_commit_event_group',
+            sessionId: eventGroupToSend.sessionId,
+            key: dataKey,
+            error: err,
+            topic,
+        })
+        retryEventGroup(eventGroupToSend)
+    }
+
+    // We've sent the event group to S3 or teh retry queues, so we can remove it from the buffer
+    eventGroupsBySessionId[eventGroupToSend.sessionId] = eventGroupsBySessionId[eventGroupToSend.sessionId].filter(
+        (eventGroup) => {
+            eventGroup.id !== eventGroupToSend.id
+        }
+    )
+
+    eventGroupsInFlight.addCallback((observableResult) =>
+        observableResult.observe(Object.keys(eventGroupsBySessionId).flat().length)
+    )
+
+    // Update the Kafka offset
+    const oldestOffsetInBuffers = getOffsetOfOldestMessageInBuffers(topic, partition)
+    const offsetToCommit = oldestOffsetInBuffers === -1 ? eventGroupToSend.newestOffset + 1 : oldestOffsetInBuffers
+    consumer.commitOffsets([
+        {
+            topic,
+            partition,
+            offset: offsetToCommit.toString(),
+        },
+    ])
+
+    logger.debug({ action: 'committing_offset', offset: offsetToCommit, partition })
+    eventGroupsCommittedCounter.add(1)
+}
+
+const createEventGroup = (event: RecordingEvent) => {
+    const eventGroup: RecordingEventGroup = {
+        id: randomUUID(),
+        events: {} as Record<string, RecordingEvent>,
+        size: 0,
+        teamId: event.teamId,
+        sessionId: event.sessionId,
+        oldestEventTimestamp: event.timestamp,
+        distinctId: event.distinctId,
+        oldestOffset: event.oldestOffset,
+        newestOffset: event.newestOffset,
+        status: 'active',
+    }
+    eventGroup.timer = setTimeout(() => {
+        eventGroup.status = 'sending'
+        commitEventGroupToS3({ ...eventGroup }, event.kafkaTopic, event.kafkaPartition)
+    }, maxEventGroupAge)
+    logger.debug({ action: 'create_event_group', sessionId: eventGroup.sessionId })
+
+    if (eventGroupsBySessionId[event.sessionId]) {
+        eventGroupsBySessionId[event.sessionId].push(eventGroup)
+    } else {
+        eventGroupsBySessionId[event.sessionId] = [eventGroup]
+    }
+
+    return eventGroup
+}
+
+const processCompleteEvent = async (event: RecordingEvent) => {
+    logger.debug({
+        action: 'start',
+        uuid: event.eventId,
+        sessionId: event.sessionId,
+    })
+
+    let eventGroup = eventGroupsBySessionId[event.sessionId]?.filter((eventGroup) => eventGroup.status === 'active')[0]
+
+    if (!eventGroup) {
+        eventGroup = createEventGroup(event)
+        eventGroupsStarted.add(1, { reason: 'no-existing-event-group' })
+    }
+
+    eventGroup.events[event.eventId] = event
+    eventGroup.size += getEventSize(event)
+    eventGroup.newestOffset = event.newestOffset
+
+    if (eventGroup.size > eventGroupSizeUploadThreshold) {
+        clearTimeout(eventGroup.timer)
+        eventGroup.status = 'sending'
+        commitEventGroupToS3({ ...eventGroup }, event.kafkaTopic, event.kafkaPartition)
+    }
+}
+
+const handleMessage = async (message: RecordingMessage) => {
+    const recordingEvent: RecordingEvent = eventBuffers[message.eventId] || {
+        eventId: message.eventId,
+        sessionId: message.sessionId,
+        windowId: message.windowId,
+        distinctId: message.distinctId,
+        eventSource: message.eventSource,
+        eventType: message.eventType,
+        teamId: message.teamId,
+        timestamp: message.timestamp,
+        complete: false,
+        messages: [],
+        kafkaTopic: message.kafkaTopic,
+        kafkaPartition: message.kafkaPartition,
+        oldestOffset: message.kafkaOffset,
+        newestOffset: message.kafkaOffset,
+    }
+
+    recordingEvent.complete = message.chunkIndex === message.chunkCount - 1
+    recordingEvent.messages.push(message)
+    recordingEvent.newestOffset = message.kafkaOffset
+
+    if (!recordingEvent.complete) {
+        eventBuffers[message.eventId] = recordingEvent
+    } else {
+        if (message.chunkCount !== recordingEvent.messages.length) {
+            logger.error({
+                action: 'chunk_count_mismatch',
+                sessionId: message.sessionId,
+                eventId: message.eventId,
+                chunkCount: message.chunkCount,
+                chunkIndex: message.chunkIndex,
+                messageCount: recordingEvent.messages.length,
+            })
+        }
+        processCompleteEvent(recordingEvent)
+        delete eventBuffers[message.eventId]
+    }
+
+    snapshotMessagesProcessed.add(1)
+}
+
 consumer.run({
     autoCommit: false,
     eachMessage: async ({ topic, partition, message }) => {
         // We need to parse the event to get team_id and session_id although
         // ideally we'd put this into the key instead to avoid needing to parse
         // TODO: handle seeking to first chunk offset
-        // TODO: handle blocking on chunks still needing to be completed when
-        // committing
-        // TODO: handle concurrency properly, the access to eventsBySessionId
-        // isn't threadsafe atm.
         // TODO: write data to file instead to reduce memory footprint
+        // TODO: Handle duplicated data being stored in the case of a consumer restart
         messagesReceived.add(1)
-        eventGroupsInFlight.addCallback((observableResult) =>
-            observableResult.observe(Object.keys(eventsBySessionId).length)
-        )
 
-        const sessionId = message.headers.sessionId.toString()
-        const windowId = message.headers.windowId.toString()
-        const eventId = message.headers.eventId.toString()
-        const distinctId = message.headers.distinctId.toString()
-        const eventSource = Number.parseInt(message.headers.eventSource.toString())
-        const eventType = Number.parseInt(message.headers.eventType.toString())
-        const teamId = Number.parseInt(message.headers.teamId.toString())
-        const unixTimestamp = Number.parseInt(message.headers.unixTimestamp.toString())
-        const chunkCount = Number.parseInt(message.headers.chunkCount.toString())
-        const chunkIndex = Number.parseInt(message.headers.chunkIndex.toString())
+        const recordingMessage = convertKafkaMessageToRecordingMessage(message, topic, partition)
 
-        let eventGroup = eventsBySessionId[sessionId]
-
-        logger.debug({
-            action: 'start',
-            uuid: eventId,
-            sessionId: sessionId,
-        })
-
-        const commitEventGroupToS3 = async () => {
-            const baseKey = `session_recordings/team_id/${eventGroup.teamId}/session_id/${eventGroup.sessionId}`
-            const dataKey = `${baseKey}/data/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
-            const metaDataEventSummaryKey = `${baseKey}/metadata/event_summaries/${eventGroup.oldestEventTimestamp}-${eventGroup.oldestOffset}`
-            const metaDataKey = `${baseKey}/metadata/metadata.json`
-
-            logger.debug({ action: 'committing_event_group', sessionId: eventGroup.sessionId, key: dataKey })
-
-            const sendStartTime = performance.now()
-            await s3Client.send(
-                new PutObjectCommand({
-                    Bucket: 'posthog',
-                    Key: metaDataEventSummaryKey,
-                    Body: getEventSummaryMetadata(eventGroup),
-                })
-            )
-            await s3Client.send(
-                new PutObjectCommand({
-                    Bucket: 'posthog',
-                    Key: metaDataKey,
-                    Body: JSON.stringify({ distinctId: eventGroup.distinctId }),
-                })
-            )
-            await s3Client.send(
-                new PutObjectCommand({
-                    Bucket: 'posthog',
-                    Key: dataKey,
-                    Body: getEventGroupDataString(eventGroup),
-                })
-            )
-            const sendEndTime = performance.now()
-            s3PutObjectTime.record(sendEndTime - sendStartTime)
-
-            const otherSessions = Object.values(eventsBySessionId).filter(
-                (otherEventGroup) => eventGroup.sessionId === otherEventGroup.sessionId
-            )
-
-            if (otherSessions.length) {
-                // If there are other event groups still in flight, then update the
-                // offset to the oldest message referenced by them.
-                const offset = otherSessions.map((eventGroup) => eventGroup.oldestOffset).sort()[0]
-
-                logger.debug({ action: 'committing_offset', offset: offset, partition })
-
-                consumer.commitOffsets([
-                    {
-                        topic,
-                        partition,
-                        offset: offset,
-                    },
-                ])
-
-                eventGroupsInFlight.addCallback((observableResult) =>
-                    observableResult.observe(Object.keys(eventsBySessionId).length)
-                )
-            } else {
-                // If we are the only event group in flight then update to the newest
-                // message in the event group.
-                consumer.commitOffsets([
-                    {
-                        topic,
-                        partition,
-                        offset: (Number.parseInt(eventGroup.newestOffset) + 1).toString(),
-                    },
-                ])
-            }
-
-            delete eventsBySessionId[eventGroup.sessionId]
-            eventGroupsCommittedCounter.add(1)
+        const timeout_ms =
+            RECORDING_EVENTS_TOPICS_CONFIGS[topic as keyof typeof RECORDING_EVENTS_TOPICS_CONFIGS].timeout
+        if (timeout_ms !== 0) {
+            setTimeout(() => {
+                handleMessage(recordingMessage)
+            }, timeout_ms)
+        } else {
+            handleMessage(recordingMessage)
         }
-
-        const createNewEventGroup = () => {
-            const eventGroup: RecordingEventGroup = {
-                events: {} as Record<string, RecordingEvent>,
-                size: 0,
-                teamId: teamId,
-                sessionId: sessionId,
-                oldestEventTimestamp: unixTimestamp,
-                distinctId: distinctId,
-                oldestOffset: message.offset,
-                newestOffset: message.offset,
-            }
-            eventGroup.timer = setTimeout(() => commitEventGroupToS3(), maxEventGroupAge)
-            logger.debug({ action: 'create_event_group', sessionId: eventGroup.sessionId })
-            return eventGroup
-        }
-
-        if (!eventGroup) {
-            eventGroup = eventsBySessionId[sessionId] = createNewEventGroup()
-            eventGroupsStarted.add(1, { reason: 'no-existing-event-group' })
-        }
-
-        // TODO: Handle incomplete recording events
-        if (eventGroup.size + message.value.length > maxEventGroupSize) {
-            clearTimeout(eventGroup.timer)
-            commitEventGroupToS3()
-            eventGroup = eventsBySessionId[eventGroup.sessionId] = createNewEventGroup()
-            eventGroupsStarted.add(1, { reason: 'max-size-reached' })
-        }
-
-        const event: RecordingEvent = eventGroup.events[eventId] ?? {
-            eventId: eventId,
-            value: '',
-            complete: false,
-            timestamp: unixTimestamp,
-            eventType: eventType,
-            eventSource: eventSource,
-            windowId: windowId,
-        }
-
-        event.value += message.value.toString()
-        event.complete = chunkIndex + 1 === chunkCount
-        eventGroup.events[event.eventId] = event
-        eventGroup.size += message.value.length
-        eventGroup.newestOffset = message.offset
-
-        snapshotMessagesProcessed.add(1)
     },
 })
 

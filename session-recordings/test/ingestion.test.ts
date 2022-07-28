@@ -2,11 +2,12 @@ import { beforeEach, afterEach, expect, it, describe } from 'vitest'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
 import http from 'http'
 import { v4 as uuidv4 } from 'uuid'
-import { gzipSync } from 'zlib'
+import { resetIngester } from '../src/ingester/index'
 
 declare module 'vitest' {
     export interface TestContext {
-        producer: Producer
+        producer: Produ
+        cer
     }
 }
 
@@ -113,7 +114,7 @@ describe.concurrent('ingester', () => {
     })
 
     // TODO: Handle this case and re-enable the test
-    it.skip('does not write incomplete events', async ({ producer }) => {
+    it('does not write incomplete events', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -143,9 +144,9 @@ describe.concurrent('ingester', () => {
             ],
         })
 
-        const sessionRecording = await waitForSessionRecording(teamId, sessionId, eventUuid)
-
-        expect(sessionRecording.events.length).toBe(0)
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        const recording = await getSessionRecording(teamId, sessionId)
+        expect(recording.events.length).toBe(0)
     })
 
     it('handles event larger than the max chunk limit', async ({ producer }) => {
@@ -183,7 +184,7 @@ describe.concurrent('ingester', () => {
         expect(sessionRecording.events.length).toBe(1)
     })
 
-    it.skip('handles lots of events', async ({ producer }) => {
+    it('handles lots of events', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -223,7 +224,7 @@ describe.concurrent('ingester', () => {
         )
     })
 
-    it.skip('handles the timer being interrupted by a large event', async ({ producer }) => {
+    it('handles the timer being interrupted by a large event', async ({ producer }) => {
         const teamId = '1'
         const sessionId = uuidv4()
         const windowId = uuidv4()
@@ -277,9 +278,14 @@ describe.concurrent('ingester', () => {
         })
 
         const sessionRecording = await waitForSessionRecording(teamId, sessionId, secondEventUuid)
-
         expect(sessionRecording.events.map((event) => event.uuid)).toStrictEqual([firstEventUuid, secondEventUuid])
     })
+
+    // TODO: add this test and handle it
+    it.skip('commits offsets for multiple partitions', () => {})
+
+    // TODO: add this test
+    it.skip('retries messages when object storage is down', () => {})
 
     // TODO: implement producing messages for ClickHouse to read
     it.skip('produces messages to Kafka for the purposes of analytics, e.g. ClickHouse queries', () => {})
