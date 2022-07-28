@@ -6700,6 +6700,13 @@ jws@^4.0.0:
     jwa "^2.0.0"
     safe-buffer "^5.0.1"
 
+kafkajs-snappy@^1.1.0:
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/kafkajs-snappy/-/kafkajs-snappy-1.1.0.tgz#0bc20fb069147b00b34b64f7fb2394e8b2b9747d"
+  integrity sha512-M4h2WhlxhXmR64z8nwzfGa1Dhhz78vykRfySRL8tuYQ8e6JSOuclbF2FJ8jeMJP3EZWw3uhjvwHlz7Ucu3UdWA==
+  dependencies:
+    snappyjs "^0.6.0"
+
 kafkajs@^2.0.2:
   version "2.0.2"
   resolved "https://registry.yarnpkg.com/kafkajs/-/kafkajs-2.0.2.tgz#cdfc8f57aa4fd69f6d9ca1cce4ee89bbc2a3a1f9"
@@ -8496,6 +8503,11 @@ snapdragon@^0.8.1:
     source-map "^0.5.6"
     source-map-resolve "^0.5.0"
     use "^3.1.0"
+
+snappyjs@^0.6.0:
+  version "0.6.1"
+  resolved "https://registry.yarnpkg.com/snappyjs/-/snappyjs-0.6.1.tgz#9bca9ff8c54b133a9cc84a71d22779e97fc51878"
+  integrity sha512-YIK6I2lsH072UE0aOFxxY1dPDCS43I5ktqHpeAsuLNYWkE5pGxRGWfDM4/vSUfNzXjC1Ivzt3qx31PCLmc9yqg==
 
 snowflake-sdk@^1.6.10:
   version "1.6.10"
