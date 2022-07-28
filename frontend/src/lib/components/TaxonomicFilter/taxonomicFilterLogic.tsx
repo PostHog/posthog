@@ -33,7 +33,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
-import { ActionEvent, CohortIcon } from 'lib/components/icons'
+import { CohortIcon } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -44,20 +44,15 @@ import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Tooltip } from 'lib/components/Tooltip'
 
-export function createEventTaxonomicGroupProps(
-    shouldSimplifyActions: boolean = false
-): Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> {
-    return {
-        getPopupHeader: (eventDefinition: EventDefinition): string => {
-            if (!!keyMapping.event[eventDefinition.name]) {
-                return 'PostHog event'
-            }
-            return `${eventDefinition.verified ? 'Verified' : 'Unverified'}${shouldSimplifyActions ? ' raw' : ''} event`
-        },
-        getIcon: getEventDefinitionIcon,
-    }
+export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
+    getPopupHeader: (eventDefinition: EventDefinition): string => {
+        if (!!keyMapping.event[eventDefinition.name]) {
+            return 'PostHog event'
+        }
+        return `${eventDefinition.verified ? 'Verified' : 'Unverified'} event`
+    },
+    getIcon: getEventDefinitionIcon,
 }
 
 export const propertyTaxonomicGroupProps = (
@@ -168,32 +163,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 const shouldSimplifyActions = !!featureFlags?.[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
                 return [
                     {
-                        name: shouldSimplifyActions ? 'Raw events' : 'Events',
-                        searchPlaceholder: shouldSimplifyActions ? 'raw events' : 'events',
+                        name: 'Events',
+                        searchPlaceholder: 'events',
                         type: TaxonomicFilterGroupType.Events,
                         endpoint: `api/projects/${teamId}/event_definitions`,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                        ...createEventTaxonomicGroupProps(shouldSimplifyActions),
+                        ...eventTaxonomicGroupProps,
                     },
                     {
-                        name: shouldSimplifyActions ? 'Events' : 'Actions',
-                        searchPlaceholder: shouldSimplifyActions ? 'events' : 'actions',
+                        name: shouldSimplifyActions ? 'Calculated events' : 'Actions',
+                        searchPlaceholder: shouldSimplifyActions ? 'calculated events' : 'actions',
                         type: TaxonomicFilterGroupType.Actions,
                         logic: actionsModel,
                         value: 'actions',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
-                        getPopupHeader: () => (shouldSimplifyActions ? 'Event' : 'Action'),
-                        getIcon: shouldSimplifyActions
-                            ? getEventDefinitionIcon
-                            : function _getIcon(): JSX.Element {
-                                  return (
-                                      <Tooltip title="Action">
-                                          <ActionEvent className="taxonomy-icon taxonomy-icon-muted" />
-                                      </Tooltip>
-                                  )
-                              },
+                        getPopupHeader: () => (shouldSimplifyActions ? 'Calculated event' : 'Action'),
+                        getIcon: getEventDefinitionIcon,
                     },
                     {
                         name: 'Autocapture elements',
@@ -309,7 +296,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'customEvents',
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
-                        ...createEventTaxonomicGroupProps(shouldSimplifyActions),
+                        ...eventTaxonomicGroupProps,
                     },
                     {
                         name: 'Wildcards',

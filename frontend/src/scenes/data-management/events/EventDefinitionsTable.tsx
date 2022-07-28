@@ -30,14 +30,17 @@ import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 const eventTypeOptions: LemonSelectOptions = {
     [CombinedEventType.All]: {
         label: 'All types',
+        'data-attr': 'event-type-option-all',
     },
     [CombinedEventType.ActionEvent]: {
-        label: 'Events',
+        label: 'Calculated events',
         icon: <ActionEvent />,
+        'data-attr': 'event-type-option-action-event',
     },
     [CombinedEventType.Event]: {
-        label: 'Raw events',
+        label: 'Events',
         icon: <UnverifiedEvent />,
+        'data-attr': 'event-type-option-event',
     },
 }
 
@@ -208,8 +211,9 @@ export function EventDefinitionsTable(): JSX.Element {
                     message="Actions have moved to the Events tab"
                     description={
                         <>
-                            Actions have been renamed to events and events to raw events. To create a new "Action",
-                            click "New Event" to get started.
+                            Actions are now called calculated events and can be found in the events tab. You can create
+                            a new calculated event (formerly known as an Action) by clicking the "New calculated event"
+                            button.
                         </>
                     }
                     type="info"

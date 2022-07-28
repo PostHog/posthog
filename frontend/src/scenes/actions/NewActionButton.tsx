@@ -18,7 +18,7 @@ export function NewActionButton(): JSX.Element {
     return (
         <>
             <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
-                New {featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'Event' : 'Action'}
+                New {featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'Calculated Event' : 'Action'}
             </LemonButton>
             <Modal
                 visible={visible}
@@ -27,7 +27,7 @@ export function NewActionButton(): JSX.Element {
                     setVisible(false)
                     setAppUrlsVisible(false)
                 }}
-                title="Create new action"
+                title={`Create new ${featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'calculated event' : 'action'}`}
                 footer={[
                     appUrlsVisible && (
                         <Button key="back-button" onClick={() => setAppUrlsVisible(false)}>
