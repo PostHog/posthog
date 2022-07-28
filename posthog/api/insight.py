@@ -280,7 +280,7 @@ class InsightSerializer(InsightBasicSerializer):
                 dashboard: Dashboard
                 for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
                     if (
-                        dashboard.get_effective_privilege_level(self.context["request"].user)
+                        dashboard.get_effective_privilege_level(self.context["request"].user.id)
                         == Dashboard.PrivilegeLevel.CAN_VIEW
                     ):
                         raise PermissionDenied(
