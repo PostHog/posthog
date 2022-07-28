@@ -28,6 +28,7 @@ from . import (
     team,
     user,
 )
+from .example import TaskViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -154,3 +155,5 @@ project_dashboards_router.register(
 project_insights_router.register(
     r"sharing", sharing.SharingConfigurationViewSet, "project_insight_sharing", ["team_id", "insight_id"],
 )
+
+projects_router.register(r"tasks", TaskViewSet, "tasks", ["team_id"])
