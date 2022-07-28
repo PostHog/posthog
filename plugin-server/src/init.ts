@@ -1,4 +1,7 @@
 import * as Sentry from '@sentry/node'
+import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+// @ts-expect-error no type definitions
+import SnappyCodec from 'kafkajs-snappy'
 
 import { PluginsServerConfig } from './types'
 import { setLogLevel } from './utils/utils'
@@ -9,6 +12,9 @@ require('@sentry/tracing')
 // Code that runs on app start, in both the main and worker threads
 export function initApp(config: PluginsServerConfig): void {
     setLogLevel(config.LOG_LEVEL)
+
+    // Make kafkajs compression available everywhere
+    CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
     if (config.SENTRY_DSN) {
         Sentry.init({
