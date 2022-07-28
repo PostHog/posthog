@@ -446,7 +446,7 @@ export function Experiment(): JSX.Element {
 
                                     <Row className="metrics-selection">
                                         <Col span={12}>
-                                            <div className="mb-05">
+                                            <div className="mb-05" data-tooltip="experiment-goal-type">
                                                 <b>Goal type</b>
                                                 <div className="text-muted">
                                                     {experimentInsightType === InsightType.TRENDS
@@ -546,7 +546,9 @@ export function Experiment(): JSX.Element {
                                             </Col>
                                         </Col>
                                         <Col span={12} className="pl">
-                                            <div className="card-secondary mb">Goal preview</div>
+                                            <div className="card-secondary mb" data-tooltip="experiment-preview">
+                                                Goal preview
+                                            </div>
                                             <InsightContainer
                                                 disableHeader={experimentInsightType === InsightType.TRENDS}
                                                 disableTable={true}

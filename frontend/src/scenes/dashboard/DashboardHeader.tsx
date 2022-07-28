@@ -128,6 +128,7 @@ export function DashboardHeader(): JSX.Element | null {
                     ) : (
                         <>
                             <More
+                                data-tooltip="dashboard-three-dots-options-menu"
                                 overlay={
                                     dashboard ? (
                                         <>
@@ -239,7 +240,6 @@ export function DashboardHeader(): JSX.Element | null {
                                     <LemonButton
                                         type="secondary"
                                         data-attr="dashboard-share-button"
-                                        data-tooltip="experiment-new-dashboard-product-tour-1"
                                         onClick={() => push(urls.dashboardSharing(dashboard.id))}
                                     >
                                         Share
@@ -279,6 +279,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
@@ -286,6 +287,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         staticOnly
                                         className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : null}
                             </>

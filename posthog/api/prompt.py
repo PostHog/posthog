@@ -32,7 +32,6 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             )
             local_states.append(parsed_state)
 
-        all_sequences = get_active_prompt_sequences()
         my_prompts: dict[str, Any] = {"sequences": [], "state": {}}
         states_to_update: List[dict] = []
         states_to_create: List[dict] = []
@@ -44,6 +43,10 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         )
 
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
+        all_sequences = get_active_prompt_sequences()
+
+        new_states = []
+
         for sequence in all_sequences:
             local_state = next((s for s in local_states if sequence["key"] == s["key"]), None)
             saved_state: PromptSequenceState = next((s for s in saved_states if sequence["key"] == s.key), None)
@@ -57,17 +60,34 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                     saved_state.completed = local_state.get("completed", False)
                     saved_state.dismissed = local_state.get("dismissed", False)
                     states_to_update.append(saved_state)
+                    new_states.append(saved_state)
                     state = local_state
                 elif saved_state is None:
                     state = local_state
-                    states_to_create.append(PromptSequenceState(team=self.team, person_id=person_id, **local_state))
+                    new_state = PromptSequenceState(team=self.team, person_id=person_id, **local_state)
+                    states_to_create.append(new_state)
+                    new_states.append(new_state)
+            elif saved_state:
+                new_states.append(saved_state)
 
             if not state and saved_state:
                 state = PromptSequenceStateSerializer(saved_state).data
 
-            my_prompts["sequences"].append(sequence)
             if state:
                 my_prompts["state"][sequence["key"]] = state
+
+        # filter only the sequences where `must_be_completed` rule passes
+        sequences = [x for x in all_sequences if not x["rule"].get("must_be_completed")]
+        sequences_requiring_previous_completion = [x for x in all_sequences if x["rule"].get("must_be_completed")]
+
+        for seq in sequences_requiring_previous_completion:
+            must_be_completed = seq["rule"]["must_be_completed"]
+            current_state: PromptSequenceState = next((s for s in new_states if s.key in must_be_completed), None)
+            if not current_state or not current_state.completed:
+                continue
+            sequences.append(seq)
+
+        my_prompts["sequences"] = sequences
 
         if states_to_create:
             PromptSequenceState.objects.bulk_create(states_to_create)

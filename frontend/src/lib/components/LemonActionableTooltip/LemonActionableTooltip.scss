@@ -24,6 +24,13 @@
         display: flex;
         justify-content: space-between;
     }
+    .LemonActionableTooltip__buttons {
+        display: flex;
+        justify-content: space-between;
+        > * + * {
+            margin-left: 0.25rem;
+        }
+    }
     .LemonActionableTooltip__navigation {
         color: var(--muted);
         display: flex;

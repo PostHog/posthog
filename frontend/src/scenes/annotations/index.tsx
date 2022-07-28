@@ -100,7 +100,12 @@ export function Annotations(): JSX.Element {
                 title="Annotations"
                 caption="Here you can add organization- and project-wide annotations. Dashboard-specific ones can be added directly in the dashboard."
                 buttons={
-                    <LemonButton type="primary" data-attr="create-annotation" onClick={(): void => setOpen(true)}>
+                    <LemonButton
+                        type="primary"
+                        data-attr="create-annotation"
+                        data-tooltip="annotations-new-button"
+                        onClick={(): void => setOpen(true)}
+                    >
                         New annotation
                     </LemonButton>
                 }
@@ -108,6 +113,7 @@ export function Annotations(): JSX.Element {
             <div>
                 <LemonTable
                     data-attr="annotations-table"
+                    data-tooltip="annotations-table"
                     rowKey="id"
                     rowClassName="cursor-pointer"
                     dataSource={annotations}

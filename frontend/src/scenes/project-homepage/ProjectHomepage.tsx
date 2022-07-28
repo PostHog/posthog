@@ -33,6 +33,7 @@ export function ProjectHomepage(): JSX.Element {
     const headerButtons = (
         <div style={{ display: 'flex' }}>
             <LemonButton
+                data-tooltip="invite-members-button"
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
@@ -43,7 +44,7 @@ export function ProjectHomepage(): JSX.Element {
                 Invite members
             </LemonButton>
             <LemonButton
-                data-attr="project-home-new-insight"
+                data-tooltip="project-button"
                 onClick={() => {
                     router.actions.push(urls.insightNew())
                 }}

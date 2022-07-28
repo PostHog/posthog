@@ -101,6 +101,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <>
                                     <LemonButton
                                         data-attr="edit-definition"
+                                        data-tooltip="data-management-event-edit-button"
                                         type="secondary"
                                         style={{ marginRight: 8 }}
                                         onClick={() => {

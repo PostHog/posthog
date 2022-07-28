@@ -116,7 +116,7 @@ export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
                         }
                     },
                 }),
-                arrow({ element: arrowRef }),
+                arrow({ element: arrowRef, padding: 8 }),
                 ...(middleware ?? []),
             ],
         })

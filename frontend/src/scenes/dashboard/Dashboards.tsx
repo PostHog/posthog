@@ -191,7 +191,6 @@ export function Dashboards(): JSX.Element {
                 buttons={
                     <LemonButton
                         data-attr={'new-dashboard'}
-                        data-tooltip="experiment-dashboards-product-tour"
                         onClick={() => {
                             closePrompts()
                             showNewDashboardModal()
@@ -226,6 +225,7 @@ export function Dashboards(): JSX.Element {
             <LemonDivider large />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
+                    data-tooltip="dashboards-table"
                     pagination={{ pageSize: 100 }}
                     dataSource={dashboards}
                     rowKey="id"

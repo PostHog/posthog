@@ -164,6 +164,7 @@ export function HelpButton({
             actionable
         >
             <div
+                data-tooltip="help-button"
                 className={clsx('help-button', customComponent && 'custom-component', inline && 'inline')}
                 onClick={toggleHelp}
             >

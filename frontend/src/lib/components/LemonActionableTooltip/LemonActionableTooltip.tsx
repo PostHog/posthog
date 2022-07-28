@@ -48,33 +48,35 @@ export const LemonActionableTooltip = ({
                     </div>
                     <div className="LemonActionableTooltip__body">{text}</div>
                     <div className="LemonActionableTooltip__footer">
-                        {maxSteps > 1 && (
-                            <div className="LemonActionableTooltip__navigation">
-                                <LemonButton
-                                    className="LemonActionableTooltip__navigation--left"
-                                    onClick={previous}
-                                    disabled={step === 0}
-                                    size="small"
-                                    type="stealth"
-                                >
-                                    <LeftOutlined />
-                                </LemonButton>
-                                <div>
-                                    Tip {step + 1} of {maxSteps}
-                                </div>
-                                <LemonButton
-                                    className="LemonActionableTooltip__navigation--right"
-                                    onClick={next}
-                                    disabled={step === maxSteps - 1}
-                                    size="small"
-                                    type="stealth"
-                                >
-                                    <RightOutlined />
-                                </LemonButton>
-                            </div>
-                        )}
+                        <div className="LemonActionableTooltip__navigation">
+                            {maxSteps > 1 && (
+                                <>
+                                    <LemonButton
+                                        className="LemonActionableTooltip__navigation--left"
+                                        onClick={previous}
+                                        disabled={step === 0}
+                                        size="small"
+                                        type="stealth"
+                                    >
+                                        <LeftOutlined />
+                                    </LemonButton>
+                                    <div>
+                                        Tip {step + 1} of {maxSteps}
+                                    </div>
+                                    <LemonButton
+                                        className="LemonActionableTooltip__navigation--right"
+                                        onClick={next}
+                                        disabled={step === maxSteps - 1}
+                                        size="small"
+                                        type="stealth"
+                                    >
+                                        <RightOutlined />
+                                    </LemonButton>
+                                </>
+                            )}
+                        </div>
                         {buttons && (
-                            <div>
+                            <div className="LemonActionableTooltip__buttons">
                                 {buttons.map((button, index) => {
                                     if (button.url) {
                                         return (

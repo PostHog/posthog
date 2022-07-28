@@ -311,7 +311,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                     'EditorFiltersWrapper--editorpanels': usingEditorPanels,
                     'EditorFiltersWrapper--singlecolumn': usingEditorPanels || isFunnels,
                 })}
-                data-tooltip="experiment-new-insight-product-tour"
             >
                 <div className="EditorFilters">
                     {(usingEditorPanels || isFunnels ? editorFilters : legacyEditorFilterGroups).map(
