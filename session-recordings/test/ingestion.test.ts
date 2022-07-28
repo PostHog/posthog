@@ -2,12 +2,10 @@ import { beforeEach, afterEach, expect, it, describe } from 'vitest'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
 import http from 'http'
 import { v4 as uuidv4 } from 'uuid'
-import { resetIngester } from '../src/ingester/index'
 
 declare module 'vitest' {
     export interface TestContext {
-        producer: Produ
-        cer
+        producer: Producer
     }
 }
 

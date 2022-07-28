@@ -1,9 +1,8 @@
 import { KafkaMessage, Message } from 'kafkajs'
-import { RecordingEvent, RecordingEventGroup, RecordingMessage } from '../types'
+import { KafkaTopic, RecordingEvent, RecordingEventGroup, RecordingMessage } from '../types'
 
 export const getEventGroupDataString = (recordingEventGroup: RecordingEventGroup) => {
-    const events = Object.values(recordingEventGroup.events)
-    const eventDataStrings = events
+    const eventDataStrings = recordingEventGroup.events
         .sort((a, b) => a.timestamp - b.timestamp)
         .map((event) => event.messages.map((message) => message.value).join(''))
     return eventDataStrings.join('\n')
@@ -43,13 +42,14 @@ export const convertRecordingMessageToKafkaMessage = (recordingMessage: Recordin
             unixTimestamp: recordingMessage.timestamp.toString(),
             chunkCount: recordingMessage.chunkCount.toString(),
             chunkIndex: recordingMessage.chunkIndex.toString(),
+            originalKafkaOffset: recordingMessage.originalKafkaOffset.toString(),
         },
     }
 }
 
 export const convertKafkaMessageToRecordingMessage = (
     kafkaMessage: KafkaMessage,
-    topic: string,
+    topic: KafkaTopic,
     partition: number
 ): RecordingMessage => {
     return {
@@ -65,8 +65,18 @@ export const convertKafkaMessageToRecordingMessage = (
         chunkIndex: Number.parseInt(kafkaMessage.headers.chunkIndex.toString()),
         value: kafkaMessage.value.toString(),
         kafkaOffset: Number.parseInt(kafkaMessage.offset),
+        originalKafkaOffset:
+            topic === 'recording_events'
+                ? Number.parseInt(kafkaMessage.offset)
+                : Number.parseInt(kafkaMessage.headers.originalKafkaOffset.toString()),
         kafkaTopic: topic,
         kafkaPartition: partition,
         kafkaKey: kafkaMessage.key?.toString(),
     }
+}
+
+export const getTopicPartitionKey = (topic: string, partition: number) => `${topic}-${partition}`
+export const getTopicAndPartitionFromKey = (topicPartitionKey: string) => {
+    const [topic, partition] = topicPartitionKey.split('-')
+    return { topic, partition: Number.parseInt(partition) }
 }
