@@ -1,6 +1,7 @@
 import os
 import time
 from random import randrange
+from typing import Any, Dict, List, Optional, Union
 
 from celery import Celery
 from celery.schedules import crontab
@@ -154,6 +155,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             count_tiles_with_no_hash.s(),
             name="count tiles with no filters_hash",
         )
+
+        sender.add_periodic_task(300, set_update_cache_consumer_rate_limit.s())
 
 
 # Set up clickhouse query instrumentation
@@ -428,15 +431,38 @@ def check_cached_items():
     update_cached_items()
 
 
-@app.task(ignore_result=False)
-def update_cache_item_task(key: str, cache_type, payload: dict) -> None:
+@app.task(ignore_result=True)
+def set_update_cache_consumer_rate_limit() -> None:
+    from structlog import get_logger
+
+    logger = get_logger(__name__)
+
+    from posthog.models.instance_setting import get_instance_setting
+
+    rate_limit: Optional[Union[int, str]] = get_instance_setting("UPDATE_CACHE_ITEM_TASK_RATE_LIMIT")
+    if rate_limit is not None:
+        logger.info("set_update_cache_consumer_rate_limit", rate_limit=rate_limit)
+        app.control.rate_limit("posthog.celery.update_cache_item_task", rate_limit)
+
+
+@app.task(ignore_result=False, rate_limit="6/m")
+def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str, Any]]:
     """
     Tasks used in a group (as this is) must not ignore their results
     https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
+
+    When running to an unconstrained rate limit with a high rate of producer enqueuing this task
+    we reached 65 executions per minute across 5 workers before ClickHouse queries started to slow down.
+
+    By setting a rate limit we can keep the queue of tasks full so that workers aren't idle
+    Without overwhelming ClickHouse
+
+    The `set_update_cache_consumer_rate_limit` task periodically checks an instance setting
+    and updates the rate limit
     """
     from posthog.tasks.update_cache import update_cache_item
 
-    update_cache_item(key, cache_type, payload)
+    return update_cache_item(key, cache_type, payload)
 
 
 @app.task(ignore_result=True)
