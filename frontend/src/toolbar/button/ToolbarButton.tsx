@@ -266,7 +266,7 @@ export function ToolbarButton(): JSX.Element {
                             buttonActionsVisible && (!allActionsLoading || actionCount > 0)
                                 ? null
                                 : shouldSimplifyActions
-                                ? 'Events'
+                                ? 'Calculated Events'
                                 : 'Actions'
                         }
                         labelPosition={side === 'left' ? 'right' : 'left'}
