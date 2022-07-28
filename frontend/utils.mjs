@@ -1,4 +1,6 @@
 import stylePlugin from 'esbuild-style-plugin'
+import { sassPlugin } from 'esbuild-sass-plugin'
+import { lessLoader } from 'esbuild-plugin-less'
 import * as path from 'path'
 import express from 'express'
 import cors from 'cors'
@@ -10,6 +12,8 @@ const defaultHost = process.argv.includes('--host') && process.argv.includes('0.
 const defaultPort = 8234
 
 export const isDev = process.argv.includes('--dev')
+
+export const lessPlugin = lessLoader({ javascriptEnabled: true })
 
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
@@ -119,6 +123,7 @@ export const commonConfig = {
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
+    // plugins: [sassPlugin(), lessPlugin],
     plugins: [
         stylePlugin({
             postcssConfigFile: path.resolve(process.cwd(), './postcss.config.js'),

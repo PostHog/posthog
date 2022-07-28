@@ -8,9 +8,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 */
 
 // Global components
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@windicss;
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'breakpoints';
 @import 'fonts';
@@ -862,7 +860,7 @@ body {
     }
 }
 
-// Something in Tailwind messes with these svgs...
+// Something in Tailwind/Windi messes with these svgs...
 .anticon {
     svg {
         vertical-align: initial;
