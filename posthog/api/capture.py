@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 from dateutil import parser
@@ -23,14 +23,21 @@ from posthog.api.utils import (
     safe_clickhouse_string,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.helpers.session_recording import preprocess_session_recording_events
+from posthog.helpers.session_recording import (
+    ChunkedRecordingEvent,
+    get_session_recording_events_for_object_storage,
+    preprocess_session_recording_events_for_clickhouse,
+)
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_active_feature_flags
 from posthog.models.utils import UUIDT
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-from posthog.utils import cors_response, get_ip_address
+from posthog.settings import (
+    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+    KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC,
+)
+from posthog.utils import cors_response, get_ip_address, should_write_recordings_to_object_storage
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +64,24 @@ def parse_kafka_event_data(
     }
 
 
+def parse_kafka_recording_for_object_storage_event_data(
+    team_id: int, recording_event: ChunkedRecordingEvent,
+) -> Tuple[List[Tuple[str, str]], str]:
+    headers = [
+        ("unixTimestamp", str(recording_event.unix_timestamp)),
+        ("eventId", recording_event.recording_event_id),
+        ("sessionId", recording_event.session_id),
+        ("distinctId", recording_event.distinct_id),
+        ("chunkCount", str(recording_event.chunk_count)),
+        ("chunkIndex", str(recording_event.chunk_index)),
+        ("eventSource", str(recording_event.recording_event_source) if recording_event.recording_event_source else "",),
+        ("eventType", str(recording_event.recording_event_type) if recording_event.recording_event_type else ""),
+        ("windowId", recording_event.window_id if recording_event.window_id else ""),
+        ("teamId", str(team_id)),
+    ]
+    return (headers, recording_event.recording_event_data_chunk)
+
+
 def log_event(data: Dict, event_name: str, partition_key: str) -> None:
     if settings.DEBUG:
         print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
@@ -68,6 +93,27 @@ def log_event(data: Dict, event_name: str, partition_key: str) -> None:
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
         print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        raise e
+
+
+def log_session_recording_event(headers: List[Tuple[str, str]], data: str, partition_key: str) -> None:
+    if settings.DEBUG:
+        print(f"Logging recording event to Kafka topic {KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC}")
+    try:
+        KafkaProducer().produce(
+            topic=KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC,
+            headers=headers,
+            data=data,
+            key=partition_key,
+            value_serializer=lambda v: v.encode("utf-8"),
+        )
+        statsd.incr("recording_event_to_object_storage_ingestion")
+    except Exception as e:
+        statsd.incr("capture_endpoint_log_recording_event_error")
+        print(
+            f"Failed to produce recording event to Kafka topic {KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC} with error:",
+            e,
+        )
         raise e
 
 
@@ -222,7 +268,20 @@ def get_event(request):
         events = [data]
 
     try:
-        events = preprocess_session_recording_events(events)
+        if ingestion_context and should_write_recordings_to_object_storage(ingestion_context.team_id):
+            session_recording_events = get_session_recording_events_for_object_storage(events)
+            for recording_event in session_recording_events:
+                headers, data = parse_kafka_recording_for_object_storage_event_data(
+                    ingestion_context.team_id, recording_event,
+                )
+                log_session_recording_event(
+                    headers,
+                    data,
+                    partition_key=hashlib.sha256(
+                        f"{ingestion_context.team_id}:{recording_event.session_id}".encode()
+                    ).hexdigest(),
+                )
+        events = preprocess_session_recording_events_for_clickhouse(events)
     except ValueError as e:
         return cors_response(
             request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")

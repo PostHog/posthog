@@ -1,10 +1,14 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Message, Producer, ProducerRecord } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, Message, Producer, ProducerRecord } from 'kafkajs'
+// @ts-expect-error no type definitions
+import SnappyCodec from 'kafkajs-snappy'
 
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../metrics'
 import { timeoutGuard } from './utils'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 /** This class wraps kafkajs producer, adding batching to optimize performance.
  *
@@ -44,13 +48,18 @@ export class KafkaProducerWrapper {
         this.maxQueueSize = serverConfig.KAFKA_PRODUCER_MAX_QUEUE_SIZE
         this.maxBatchSize = serverConfig.KAFKA_MAX_MESSAGE_BATCH_SIZE
 
-        this.flushInterval = setInterval(() => this.flush(), this.flushFrequencyMs)
+        this.flushInterval = setInterval(async () => {
+            // :TRICKY: Swallow uncaught errors from flush as flush is already doing custom error reporting which would get lost.
+            try {
+                await this.flush()
+            } catch (err) {}
+        }, this.flushFrequencyMs)
     }
 
     async queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
-        const messageSize = this.getMessageSize(kafkaMessage)
+        const messageSize = this.estimateMessageSize(kafkaMessage)
 
-        if (this.currentBatchSize + messageSize > this.maxBatchSize) {
+        if (this.currentBatch.length > 0 && this.currentBatchSize + messageSize > this.maxBatchSize) {
             // :TRICKY: We want to first flush then immediately add the message to the queue. Awaiting and then pushing would result in a race condition.
             await this.flush(kafkaMessage)
         } else {
@@ -58,7 +67,11 @@ export class KafkaProducerWrapper {
             this.currentBatchSize += messageSize
 
             const timeSinceLastFlush = Date.now() - this.lastFlushTime
-            if (timeSinceLastFlush > this.flushFrequencyMs || this.currentBatch.length >= this.maxQueueSize) {
+            if (
+                this.currentBatchSize > this.maxBatchSize ||
+                timeSinceLastFlush > this.flushFrequencyMs ||
+                this.currentBatch.length >= this.maxQueueSize
+            ) {
                 await this.flush()
             }
         }
@@ -73,7 +86,7 @@ export class KafkaProducerWrapper {
     async queueSingleJsonMessage(topic: string, key: Message['key'], object: Record<string, any>): Promise<void> {
         await this.queueMessage({
             topic,
-            messages: [{ key, value: Buffer.from(JSON.stringify(object)) }],
+            messages: [{ key, value: JSON.stringify(object) }],
         })
     }
 
@@ -84,17 +97,29 @@ export class KafkaProducerWrapper {
 
         return instrumentQuery(this.statsd, 'query.kafka_send', undefined, async () => {
             const messages = this.currentBatch
+            const batchSize = this.currentBatchSize
             this.lastFlushTime = Date.now()
             this.currentBatch = append ? [append] : []
-            this.currentBatchSize = append ? this.getMessageSize(append) : 0
+            this.currentBatchSize = append ? this.estimateMessageSize(append) : 0
 
+            this.statsd?.histogram('query.kafka_send.size', batchSize)
             const timeout = timeoutGuard('Kafka message sending delayed. Waiting over 30 sec to send messages.')
+
             try {
                 await this.producer.sendBatch({
                     topicMessages: messages,
+                    compression: CompressionTypes.Snappy,
                 })
             } catch (err) {
-                Sentry.captureException(err)
+                Sentry.captureException(err, {
+                    extra: {
+                        messages: messages,
+                        batchCount: messages.length,
+                        topics: messages.map((record) => record.topic),
+                        messageCounts: messages.map((record) => record.messages.length),
+                        estimatedSize: batchSize,
+                    },
+                })
                 // :TODO: Implement some retrying, https://github.com/PostHog/plugin-server/issues/511
                 this.statsd?.increment('query.kafka_send.failure')
                 throw err
@@ -110,17 +135,8 @@ export class KafkaProducerWrapper {
         await this.producer.disconnect()
     }
 
-    private getMessageSize(kafkaMessage: ProducerRecord): number {
-        return kafkaMessage.messages
-            .map((message) => {
-                if (message.value === null) {
-                    return 4
-                }
-                if (!Buffer.isBuffer(message.value)) {
-                    message.value = Buffer.from(message.value)
-                }
-                return message.value.length
-            })
-            .reduce((a, b) => a + b)
+    private estimateMessageSize(kafkaMessage: ProducerRecord): number {
+        // :TRICKY: This length respects unicode
+        return Buffer.from(JSON.stringify(kafkaMessage)).length
     }
 }

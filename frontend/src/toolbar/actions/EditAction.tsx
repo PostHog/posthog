@@ -10,6 +10,7 @@ import {
     CloseOutlined,
     DeleteOutlined,
 } from '@ant-design/icons'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
@@ -17,6 +18,7 @@ export function EditAction(): JSX.Element {
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
     const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction, deleteAction } =
         useActions(actionsTabLogic)
+    const { shouldSimplifyActions } = useValues(featureFlagsLogic)
 
     const { getFieldValue } = form
 
@@ -41,7 +43,8 @@ export function EditAction(): JSX.Element {
                 Cancel <CloseOutlined />
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>
-                {selectedActionId === 'new' ? 'New Action' : 'Edit Action'}
+                {selectedActionId === 'new' ? 'New ' : 'Edit '}
+                {shouldSimplifyActions ? 'Event' : 'Action'}
             </h1>
 
             <Form
@@ -164,7 +167,8 @@ export function EditAction(): JSX.Element {
                         </Button>
                     ) : null}
                     <Button type="primary" htmlType="submit">
-                        {selectedActionId === 'new' ? 'Create Action' : 'Save Action'}
+                        {selectedActionId === 'new' ? 'Create ' : 'Save '}
+                        {shouldSimplifyActions ? 'event' : 'action'}
                     </Button>
                 </Form.Item>
             </Form>

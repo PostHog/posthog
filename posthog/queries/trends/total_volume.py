@@ -73,6 +73,7 @@ class TrendsTotalVolume:
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math == "dau":
+                # TODO: for groups aggregation as well
                 cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
                 content_sql = VOLUME_SQL.format(
                     event_query=cumulative_sql, start_of_week_fix=start_of_week_fix(filter), **content_sql_params,

@@ -12,6 +12,8 @@ export async function setupPlugins(server: Hub): Promise<void> {
     const pluginVMLoadPromises: Array<Promise<any>> = []
     const statelessVms = {} as StatelessVmMap
 
+    const timer = new Date()
+
     for (const [id, pluginConfig] of pluginConfigs) {
         const plugin = plugins.get(pluginConfig.plugin_id)
         const prevConfig = server.pluginConfigs.get(id)
@@ -40,6 +42,7 @@ export async function setupPlugins(server: Hub): Promise<void> {
     }
 
     await Promise.all(pluginVMLoadPromises)
+    server.statsd?.timing('setup_plugins.success', timer)
 
     server.plugins = plugins
     server.pluginConfigs = pluginConfigs
@@ -118,6 +121,7 @@ async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'plugi
 }
 
 export async function loadSchedule(server: Hub): Promise<void> {
+    const timer = new Date()
     server.pluginSchedule = null
 
     // gather runEvery* tasks into a schedule
@@ -140,4 +144,5 @@ export async function loadSchedule(server: Hub): Promise<void> {
     }
 
     server.pluginSchedule = pluginSchedule
+    server.statsd?.timing('load_schedule.success', timer)
 }

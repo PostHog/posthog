@@ -111,8 +111,8 @@ function DashboardScene(): JSX.Element {
                         DashboardPlacement.InternalMetrics,
                     ].includes(placement) && (
                         <div className="flex pb border-bottom space-x-4">
-                            <div className="flex grow" style={{ height: 30 }}>
-                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold', lineHeight: '30px' }} />
+                            <div className="flex items-center" style={{ height: '2rem' }}>
+                                <TZIndicator style={{ marginRight: '0.5rem' }} />
                                 <DateFilter
                                     defaultValue="Custom"
                                     showCustom

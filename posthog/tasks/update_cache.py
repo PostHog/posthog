@@ -1,6 +1,5 @@
 import datetime
 import json
-import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
@@ -31,6 +30,7 @@ from posthog.logging.timing import timed
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
+from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -39,8 +39,6 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key
-
-PARALLEL_INSIGHT_CACHE = int(os.environ.get("PARALLEL_DASHBOARD_ITEM_CACHE", 5))
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +51,8 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 
 
 def update_cached_items() -> Tuple[int, int]:
+    PARALLEL_INSIGHT_CACHE = get_instance_setting("PARALLEL_DASHBOARD_ITEM_CACHE")
+
     tasks: List[Optional[Signature]] = []
 
     dashboard_tiles = (
@@ -117,9 +117,7 @@ def task_for_cache_update_candidate(candidate: Union[DashboardTile, Insight]) ->
 
 def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: QuerySet) -> None:
     statsd.gauge("update_cache_queue.never_refreshed", dashboard_tiles.filter(last_refresh=None).count())
-    oldest_previously_refreshed_tiles: List[DashboardTile] = list(
-        dashboard_tiles.exclude(last_refresh=None)[0:PARALLEL_INSIGHT_CACHE]
-    )
+    oldest_previously_refreshed_tiles: List[DashboardTile] = list(dashboard_tiles.exclude(last_refresh=None)[0:10])
     ages = []
     for candidate_tile in oldest_previously_refreshed_tiles:
         dashboard_cache_age = (datetime.datetime.now(timezone.utc) - candidate_tile.last_refresh).total_seconds()
@@ -144,40 +142,48 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
 
 @timed("update_cache_item_timer")
 def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
+    dashboard_id = payload.get("dashboard_id", None)
+    insight_id = payload.get("insight_id", "unknown")
+
     filter_dict = json.loads(payload["filter"])
     team_id = int(payload["team_id"])
     team = Team.objects.get(pk=team_id)
     filter = get_filter(data=filter_dict, team=team)
 
-    # Doing the filtering like this means we'll update _all_ Insights and DashboardTiles with the same filters hash
     insights_queryset = Insight.objects.filter(Q(team_id=team_id, filters_hash=key))
+    insights_queryset.update(refreshing=True)
     dashboard_tiles_queryset = DashboardTile.objects.filter(insight__team_id=team_id, filters_hash=key)
+    dashboard_tiles_queryset.update(refreshing=True)
 
-    # at least one must return something, if they both return they will be identical
-    insight_result = _update_cache_for_queryset(cache_type, filter, key, team, insights_queryset)
-    tiles_result = _update_cache_for_queryset(cache_type, filter, key, team, dashboard_tiles_queryset)
+    result = None
+    try:
+        if (dashboard_id and dashboard_tiles_queryset.exists()) or insights_queryset.exists():
+            result = _update_cache_for_queryset(cache_type, filter, key, team)
+    except Exception as e:
+        statsd.incr("update_cache_item_error", tags={"team": team.id})
+        _mark_refresh_attempt_for(insights_queryset)
+        _mark_refresh_attempt_for(dashboard_tiles_queryset)
+        with push_scope() as scope:
+            scope.set_tag("cache_key", key)
+            scope.set_tag("team_id", team.id)
+            scope.set_tag("insight_id", insight_id)
+            scope.set_tag("dashboard_id", dashboard_id)
+            capture_exception(e)
+        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
+        raise e
 
-    if tiles_result is not None:
-        result = tiles_result
-    elif insight_result is not None:
-        result = insight_result
+    if result:
+        statsd.incr("update_cache_item_success", tags={"team": team.id})
+        insights_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+        dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
     else:
-        dashboard_id = payload.get("dashboard_id", None)
-        insight_id = payload.get("insight_id", "unknown")
+        insights_queryset.update(last_refresh=timezone.now(), refreshing=False)
+        dashboard_tiles_queryset.update(last_refresh=timezone.now(), refreshing=False)
         statsd.incr(
             "update_cache_item_no_results",
             tags={"team": team_id, "cache_key": key, "insight_id": insight_id, "dashboard_id": dashboard_id,},
         )
-        # there is strong likelihood these querysets match no insights or dashboard tiles
-        _mark_refresh_attempt_for(insights_queryset)
-        _mark_refresh_attempt_for(dashboard_tiles_queryset)
-        # so mark the item that triggered the update
-        if insight_id != "unknown":
-            _mark_refresh_attempt_for(
-                Insight.objects.filter(id=insight_id)
-                if not dashboard_id
-                else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
-            )
+        _mark_refresh_attempt_when_no_results(dashboard_id, dashboard_tiles_queryset, insight_id, insights_queryset)
         result = []
 
     logger.info(
@@ -191,36 +197,34 @@ def update_cache_item(key: str, cache_type: CacheType, payload: dict) -> List[Di
     return result
 
 
-def _update_cache_for_queryset(
-    cache_type: CacheType, filter: Filter, key: str, team: Team, queryset: QuerySet
-) -> Optional[List[Dict[str, Any]]]:
-    if not queryset.exists():
-        return None
-
-    queryset.update(refreshing=True)
-    try:
-        if cache_type == CacheType.FUNNEL:
-            result = _calculate_funnel(filter, key, team)
-        else:
-            result = _calculate_by_filter(filter, key, team, cache_type)
-        cache.set(
-            key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL
-        )
-    except Exception as e:
-        statsd.incr("update_cache_item_error", tags={"team": team.id})
-        _mark_refresh_attempt_for(queryset)
-        with push_scope() as scope:
-            scope.set_tag("cache_key", key)
-            scope.set_tag("team_id", team.id)
-            capture_exception(e)
-        logger.error("update_cache_item_error", exc=e, exc_info=True, team_id=team.id, cache_key=key)
-        raise e
-
-    if result:
-        statsd.incr("update_cache_item_success", tags={"team": team.id})
-        queryset.update(last_refresh=timezone.now(), refreshing=False, refresh_attempt=0)
+def _mark_refresh_attempt_when_no_results(
+    dashboard_id: Optional[int],
+    dashboard_tiles_queryset: QuerySet,
+    insight_id: Union[int, str],
+    insights_queryset: QuerySet,
+) -> None:
+    if insights_queryset.exists() or dashboard_tiles_queryset.exists():
+        _mark_refresh_attempt_for(insights_queryset)
+        _mark_refresh_attempt_for(dashboard_tiles_queryset)
     else:
-        queryset.update(last_refresh=timezone.now(), refreshing=False)
+        if insight_id != "unknown":
+            _mark_refresh_attempt_for(
+                Insight.objects.filter(id=insight_id)
+                if not dashboard_id
+                else DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
+            )
+
+
+def _update_cache_for_queryset(
+    cache_type: CacheType, filter: Filter, key: str, team: Team
+) -> Optional[List[Dict[str, Any]]]:
+
+    if cache_type == CacheType.FUNNEL:
+        result = _calculate_funnel(filter, key, team)
+    else:
+        result = _calculate_by_filter(filter, key, team, cache_type)
+
+    cache.set(key, {"result": result, "type": cache_type, "last_refresh": timezone.now()}, settings.CACHED_RESULTS_TTL)
 
     return result
 
