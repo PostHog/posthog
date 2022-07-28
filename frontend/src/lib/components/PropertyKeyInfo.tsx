@@ -508,6 +508,22 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Subdivision 3 Code',
             description: `Code of the third subdivision matched to this event's IP address.`,
         },
+        // NOTE: This is a hack. $session_duration is a session property, not an event property
+        // but we don't do a good job of tracking property types, so making it a session property
+        // would require a large refactor, and this works (because all properties are treated as
+        // event properties if they're not elements)
+        $session_duration: {
+            label: 'Session duration',
+            description: (
+                <span>
+                    The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
+                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <br /> <br />
+                    Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
+                </span>
+            ),
+            examples: ['01:04:12'],
+        },
     },
     element: {
         tag_name: {

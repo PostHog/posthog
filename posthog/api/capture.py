@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+import structlog
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -16,7 +17,6 @@ from statshog.defaults.django import statsd
 
 from posthog.api.utils import (
     EventIngestionContext,
-    capture_as_common_error_to_sentry_ratelimited,
     get_data,
     get_event_ingestion_context,
     get_token,
@@ -24,7 +24,7 @@ from posthog.api.utils import (
 )
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import (
-    RecordingEventForObjectStorage,
+    ChunkedRecordingEvent,
     get_session_recording_events_for_object_storage,
     preprocess_session_recording_events_for_clickhouse,
 )
@@ -38,6 +38,8 @@ from posthog.settings import (
     KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC,
 )
 from posthog.utils import cors_response, get_ip_address, should_write_recordings_to_object_storage
+
+logger = structlog.get_logger(__name__)
 
 
 def parse_kafka_event_data(
@@ -63,7 +65,7 @@ def parse_kafka_event_data(
 
 
 def parse_kafka_recording_for_object_storage_event_data(
-    team_id: int, recording_event: RecordingEventForObjectStorage,
+    team_id: int, recording_event: ChunkedRecordingEvent,
 ) -> Tuple[List[Tuple[str, str]], str]:
     headers = [
         ("unixTimestamp", str(recording_event.unix_timestamp)),
@@ -94,7 +96,7 @@ def log_event(data: Dict, event_name: str, partition_key: str) -> None:
         raise e
 
 
-def log_session_recording_event(headers: List[Tuple[str, bytes]], data: str, partition_key: str) -> None:
+def log_session_recording_event(headers: List[Tuple[str, str]], data: str, partition_key: str) -> None:
     if settings.DEBUG:
         print(f"Logging recording event to Kafka topic {KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC}")
     try:
@@ -157,7 +159,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
 
-def _get_sent_at(data, request) -> Optional[datetime]:
+def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
     try:
         if request.GET.get("_"):  # posthog-js
             sent_at = request.GET["_"]
@@ -166,15 +168,24 @@ def _get_sent_at(data, request) -> Optional[datetime]:
         elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
             sent_at = request.POST["sent_at"]
         else:
-            return None
+            return None, None
 
         if re.match(r"^\d+(?:\.\d+)?$", sent_at):
-            return _datetime_from_seconds_or_millis(sent_at)
+            return _datetime_from_seconds_or_millis(sent_at), None
 
-        return parser.isoparse(sent_at)
+        return parser.isoparse(sent_at), None
     except Exception as error:
-        capture_as_common_error_to_sentry_ratelimited("Invalid sent_at value", error)
-        return None
+        statsd.incr("capture_endpoint_invalid_sent_at")
+        logger.exception(f"Invalid sent_at value", error=error)
+        return (
+            None,
+            cors_response(
+                request,
+                generate_exception_response(
+                    "capture", f"Malformed request data, invalid sent at: {error}", code="invalid_payload"
+                ),
+            ),
+        )
 
 
 def _get_distinct_id(data: Dict[str, Any]) -> str:
@@ -216,7 +227,10 @@ def get_event(request):
     if error_response:
         return error_response
 
-    sent_at = _get_sent_at(data, request)
+    sent_at, error_response = _get_sent_at(data, request)
+
+    if error_response:
+        return error_response
 
     token = get_token(data, request)
 
@@ -270,6 +284,19 @@ def get_event(request):
             )
 
     try:
+        if ingestion_context and should_write_recordings_to_object_storage(ingestion_context.team_id):
+            session_recording_events = get_session_recording_events_for_object_storage(events)
+            for recording_event in session_recording_events:
+                headers, data = parse_kafka_recording_for_object_storage_event_data(
+                    ingestion_context.team_id, recording_event,
+                )
+                log_session_recording_event(
+                    headers,
+                    data,
+                    partition_key=hashlib.sha256(
+                        f"{ingestion_context.team_id}:{recording_event.session_id}".encode()
+                    ).hexdigest(),
+                )
         events = preprocess_session_recording_events_for_clickhouse(events)
     except ValueError as e:
         return cors_response(

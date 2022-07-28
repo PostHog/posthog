@@ -56,7 +56,8 @@ TRUNCATE TABLE
     posthog_team,
     posthog_organizationmembership,
     posthog_organization,
-    posthog_user
+    posthog_user,
+    posthog_eventbuffer
 CASCADE
 `
 
@@ -276,8 +277,11 @@ export function onQuery(hub: Hub, onQueryCallback: (queryText: string) => any): 
     spyOnQueryFunction(hub.postgres)
 
     const postgresTransaction = hub.db.postgresTransaction.bind(hub.db)
-    hub.db.postgresTransaction = async (transaction: (client: PoolClient) => Promise<any>): Promise<any> => {
-        return await postgresTransaction(async (client: PoolClient) => {
+    hub.db.postgresTransaction = async (
+        tag: string,
+        transaction: (client: PoolClient) => Promise<any>
+    ): Promise<any> => {
+        return await postgresTransaction(tag, async (client: PoolClient) => {
             const query = client.query
             spyOnQueryFunction(client)
             const response = await transaction(client)

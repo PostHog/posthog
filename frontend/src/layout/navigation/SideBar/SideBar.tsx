@@ -4,7 +4,6 @@ import { Link } from 'lib/components/Link'
 import React, { useState } from 'react'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
-    EventStackGearIcon,
     IconApps,
     IconBarChart,
     IconCohort,
@@ -20,6 +19,7 @@ import {
     IconRecording,
     IconSettings,
     IconTools,
+    UnverifiedEvent,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -166,7 +166,7 @@ function Pages(): JSX.Element {
 
                     <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
-                        icon={<EventStackGearIcon />}
+                        icon={<UnverifiedEvent />}
                         identifier={Scene.DataManagement}
                         to={urls.eventDefinitions()}
                     />

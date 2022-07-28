@@ -27,7 +27,12 @@ describe('LazyPluginVM', () => {
 
     const mockServer: any = {
         db,
-        capabilities: { ingestion: true, pluginScheduledTasks: true, processJobs: true, processAsyncHandlers: true },
+        capabilities: {
+            ingestion: true,
+            pluginScheduledTasks: true,
+            processPluginJobs: true,
+            processAsyncHandlers: true,
+        },
     }
 
     const createVM = () => {

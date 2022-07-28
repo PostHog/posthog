@@ -134,10 +134,7 @@ export function HelpButton({
             placement={placement}
             actionable
         >
-            <div
-                className={clsx('help-button', customComponent && 'custom-component', inline && 'inline')}
-                onClick={toggleHelp}
-            >
+            <div className={clsx('help-button', inline && 'inline')} onClick={toggleHelp}>
                 {customComponent || (
                     <>
                         <IconHelpOutline />

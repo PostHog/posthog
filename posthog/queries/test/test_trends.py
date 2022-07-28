@@ -392,6 +392,102 @@ def trend_test_factory(trends):
             self.assertEqual(daily_response[0]["aggregated_value"], 7.5)
             self.assertEqual(daily_response[0]["aggregated_value"], weekly_response[0]["aggregated_value"])
 
+        def test_unique_session_with_session_breakdown(self):
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"$some_prop": "some_val"}
+            )
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla2"], properties={"$some_prop": "some_val"})
+
+            _create_event(
+                team=self.team,
+                event="sign up before",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:34",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up later",
+                distinct_id="blabla",
+                properties={"$session_id": 1},
+                timestamp="2020-01-01 00:06:35",
+            )
+            # First session lasted 5 seconds
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-01 00:06:35",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla2",
+                properties={"$session_id": 2},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Second session lasted 10 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 3},
+                timestamp="2020-01-01 00:06:45",
+            )
+            # Third session lasted 0 seconds
+
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4},
+                timestamp="2020-01-02 00:06:30",
+            )
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$session_id": 4},
+                timestamp="2020-01-02 00:06:45",
+            )
+            # Fourth session lasted 15 seconds
+
+            with freeze_time("2020-01-04T13:00:01Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "display": "ActionsLineGraph",
+                            "interval": "day",
+                            "events": [{"id": "sign up", "math": "unique_session",}],
+                            "breakdown": "$session_duration",
+                            "breakdown_type": "session",
+                            "insight": "TRENDS",
+                            "breakdown_histogram_bin_count": 3,
+                            "properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}],
+                            "date_from": "-3d",
+                        }
+                    ),
+                    self.team,
+                )
+
+                self.assertEqual(
+                    [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+                    [
+                        ("[0.0,4.95]", 1.0, [1.0, 0.0, 0.0, 0.0]),
+                        ("[4.95,10.05]", 2.0, [2.0, 0.0, 0.0, 0.0]),
+                        ("[10.05,15.01]", 1.0, [0.0, 1.0, 0.0, 0.0]),
+                    ],
+                )
+
         @test_with_materialized_columns(person_properties=["name"], verify_no_jsonextract=False)
         def test_trends_breakdown_single_aggregate_cohorts(self):
             _create_person(team_id=self.team.pk, distinct_ids=["Jane"], properties={"name": "Jane"})
@@ -4213,6 +4309,55 @@ def trend_test_factory(trends):
                 self.team,
             )
             self.assertEqual(response[0]["data"], [1.0])
+
+        @snapshot_clickhouse_queries
+        @patch("posthoganalytics.feature_enabled", return_value=True)
+        def test_timezone_weekly(self, patch_feature_enabled):
+            self.team.timezone = "US/Pacific"
+            self.team.save()
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+            with freeze_time("2020-01-12T02:01:01Z"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+                )
+
+            with freeze_time("2020-01-12T09:01:01Z"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+                )
+
+            with freeze_time("2020-01-22T01:01:01Z"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+                )
+
+            #  volume
+            with freeze_time("2020-01-26T07:00:00Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "interval": "week",
+                            "events": [{"id": "sign up", "name": "sign up",},],
+                        },
+                        team=self.team,
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
+            self.assertEqual(
+                response[0]["labels"], ["12-Jan-2020", "19-Jan-2020", "26-Jan-2020"],
+            )
 
         def test_same_day(self):
             _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})

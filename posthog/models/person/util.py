@@ -3,6 +3,8 @@ import json
 from contextlib import ExitStack
 from typing import Dict, List, Optional, Union
 
+import pytz
+from dateutil.parser import isoparse
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -100,7 +102,7 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
-    timestamp: Optional[datetime.datetime] = None,
+    timestamp: Optional[Union[datetime.datetime, str]] = None,
 ) -> str:
     if uuid:
         uuid = str(uuid)
@@ -108,6 +110,12 @@ def create_person(
         uuid = str(UUIDT())
     if not timestamp:
         timestamp = now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
 
     data = {
         "id": str(uuid),

@@ -12,6 +12,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -60,7 +61,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
-from posthog.tasks.update_cache import update_insight_cache
+from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -274,6 +275,18 @@ class InsightSerializer(InsightBasicSerializer):
                 ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
                 ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
 
+                # does this user have permission on dashboards to add... if they are restricted
+                # it will mean this dashboard becomes restricted because of the patch
+                dashboard: Dashboard
+                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
+                    if (
+                        dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                        == Dashboard.PrivilegeLevel.CAN_VIEW
+                    ):
+                        raise PermissionDenied(
+                            f"You don't have permission to add insights to dashboard: {dashboard.id}"
+                        )
+
                 for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
                     if dashboard.team != instance.team:
                         raise serializers.ValidationError("Dashboard not found")
@@ -309,7 +322,7 @@ class InsightSerializer(InsightBasicSerializer):
         dashboard = self.context.get("dashboard", None)
 
         if should_refresh(self.context["request"]):
-            return update_insight_cache(insight, dashboard)
+            return synchronously_update_insight_cache(insight, dashboard)
 
         cache_key = insight.filters_hash
         if dashboard is not None:

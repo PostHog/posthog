@@ -4,7 +4,7 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import DefaultDict, Dict, Generator, List, Optional, Tuple, cast
+from typing import DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
 
@@ -18,7 +18,7 @@ WindowId = Optional[str]
 
 
 @dataclasses.dataclass
-class RecordingEventForObjectStorage:
+class ChunkedRecordingEvent:
     unix_timestamp: int
     recording_event_id: str
     session_id: str
@@ -277,7 +277,7 @@ def is_active_event(event: RecordingEventSummary) -> bool:
     return event.type == 3 and event.source in active_rr_web_sources
 
 
-ACTIVITY_THRESHOLD_SECONDS = 60
+ACTIVITY_THRESHOLD_SECONDS = 10
 
 
 def get_active_segments_from_event_list(
@@ -389,11 +389,23 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
 
 def get_session_recording_events_for_object_storage(
     events: List[Event], chunk_size=512 * 1024
-) -> List[RecordingEventForObjectStorage]:
+) -> List[ChunkedRecordingEvent]:
     recording_events_for_object_storage = []
     for event in events:
         if is_unchunked_snapshot(event):
-            # TODO: Handle payloads that aren't what we expect
+            required_properties = ["distinct_id", "$session_id", "$snapshot_data"]
+            for required_property in required_properties:
+                if required_property not in event["properties"]:
+                    e = ValueError(f'$snapshot events must contain property "{required_property}"')
+                    capture_exception(e)
+                    raise e
+
+            required_snapshot_properties = ["timestamp", "type"]
+            for required_snapshot_property in required_snapshot_properties:
+                if required_snapshot_property not in event["properties"]["$snapshot_data"]:
+                    e = ValueError(f'$snapshot events must contain snapshot data with "{required_snapshot_property}"')
+                    capture_exception(e)
+                    raise e
             distinct_id = event["properties"]["distinct_id"]
             session_id = event["properties"]["$session_id"]
             window_id = event["properties"].get("$window_id")
@@ -409,7 +421,7 @@ def get_session_recording_events_for_object_storage(
             chunk_count = len(chunked_recording_event_string)
             for chunk_index, chunk in enumerate(chunked_recording_event_string):
                 recording_events_for_object_storage.append(
-                    RecordingEventForObjectStorage(
+                    ChunkedRecordingEvent(
                         recording_event_id=recording_event_id,
                         distinct_id=distinct_id,
                         session_id=session_id,
@@ -423,99 +435,3 @@ def get_session_recording_events_for_object_storage(
                     )
                 )
     return recording_events_for_object_storage
-
-
-def get_metadata_from_event_summaries(
-    event_summaries: List[RecordingEventSummary],
-) -> Tuple[List[RecordingSegment], Dict[WindowId, Dict]]:
-    """
-    This function processes the recording events into metadata.
-
-    A recording can be composed of events from multiple windows/tabs. Recording events are seperated by
-    `window_id`, so the playback experience is consistent (changes in one tab don't impact the recording
-    of a different tab). However, we still want to playback the recording to the end user as the user interacted
-    with their product.
-
-    This function creates a "playlist" of recording segments that designates the order in which the front end
-    should flip between players of different windows/tabs. To create this playlist, this function does the following:
-
-    (1) For each recording event, we determine if it is "active" or not. An active event designates user
-    activity (e.g. mouse movement).
-
-    (2) We then generate "active segments" based on these lists of events. Active segments are segments
-    of recordings where the maximum time between events determined to be active is less than a threshold (set to 60 seconds).
-
-    (3) Next, we merge the active segments from all of the window_ids + sort them by start time. We now have the
-    list of active segments. (note, it's very possible that active segments overlap if a user is flipping back
-    and forth between tabs)
-
-    (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In
-    determining which window should be used for the inactive segment, we try to minimize the switching of windows.
-    """
-
-    event_summaries_by_window_id: DefaultDict[WindowId, List[RecordingEventSummary]] = defaultdict(list)
-    for event_summary in event_summaries:
-        event_summaries_by_window_id[event_summary.window_id].append(event_summary)
-
-    start_and_end_times_by_window_id = {}
-
-    # Get the active segments for each window_id
-    all_active_segments: List[RecordingSegment] = []
-    for window_id, event_list in event_summaries_by_window_id.items():
-        # Not sure why, but events are sometimes slightly out of order
-        event_list.sort(key=lambda x: x.timestamp)
-
-        active_segments_for_window_id = get_active_segments_from_event_list(event_list, window_id)
-
-        all_active_segments.extend(active_segments_for_window_id)
-
-        start_and_end_times_by_window_id[window_id] = {
-            "start_time": event_list[0].timestamp,
-            "end_time": event_list[-1].timestamp,
-        }
-
-    # Sort the active segments by start time. This will interleave active segments
-    # from different windows
-    all_active_segments.sort(key=lambda segment: segment.start_time)
-
-    # These start and end times are used to make sure the segments span the entire recording
-    first_start_time = min([cast(datetime, x["start_time"]) for x in start_and_end_times_by_window_id.values()])
-    last_end_time = max([cast(datetime, x["end_time"]) for x in start_and_end_times_by_window_id.values()])
-
-    # Now, we fill in the gaps between the active segments with inactive segments
-    all_segments = []
-    current_timestamp = first_start_time
-    current_window_id: WindowId = sorted(
-        start_and_end_times_by_window_id, key=lambda x: start_and_end_times_by_window_id[x]["start_time"]
-    )[0]
-
-    for index, segment in enumerate(all_active_segments):
-        # It's possible that segments overlap and we don't need to fill a gap
-        if segment.start_time > current_timestamp:
-            all_segments.extend(
-                generate_inactive_segments_for_range(
-                    current_timestamp,
-                    segment.start_time,
-                    current_window_id,
-                    start_and_end_times_by_window_id,
-                    is_first_segment=index == 0,
-                )
-            )
-        all_segments.append(segment)
-        current_window_id = segment.window_id
-        current_timestamp = max(segment.end_time, current_timestamp)
-
-    # If the last segment ends before the recording ends, we need to fill in the gap
-    if current_timestamp < last_end_time:
-        all_segments.extend(
-            generate_inactive_segments_for_range(
-                current_timestamp,
-                last_end_time,
-                current_window_id,
-                start_and_end_times_by_window_id,
-                is_last_segment=True,
-                is_first_segment=current_timestamp == first_start_time,
-            )
-        )
-
-    return all_segments, start_and_end_times_by_window_id

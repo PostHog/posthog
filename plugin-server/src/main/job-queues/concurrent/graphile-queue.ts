@@ -33,11 +33,12 @@ export class GraphileQueue extends JobQueueBase {
         await this.migrate()
     }
 
-    async enqueue(retry: EnqueuedJob): Promise<void> {
+    async enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         const workerUtils = await this.getWorkerUtils()
-        await workerUtils.addJob('pluginJob', retry, {
-            runAt: new Date(retry.timestamp),
+        await workerUtils.addJob(jobName, job, {
+            runAt: new Date(job.timestamp),
             maxAttempts: 1,
+            priority: 1,
         })
     }
 
@@ -76,13 +77,9 @@ export class GraphileQueue extends JobQueueBase {
                     concurrency: 1,
                     // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc
                     noHandleSignals: false,
-                    pollInterval: 100,
+                    pollInterval: this.serverConfig.PLUGIN_SERVER_MODE === 'async' ? 100 : 2000,
                     // you can set the taskList or taskDirectory but not both
-                    taskList: {
-                        pluginJob: (payload) => {
-                            void this.onJob?.([payload as EnqueuedJob])
-                        },
-                    },
+                    taskList: this.jobHandlers,
                 })
             }
         } else {

@@ -29,7 +29,7 @@ class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def send(self, topic: str, value: Any, key: Any = None):
+    def send(self, topic: str, value: Any, key: Any = None, headers: Optional[List[Tuple[str, bytes]]] = None):
         return
 
     def flush(self):
@@ -111,9 +111,10 @@ class _KafkaProducer:
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        if headers is not None:
-            headers = [(header[0], header[1].encode("utf-8")) for header in headers]
-        self.producer.send(topic, value=b, key=key, headers=headers)
+        encoded_headers = (
+            [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
+        )
+        self.producer.send(topic, value=b, key=key, headers=encoded_headers)
 
     def close(self):
         self.producer.flush()

@@ -1,4 +1,5 @@
-import { Hub, PluginConfig } from '../../../types'
+import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
+import { JobName } from './../../../types'
 
 type JobRunner = {
     runAt: (date: Date) => Promise<void>
@@ -39,13 +40,20 @@ export function durationToMs(duration: number, unit: string): number {
 
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
-        await server.jobQueueManager.enqueue({
-            type,
-            payload,
-            timestamp,
-            pluginConfigId: pluginConfig.id,
-            pluginConfigTeam: pluginConfig.team_id,
-        })
+        try {
+            await server.jobQueueManager.enqueue(JobName.PLUGIN_JOB, {
+                type,
+                payload,
+                timestamp,
+                pluginConfigId: pluginConfig.id,
+                pluginConfigTeam: pluginConfig.team_id,
+            })
+        } catch (e) {
+            await pluginConfig.vm?.createLogEntry(
+                `Failed to enqueue job ${type} with error: ${e.message}`,
+                PluginLogEntryType.Error
+            )
+        }
     }
 
     return new Proxy(

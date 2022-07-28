@@ -520,7 +520,8 @@ def load_data_from_request(request):
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:
-        scope.set_context("data", data)
+        if isinstance(data, dict):
+            scope.set_context("data", data)
         scope.set_tag("origin", request.headers.get("origin", request.headers.get("remote_host", "unknown")))
         scope.set_tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
@@ -874,10 +875,11 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
-def print_warning(warning_lines: Sequence[str]):
+def print_warning(warning_lines: Sequence[str], *, top_emoji="🔻", bottom_emoji="🔺"):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print(
-        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
+        "\n".join(("", top_emoji * highlight_length, *warning_lines, bottom_emoji * highlight_length, "",)),
+        file=sys.stderr,
     )
 
 
@@ -992,9 +994,17 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
         return None
 
 
-def should_write_recordings_to_object_storage(team_id: int) -> bool:
-    return settings.OBJECT_STORAGE_ENABLED and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
+def should_write_recordings_to_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
+    )
 
 
-def should_read_recordings_from_object_storage(team_id: int) -> bool:
-    return settings.OBJECT_STORAGE_ENABLED and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
+def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
+    )

@@ -215,13 +215,16 @@ DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS
             )
             const distinctIds: { distinct_id: string }[] = organizationMembers.rows
             for (const { distinct_id } of distinctIds) {
-                posthog.identify(distinct_id)
-                posthog.capture('first team event ingested', {
-                    team: team.uuid,
-                    sdk: properties.$lib,
-                    realm: properties.realm,
-                    host: properties.$host,
-                    $groups: {
+                posthog.capture({
+                    distinctId: distinct_id,
+                    event: 'first team event ingested',
+                    properties: {
+                        team: team.uuid,
+                        sdk: properties.$lib,
+                        realm: properties.realm,
+                        host: properties.$host,
+                    },
+                    groups: {
                         project: team.uuid,
                         organization: team.organization_id,
                         instance: this.instanceSiteUrl,

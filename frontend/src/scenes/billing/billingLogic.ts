@@ -7,6 +7,9 @@ import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -22,7 +25,10 @@ export const billingLogic = kea<billingLogicType>({
     actions: {
         registerInstrumentationProps: true,
     },
-    loaders: ({ actions }) => ({
+    connect: {
+        values: [featureFlagLogic, ['featureFlags']],
+    },
+    loaders: ({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -31,12 +37,22 @@ export const billingLogic = kea<billingLogicType>({
                     if (!response?.plan) {
                         actions.loadPlans()
                     }
+                    if (
+                        response.current_usage > 1000000 &&
+                        response.should_setup_billing &&
+                        router.values.location.pathname !== '/organization/billing/locked' &&
+                        values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
+                    ) {
+                        posthog.capture('billing locked screen shown')
+                        router.actions.replace('/organization/billing/locked')
+                    }
                     actions.registerInstrumentationProps()
                     return response as BillingType
                 },
                 setBillingLimit: async (billing: BillingType) => {
                     const res = await api.update('api/billing/', billing)
                     lemonToast.success(`Billing limit set to $${billing.billing_limit} usd/month`)
+
                     return res as BillingType
                 },
             },

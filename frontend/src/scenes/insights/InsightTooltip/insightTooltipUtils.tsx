@@ -3,6 +3,10 @@ import React from 'react'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 import { Space, Tag, Typography } from 'antd'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
+import { cohortsModel } from '~/models/cohortsModel'
+import { useValues } from 'kea'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatBreakdownLabel } from '../utils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -34,7 +38,7 @@ export interface TooltipConfig {
     rowCutoff?: number
     colCutoff?: number
     renderSeries?: (value: React.ReactNode, seriesDatum: SeriesDatum, idx: number) => React.ReactNode
-    renderCount?: (value: number, seriesDatum: SeriesDatum | InvertedSeriesDatum, idx: number) => React.ReactNode
+    renderCount?: (value: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
 }
@@ -81,12 +85,23 @@ export function getFormattedDate(dayInput?: string | number, interval?: Interval
 }
 
 export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
     seriesData.forEach((s) => {
         let datumTitle
         const pillValues = []
         if (s.breakdown_value !== undefined) {
-            pillValues.push(String(s.breakdown_value || 'None'))
+            pillValues.push(
+                formatBreakdownLabel(
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    s.breakdown_value,
+                    s.filter.breakdown,
+                    s.filter.breakdown_type,
+                    s.filter.breakdown_histogram_bin_count !== undefined
+                )
+            )
         }
         if (s.compare_label) {
             pillValues.push(capitalizeFirstLetter(String(s.compare_label)))

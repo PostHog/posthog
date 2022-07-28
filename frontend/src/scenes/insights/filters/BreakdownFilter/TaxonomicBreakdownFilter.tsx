@@ -1,12 +1,10 @@
 import { useValues } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { Breakdown, ChartDisplayType, FilterType } from '~/types'
+import { Breakdown, ChartDisplayType, FilterType, InsightType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
 import { onFilterChange } from './taxonomicBreakdownFilterUtils'
@@ -32,7 +30,6 @@ export function BreakdownFilter({
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -82,19 +79,16 @@ export function BreakdownFilter({
           }
         : undefined
 
-    const isHistogramable = featureFlags[FEATURE_FLAGS.HISTOGRAM_INSIGHTS]
-        ? !useMultiBreakdown && breakdownArray.every((t) => getPropertyDefinition(t)?.is_numerical)
-        : false
-
     const tags = !breakdown_type
         ? []
         : breakdownArray.map((t, index) => {
               const key = `${t}-${index}`
+              const isPropertyHistogramable = !useMultiBreakdown && !!getPropertyDefinition(t)?.is_numerical
               return (
                   <BreakdownTag
                       key={key}
                       logicKey={key}
-                      isHistogramable={isHistogramable}
+                      isHistogramable={isPropertyHistogramable}
                       breakdown={t}
                       onClose={onCloseFor ? onCloseFor(t, index) : undefined}
                       filters={filters}
@@ -104,14 +98,23 @@ export function BreakdownFilter({
           })
 
     const onChange = setFilters
-        ? onFilterChange({ useMultiBreakdown, breakdownParts, setFilters, isHistogramable })
+        ? onFilterChange({
+              useMultiBreakdown,
+              breakdownParts,
+              setFilters,
+              getPropertyDefinition: getPropertyDefinition,
+          })
         : undefined
 
     return (
         <div className="flex flex-wrap gap-05 items-center">
             {tags}
             {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
-                <TaxonomicBreakdownButton breakdownType={breakdownType} onChange={onChange} />
+                <TaxonomicBreakdownButton
+                    breakdownType={breakdownType}
+                    onChange={onChange}
+                    includeSessions={filters.insight === InsightType.TRENDS}
+                />
             ) : null}
         </div>
     )

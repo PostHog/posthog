@@ -52,6 +52,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         TASKS_PER_WORKER: 10,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
+        SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         STATSD_HOST: null,
         STATSD_PORT: 8125,
         STATSD_PREFIX: 'plugin-server.',
@@ -131,6 +132,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         KAFKA_SASL_PASSWORD: 'Kafka SASL password',
         KAFKAJS_LOG_LEVEL: 'Kafka log level',
         SENTRY_DSN: 'Sentry ingestion URL',
+        SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 'Rate of tracing in plugin server (between 0 and 1)',
         STATSD_HOST: 'StatsD host - integration disabled if this is not provided',
         STATSD_PORT: 'StatsD port',
         STATSD_PREFIX: 'StatsD prefix',
@@ -160,8 +162,6 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
             'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',
         PISCINA_ATOMICS_TIMEOUT:
             '(advanced) corresponds to the length of time a piscina worker should block for when looking for tasks',
-        NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS:
-            '(advanced) teams for which to run the new person properties update flow on',
         EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: '(advanced) enable experimental feature to track lastSeenAt',
         EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
         MAX_PENDING_PROMISES_PER_WORKER:

@@ -12,6 +12,7 @@ import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { isPostHogProp } from 'lib/components/PropertyKeyInfo'
 import { VerifiedEventCheckbox } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { LemonSelect } from 'lib/components/LemonSelect'
 
 export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
@@ -96,6 +97,35 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     tags={value || []}
                                     onChange={(_, tags) => onChange(tags)}
                                     style={{ marginBottom: 4 }}
+                                />
+                            )}
+                        </Field>
+                    </Col>
+                </Row>
+            )}
+            {hasTaxonomyFeatures && !isEvent && (
+                <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
+                    <Col span={24}>
+                        <Field name="property_type" label="Property Type" data-attr="property-type">
+                            {({ value, onChange }) => (
+                                <LemonSelect
+                                    onChange={(val) => onChange(val)}
+                                    value={value}
+                                    bordered
+                                    options={{
+                                        DateTime: {
+                                            label: 'DateTime',
+                                        },
+                                        String: {
+                                            label: 'String',
+                                        },
+                                        Numeric: {
+                                            label: 'Numeric',
+                                        },
+                                        Boolean: {
+                                            label: 'Boolean',
+                                        },
+                                    }}
                                 />
                             )}
                         </Field>
