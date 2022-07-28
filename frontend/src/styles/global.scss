@@ -861,3 +861,10 @@ body {
         }
     }
 }
+
+// Something in Tailwind messes with these svgs...
+.anticon {
+    svg {
+        vertical-align: initial;
+    }
+}
