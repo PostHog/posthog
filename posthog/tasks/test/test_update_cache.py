@@ -1,11 +1,12 @@
 from copy import copy
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
-from unittest.mock import MagicMock, patch
+from typing import Any, Dict, Generator, List, Optional, Tuple
+from unittest.mock import ANY, MagicMock, call, patch
 
 import pytz
 from django.utils.timezone import now
 from freezegun import freeze_time
+from pytest import fixture
 
 from posthog.constants import ENTITY_ID, ENTITY_TYPE, INSIGHT_STICKINESS
 from posthog.decorators import CacheType
@@ -30,17 +31,21 @@ def create_shared_dashboard(team: Team, is_shared: bool = False, **kwargs: Any) 
     return dashboard
 
 
-def create_shared_insight(team: Team, is_shared: bool = False, **kwargs: Any) -> Insight:
+def create_shared_insight(team: Team, is_enabled: bool = False, **kwargs: Any) -> Insight:
     insight = Insight.objects.create(team=team, **kwargs)
-    SharingConfiguration.objects.create(team=team, insight=insight, enabled=is_shared)
+    SharingConfiguration.objects.create(team=team, insight=insight, enabled=is_enabled)
 
     return insight
 
 
-def _a_dashboard_tile_with_known_last_refresh(team: Team, last_refresh_date: Optional[datetime]) -> DashboardTile:
+def _a_dashboard_tile_with_known_last_refresh(
+    team: Team, last_refresh_date: Optional[datetime], filters: Optional[Dict] = None
+) -> DashboardTile:
+    if filters is None:
+        filters = {"events": [{"id": "$pageview"}]}
+
     dashboard = create_shared_dashboard(team=team, is_shared=True)
-    filter = {"events": [{"id": "$pageview"}]}
-    item = Insight.objects.create(filters=filter, team=team)
+    item = Insight.objects.create(filters=filters, team=team)
     tile: DashboardTile = DashboardTile.objects.create(insight=item, dashboard=dashboard)
     tile.last_refresh = last_refresh_date
     tile.save(update_fields=["last_refresh"])
@@ -88,6 +93,15 @@ def _create_dashboard_tile_with_known_cache_key(
 
 
 class TestSynchronousCacheUpdate(APIBaseTest):
+    @fixture(scope="class", autouse=True)
+    def redis_recency(self) -> Generator[List[int], None, None]:
+        """The current team is always recent for these tests"""
+        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+            recent_teams = [(self.team.id, 1)]
+            mock_redis_get_client.return_value.zrange.return_value = recent_teams
+
+            yield [i for i, _ in recent_teams]
+
     @patch("posthog.tasks.update_cache.statsd.incr")
     def test_update_insight_cache_reports_on_updating_tiles_with_no_hash(self, statsd_incr: MagicMock) -> None:
         tile = _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None)
@@ -157,6 +171,15 @@ def run_cache_update(patch_update_cache_item: MagicMock) -> None:
 
 
 class TestUpdateCache(APIBaseTest):
+    @fixture(scope="class", autouse=True)
+    def redis_recency(self) -> Generator[List[int], None, None]:
+        """The current team is always recent for these tests"""
+        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+            recent_teams = [(self.team.id, 1)]
+            mock_redis_get_client.return_value.zrange.return_value = recent_teams
+
+            yield [i for i, _ in recent_teams]
+
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, _: MagicMock) -> None:
@@ -708,16 +731,16 @@ class TestUpdateCache(APIBaseTest):
             "properties": [{"key": "$browser", "value": "Mac OS X"}],
         }
 
-        shared_insight = create_shared_insight(team=self.team, is_shared=True, filters=filter_dict)
-        shared_insight_without_filters = create_shared_insight(team=self.team, is_shared=True, filters={})
-        shared_insight_deleted = create_shared_insight(team=self.team, is_shared=True, deleted=True)
-        shared_insight_refreshing = create_shared_insight(team=self.team, is_shared=True, refreshing=True)
+        shared_insight = create_shared_insight(team=self.team, is_enabled=True, filters=filter_dict)
+        shared_insight_without_filters = create_shared_insight(team=self.team, is_enabled=True, filters={})
+        shared_insight_deleted = create_shared_insight(team=self.team, is_enabled=True, deleted=True)
+        shared_insight_refreshing = create_shared_insight(team=self.team, is_enabled=True, refreshing=True)
 
         # Valid insights within the PARALLEL_INSIGHT_CACHE count
         other_insights_in_range = [
             create_shared_insight(
                 team=self.team,
-                is_shared=True,
+                is_enabled=True,
                 filters=filter_dict,
                 last_refresh=datetime(2022, 1, 1).replace(tzinfo=pytz.utc),
             )
@@ -728,7 +751,7 @@ class TestUpdateCache(APIBaseTest):
         other_insights_out_of_range = [
             create_shared_insight(
                 team=self.team,
-                is_shared=True,
+                is_enabled=True,
                 filters=filter_dict,
                 last_refresh=datetime(2022, 1, 2).replace(tzinfo=pytz.utc),
             )
@@ -1010,6 +1033,15 @@ class TestUpdateCache(APIBaseTest):
 
 
 class TestUpdateCacheForSharedInsights(APIBaseTest):
+    @fixture(scope="class", autouse=True)
+    def redis_recency(self) -> Generator[List[int], None, None]:
+        """The current team is always recent for these tests"""
+        with patch("posthog.tasks.update_cache.get_client") as mock_redis_get_client:
+            recent_teams = [(self.team.id, 1)]
+            mock_redis_get_client.return_value.zrange.return_value = recent_teams
+
+            yield [i for i, _ in recent_teams]
+
     @patch("posthog.tasks.update_cache.cache.set")
     @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not": "empty result"})
     @patch("posthog.tasks.update_cache.group.apply_async")
@@ -1051,3 +1083,58 @@ class TestUpdateCacheForSharedInsights(APIBaseTest):
 
         assert insight.filters_hash is not None
         assert insight.last_refresh is not None
+
+
+class TestCacheTeamRecency(APIBaseTest):
+    @staticmethod
+    def _mock_redis_team_recency(mock_redis_get_client: MagicMock, recent_teams: List[Tuple[bytes, float]]) -> None:
+        mock_redis_get_client.return_value.zrange.return_value = recent_teams
+        mock_redis_get_client.return_value.zadd.return_value = MagicMock
+
+    @patch("posthog.tasks.update_cache.get_client")
+    def test_queries_clickhouse_if_no_recent_teams(self, mock_redis_get_client: MagicMock) -> None:
+        recent_teams: List[Tuple[bytes, float]] = []
+        self._mock_redis_team_recency(mock_redis_get_client, recent_teams)
+
+        update_cached_items()
+
+        mock_redis_get_client.return_value.zadd.assert_called_once()
+
+    @patch("posthog.tasks.update_cache.get_client")
+    def test_does_not_query_clickhouse_if_recent_teams(self, mock_redis_get_client: MagicMock) -> None:
+        recent_teams: List[Tuple[bytes, float]] = [(b"1", 1.0)]
+        self._mock_redis_team_recency(mock_redis_get_client, recent_teams)
+
+        update_cached_items()
+
+        mock_redis_get_client.return_value.zadd.assert_not_called()
+
+    @patch("posthog.tasks.update_cache.group.apply_async")
+    @patch("posthog.tasks.update_cache.get_client")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_does_not_update_cache_for_non_recent_teams(
+        self, patch_update_cache_item: MagicMock, mock_redis_get_client: MagicMock, _mock_group_apply: MagicMock
+    ) -> None:
+        team_one = self.team
+        team_two = Team.objects.create(organization=self.organization)
+
+        recent_teams: List[Tuple[bytes, float]] = [(f"{team_two.id}".encode("utf-8"), 1.0)]
+        self._mock_redis_team_recency(mock_redis_get_client, recent_teams)
+
+        _a_dashboard_tile_with_known_last_refresh(team_one, None, {"events": [{"id": "$pageview-excluded-dashboard"}]})
+        include_dashboard = _a_dashboard_tile_with_known_last_refresh(
+            team_two, None, {"events": [{"id": "$pageview-included-dashboard"}]}
+        )
+        create_shared_insight(team_one, is_enabled=True, filters={"events": [{"id": "$pageview-excluded-insight"}]})
+        include_insight = create_shared_insight(
+            team_two, is_enabled=True, filters={"events": [{"id": "$pageview-included-insight"}]}
+        )
+
+        run_cache_update(patch_update_cache_item)
+
+        assert patch_update_cache_item.mock_calls == [
+            call(include_dashboard.filters_hash, ANY, ANY,),
+            call(include_insight.filters_hash, ANY, ANY),
+            call().__bool__(),
+            call().__bool__(),
+        ]

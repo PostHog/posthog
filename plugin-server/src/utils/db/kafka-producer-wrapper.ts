@@ -1,10 +1,15 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Message, Producer, ProducerRecord } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, Message, Producer, ProducerRecord } from 'kafkajs'
+// @ts-expect-error no type definitions
+import SnappyCodec from 'kafkajs-snappy'
 
+import { runInSpan } from '../../sentry'
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../metrics'
 import { timeoutGuard } from './utils'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 /** This class wraps kafkajs producer, adding batching to optimize performance.
  *
@@ -44,28 +49,40 @@ export class KafkaProducerWrapper {
         this.maxQueueSize = serverConfig.KAFKA_PRODUCER_MAX_QUEUE_SIZE
         this.maxBatchSize = serverConfig.KAFKA_MAX_MESSAGE_BATCH_SIZE
 
-        this.flushInterval = setInterval(() => this.flush(), this.flushFrequencyMs)
+        this.flushInterval = setInterval(async () => {
+            // :TRICKY: Swallow uncaught errors from flush as flush is already doing custom error reporting which would get lost.
+            try {
+                await this.flush()
+            } catch (err) {}
+        }, this.flushFrequencyMs)
     }
 
-    async queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
-        const messageSize = this.estimateMessageSize(kafkaMessage)
+    queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
+        return runInSpan(
+            {
+                op: 'kafka.queueMessage',
+            },
+            async () => {
+                const messageSize = this.estimateMessageSize(kafkaMessage)
 
-        if (this.currentBatch.length > 0 && this.currentBatchSize + messageSize > this.maxBatchSize) {
-            // :TRICKY: We want to first flush then immediately add the message to the queue. Awaiting and then pushing would result in a race condition.
-            await this.flush(kafkaMessage)
-        } else {
-            this.currentBatch.push(kafkaMessage)
-            this.currentBatchSize += messageSize
+                if (this.currentBatch.length > 0 && this.currentBatchSize + messageSize > this.maxBatchSize) {
+                    // :TRICKY: We want to first flush then immediately add the message to the queue. Awaiting and then pushing would result in a race condition.
+                    await this.flush(kafkaMessage)
+                } else {
+                    this.currentBatch.push(kafkaMessage)
+                    this.currentBatchSize += messageSize
 
-            const timeSinceLastFlush = Date.now() - this.lastFlushTime
-            if (
-                this.currentBatchSize > this.maxBatchSize ||
-                timeSinceLastFlush > this.flushFrequencyMs ||
-                this.currentBatch.length >= this.maxQueueSize
-            ) {
-                await this.flush()
+                    const timeSinceLastFlush = Date.now() - this.lastFlushTime
+                    if (
+                        this.currentBatchSize > this.maxBatchSize ||
+                        timeSinceLastFlush > this.flushFrequencyMs ||
+                        this.currentBatch.length >= this.maxQueueSize
+                    ) {
+                        await this.flush()
+                    }
+                }
             }
-        }
+        )
     }
 
     async queueMessages(kafkaMessages: ProducerRecord[]): Promise<void> {
@@ -99,10 +116,12 @@ export class KafkaProducerWrapper {
             try {
                 await this.producer.sendBatch({
                     topicMessages: messages,
+                    compression: CompressionTypes.Snappy,
                 })
             } catch (err) {
                 Sentry.captureException(err, {
                     extra: {
+                        messages: messages,
                         batchCount: messages.length,
                         topics: messages.map((record) => record.topic),
                         messageCounts: messages.map((record) => record.messages.length),
