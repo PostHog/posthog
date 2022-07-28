@@ -15,6 +15,12 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'mixins';
 @import 'utility';
 
+// Something in Tailwind/Windi messes with these svgs...
+svg {
+    display: inline;
+    vertical-align: initial;
+}
+
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
 $_primary: #5375ff;
 $_primary_alt: #35416b;
@@ -857,12 +863,5 @@ body {
         td {
             display: block;
         }
-    }
-}
-
-// Something in Tailwind/Windi messes with these svgs...
-.anticon {
-    svg {
-        vertical-align: initial;
     }
 }

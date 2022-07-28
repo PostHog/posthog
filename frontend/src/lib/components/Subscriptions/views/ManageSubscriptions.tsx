@@ -45,7 +45,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                 },
             }}
         >
-            <div className="flex justify-between flex-auto items-center pa-2">
+            <div className="flex justify-between flex-auto items-center p-2">
                 <div>
                     <div>{subscription.title}</div>
                     <div className="text-default">{capitalizeFirstLetter(subscription.summary)}</div>
