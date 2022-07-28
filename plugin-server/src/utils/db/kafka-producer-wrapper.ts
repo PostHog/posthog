@@ -44,7 +44,12 @@ export class KafkaProducerWrapper {
         this.maxQueueSize = serverConfig.KAFKA_PRODUCER_MAX_QUEUE_SIZE
         this.maxBatchSize = serverConfig.KAFKA_MAX_MESSAGE_BATCH_SIZE
 
-        this.flushInterval = setInterval(() => this.flush(), this.flushFrequencyMs)
+        this.flushInterval = setInterval(async () => {
+            // :TRICKY: Swallow uncaught errors from flush as flush is already doing custom error reporting which would get lost.
+            try {
+                await this.flush()
+            } catch (err) {}
+        }, this.flushFrequencyMs)
     }
 
     async queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
@@ -103,6 +108,7 @@ export class KafkaProducerWrapper {
             } catch (err) {
                 Sentry.captureException(err, {
                     extra: {
+                        messages: messages,
                         batchCount: messages.length,
                         topics: messages.map((record) => record.topic),
                         messageCounts: messages.map((record) => record.messages.length),
