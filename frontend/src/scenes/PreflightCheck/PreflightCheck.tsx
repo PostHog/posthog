@@ -69,7 +69,8 @@ function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.E
 export function PreflightCheck(): JSX.Element {
     const { preflight, preflightLoading, preflightMode, checks, areChecksExpanded, checksSummary } =
         useValues(preflightLogic)
-    const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded } = useActions(preflightLogic)
+    const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded, loadPreflight } =
+        useActions(preflightLogic)
 
     return (
         <div className="bridge-page Preflight">
@@ -186,11 +187,11 @@ export function PreflightCheck(): JSX.Element {
                                     fullWidth
                                     size="large"
                                     data-attr="preflight-refresh"
-                                    onClick={() => window.location.reload()}
+                                    onClick={() => loadPreflight()}
                                     disabled={preflightLoading || !preflight}
                                     style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+                                    icon={<IconRefresh />}
                                 >
-                                    <IconRefresh />
                                     <span style={{ paddingLeft: 8 }}>Validate requirements</span>
                                 </LemonButton>
                             </div>
