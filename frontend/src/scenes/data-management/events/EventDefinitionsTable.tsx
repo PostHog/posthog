@@ -30,14 +30,17 @@ import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 const eventTypeOptions: LemonSelectOptions = {
     [CombinedEventType.All]: {
         label: 'All types',
+        'data-attr': 'event-type-option-all',
     },
     [CombinedEventType.ActionEvent]: {
         label: 'Calculated events',
         icon: <ActionEvent />,
+        'data-attr': 'event-type-option-action-event',
     },
     [CombinedEventType.Event]: {
         label: 'Events',
         icon: <UnverifiedEvent />,
+        'data-attr': 'event-type-option-event',
     },
 }
 
