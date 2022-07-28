@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Message, Producer, ProducerRecord } from 'kafkajs'
 
-import { runInSpan } from '../../init'
+import { runInSpan } from '../../sentry'
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../metrics'
 import { timeoutGuard } from './utils'

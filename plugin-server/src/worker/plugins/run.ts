@@ -1,6 +1,6 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { runInSpan } from '../../init'
+import { runInSpan } from '../../sentry'
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'

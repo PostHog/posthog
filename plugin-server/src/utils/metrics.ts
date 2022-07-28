@@ -1,6 +1,6 @@
 import { StatsD, Tags } from 'hot-shots'
 
-import { runInSpan } from '../init'
+import { runInSpan } from '../sentry'
 import { UUID } from './utils'
 
 type StopCallback = () => void

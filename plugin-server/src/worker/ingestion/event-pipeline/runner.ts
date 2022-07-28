@@ -1,7 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
-import { runInSpan } from '../../../init'
+import { runInSpan } from '../../../sentry'
 import { Hub, IngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'

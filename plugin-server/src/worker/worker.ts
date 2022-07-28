@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
 
-import { initApp, runInTransaction } from '../init'
+import { initApp } from '../init'
+import { runInTransaction } from '../sentry'
 import { Hub, PluginsServerConfig } from '../types'
 import { processError } from '../utils/db/error'
 import { createHub } from '../utils/db/hub'
