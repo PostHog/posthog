@@ -1,6 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
+import { runInSpan } from '../../../init'
 import { Hub, IngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
@@ -132,17 +133,25 @@ export class EventPipelineRunner {
         name: Step,
         ...args: ArgsType
     ): Promise<StepResult> {
-        const timeout = timeoutGuard('Event pipeline step stalled. Timeout warning after 30 sec!', {
-            step: name,
-            event: JSON.stringify(this.originalEvent),
-        })
-        try {
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-expect-error
-            return EVENT_PIPELINE_STEPS[name](this, ...args)
-        } finally {
-            clearTimeout(timeout)
-        }
+        return runInSpan(
+            {
+                op: 'runStep',
+                description: name,
+            },
+            () => {
+                const timeout = timeoutGuard('Event pipeline step stalled. Timeout warning after 30 sec!', {
+                    step: name,
+                    event: JSON.stringify(this.originalEvent),
+                })
+                try {
+                    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                    // @ts-expect-error
+                    return EVENT_PIPELINE_STEPS[name](this, ...args)
+                } finally {
+                    clearTimeout(timeout)
+                }
+            }
+        )
     }
 
     nextStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
