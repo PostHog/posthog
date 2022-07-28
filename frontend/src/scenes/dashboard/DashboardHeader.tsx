@@ -189,12 +189,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             path: apiUrl(),
                                                         },
                                                     },
-                                                    {
-                                                        export_format: ExporterFormat.CSV,
-                                                        export_context: {
-                                                            path: apiUrl(),
-                                                        },
-                                                    },
                                                 ]}
                                             />
                                             <LemonDivider />

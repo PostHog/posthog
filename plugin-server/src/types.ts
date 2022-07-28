@@ -104,6 +104,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
+    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string

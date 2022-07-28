@@ -162,7 +162,8 @@ function TZIndicatorRaw({
     return (
         <Popover content={PopoverContent} onVisibleChange={handleVisibleChange} placement={placement}>
             <span className="tz-indicator" style={style}>
-                <GlobalOutlined /> UTC
+                <GlobalOutlined style={{ marginRight: '0.375rem' }} />
+                UTC
             </span>
         </Popover>
     )
