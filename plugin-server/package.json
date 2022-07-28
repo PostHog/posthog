@@ -65,7 +65,7 @@
         "node-fetch": "^2.6.1",
         "node-schedule": "^2.0.0",
         "pg": "^8.6.0",
-        "posthog-node": "2.0.0-alpha5",
+        "posthog-node": "2.0.0-alpha6",
         "pretty-bytes": "^5.6.0",
         "protobufjs": "6.11.3",
         "re2": "^1.16.0",
