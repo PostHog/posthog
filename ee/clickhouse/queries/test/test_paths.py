@@ -2845,6 +2845,7 @@ class TestClickhousePaths(paths_test_factory(ClickhousePaths)):  # type: ignore
         self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
+        self.assertEqual([], matched_recordings[0])
         self.assertCountEqual(
             [
                 {
@@ -2868,9 +2869,8 @@ class TestClickhousePaths(paths_test_factory(ClickhousePaths)):  # type: ignore
                     ],
                 },
             ],
-            matched_recordings[0],
+            matched_recordings[1],
         )
-        self.assertEqual([], matched_recordings[1])
 
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
