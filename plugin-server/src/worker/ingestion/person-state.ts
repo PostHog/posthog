@@ -264,7 +264,7 @@ export class PersonState {
         timestamp: DateTime,
         isIdentifyCall: boolean
     ): Promise<void> {
-        // No reason to alias person against itself. Done by posthog-js-lite when updating user properties
+        // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (distinctId === previousDistinctId) {
             return
         }
@@ -280,7 +280,7 @@ export class PersonState {
         retryIfFailed = true,
         totalMergeAttempts = 0
     ): Promise<void> {
-        // No reason to alias person against itself. Done by posthog-js-lite when updating user properties
+        // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (previousDistinctId === distinctId) {
             return
         }
