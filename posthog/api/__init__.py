@@ -57,7 +57,7 @@ project_plugins_configs_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
-projects_router.register(r"prompts", prompt.PromptSequenceViewSet, "project_feature_flags", ["team_id"])
+projects_router.register(r"prompts", prompt.PromptSequenceStateViewSet, "project_feature_flags", ["team_id"])
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )

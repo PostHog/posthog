@@ -1,23 +1,13 @@
 from typing import Any, List
 
 from dateutil import parser
-from rest_framework import authentication, exceptions, request, serializers, viewsets
+from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.prompt import PromptSequence, PromptSequenceState, get_active_prompt_sequences
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-
-
-class PromptSequenceSerializer(serializers.HyperlinkedModelSerializer):
-    class Meta:
-        model = PromptSequence
-        fields = ["key", "prompts", "rule", "type"]
+from posthog.models.prompt import PromptSequenceState, get_active_prompt_sequences
 
 
 class PromptSequenceStateSerializer(serializers.HyperlinkedModelSerializer):
@@ -26,25 +16,15 @@ class PromptSequenceStateSerializer(serializers.HyperlinkedModelSerializer):
         fields = ["key", "last_updated_at", "step", "completed", "dismissed"]
 
 
-class PromptSequenceViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     """
     Create, read, update and delete prompt sequences state for a person.
     """
 
-    serializer_class = PromptSequenceSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    authentication_classes = [
-        PersonalAPIKeyAuthentication,
-        TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
-        authentication.SessionAuthentication,
-        authentication.BasicAuthentication,
-    ]
+    serializer_class = PromptSequenceStateSerializer
 
     @action(methods=["PATCH"], detail=False)
     def my_prompts(self, request: request.Request, **kwargs):
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
-
         local_states = []
         for key in request.data:
             parsed_state = dict(
@@ -65,11 +45,8 @@ class PromptSequenceViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets
 
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
         for sequence in all_sequences:
-            serialized_sequence = PromptSequenceSerializer(sequence).data
-            local_state = next((s for s in local_states if serialized_sequence["key"] == s["key"]), None)
-            saved_state: PromptSequenceState = next(
-                (s for s in saved_states if serialized_sequence["key"] == s.key), None
-            )
+            local_state = next((s for s in local_states if sequence["key"] == s["key"]), None)
+            saved_state: PromptSequenceState = next((s for s in saved_states if sequence["key"] == s.key), None)
 
             state = None
             # check if the local state is more recent than the one in the db, then update accordingly
@@ -88,9 +65,9 @@ class PromptSequenceViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets
             if not state and saved_state:
                 state = PromptSequenceStateSerializer(saved_state).data
 
-            my_prompts["sequences"].append(serialized_sequence)
+            my_prompts["sequences"].append(sequence)
             if state:
-                my_prompts["state"][serialized_sequence["key"]] = state
+                my_prompts["state"][sequence["key"]] = state
 
         if states_to_create:
             PromptSequenceState.objects.bulk_create(states_to_create)
