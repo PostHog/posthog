@@ -115,6 +115,9 @@ class PropertyDefinitionViewSet(
             **search_kwargs,
         }
 
+        limit = self.paginator.get_limit(self.request)
+        offset = self.paginator.get_offset(self.request)
+
         if use_entreprise_taxonomy:
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
             property_definition_fields = ", ".join(
@@ -130,6 +133,7 @@ class PropertyDefinitionViewSet(
                             WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s
                              {name_filter} {numerical_filter} {search_query} {event_property_filter}
                             ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                            LIMIT {limit} OFFSET {offset}
                             """,
                 params=params,
             ).prefetch_related(
@@ -147,6 +151,7 @@ class PropertyDefinitionViewSet(
                 FROM posthog_propertydefinition
                 WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query} {event_property_filter}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
+                LIMIT {limit} OFFSET {offset}
             """,
             params=params,
         )
