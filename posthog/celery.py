@@ -156,8 +156,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             name="count tiles with no filters_hash",
         )
 
-        sender.add_periodic_task(300, set_update_cache_consumer_rate_limit.s())
-
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -432,14 +430,11 @@ def check_cached_items():
 
 
 @app.task(ignore_result=True)
-def set_update_cache_consumer_rate_limit() -> None:
+def update_cache_consumer_rate_limit(rate_limit: Optional[Union[str, int]]) -> None:
     from structlog import get_logger
 
     logger = get_logger(__name__)
 
-    from posthog.models.instance_setting import get_instance_setting
-
-    rate_limit: Optional[Union[int, str]] = get_instance_setting("UPDATE_CACHE_ITEM_TASK_RATE_LIMIT")
     if rate_limit is not None:
         logger.info("set_update_cache_consumer_rate_limit", rate_limit=rate_limit)
         app.control.rate_limit("posthog.celery.update_cache_item_task", rate_limit)
