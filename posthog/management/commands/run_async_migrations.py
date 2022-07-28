@@ -75,7 +75,7 @@ def handle_check(necessary_migrations: Sequence[AsyncMigration]):
             [
                 "Stopping PostHog!",
                 f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:",
-                *(f"- {migration}" for migration in necessary_migrations),
+                *(f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations),
                 "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
             ],
             top_emoji="💥",
@@ -136,6 +136,6 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
         print_warning(
             [
                 f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:",
-                *(f"- {migration}" for migration in necessary_migrations),
+                *(f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations),
             ]
         )

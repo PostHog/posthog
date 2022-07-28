@@ -49,7 +49,7 @@ class AsyncMigration(models.Model):
 
     parameters: models.JSONField = models.JSONField(default=dict)
 
-    def __str__(self) -> str:
+    def get_name_with_requirements(self) -> str:
         return (
             f"{self.name} - must be ran on PostHog version {self.posthog_min_version} up to {self.posthog_max_version}"
         )
