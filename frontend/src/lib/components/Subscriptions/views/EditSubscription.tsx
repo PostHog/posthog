@@ -130,7 +130,7 @@ export function EditSubscription({
                                 at={subscription.created_at}
                                 by={subscription.created_by}
                                 prefix={'Created'}
-                                className={'mb'}
+                                className={'mb-4'}
                             />
                         ) : null}
 
@@ -201,7 +201,7 @@ export function EditSubscription({
                                                 loading={membersLoading}
                                                 placeholder="Enter an email address"
                                             />
-                                            <div className="text-small text-muted mt-2">
+                                            <div className="text-xs text-muted mt-2">
                                                 Enter the email addresses of the users you want to share with
                                             </div>
                                         </>
@@ -270,7 +270,7 @@ export function EditSubscription({
                                                         options={slackChannelOptions}
                                                         loading={slackChannelsLoading}
                                                     />
-                                                    <div className="text-small text-muted mt-2">
+                                                    <div className="text-xs text-muted mt-2">
                                                         Private channels are only shown if you have{' '}
                                                         <a
                                                             href="https://posthog.com/docs/integrate/third-party/slack"
@@ -322,7 +322,7 @@ export function EditSubscription({
                                 <Field name={'target_value'} label={'Webhook URL'}>
                                     <LemonInput placeholder="https://example.com/webhooks/1234" />
                                 </Field>
-                                <div className="text-small text-muted mt-2">
+                                <div className="text-xs text-muted mt-2">
                                     Webhooks will be called with a HTTP POST request. The webhook endpoint should
                                     respond with a healthy HTTP code (2xx).
                                 </div>

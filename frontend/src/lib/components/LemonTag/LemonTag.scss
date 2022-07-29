@@ -7,7 +7,7 @@
     text-transform: uppercase;
     display: inline-flex;
     align-items: center;
-    color: var(--text-default);
+    color: var(--default);
     line-height: 1rem;
     white-space: nowrap;
 
@@ -21,12 +21,12 @@
 
     &.danger {
         background-color: var(--danger);
-        color: var(--text-light);
+        color: var(--light);
     }
 
     &.success {
         background-color: var(--success);
-        color: var(--text-light);
+        color: var(--light);
     }
 
     .LemonTag__icon {

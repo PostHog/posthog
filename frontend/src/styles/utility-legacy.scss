@@ -1,7 +1,7 @@
 // className="(.+\s)*mb(\s.+)*"
 
 .text-default {
-    color: var(--text-default);
+    color: var(--default);
     font-size: 14px;
     line-height: 20px;
     font-weight: 400;
@@ -54,11 +54,11 @@
 }
 
 .text-muted {
-    color: var(--text-muted);
+    color: var(--muted);
 }
 
 .text-muted-alt {
-    color: var(--text-muted-alt);
+    color: var(--muted-alt);
 }
 
 .primary {
@@ -139,11 +139,11 @@
 }
 
 .text-muted {
-    color: var(--text-muted) !important;
+    color: var(--muted) !important;
 }
 
 .text-muted-alt {
-    color: var(--text-muted-alt) !important;
+    color: var(--muted-alt) !important;
 }
 
 .highlighted {

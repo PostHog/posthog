@@ -10,6 +10,8 @@ import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconDelete } from 'lib/components/icons'
 
 function ExclusionRowSuffix({
     filter,
@@ -95,16 +97,14 @@ function ExclusionRowSuffix({
                     ))}
             </Select>
             <div style={{ flex: 1 }} />
-            <Button
-                type="link"
+            <LemonButton
+                icon={<IconDelete />}
+                type="alt"
+                // size="small"
                 onClick={onClose}
-                className="row-action-btn delete"
                 data-attr="delete-prop-exclusion-filter"
                 title="Delete event exclusion series"
-                style={{ marginLeft: 4 }}
-            >
-                <DeleteOutlined />
-            </Button>
+            />
         </Row>
     )
 }

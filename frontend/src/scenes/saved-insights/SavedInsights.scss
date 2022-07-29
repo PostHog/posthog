@@ -1,4 +1,4 @@
-@import '../../styles/breakpoints';
+@import '../../styles/mixins';
 
 .saved-insights {
     height: 100%;
@@ -35,7 +35,7 @@
     }
 
     .list-or-card-layout {
-        color: var(--text-muted-alt);
+        color: var(--muted-alt);
         padding: 1rem 0;
         border-top: 1px solid var(--border);
         justify-content: space-between;
@@ -71,7 +71,7 @@
                 font-weight: 500;
                 font-size: 1rem;
                 line-height: 1.7rem;
-                color: var(--text-muted);
+                color: var(--muted);
             }
 
             button.add-insight-button {

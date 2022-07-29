@@ -1,4 +1,4 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
 .Breadcrumbs {
     display: flex;
@@ -27,7 +27,7 @@
     user-select: none;
 
     &--current {
-        color: var(--text-default);
+        color: var(--default);
         cursor: default;
     }
 

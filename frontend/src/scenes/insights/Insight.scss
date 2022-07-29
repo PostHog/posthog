@@ -1,4 +1,4 @@
-@import '../../styles/breakpoints';
+@import '../../styles/mixins';
 @import '../../styles/mixins';
 
 .insights-page {
@@ -68,12 +68,12 @@
         }
         // TODO: Remove deprecated style if we fully remove or actively support again
         .deprecated {
-            color: var(--text-muted);
+            color: var(--muted);
             .hotkey {
                 margin-bottom: 0;
-                background-color: var(--depr-rgba-border-0-1) !important;
+                background-color: var(--light) !important;
                 border-color: var(--border) !important;
-                color: var(--text-muted);
+                color: var(--muted);
             }
         }
         &.ant-tabs-tab-active {
@@ -90,7 +90,7 @@
         }
         .deprecated {
             .hotkey {
-                background-color: var(--depr-rgba-border-0-2) !important;
+                background-color: var(--light) !important;
             }
         }
     }
@@ -222,7 +222,7 @@
         background-color: transparent;
         border: 0;
         input::placeholder {
-            color: var(--text-default);
+            color: var(--default);
         }
     }
 

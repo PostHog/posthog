@@ -24,18 +24,18 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
             <div>
                 <code>{metricKey}</code>
             </div>
-            <div style={{ color: 'var(--text-muted)' }}>
+            <div style={{ color: 'var(--muted)' }}>
                 Value will be changed
                 {!isSecret && (
                     <>
                         {' from '}
-                        <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
+                        <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
                             {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
                         </span>
                     </>
                 )}
                 {' to '}
-                <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
+                <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
                     {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (

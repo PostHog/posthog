@@ -19,7 +19,7 @@
         display: flex;
         width: 100%;
         align-items: stretch;
-        color: var(--text-muted);
+        color: var(--muted);
         text-transform: uppercase;
         font-size: 12px;
         line-height: 12px;
@@ -45,11 +45,11 @@
             background: var(--bg-side);
             border-color: var(--bg-side);
             &.taxonomic-count-zero {
-                color: var(--text-muted);
+                color: var(--muted);
                 cursor: not-allowed;
             }
             &.taxonomic-pill-active {
-                color: var(--text-light);
+                color: var(--light);
                 background: var(--primary);
                 border-color: var(--primary);
             }

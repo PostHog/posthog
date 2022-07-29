@@ -1,0 +1,52 @@
+$sm: 576px;
+$md: 768px;
+$lg: 992px;
+$xl: 1200px;
+$xxl: 1600px;
+
+$screens: (
+    'sm': $sm,
+    'md': $md,
+    'lg': $lg,
+    'xl': $xl,
+    'xxl': $xxl,
+);
+
+$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
+
+$sides: 'top', 'right', 'bottom', 'left';
+
+// See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
+$colors: (
+    'primary-highlight': #e8edff,
+    'primary-light': #345cff,
+    'primary': #1d4aff,
+    'primary-dark': #1330a6,
+    'danger-highlight': #fbebe6,
+    'danger-light': #df4b20,
+    'danger': #db3707,
+    'danger-dark': #992705,
+    'warning-highlight': #fef6e6,
+    'warning-light': #f8b633,
+    'warning': #f7a501,
+    'warning-dark': #a06b01,
+    'success-highlight': #ebf3e5,
+    'success-light': #5f9d32,
+    'success': #388600,
+    'success-dark': #245700,
+    'primary-alt-highlight': #ebecf0,
+    'primary-alt': #35416b,
+    'primary-alt-dark': #222a46,
+    'default': #2d2d2d,
+    'default-dark': #050505,
+    'muted': #5f5f5f,
+    'muted-dark': #403939,
+    'muted-alt': #747ea1,
+    'muted-alt-dark': #515871,
+    'white': #fff,
+    'light': rgba(255, 255, 255, 0.878),
+    'border': rgba(0, 0, 0, 0.15),
+    'border-light': rgba(0, 0, 0, 0.08),
+    'border-dark': rgba(0, 0, 0, 0.24),
+    'border-active': rgba(0, 0, 0, 0.36),
+);

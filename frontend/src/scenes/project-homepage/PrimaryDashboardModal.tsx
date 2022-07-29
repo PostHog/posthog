@@ -52,7 +52,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                                     <strong>{dashboard.name}</strong>
                                     <Typography.Paragraph
                                         ellipsis={{ rows: 1 }}
-                                        className="text-small dashboard-description"
+                                        className="text-xs dashboard-description"
                                     >
                                         {dashboard.description}
                                     </Typography.Paragraph>

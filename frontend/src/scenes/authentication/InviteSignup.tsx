@@ -46,10 +46,11 @@ interface ErrorMessage {
 
 function HelperLinks(): JSX.Element {
     return (
-        <>
+        <span className="text-light font-bold">
             <a className="plain-link" href="/">
                 App Home
             </a>
+            <span className="mx-2">|</span>
             <a
                 className="plain-link"
                 href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}
@@ -57,6 +58,7 @@ function HelperLinks(): JSX.Element {
             >
                 PostHog Website
             </a>
+            <span className="mx-2">|</span>
             <a
                 className="plain-link"
                 href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}
@@ -64,7 +66,7 @@ function HelperLinks(): JSX.Element {
             >
                 Contact Us
             </a>
-        </>
+        </span>
     )
 }
 

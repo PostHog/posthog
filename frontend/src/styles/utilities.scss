@@ -1,29 +1,6 @@
-$screens: (
-    'sm': $sm,
-    'md': $md,
-    'lg': $lg,
-    'xl': $xl,
-    'xxl': $xxl,
-);
-
-$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
-
-$sides: 'top', 'right', 'bottom', 'left';
-
-$colors: (
-    'gray-100' #f7fafc,
-    'gray-200' #edf2f7,
-    'gray-300' #e2e8f0,
-    'gray-400' #cbd5e0,
-    'gray-500' #a0aec0,
-    'gray-600' #718096,
-    'gray-700' #4a5568,
-    'gray-800' #2d3748,
-    'gray-900' #1a202c
-);
+@import 'vars';
 
 // TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
-
 @each $space in $spaces {
     .space-y-#{$space} {
         & > * + * {
@@ -300,4 +277,61 @@ $colors: (
 }
 .whitespace-pre-wrap {
     white-space: pre-wrap;
+}
+
+.text-xxs {
+    font-size: 0.5rem; /* 8px */
+    line-height: 0.75rem; /* 12px */
+}
+.text-xs {
+    font-size: 0.75rem; /* 12px */
+    line-height: 1rem; /* 16px */
+}
+.text-sm {
+    font-size: 0.875rem; /* 14px */
+    line-height: 1.25rem; /* 20px */
+}
+.text-base {
+    font-size: 1rem; /* 16px */
+    line-height: 1.5rem; /* 24px */
+}
+.text-lg {
+    font-size: 1.125rem; /* 18px */
+    line-height: 1.75rem; /* 28px */
+}
+.text-xl {
+    font-size: 1.25rem; /* 20px */
+    line-height: 1.75rem; /* 28px */
+}
+.text-2xl {
+    font-size: 1.5rem; /* 24px */
+    line-height: 2rem; /* 32px */
+}
+.text-3xl {
+    font-size: 1.875rem; /* 30px */
+    line-height: 2.25rem; /* 36px */
+}
+.text-4xl {
+    font-size: 2.25rem; /* 36px */
+    line-height: 2.5rem; /* 40px */
+}
+.text-5xl {
+    font-size: 3rem; /* 48px */
+    line-height: 1;
+}
+.text-6xl {
+    font-size: 3.75rem; /* 60px */
+    line-height: 1;
+}
+.text-7xl {
+    font-size: 4.5rem; /* 72px */
+    line-height: 1;
+}
+.text-8xl {
+    font-size: 6rem; /* 96px */
+    line-height: 1;
+}
+.text-9xl {
+    font-size: 8rem; /* 128px */
+    line-height: 1;
 }

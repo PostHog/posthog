@@ -1,4 +1,4 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
 .social-logins {
     margin-top: 1rem;
@@ -16,7 +16,7 @@
 
     .caption {
         margin-bottom: 0.5rem;
-        color: var(--text-muted);
+        color: var(--muted);
     }
 }
 

@@ -43,9 +43,6 @@
         background: var(--bg-light);
         border-color: currentColor;
     }
-    &:not(:disabled):active {
-        color: var(--primary-active);
-    }
     .LemonRow__icon {
         color: var(--muted-alt);
     }
@@ -56,29 +53,29 @@
     color: #fff !important;
     &:not(:disabled):hover,
     &.LemonButton--active {
-        background: var(--primary-hover);
+        background: var(--primary-light);
     }
-    &:not(:disabled):active {
-        background: var(--primary-active);
-    }
+    // &:not(:disabled):active {
+    //     background: var(--primary-active);
+    // }
     &.LemonRow--status-danger {
         background: var(--danger);
         &:not(:disabled):hover,
         &.LemonButton--active {
-            background: var(--danger-hover);
+            background: var(--danger-light);
         }
         &:not(:disabled):active {
-            background: var(--danger-active);
+            background: var(--danger-dark);
         }
     }
     &.LemonRow--status-warning {
         background: var(--warning);
         &:not(:disabled):hover,
         &.LemonButton--active {
-            background: var(--warning-hover);
+            background: var(--warning-light);
         }
         &:not(:disabled):active {
-            background: var(--warning-active);
+            background: var(--warning-dark);
         }
     }
     &.LemonRow--status-success {
@@ -99,7 +96,7 @@
 }
 
 .LemonButton--stealth {
-    color: var(--text-default);
+    color: var(--default);
     font-weight: 400;
     .LemonRow__icon {
         color: var(--muted-alt);
@@ -117,7 +114,7 @@
 
 .LemonButton--highlighted {
     background: var(--primary-bg-hover);
-    color: var(--text-default);
+    color: var(--default);
     .LemonRow__icon {
         color: var(--primary);
     }

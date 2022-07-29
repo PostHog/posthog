@@ -587,7 +587,7 @@ export function Experiment(): JSX.Element {
                                             <>
                                                 <CopyToClipboardInline
                                                     explicitValue={experimentData.feature_flag_key}
-                                                    iconStyle={{ color: 'var(--text-muted-alt)' }}
+                                                    iconStyle={{ color: 'var(--muted-alt)' }}
                                                 >
                                                     <span className="text-muted">
                                                         {experimentData.feature_flag_key}
@@ -768,7 +768,7 @@ export function Experiment(): JSX.Element {
                                                                         ),
                                                                     }}
                                                                 >
-                                                                    <span className="text-default">
+                                                                    <span className="text-sm">
                                                                         {capitalizeFirstLetter(variant.key)}
                                                                     </span>
                                                                 </Col>
@@ -1063,7 +1063,7 @@ export function Experiment(): JSX.Element {
                                         {!experimentResultsLoading && (
                                             <div className="text-center">
                                                 <b>There are no results for this experiment yet.</b>
-                                                <div className="text-default">
+                                                <div className="text-sm">
                                                     Double check your feature flag implementation if you're still not
                                                     seeing results.
                                                 </div>
