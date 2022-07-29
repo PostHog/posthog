@@ -846,6 +846,9 @@ export const insightLogic = kea<insightLogicType>({
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
             }
+            else {
+                router.actions.push(urls.insightEdit(savedInsight.short_id))
+            }
         },
         saveAs: async () => {
             prompt({ key: `save-as-insight` }).actions.prompt({
