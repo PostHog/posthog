@@ -8,6 +8,8 @@ from posthog.test.base import APIBaseTest
 
 
 class TestPrompt(APIBaseTest):
+    sequences: list[dict] = None  # type: ignore
+
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()

@@ -1,7 +1,7 @@
-from typing import Any, List
+from typing import Any, List, Union
 
 from dateutil import parser
-from rest_framework import request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -25,7 +25,9 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["PATCH"], detail=False)
     def my_prompts(self, request: request.Request, **kwargs):
-        local_states = []
+        if not request.user.is_authenticated:  # for mypy otherwise unauthenticated users don't have distinct_id
+            raise exceptions.NotAuthenticated()
+        local_states: List[dict[str, Any]] = []
         for key in request.data:
             parsed_state = dict(
                 request.data[key], last_updated_at=parser.isoparse(request.data[key]["last_updated_at"])
@@ -33,8 +35,8 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             local_states.append(parsed_state)
 
         my_prompts: dict[str, Any] = {"sequences": [], "state": {}}
-        states_to_update: List[dict] = []
-        states_to_create: List[dict] = []
+        states_to_update: List[PromptSequenceState] = []
+        states_to_create: List[PromptSequenceState] = []
 
         person_id = (
             PersonDistinctId.objects.filter(distinct_id=request.user.distinct_id, team_id=self.team_id)
@@ -45,11 +47,13 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
         all_sequences = get_active_prompt_sequences()
 
-        new_states = []
+        new_states: list[dict] = []
 
         for sequence in all_sequences:
             local_state = next((s for s in local_states if sequence["key"] == s["key"]), None)
-            saved_state: PromptSequenceState = next((s for s in saved_states if sequence["key"] == s.key), None)
+            saved_state: Union[PromptSequenceState, None] = next(
+                (s for s in saved_states if sequence["key"] == s.key), None
+            )
 
             state = None
             # check if the local state is more recent than the one in the db, then update accordingly
@@ -79,7 +83,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         for seq in sequences_requiring_previous_completion:
             must_be_completed = seq["rule"]["must_be_completed"]
-            current_state: PromptSequenceState = next((s for s in new_states if s["key"] in must_be_completed), None)
+            current_state: Union[dict, None] = next((s for s in new_states if s["key"] in must_be_completed), None)
             if not current_state or not current_state["completed"]:
                 continue
             sequences.append(seq)
