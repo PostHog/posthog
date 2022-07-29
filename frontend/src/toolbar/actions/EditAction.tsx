@@ -44,7 +44,7 @@ export function EditAction(): JSX.Element {
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>
                 {selectedActionId === 'new' ? 'New ' : 'Edit '}
-                {shouldSimplifyActions ? 'Event' : 'Action'}
+                {shouldSimplifyActions ? 'Calculated Event' : 'Action'}
             </h1>
 
             <Form
@@ -168,7 +168,7 @@ export function EditAction(): JSX.Element {
                     ) : null}
                     <Button type="primary" htmlType="submit">
                         {selectedActionId === 'new' ? 'Create ' : 'Save '}
-                        {shouldSimplifyActions ? 'event' : 'action'}
+                        {shouldSimplifyActions ? 'calculated event' : 'action'}
                     </Button>
                 </Form.Item>
             </Form>

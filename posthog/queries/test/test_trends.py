@@ -4310,6 +4310,55 @@ def trend_test_factory(trends):
             )
             self.assertEqual(response[0]["data"], [1.0])
 
+        @snapshot_clickhouse_queries
+        @patch("posthoganalytics.feature_enabled", return_value=True)
+        def test_timezone_weekly(self, patch_feature_enabled):
+            self.team.timezone = "US/Pacific"
+            self.team.save()
+            _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+            with freeze_time("2020-01-12T02:01:01Z"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+                )
+
+            with freeze_time("2020-01-12T09:01:01Z"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+                )
+
+            with freeze_time("2020-01-22T01:01:01Z"):
+                _create_event(
+                    team=self.team,
+                    event="sign up",
+                    distinct_id="blabla",
+                    properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+                )
+
+            #  volume
+            with freeze_time("2020-01-26T07:00:00Z"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "interval": "week",
+                            "events": [{"id": "sign up", "name": "sign up",},],
+                        },
+                        team=self.team,
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
+            self.assertEqual(
+                response[0]["labels"], ["12-Jan-2020", "19-Jan-2020", "26-Jan-2020"],
+            )
+
         def test_same_day(self):
             _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
             with freeze_time("2020-01-03T01:01:01Z"):

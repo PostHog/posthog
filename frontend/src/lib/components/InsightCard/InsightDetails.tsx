@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties } from 'lib/utils'
+import { allOperatorsMapping, alphabet, convertPropertyGroupToProperties, formatPropertyLabel } from 'lib/utils'
 import React from 'react'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
@@ -15,9 +15,10 @@ import { LemonDivider } from '../LemonDivider'
 import { Lettermark } from '../Lettermark/Lettermark'
 import { Link } from '../Link'
 import { ProfilePicture } from '../ProfilePicture'
-import { PropertyFilterText } from '../PropertyFilters/components/PropertyFilterButton'
-import { PropertyKeyInfo } from '../PropertyKeyInfo'
+import { keyMapping, PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TZLabel } from '../TimezoneAware'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 
 function CompactPropertyFiltersDisplay({
     properties,
@@ -26,6 +27,9 @@ function CompactPropertyFiltersDisplay({
     properties: PropertyFilter[]
     embedded?: boolean
 }): JSX.Element {
+    const { cohortsById } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
     return (
         <>
             {properties.map((subFilter, subIndex) => (
@@ -37,7 +41,12 @@ function CompactPropertyFiltersDisplay({
                             <>
                                 person belongs to cohort
                                 <span className="SeriesDisplay__raw-name">
-                                    <PropertyFilterText item={subFilter} />
+                                    {formatPropertyLabel(
+                                        subFilter,
+                                        cohortsById,
+                                        keyMapping,
+                                        (s) => formatPropertyValueForDisplay(subFilter.key, s)?.toString() || '?'
+                                    )}
                                 </span>
                             </>
                         ) : (
@@ -46,7 +55,8 @@ function CompactPropertyFiltersDisplay({
                                 <span className="SeriesDisplay__raw-name">
                                     {subFilter.key && <PropertyKeyInfo value={subFilter.key} />}
                                 </span>
-                                {allOperatorsMapping[subFilter.operator || 'exact']} <b>{subFilter.value}</b>
+                                {allOperatorsMapping[subFilter.operator || 'exact']}{' '}
+                                <b>{Array.isArray(subFilter.value) ? subFilter.value.join(' or ') : subFilter.value}</b>
                             </>
                         )}
                     </span>

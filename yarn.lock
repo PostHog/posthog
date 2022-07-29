@@ -14377,15 +14377,15 @@ postcss@^8.4.12, postcss@^8.4.14:
     picocolors "^1.0.0"
     source-map-js "^1.0.2"
 
-posthog-js-lite@^0.0.3:
-  version "0.0.3"
-  resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-0.0.3.tgz#87e373706227a849c4e7c6b0cb2066a64ad5b6ed"
-  integrity sha512-wEOs8DEjlFBwgd7l19grosaF7mTlliZ9G9pL0Qji189FDg2ukY5IegUxTyTs7gsTGt6WK9W47BF5yXA5+bwvZg==
+posthog-js-lite@2.0.0-alpha5:
+  version "2.0.0-alpha5"
+  resolved "https://registry.yarnpkg.com/posthog-js-lite/-/posthog-js-lite-2.0.0-alpha5.tgz#60cff1b756ba2723ebb0222ca132fd0de8036210"
+  integrity sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==
 
-posthog-js@1.26.1:
-  version "1.26.1"
-  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.26.1.tgz#c041869cb72cfcfd0ea09bd82a25957942ecaa0d"
-  integrity sha512-Rj4fPEOPHzX4eAVsIFDKm2MPja7n6kAJp5ul/ryLeAsL8tTJykACARk4DuLgJygQNFrcHtAweawwvpyNuP/dTA==
+posthog-js@1.27.0-alpha5:
+  version "1.27.0-alpha5"
+  resolved "https://registry.yarnpkg.com/posthog-js/-/posthog-js-1.27.0-alpha5.tgz#f440ed01f8d14588ae7b8fcec07d05ae12b66ce6"
+  integrity sha512-/HV4zjpMzDVa3D+kWzAoiLKxrrtxtVfVoCFmNjRFFwBHTbe391MGIitnHrxNSQEGx4cVA9BhvoqSjNDg/Y+6AA==
   dependencies:
     "@sentry/types" "^7.2.0"
     fflate "^0.4.1"

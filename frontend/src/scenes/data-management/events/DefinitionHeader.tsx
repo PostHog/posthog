@@ -18,7 +18,7 @@ import clsx from 'clsx'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import {
-    createEventTaxonomicGroupProps,
+    eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { actionsModel } from '~/models/actionsModel'
@@ -39,10 +39,10 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
-export function getEventDefinitionIcon(definition: CombinedEvent, shouldSimplifyActions: boolean = false): JSX.Element {
+export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
     if (isActionEvent(definition)) {
         return (
-            <Tooltip title="Event">
+            <Tooltip title="Calculated event">
                 <ActionEvent className="taxonomy-icon taxonomy-icon-muted" />
             </Tooltip>
         )
@@ -77,7 +77,7 @@ export function getEventDefinitionIcon(definition: CombinedEvent, shouldSimplify
         )
     }
     return (
-        <Tooltip title={`Unverified${shouldSimplifyActions ? ' raw' : ''} event`}>
+        <Tooltip title={`Unverified event`}>
             <UnverifiedEvent className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
@@ -149,15 +149,15 @@ export function ActionHeader({
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: 'Events',
-                searchPlaceholder: 'events',
+                name: 'Calculated events',
+                searchPlaceholder: 'calculated events',
                 type: TaxonomicFilterGroupType.Actions,
                 logic: actionsModel,
                 value: 'actions',
                 getName: (action: ActionType) => action.name || '',
                 getValue: (action: ActionType) => action.name || '',
                 getFullDetailUrl: (action: ActionType) => (action.action_id ? urls.action(action.action_id) : ''),
-                getPopupHeader: () => 'event',
+                getPopupHeader: () => 'calculated event',
                 getIcon: getEventDefinitionIcon,
             }}
             shouldSimplifyActions
@@ -178,13 +178,13 @@ export function EventDefinitionHeader({
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: shouldSimplifyActions ? 'Raw events' : 'Events',
-                searchPlaceholder: shouldSimplifyActions ? 'raw events' : 'events',
+                name: 'Events',
+                searchPlaceholder: 'events',
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getFullDetailUrl: (eventDefinition: EventDefinition) => urls.eventDefinition(eventDefinition.id),
-                ...createEventTaxonomicGroupProps(shouldSimplifyActions),
+                ...eventTaxonomicGroupProps,
             }}
             shouldSimplifyActions={shouldSimplifyActions}
             {...props}

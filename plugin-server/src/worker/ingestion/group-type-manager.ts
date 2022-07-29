@@ -63,12 +63,15 @@ export class GroupTypeManager {
             return
         }
 
-        posthog.identify('plugin-server')
-        posthog.capture('group type ingested', {
-            team: team.uuid,
-            groupType,
-            groupTypeIndex,
-            $groups: {
+        posthog.capture({
+            distinctId: 'plugin-server',
+            event: 'group type ingested',
+            properties: {
+                team: team.uuid,
+                groupType,
+                groupTypeIndex,
+            },
+            groups: {
                 project: team.uuid,
                 organization: team.organization_id,
                 instance: this.instanceSiteUrl,

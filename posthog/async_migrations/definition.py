@@ -30,7 +30,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
         rollback_settings: Optional[Dict] = None,
         database: AnalyticsDBMS = AnalyticsDBMS.CLICKHOUSE,
         timeout_seconds: int = ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS,
-        per_shard: bool = False
+        per_shard: bool = False,
     ):
         self.sql = sql
         self.sql_settings = sql_settings

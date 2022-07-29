@@ -875,10 +875,11 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
-def print_warning(warning_lines: Sequence[str]):
+def print_warning(warning_lines: Sequence[str], *, top_emoji="🔻", bottom_emoji="🔺"):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print(
-        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
+        "\n".join(("", top_emoji * highlight_length, *warning_lines, bottom_emoji * highlight_length, "",)),
+        file=sys.stderr,
     )
 
 
