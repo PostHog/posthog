@@ -66,6 +66,13 @@ export const createTaskRunner =
                     })
                 }
                 return response
+            },
+            (transactionDuration: number) => {
+                if (task === 'runEventPipeline' || task === 'runBufferEventPipeline') {
+                    return transactionDuration > 0.2 ? 1 : 0.01
+                } else {
+                    return 1
+                }
             }
         )
 
