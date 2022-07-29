@@ -1,0 +1,80 @@
+$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
+
+$sides: 'top', 'right', 'bottom', 'left';
+
+$colors: (
+    'gray-100' #f7fafc,
+    'gray-200' #edf2f7,
+    'gray-300' #e2e8f0,
+    'gray-400' #cbd5e0,
+    'gray-500' #a0aec0,
+    'gray-600' #718096,
+    'gray-700' #4a5568,
+    'gray-800' #2d3748,
+    'gray-900' #1a202c
+);
+
+@each $space in $spaces {
+    .space-y-#{$space} {
+        & > * + * {
+            margin-top: #{$space/4}rem;
+        }
+    }
+
+    .space-x-#{$space} {
+        & > * + * {
+            margin-left: #{$space/4}rem;
+        }
+    }
+
+    .gap-#{$space} {
+        gap: #{$space/4}rem;
+    }
+
+    .m-#{$space} {
+        margin: #{$space/4}rem;
+    }
+
+    .mx-#{$space} {
+        margin-left: #{$space/4}rem;
+        margin-right: #{$space/4}rem;
+    }
+
+    .my-#{$space} {
+        margin-top: #{$space/4}rem;
+        margin-bottom: #{$space/4}rem;
+    }
+
+    .px-#{$space} {
+        padding-left: #{$space/4}rem;
+        padding-right: #{$space/4}rem;
+    }
+
+    .py-#{$space} {
+        padding-top: #{$space/4}rem;
+        padding-bottom: #{$space/4}rem;
+    }
+
+    .p-#{$space} {
+        padding: #{$space/4}rem;
+    }
+
+    @each $side in $sides {
+        .m#{str-slice($side, 0, 1)}-#{$space} {
+            margin-#{$side}: #{$space/4}rem;
+        }
+
+        .p#{str-slice($side, 0, 1)}-#{$space} {
+            padding-#{$side}: #{$space/4}rem;
+        }
+    }
+}
+
+@each $name, $hex in $colors {
+    .text-#{$name} {
+        color: $hex;
+    }
+    .bg-#{$name} {
+        background-color: $hex;
+    }
+}
