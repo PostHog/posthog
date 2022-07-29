@@ -41,6 +41,21 @@ $colors: (
         gap: #{$space/4}rem;
     }
 
+    .w-#{$space} {
+        width: #{$space/4}rem;
+    }
+
+    .h-#{$space} {
+        height: #{$space/4}rem;
+    }
+
+    .max-w-#{$space} {
+        max-width: #{$space/4}rem;
+    }
+    .max-h-#{$space} {
+        max-height: #{$space/4}rem;
+    }
+
     .m-#{$space} {
         margin: #{$space/4}rem;
     }
@@ -87,4 +102,134 @@ $colors: (
     .bg-#{$name} {
         background-color: $hex;
     }
+}
+
+// Widths / heights
+
+@each $kind in ('width', 'height') {
+    $char: str-slice($kind, 0, 1);
+    .#{$char}-auto {
+        #{$kind}: auto;
+    }
+    .#{$char}-full {
+        #{$kind}: 100%;
+    }
+    .#{$char}-screen {
+        #{$kind}: 100v$char;
+    }
+    .#{$char}-min {
+        #{$kind}: min-content;
+    }
+    .#{$char}-max {
+        #{$kind}: max-content;
+    }
+    .#{$char}-fit {
+        #{$kind}: fit-content;
+    }
+}
+
+// One-off utilities
+
+.text-right {
+    text-align: right;
+}
+
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.uppercase {
+    text-transform: uppercase;
+}
+
+.float-right {
+    float: right;
+}
+
+.float-left {
+    float: left;
+}
+
+// Flex
+.flex {
+    display: flex;
+}
+
+.flex-1 {
+    flex: 1;
+}
+
+.flex-auto {
+    flex: auto;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.flex-row {
+    flex-direction: row;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.flex-nowrap {
+    flex-wrap: wrap;
+}
+
+.shrink {
+    flex-shrink: 1;
+}
+
+.shrink-0 {
+    flex-shrink: 0;
+}
+
+.grow {
+    flex-grow: 1;
+}
+
+.grow-0 {
+    flex-grow: 0;
+}
+
+.justify-start {
+    justify-content: flex-start;
+}
+.justify-end {
+    justify-content: flex-end;
+}
+.justify-center {
+    justify-content: center;
+}
+.justify-between {
+    justify-content: space-between;
+}
+.justify-around {
+    justify-content: space-around;
+}
+.justify-evenly {
+    justify-content: space-evenly;
+}
+
+.items-start {
+    align-items: flex-start;
+}
+.items-end {
+    align-items: flex-end;
+}
+.items-center {
+    align-items: center;
+}
+.items-baseline {
+    align-items: baseline;
+}
+.items-stretch {
+    align-items: stretch;
 }
