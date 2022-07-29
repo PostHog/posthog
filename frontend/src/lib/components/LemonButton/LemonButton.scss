@@ -2,12 +2,10 @@
     font-weight: 500;
     color: var(--primary);
     cursor: pointer;
+
     &:not(:disabled):hover,
     &.LemonButton--active {
-        background: var(--primary-bg-hover);
-    }
-    &:not(:disabled):active {
-        background: var(--primary-bg-active);
+        background: var(--primary-highlight);
     }
     &:disabled {
         opacity: var(--opacity-disabled);
@@ -18,12 +16,27 @@
     }
     &.LemonRow--status-danger {
         color: var(--danger);
+
+        &:not(:disabled):hover,
+        &.LemonButton--active {
+            background: var(--danger-highlight);
+        }
     }
     &.LemonRow--status-warning {
         color: var(--warning);
+
+        &:not(:disabled):hover,
+        &.LemonButton--active {
+            background: var(--warning-highlight);
+        }
     }
     &.LemonRow--status-success {
         color: var(--success);
+
+        &:not(:disabled):hover,
+        &.LemonButton--active {
+            background: var(--success-highlight);
+        }
     }
 }
 
