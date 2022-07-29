@@ -41,7 +41,7 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
     return <IconErrorOutline {...size} />
 }
 
-function PreflightItem({ name, status, caption }: PreflightItem): JSX.Element {
+function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element {
     const { preflightLoading } = useValues(preflightLogic)
     return (
         <div className={clsx('PreflightItem', preflightLoading ? 'Preflight--loading' : `Preflight--${status}`)}>
@@ -178,7 +178,7 @@ export function PreflightCheck(): JSX.Element {
                                 <AnimatedCollapsible collapsed={!areChecksExpanded}>
                                     <>
                                         {checks.map((item) => (
-                                            <PreflightItem key={item.id} {...item} />
+                                            <PreflightItemRow key={item.id} {...item} />
                                         ))}
                                     </>
                                 </AnimatedCollapsible>
