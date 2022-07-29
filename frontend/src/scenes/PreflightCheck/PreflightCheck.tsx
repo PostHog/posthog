@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { LoadingOutlined } from '@ant-design/icons'
-import { PreflightCheckStatus, PreflightItemInterface, preflightLogic } from './preflightLogic'
+import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
 import './PreflightCheck.scss'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -41,7 +41,7 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
     return <IconErrorOutline {...size} />
 }
 
-function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.Element {
+function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element {
     const { preflightLoading } = useValues(preflightLogic)
     return (
         <div className={clsx('PreflightItem', preflightLoading ? 'Preflight--loading' : `Preflight--${status}`)}>
@@ -69,7 +69,8 @@ function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.E
 export function PreflightCheck(): JSX.Element {
     const { preflight, preflightLoading, preflightMode, checks, areChecksExpanded, checksSummary } =
         useValues(preflightLogic)
-    const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded } = useActions(preflightLogic)
+    const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded, revalidatePreflight } =
+        useActions(preflightLogic)
 
     return (
         <div className="bridge-page Preflight">
@@ -177,7 +178,7 @@ export function PreflightCheck(): JSX.Element {
                                 <AnimatedCollapsible collapsed={!areChecksExpanded}>
                                     <>
                                         {checks.map((item) => (
-                                            <PreflightItem key={item.id} {...item} />
+                                            <PreflightItemRow key={item.id} {...item} />
                                         ))}
                                     </>
                                 </AnimatedCollapsible>
@@ -186,11 +187,11 @@ export function PreflightCheck(): JSX.Element {
                                     fullWidth
                                     size="large"
                                     data-attr="preflight-refresh"
-                                    onClick={() => window.location.reload()}
+                                    onClick={() => revalidatePreflight()}
                                     disabled={preflightLoading || !preflight}
                                     style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+                                    icon={<IconRefresh />}
                                 >
-                                    <IconRefresh />
                                     <span style={{ paddingLeft: 8 }}>Validate requirements</span>
                                 </LemonButton>
                             </div>
