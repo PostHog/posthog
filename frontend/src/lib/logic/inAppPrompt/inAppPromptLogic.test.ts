@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { inAppPromptLogic, Prompt, PromptSequence } from './inAppPromptLogic'
+import { inAppPromptLogic, PromptSequence } from './inAppPromptLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -19,7 +19,7 @@ const config = {
                     text: "Welcome! We'd like to give you a quick tour!",
                     placement: 'top-start',
                     buttons: [{ action: 'skip', label: 'Skip tutorial' }],
-                    reference: 'experiment-events-product-tour',
+                    reference: 'tooltip-test',
                     icon: 'live-events',
                 },
                 {
@@ -27,7 +27,7 @@ const config = {
                     type: 'tooltip',
                     text: "Here you can see all events from the past 12 months. Things look a bit quiet, so let's turn on automatic refresh to see events in real-time.",
                     placement: 'top-start',
-                    reference: 'experiment-events-product-tour',
+                    reference: 'tooltip-test',
                     icon: 'live-events',
                 },
                 {
@@ -37,7 +37,7 @@ const config = {
                     placement: 'top-start',
                     buttons: [{ url: 'https://posthog.com/questions', label: 'Ask for help' }],
                     icon: 'live-events',
-                    reference: 'experiment-events-product-tour',
+                    reference: 'tooltip-test',
                 },
             ],
             rule: { path: '/events' },
@@ -52,7 +52,7 @@ const config = {
                     text: "In PostHog, you analyse data with Insights which can be added to Dashboards to aid collaboration. Let's create a new Dashboard by selecting 'New Dashboard'. ",
                     placement: 'top-start',
                     icon: 'dashboard',
-                    reference: 'experiment-dashboards-product-tour',
+                    reference: 'tooltip-test',
                 },
             ],
             rule: { path: '/dashboard' },
@@ -74,13 +74,17 @@ describe('inAppPromptLogic', () => {
     let logic: ReturnType<typeof inAppPromptLogic.build>
 
     beforeEach(async () => {
-        localStorage.clear()
+        const div = document.createElement('div')
+        div['data-tooltip'] = 'tooltip-test'
+        const spy = jest.spyOn(document, 'querySelector')
+        spy.mockReturnValue(div)
         jest.spyOn(api, 'update')
         useMocks({
             patch: {
                 '/api/projects/:team/prompts/my_prompts/': config,
             },
         })
+        localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
         logic = inAppPromptLogic()
@@ -109,6 +113,7 @@ describe('inAppPromptLogic', () => {
                         sequence: config.sequences[1],
                         state: {
                             step: 0,
+                            dismissed: false,
                         },
                     },
                 ],
@@ -118,8 +123,7 @@ describe('inAppPromptLogic', () => {
                 'runFirstValidSequence',
                 'closePrompts',
                 logic.actionCreators.runSequence(config.sequences[1] as PromptSequence, 0),
-                logic.actionCreators.runPrompt(config.sequences[1].prompts[0] as Prompt),
-                'tooltip',
+                'promptShownSuccessfully',
             ])
             .toMatchValues({
                 currentSequence: config.sequences[1],
@@ -150,8 +154,7 @@ describe('inAppPromptLogic', () => {
                     'runFirstValidSequence',
                     'closePrompts',
                     logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 1),
-                    logic.actionCreators.runPrompt(config.sequences[0].prompts[1] as Prompt),
-                    'tooltip',
+                    'promptShownSuccessfully',
                 ])
                 .toMatchValues({
                     currentSequence: config.sequences[0],
@@ -181,16 +184,14 @@ describe('inAppPromptLogic', () => {
             })
                 .toDispatchActions([
                     logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 2),
-                    logic.actionCreators.runPrompt(config.sequences[0].prompts[2] as Prompt),
-                    logic.actionCreators.updatePromptState({ completed: true }),
-                ])
-                .toDispatchActionsInAnyOrder([
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptForward(config.sequences[0].key, 2, 3),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptSequenceCompleted(
                         config.sequences[0].key,
                         2,
                         3
                     ),
+                    logic.actionCreators.updatePromptState({ step: 2, completed: true }),
+                    'promptShownSuccessfully',
                 ])
                 .toMatchValues({
                     currentStep: 2,
@@ -225,10 +226,7 @@ describe('inAppPromptLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.previousPrompt()
             })
-                .toDispatchActions([
-                    logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 0),
-                    logic.actionCreators.runPrompt(config.sequences[0].prompts[0] as Prompt),
-                ])
+                .toDispatchActions([logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 0)])
                 .toDispatchActionsInAnyOrder([
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptBackward(config.sequences[0].key, 0, 3),
                 ])

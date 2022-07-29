@@ -376,13 +376,11 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                 // for now the only valid rule is related to the pathname, can be extended
                 const isWildcardMatch = wcmatch(sequence.rule.path)
                 if (isWildcardMatch(pathname)) {
-                    if (sequence.type === 'product-tour' && values.hasSkippedTutorial) {
-                        continue
-                    }
+                    const isTutorialDismissed = sequence.type === 'product-tour' && values.hasSkippedTutorial
                     if (values.userState[sequence.key]) {
                         const sequenceState = values.userState[sequence.key]
                         const completed = !!sequenceState.completed || sequenceState.step === sequence.prompts.length
-                        const dismissed = !!sequenceState.dismissed
+                        const dismissed = !!sequenceState.dismissed || isTutorialDismissed
                         if (
                             sequence.type !== 'product-tour' &&
                             (completed || dismissed || sequenceState.step === sequence.prompts.length)
@@ -398,7 +396,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                             },
                         })
                     } else {
-                        valid.push({ sequence, state: { step: 0 } })
+                        valid.push({ sequence, state: { step: 0, dismissed: isTutorialDismissed } })
                     }
                 }
             }
@@ -457,6 +455,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     inAppPromptEventCaptureLogic.actions.reportTutorialSkipped()
                     break
                 case 'run-tutorial':
+                    actions.closePrompts()
                     actions.findValidSequences()
                     break
                 default:

@@ -78,7 +78,7 @@ export function HelpButton({
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
     const { validSequences } = useValues(inAppPromptLogic)
-    const { runFirstValidSequence, closePrompts } = useActions(inAppPromptLogic)
+    const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
 
     return (
@@ -146,7 +146,7 @@ export function HelpButton({
                             fullWidth
                             onClick={() => {
                                 if (isPromptVisible) {
-                                    closePrompts()
+                                    promptAction('skip')
                                 } else {
                                     runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
                                 }

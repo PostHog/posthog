@@ -60,20 +60,17 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                     saved_state.completed = local_state.get("completed", False)
                     saved_state.dismissed = local_state.get("dismissed", False)
                     states_to_update.append(saved_state)
-                    new_states.append(saved_state)
                     state = local_state
                 elif saved_state is None:
                     state = local_state
                     new_state = PromptSequenceState(team=self.team, person_id=person_id, **local_state)
                     states_to_create.append(new_state)
-                    new_states.append(new_state)
-            elif saved_state:
-                new_states.append(saved_state)
 
             if not state and saved_state:
                 state = PromptSequenceStateSerializer(saved_state).data
 
             if state:
+                new_states.append(state)
                 my_prompts["state"][sequence["key"]] = state
 
         # filter only the sequences where `must_be_completed` rule passes
@@ -82,8 +79,8 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         for seq in sequences_requiring_previous_completion:
             must_be_completed = seq["rule"]["must_be_completed"]
-            current_state: PromptSequenceState = next((s for s in new_states if s.key in must_be_completed), None)
-            if not current_state or not current_state.completed:
+            current_state: PromptSequenceState = next((s for s in new_states if s["key"] in must_be_completed), None)
+            if not current_state or not current_state["completed"]:
                 continue
             sequences.append(seq)
 
