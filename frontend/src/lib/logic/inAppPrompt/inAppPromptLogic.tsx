@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { now } from 'lib/dayjs'
 import wcmatch from 'wildcard-match'
 import {
-    EventStackGearIcon,
+    UnverifiedEvent,
     IconApps,
     IconBarChart,
     IconCohort,
@@ -99,7 +99,7 @@ const iconMap = {
     'feature-flags': <IconFlag />,
     experiments: <IconExperiment />,
     'web-performance': <CoffeeOutlined />,
-    'data-management': <EventStackGearIcon />,
+    'data-management': <UnverifiedEvent />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
     annotations: <IconComment />,
