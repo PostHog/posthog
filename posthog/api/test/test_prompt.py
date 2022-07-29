@@ -10,12 +10,11 @@ from posthog.test.base import APIBaseTest
 
 
 class TestPrompt(APIBaseTest):
-    sequences: List[Dict] = None
+    sequences: List[Dict] = experiment_config
 
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.sequences = experiment_config
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_my_prompts(self):
