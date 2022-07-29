@@ -182,7 +182,7 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
 
 
 @receiver(post_save, sender=InstanceSetting)
-def on_instance_setting_save(sender, instance, **kwargs) -> None:
+def on_instance_setting_save(sender: Any, instance: Any, **kwargs: Any) -> None:
     if instance.key.replace(CONSTANCE_DATABASE_PREFIX, "") != "UPDATE_CACHE_ITEM_TASK_RATE_LIMIT":
         return
 
