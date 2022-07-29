@@ -1063,7 +1063,7 @@ export function Experiment(): JSX.Element {
                                         {!experimentResultsLoading && (
                                             <div className="text-center">
                                                 <b>There are no results for this experiment yet.</b>
-                                                <div className="text-sm">
+                                                <div className="text-sm ">
                                                     Double check your feature flag implementation if you're still not
                                                     seeing results.
                                                 </div>

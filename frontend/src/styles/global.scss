@@ -36,7 +36,7 @@ $_lifecycle_dormant: #f86234;
     --bg-mid: #f2f2f2;
     --bg-side: #fafaf9;
     --bg-depth: #0f0f0f;
-    --bg-navy: var(--35416b);
+    --bg-navy: var(--primary-alt);
     --bg-charcoal: #2d2d2d;
     --bg-bridge: #ebece8;
     --bg-shaded: rgba(0, 0, 0, 0.05);
@@ -58,7 +58,7 @@ $_lifecycle_dormant: #f86234;
     // LEGACY data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --blue: #597dce;
     --blue-light: #8da9e7;
-    --blue-lightest: #b8cefds;
+    --blue-lightest: #b8cefd;
     --purple: #c278cf;
     --indigo: #7c4286;
     --purple-light: #dcb1e3;
@@ -80,7 +80,7 @@ $_lifecycle_dormant: #f86234;
     --brown: #9a6324;
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    --data-ultramarine: var(--primary);
+    --data-brand-blue: var(--primary);
     --data-purple: #621da6;
     --data-viridian: #42827e;
     --data-magenta: #ce0e74;
@@ -89,7 +89,7 @@ $_lifecycle_dormant: #f86234;
     --data-green: #529a0a;
     --data-blue: #0476fb;
     --data-pink: #fe729e;
-    --data-navy: var(--bg-navy);
+    --data-navy: var(--primary-alt);
     --data-turquoise: #41cbc4;
     --data-brick: #b64b02;
     --data-yellow: #e4a604;
