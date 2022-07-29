@@ -11,7 +11,7 @@
         background: var(--bg-bridge);
     }
 
-    @media screen and (min-width: $sm) {
+    @screen sm {
         display: flex;
     }
 }

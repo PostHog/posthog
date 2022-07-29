@@ -10,7 +10,7 @@
     margin-top: 1rem;
     cursor: default;
     overflow-x: auto;
-    @media screen and (min-width: $md) {
+    @screen md {
         // Disable fullwidth hacks for viewport widths where the sidebar affects layout
         width: auto;
         padding: 0;

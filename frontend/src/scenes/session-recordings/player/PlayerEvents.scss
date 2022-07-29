@@ -4,13 +4,13 @@
     display: flex;
     flex-direction: column;
     background-color: var(--bg-light);
-    height: 100%;
+    height: 100vh;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: var(--recording-spacing);
 
-    @media (max-width: $md) {
-        height: 100vh;
+    @screen md {
+        height: 100%;
     }
 
     .event-list {

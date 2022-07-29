@@ -12,7 +12,7 @@
     background: var(--bg-bridge);
     border-bottom: 1px solid var(--border);
     gap: 1rem;
-    @media screen and (min-width: $sm) {
+    @screen sm {
         padding: 0.5rem 1rem;
     }
     .anticon-caret-down {
@@ -53,7 +53,7 @@
         vertical-align: middle;
     }
 
-    @media screen and (min-width: $md) {
+    @screen md {
         width: auto;
         overflow: hidden;
         font-size: 1rem;
@@ -77,7 +77,7 @@
     &--hidden {
         margin-top: -3rem;
     }
-    @media screen and (min-width: $sm) {
+    @screen sm {
         padding: 0 1rem;
     }
     p {
@@ -103,7 +103,7 @@
 .Announcement__close {
     position: absolute;
     right: 0.5rem;
-    @media screen and (min-width: $sm) {
+    @screen sm {
         right: 1rem;
     }
 }

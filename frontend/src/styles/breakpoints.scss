@@ -1,6 +1,2 @@
 // Breakpoints from AntD. We can't use CSS vars in media queries, so must revert to SASS vars.
-$sm: theme('screens.sm');
 $md: theme('screens.md');
-$lg: theme('screens.lg');
-$xl: theme('screens.xl');
-$xxl: theme('screens.xxl');

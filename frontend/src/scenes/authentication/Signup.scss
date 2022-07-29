@@ -6,9 +6,13 @@
 
     // bridgePagesShared overrides
     .auth-main-content {
-        min-height: calc(100vh - 54px); // To account for the footer
         flex-direction: row;
         padding-bottom: 32px;
+        min-height: 100vh;
+
+        @screen md {
+            min-height: calc(100vh - 54px); // To account for the footer
+        }
 
         .terms-and-conditions-text {
             color: var(--muted-alt);
@@ -23,6 +27,11 @@
 
     footer {
         margin-bottom: 2rem;
+        display: none;
+
+        @screen md {
+            display: block;
+        }
 
         .footer-inner {
             text-align: center;
@@ -42,6 +51,14 @@
         }
     }
 
+    .main-art {
+        display: none;
+
+        @screen md {
+            display: block;
+        }
+    }
+
     form {
         margin-top: 1rem;
     }
@@ -51,20 +68,6 @@
             .anticon-exclamation-circle {
                 display: none;
             }
-        }
-    }
-
-    @media (max-width: $md) {
-        .auth-main-content {
-            min-height: 100vh;
-        }
-
-        .main-art {
-            display: none;
-        }
-
-        footer {
-            display: none;
         }
     }
 }

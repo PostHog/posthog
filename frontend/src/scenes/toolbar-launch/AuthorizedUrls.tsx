@@ -142,20 +142,18 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                     <AuthorizedUrlForm actionId={actionId} />
                                 ) : (
                                     <>
-                                        <div className="Url flex grow">
-                                            {keyedAppURL.type === 'suggestion' && (
-                                                <LemonTag type="highlight" className="mr-4">
-                                                    Suggestion
-                                                </LemonTag>
-                                            )}
-                                            <Typography.Text
-                                                ellipsis={{ tooltip: keyedAppURL.url }}
-                                                className="text-muted-alt"
-                                            >
-                                                {keyedAppURL.url}
-                                            </Typography.Text>
-                                        </div>
-                                        <div className="Actions flex flex-row space-x-4">
+                                        {keyedAppURL.type === 'suggestion' && (
+                                            <LemonTag type="highlight" className="mr-4">
+                                                Suggestion
+                                            </LemonTag>
+                                        )}
+                                        <Typography.Text
+                                            ellipsis={{ tooltip: keyedAppURL.url }}
+                                            className="text-muted-alt flex-1"
+                                        >
+                                            {keyedAppURL.url}
+                                        </Typography.Text>
+                                        <div className="Actions flex space-x-4 shrink-0">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
                                                     onClick={() => addUrl(keyedAppURL.url)}

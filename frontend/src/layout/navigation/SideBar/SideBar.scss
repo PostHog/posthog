@@ -16,7 +16,6 @@
     width: 15.5rem;
     background: var(--bg-side);
     border-right: 1px solid var(--border);
-    border: 1px green solid;
 
     .SideBar--hidden & {
         // As an optimization we use transform instead of margin on mobile,
@@ -29,7 +28,6 @@
         .SideBar--hidden & {
             margin-left: -15.5rem;
         }
-        border: 1px red solid;
     }
 }
 
@@ -45,7 +43,7 @@
         opacity: 0;
         pointer-events: none;
     }
-    @media screen and (min-width: $lg) {
+    @screen lg {
         display: none;
     }
 }

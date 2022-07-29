@@ -31,7 +31,7 @@ html.export-type-embed {
             display: none;
         }
 
-        @media screen and (min-width: $md) {
+        @screen md {
             display: flex;
             justify-content: space-between;
             align-items: center;

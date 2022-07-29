@@ -228,7 +228,7 @@ body strong {
     gap: 0.5rem 1rem;
     margin: 1.25rem 0 0.25rem;
 
-    @media screen and (min-width: $md) {
+    @screen md {
         flex-wrap: nowrap;
     }
 
@@ -760,14 +760,14 @@ input::-ms-clear {
 .main-app-content {
     position: relative; // So that scene-level <Loading/> is positioned correctly.
     min-width: 0;
-    padding: 0 2rem 4rem;
+    padding: 0 1rem 1rem;
 
-    @media (min-width: $sm) and (max-width: $lg) {
+    @screen sm {
         padding: 0 1rem 2rem;
     }
 
-    @media (max-width: $sm) {
-        padding: 0 1rem 1rem;
+    @screen lg {
+        padding: 0 2rem 4rem;
     }
 }
 

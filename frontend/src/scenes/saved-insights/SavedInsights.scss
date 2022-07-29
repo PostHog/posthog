@@ -108,10 +108,10 @@
     position: relative;
     display: grid;
     grid-gap: 1rem;
-    @media screen and (min-width: $xl) {
+    @screen xl {
         grid-template-columns: repeat(2, 1fr);
     }
-    @media screen and (min-width: $xxl) {
+    @screen xxl {
         grid-template-columns: repeat(3, 1fr);
     }
     .loading-overlay {

@@ -109,7 +109,7 @@
         &.insight-wrapper--editorpanels,
         &.insight-wrapper--singlecolumn {
             position: relative;
-            @media screen and (min-width: $xl) {
+            @screen xl {
                 display: flex;
                 overflow: hidden;
 

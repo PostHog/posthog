@@ -43,11 +43,11 @@
         g#x-axis,
         g#y-axis {
             text {
-                font-size: 13px;
+                font-size: 11px;
                 fill: var(--funnel-axis-zero);
 
-                @media (max-width: $md) {
-                    font-size: 11px;
+                @screen md {
+                    font-size: 13px;
                 }
             }
         }
