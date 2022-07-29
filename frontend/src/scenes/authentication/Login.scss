@@ -17,7 +17,7 @@
         }
     }
 
-    @screen sm {
+    @include screen($sm) {
         .helper-links {
             flex-direction: row;
         }

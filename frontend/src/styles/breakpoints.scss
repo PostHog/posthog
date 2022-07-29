@@ -1,2 +1,12 @@
 // Breakpoints from AntD. We can't use CSS vars in media queries, so must revert to SASS vars.
-$md: theme('screens.md');
+$sm: 576px;
+$md: 768px;
+$lg: 992px;
+$xl: 1200px;
+$xxl: 1600px;
+
+@mixin screen($breakpoint) {
+    @media screen and (min-width: $breakpoint) {
+        @content;
+    }
+}

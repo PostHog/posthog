@@ -46,7 +46,7 @@
                 font-size: 11px;
                 fill: var(--funnel-axis-zero);
 
-                @screen md {
+                @include screen($md) {
                     font-size: 13px;
                 }
             }

@@ -222,7 +222,7 @@ body strong {
     gap: 0.5rem 1rem;
     margin: 1.25rem 0 0.25rem;
 
-    @screen md {
+    @include screen($md) {
         flex-wrap: nowrap;
     }
 
@@ -756,11 +756,11 @@ input::-ms-clear {
     min-width: 0;
     padding: 0 1rem 1rem;
 
-    @screen sm {
+    @include screen($sm) {
         padding: 0 1rem 2rem;
     }
 
-    @screen lg {
+    @include screen($lg) {
         padding: 0 2rem 4rem;
     }
 }

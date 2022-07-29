@@ -94,7 +94,7 @@
     width: calc(var(--bar-width) / 2); // We need to conserve space in narrow viewports
     flex-shrink: 0;
     height: 100%;
-    @screen lg {
+    @include screen($lg) {
         width: var(--bar-width);
     }
     .InsightCard & {

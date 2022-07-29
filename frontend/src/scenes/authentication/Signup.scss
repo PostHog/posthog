@@ -10,7 +10,7 @@
         padding-bottom: 32px;
         min-height: 100vh;
 
-        @screen md {
+        @include screen($md) {
             min-height: calc(100vh - 54px); // To account for the footer
         }
 
@@ -29,7 +29,7 @@
         margin-bottom: 2rem;
         display: none;
 
-        @screen md {
+        @include screen($md) {
             display: block;
         }
 
@@ -54,7 +54,7 @@
     .main-art {
         display: none;
 
-        @screen md {
+        @include screen($md) {
             display: block;
         }
     }

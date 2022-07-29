@@ -109,7 +109,7 @@
         &.insight-wrapper--editorpanels,
         &.insight-wrapper--singlecolumn {
             position: relative;
-            @screen xl {
+            @include screen($xl) {
                 display: flex;
                 overflow: hidden;
 

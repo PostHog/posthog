@@ -108,10 +108,10 @@
     position: relative;
     display: grid;
     grid-gap: 1rem;
-    @screen xl {
+    @include screen($xl) {
         grid-template-columns: repeat(2, 1fr);
     }
-    @screen xxl {
+    @include screen($xxl) {
         grid-template-columns: repeat(3, 1fr);
     }
     .loading-overlay {

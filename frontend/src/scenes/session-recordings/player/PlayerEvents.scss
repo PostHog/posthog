@@ -9,7 +9,7 @@
     border-radius: var(--radius);
     padding: var(--recording-spacing);
 
-    @screen md {
+    @include screen($md) {
         height: 100%;
     }
 

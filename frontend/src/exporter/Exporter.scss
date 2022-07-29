@@ -31,7 +31,7 @@ html.export-type-embed {
             display: none;
         }
 
-        @screen md {
+        @include screen($md) {
             display: flex;
             justify-content: space-between;
             align-items: center;

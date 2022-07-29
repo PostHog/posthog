@@ -22,7 +22,7 @@
         // because the sidebar does not affect the rest of the layout on mobile
         transform: translateX(-15.5rem);
     }
-    @screen lg {
+    @include screen($lg) {
         height: initial;
         position: relative;
         .SideBar--hidden & {
@@ -43,7 +43,7 @@
         opacity: 0;
         pointer-events: none;
     }
-    @screen lg {
+    @include screen($lg) {
         display: none;
     }
 }

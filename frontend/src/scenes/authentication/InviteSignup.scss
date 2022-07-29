@@ -157,7 +157,6 @@
             }
         }
 
-        // TODO: Reverse this to use @screen
         @media screen and (max-width: $md) {
             overflow: auto;
             scroll-behavior: smooth;

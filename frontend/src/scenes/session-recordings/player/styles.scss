@@ -3,7 +3,7 @@
 .session-drawer-body {
     height: unset;
 
-    @screen md {
+    @include screen($md) {
         height: calc(100vh - 40px);
     }
 }
@@ -22,7 +22,7 @@
         // Subtract controller and top navbar heights + padding
         height: calc(100vh - 2 * 40px - 2 * var(--recording-spacing));
 
-        @screen md {
+        @include screen($md) {
             flex: 1;
             height: calc(100% - 40px - 2 * var(--recording-spacing));
         }
@@ -35,7 +35,7 @@
             padding: var(--recording-spacing) var(--recording-spacing) 0 var(--recording-spacing);
             width: 100%;
 
-            @screen md {
+            @include screen($md) {
                 width: auto;
             }
         }

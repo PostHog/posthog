@@ -11,7 +11,7 @@
         background: var(--bg-bridge);
     }
 
-    @screen sm {
+    @include screen($sm) {
         display: flex;
     }
 }
