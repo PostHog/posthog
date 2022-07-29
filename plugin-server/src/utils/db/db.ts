@@ -711,7 +711,7 @@ export class DB {
                 queryOptions.join(' OR ')
             ),
             args,
-            'fetchGroupProperties'
+            'getGroupProperties'
         )
 
         // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
@@ -760,7 +760,7 @@ export class DB {
                 queryOptions.join(' OR ')
             ),
             args,
-            'fetchGroupProperties'
+            'getGroupsCreatedAt'
         )
 
         const res: Record<string, string> = {}
