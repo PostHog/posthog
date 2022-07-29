@@ -9,10 +9,12 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { EditAction } from '~/toolbar/actions/EditAction'
 import { ExportOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 export function ActionsTab(): JSX.Element {
     const { selectedAction } = useValues(actionsTabLogic)
     const { apiURL } = useValues(toolbarLogic)
+    const { shouldSimplifyActions } = useValues(featureFlagsLogic)
 
     return (
         <div className="toolbar-content">
@@ -23,8 +25,12 @@ export function ActionsTab(): JSX.Element {
                     <>
                         <ActionsList />
                         <div style={{ textAlign: 'right' }}>
-                            <a href={`${apiURL}${urls.actions()}`} target="_blank" rel="noopener noreferrer">
-                                View &amp; edit all actions <ExportOutlined />
+                            <a
+                                href={`${apiURL}${shouldSimplifyActions ? urls.eventDefinitions() : urls.actions()}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                View &amp; edit all {shouldSimplifyActions ? 'events' : 'actions'} <ExportOutlined />
                             </a>
                         </div>
                     </>

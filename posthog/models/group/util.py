@@ -1,7 +1,9 @@
 import datetime
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
+import pytz
+from dateutil.parser import isoparse
 from django.utils.timezone import now
 
 from posthog.kafka_client.client import ClickhouseProducer
@@ -35,16 +37,28 @@ def create_group(
     group_type_index: GroupTypeIndex,
     group_key: str,
     properties: Optional[Dict] = None,
-    timestamp: Optional[datetime.datetime] = None,
+    timestamp: Optional[Union[datetime.datetime, str]] = None,
 ):
     """Create proper Group record (ClickHouse + Postgres)."""
     if not properties:
         properties = {}
     if not timestamp:
         timestamp = now()
+
+    # clickhouse specific formatting
+    if isinstance(timestamp, str):
+        timestamp = isoparse(timestamp)
+    else:
+        timestamp = timestamp.astimezone(pytz.utc)
+
     raw_create_group_ch(team_id, group_type_index, group_key, properties, timestamp)
     Group.objects.create(
-        team_id=team_id, group_type_index=group_type_index, group_key=group_key, group_properties=properties, version=0,
+        team_id=team_id,
+        group_type_index=group_type_index,
+        group_key=group_key,
+        group_properties=properties,
+        created_at=timestamp,
+        version=0,
     )
 
 

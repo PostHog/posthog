@@ -3,12 +3,15 @@ import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, List, Optional, Tuple, Union, cast
+from uuid import UUID
 
 import structlog
+from django.db.models import QuerySet
 from rest_framework import request, status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.constants import CombinedEventType
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Action, Entity, EventDefinition
 from posthog.models.entity import MATH_TYPE
@@ -327,7 +330,9 @@ def safe_clickhouse_string(s: str) -> str:
     return s
 
 
-def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = False, conditions: str = "") -> str:
+def create_event_definitions_sql(
+    event_type: CombinedEventType, is_enterprise: bool = False, conditions: str = ""
+) -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
@@ -343,71 +348,94 @@ def create_event_definitions_sql(include_actions: bool, is_enterprise: bool = Fa
     }
     shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
 
-    if include_actions:
-        event_definition_fields.discard('"id"')
-        action_fields = {
-            f'"{f.column}"'  # type: ignore
-            for f in Action._meta.get_fields()
-            if hasattr(f, "column") and f.column not in ["events", "id"]  # type: ignore
-        }
-        combined_fields = event_definition_fields.union(action_fields)
+    def select_ee_event_definitions(fields: str):
+        return f"""
+            SELECT {fields}
+            FROM ee_enterpriseeventdefinition
+            FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+        """
 
-        raw_event_definition_fields = ",".join(
-            [f"NULL AS {col}" if col in action_fields - event_definition_fields else col for col in combined_fields]
-            + ["id", "NULL AS action_id", "last_seen_at AS last_updated_at"]
-        )
-        raw_action_fields = ",".join(
-            [f"NULL AS {col}" if col in event_definition_fields - action_fields else col for col in combined_fields]
-            + ["NULL AS id", "id AS action_id", "last_calculated_at AS last_updated_at"]
-        )
+    def select_event_definitions(fields: str):
+        return f"""
+            SELECT {fields} FROM posthog_eventdefinition
+        """
+
+    # Only return event definitions
+    if event_type == CombinedEventType.EVENT:
+        raw_event_definition_fields = ",".join(event_definition_fields)
         ordering = (
-            "ORDER BY last_updated_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+            "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
             if is_enterprise
             else "ORDER BY name ASC"
         )
 
-        event_definition_table = (
+        return (
             f"""
-                SELECT {raw_event_definition_fields}
-                FROM ee_enterpriseeventdefinition
-                FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
+                {select_ee_event_definitions(raw_event_definition_fields)}
+                {shared_conditions}
+                {ordering}
             """
             if is_enterprise
             else f"""
-                SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
+                {select_event_definitions(raw_event_definition_fields)}
+                {shared_conditions}
+                {ordering}
             """
         )
 
-        return f"""
-        SELECT * FROM (
-            {event_definition_table}
-            {shared_conditions}
-            UNION
-            SELECT {raw_action_fields} FROM posthog_action
-            {shared_conditions} AND posthog_action.deleted = false
-        ) as T
-        {ordering}
-        """
+    event_definition_fields.discard('"id"')
+    action_fields = {
+        f'"{f.column}"'  # type: ignore
+        for f in Action._meta.get_fields()
+        if hasattr(f, "column") and f.column not in ["events", "id"]  # type: ignore
+    }
+    combined_fields = event_definition_fields.union(action_fields)
 
-    raw_event_definition_fields = ",".join(event_definition_fields)
+    raw_event_definition_fields = ",".join(
+        [f"NULL AS {col}" if col in action_fields - event_definition_fields else col for col in combined_fields]
+        + ["id", "NULL AS action_id", "last_seen_at AS last_updated_at"]
+    )
+    raw_action_fields = ",".join(
+        [f"NULL AS {col}" if col in event_definition_fields - action_fields else col for col in combined_fields]
+        + ["NULL AS id", "id AS action_id", "last_calculated_at AS last_updated_at"]
+    )
     ordering = (
-        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+        "ORDER BY last_updated_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
         if is_enterprise
         else "ORDER BY name ASC"
     )
 
-    return (
-        f"""
-        SELECT {raw_event_definition_fields}
-        FROM ee_enterpriseeventdefinition
-        FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-        {shared_conditions}
-        {ordering}
-    """
+    event_definition_table = (
+        select_ee_event_definitions(raw_event_definition_fields)
         if is_enterprise
-        else f"""
-        SELECT {raw_event_definition_fields} FROM posthog_eventdefinition
-        {shared_conditions}
-        {ordering}
-    """
+        else select_event_definitions(raw_event_definition_fields)
     )
+
+    # Return only actions
+    if event_type == CombinedEventType.ACTION_EVENT:
+        return f"""
+            SELECT {raw_action_fields} FROM posthog_action
+            {shared_conditions} AND posthog_action.deleted = false
+            {ordering}
+        """
+
+    # By default, return both event definitions and actions
+    return f"""
+    SELECT * FROM (
+        {event_definition_table}
+        {shared_conditions}
+        UNION
+        SELECT {raw_action_fields} FROM posthog_action
+        {shared_conditions} AND posthog_action.deleted = false
+    ) as T
+    {ordering}
+    """
+
+
+def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
+    try:
+        # Test if value is a UUID
+        UUID(key)  # type: ignore
+        return queryset.filter(uuid=key)
+    except ValueError:
+        return queryset.filter(pk=key)

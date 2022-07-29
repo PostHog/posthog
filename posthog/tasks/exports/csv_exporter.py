@@ -51,8 +51,13 @@ def _modifiy_query(url: str, params: Dict[str, List[str]]) -> str:
 
 def _convert_response_to_csv_data(data: Any) -> List[Any]:
     if isinstance(data.get("results"), list):
+        results = data.get("results")
+        # persons modal like
+        if len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
+            return results[0].get("people")
+
         # Pagination object
-        return data.get("results")
+        return results
     elif data.get("result") and isinstance(data.get("result"), list):
         items = data["result"]
         first_result = items[0]
@@ -175,7 +180,6 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             renderer.header = all_csv_rows[0].keys()
 
     rendered_csv_content = renderer.render(all_csv_rows)
-
     save_content(exported_asset, rendered_csv_content)
 
 

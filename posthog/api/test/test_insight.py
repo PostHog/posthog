@@ -24,7 +24,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.update_cache import update_insight_cache
+from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -401,6 +401,24 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile.filters_hash)
 
+    def test_adding_insight_to_a_dashboard_sets_filters_hash(self) -> None:
+        dashboard_id, _ = self._create_dashboard({})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+            }
+        )
+
+        self._add_insight_to_dashboard(dashboard_ids=[dashboard_id], insight_id=insight_id)
+
+        tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
+        self.assertIsNotNone(tile.filters_hash)
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_logs_derived_name_if_there_is_no_name(self):
         response = self.client.post(
@@ -680,7 +698,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @patch("posthog.api.insight.update_insight_cache", wraps=update_insight_cache)
+    @patch("posthog.api.insight.synchronously_update_insight_cache", wraps=synchronously_update_insight_cache)
     def test_insight_refreshing(self, spy_update_insight_cache):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d",}})
 

@@ -102,7 +102,6 @@ export function EventsTable({
         isLoadingNext,
         eventFilter,
         automaticLoadEnabled,
-        exportUrl,
         highlightEvents,
         months,
     } = useValues(logic)
@@ -450,7 +449,7 @@ export function EventsTable({
                                     defaultColumns={defaultColumns.map((e) => e.key || '')}
                                 />
                             )}
-                            {showExport && exportUrl && (
+                            {showExport && (
                                 <Popconfirm
                                     placement="topRight"
                                     title={

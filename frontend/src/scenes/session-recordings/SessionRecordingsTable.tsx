@@ -179,7 +179,6 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                                 </>
                             )}
                             defaultValue="Last 7 days"
-                            bordered={true}
                             dateFrom={fromDate ?? undefined}
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {

@@ -2508,10 +2508,10 @@
   resolved "https://registry.yarnpkg.com/@posthog/plugin-contrib/-/plugin-contrib-0.0.5.tgz#6c55f39c39dd9dd8af558888558a69bc3fe19aff"
   integrity sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==
 
-"@posthog/plugin-scaffold@1.1.0":
-  version "1.1.0"
-  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.1.0.tgz#887ccbea34dcb6197dfa04104c8c6d4be72dfb06"
-  integrity sha512-sXHEju7iDSoameO8OiIljmtcuko+KjBobKU5V8mDVNFqO1+nm5NcipoQEPKPRnQVn4M1//U1CKpp5dbErd2qXw==
+"@posthog/plugin-scaffold@1.3.2":
+  version "1.3.2"
+  resolved "https://registry.yarnpkg.com/@posthog/plugin-scaffold/-/plugin-scaffold-1.3.2.tgz#6c6cf964a5384d16cb9a3510216cd3421835afc9"
+  integrity sha512-+oq8EJHv7NPTzl0G+Qp//KLJ5y0LqzjYcqWwX2leJWUoaXXOYzwwWXJOiyzrKUbELh23NX5r9omk+3M9fyURWA==
   dependencies:
     "@maxmind/geoip2-node" "^3.0.0"
 
@@ -3005,13 +3005,13 @@
   resolved "https://registry.yarnpkg.com/@types/parse-json/-/parse-json-4.0.0.tgz#2f8bb441434d163b35fb8ffdccd7138927ffb8c0"
   integrity sha512-//oorEZjL6sbPcKUaCdIGlIUeH26mgzimjBB77G6XRgnDl/L5wOnpyBGRe/Mmf5CVW3PwEBE1NjiMZ/ssFh4wA==
 
-"@types/pg@^7.14.3":
-  version "7.14.11"
-  resolved "https://registry.yarnpkg.com/@types/pg/-/pg-7.14.11.tgz#daf5555504a1f7af4263df265d91f140fece52e3"
-  integrity sha512-EnZkZ1OMw9DvNfQkn2MTJrwKmhJYDEs5ujWrPfvseWNoI95N8B4HzU/Ltrq5ZfYxDX/Zg8mTzwr6UAyTjjFvXA==
+"@types/pg@>=6 <9":
+  version "8.6.5"
+  resolved "https://registry.yarnpkg.com/@types/pg/-/pg-8.6.5.tgz#2dce9cb468a6a5e0f1296a59aea3ac75dd27b702"
+  integrity sha512-tOkGtAqRVkHa/PVZicq67zuujI4Oorfglsr2IbKofDwBSysnaqSx7W1mDqFqdkGE6Fbgh+PZAl0r/BWON/mozw==
   dependencies:
     "@types/node" "*"
-    pg-protocol "^1.2.0"
+    pg-protocol "*"
     pg-types "^2.2.0"
 
 "@types/pg@^8.6.0":
@@ -5427,14 +5427,14 @@ graceful-fs@^4.2.9:
   resolved "https://registry.yarnpkg.com/graceful-fs/-/graceful-fs-4.2.10.tgz#147d3a006da4ca3ce14728c7aefc287c367d7a6c"
   integrity sha512-9ByhssR2fPVsNZj478qUUbKfmL0+t5BDVyjShtyZZLiK7ZDAArFFfopyOTj0M05wE2tJPisA4iTnnXl2YoPvOA==
 
-graphile-worker@^0.11.1:
-  version "0.11.1"
-  resolved "https://registry.yarnpkg.com/graphile-worker/-/graphile-worker-0.11.1.tgz#770e0144672b9eaa15d7854ebe90448c8da0b260"
-  integrity sha512-/ND61cqptaVt0qSbeBEqd4JJehmT4eqe87gNBvYB3hISA/voxxQq5DCqzVNTWreKYuEbuV/1IYD1DO2x6R61gg==
+graphile-worker@0.13.0:
+  version "0.13.0"
+  resolved "https://registry.yarnpkg.com/graphile-worker/-/graphile-worker-0.13.0.tgz#8cf2ef75d1d58f2a634c4dcb7fe700c4fda9a77f"
+  integrity sha512-8Hl5XV6hkabZRhYzvbUfvjJfPFR5EPxYRVWlzQC2rqYHrjULTLBgBYZna5R9ukbnsbWSvn4vVrzOBIOgIC1jjw==
   dependencies:
     "@graphile/logger" "^0.2.0"
     "@types/debug" "^4.1.2"
-    "@types/pg" "^7.14.3"
+    "@types/pg" ">=6 <9"
     chokidar "^3.4.0"
     cosmiconfig "^7.0.0"
     json5 "^2.1.3"
@@ -6648,7 +6648,7 @@ jsonwebtoken@^8.5.1:
     ms "^2.1.1"
     semver "^5.6.0"
 
-jsprim@1.4.2, jsprim@^1.2.2, jsprim@^1.4.0:
+jsprim@^1.2.2, jsprim@^1.4.0:
   version "1.4.2"
   resolved "https://registry.yarnpkg.com/jsprim/-/jsprim-1.4.2.tgz#712c65533a15c878ba59e9ed5f0e26d5b77c5feb"
   integrity sha512-P2bSOMAc/ciLz6DzgjVlGJP9+BrJWu5UDGK70C2iweC5QBIeFf0ZXRvGjEj2uYgrY2MkAAhsSWHDWlFtEroZWw==
@@ -7690,7 +7690,7 @@ pg-pool@^3.3.0:
   resolved "https://registry.yarnpkg.com/pg-pool/-/pg-pool-3.3.0.tgz#12d5c7f65ea18a6e99ca9811bd18129071e562fc"
   integrity sha512-0O5huCql8/D6PIRFAlmccjphLYWC+JIzvUhSzXSpGaf+tjTZc4nn+Lr7mLXBbFJfvwbP0ywDv73EiaBsxn7zdg==
 
-pg-protocol@*, pg-protocol@^1.2.0, pg-protocol@^1.5.0:
+pg-protocol@*, pg-protocol@^1.5.0:
   version "1.5.0"
   resolved "https://registry.yarnpkg.com/pg-protocol/-/pg-protocol-1.5.0.tgz#b5dd452257314565e2d54ab3c132adc46565a6a0"
   integrity sha512-muRttij7H8TqRNu/DxrAJQITO4Ac7RmX3Klyr/9mJEOBeIpgnF8f9jAfRz5d3XwQZl5qBjF9gLsUtMPJE0vezQ==

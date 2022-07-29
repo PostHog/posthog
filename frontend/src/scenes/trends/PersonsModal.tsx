@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Modal, Button, Input, Skeleton, Select } from 'antd'
-import { FilterType, InsightType, ActorType, ChartDisplayType } from '~/types'
+import { Button, Input, Modal, Select, Skeleton } from 'antd'
+import { ActorType, ChartDisplayType, ExporterFormat, FilterType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
@@ -22,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -102,9 +103,8 @@ export function PersonsModal({
     )
 
     const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
-    // TODO: Re-enable CSV downloads when frontend can support new entity properties
-    // const isDownloadCsvAvailable: boolean = view === InsightType.TRENDS && showModalActions && !!people?.action
-    const isDownloadCsvAvailable: boolean = false
+    const isDownloadCsvAvailable: boolean =
+        !!featureFlags[FEATURE_FLAGS.PERSON_MODAL_EXPORTS] && InsightType.TRENDS && showModalActions && !!people?.action
     const isSaveAsCohortAvailable =
         (view === InsightType.TRENDS ||
             view === InsightType.STICKINESS ||
@@ -128,16 +128,23 @@ export function PersonsModal({
                             {isDownloadCsvAvailable && (
                                 <Button
                                     icon={<DownloadOutlined />}
-                                    href={api.actions.determinePeopleCsvUrl(
-                                        {
-                                            label: people.label,
-                                            action: people.action,
-                                            date_from: people.day,
-                                            date_to: people.day,
-                                            breakdown_value: people.breakdown_value,
-                                        },
-                                        filters
-                                    )}
+                                    onClick={() => {
+                                        triggerExport({
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: {
+                                                path: api.actions.determinePeopleCsvUrl(
+                                                    {
+                                                        label: people.label,
+                                                        action: people.action,
+                                                        date_from: people.day,
+                                                        date_to: people.day,
+                                                        breakdown_value: people.breakdown_value,
+                                                    },
+                                                    filters
+                                                ),
+                                            },
+                                        })
+                                    }}
                                     style={{ marginRight: 8 }}
                                     data-attr="person-modal-download-csv"
                                 >

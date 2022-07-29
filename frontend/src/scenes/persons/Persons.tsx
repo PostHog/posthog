@@ -11,8 +11,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 
 export const scene: SceneExport = {
@@ -34,11 +32,8 @@ export function Persons({ cohort }: PersonsProps = {}): JSX.Element {
 }
 
 export function PersonsScene(): JSX.Element {
-    const { loadPersons, setListFilters, exportCsv } = useActions(personsLogic)
-    const { cohortId, persons, listFilters, personsLoading, exportUrl, exporterProps, apiDocsURL } =
-        useValues(personsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newExportButtonActive = !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
+    const { loadPersons, setListFilters } = useActions(personsLogic)
+    const { cohortId, persons, listFilters, personsLoading, exporterProps, apiDocsURL } = useValues(personsLogic)
 
     return (
         <div className="persons-list">
@@ -47,30 +42,28 @@ export function PersonsScene(): JSX.Element {
                 <div className="space-between-items" style={{ gap: '0.75rem' }}>
                     <PersonsSearch autoFocus={!cohortId} />
 
-                    {exportUrl && (
-                        <Popconfirm
-                            placement="topRight"
-                            title={
-                                <>
-                                    Exporting by csv is limited to 10,000 users.
-                                    <br />
-                                    To return more, please use <a href={apiDocsURL}>the API</a>. Do you want to export
-                                    by CSV?
-                                </>
-                            }
-                            onConfirm={() => (newExportButtonActive ? triggerExport(exporterProps[0]) : exportCsv())}
-                        >
-                            <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
-                                {listFilters.properties && listFilters.properties.length > 0 ? (
-                                    <div style={{ display: 'block' }}>
-                                        Export (<strong>{listFilters.properties.length}</strong> filter)
-                                    </div>
-                                ) : (
-                                    'Export'
-                                )}
-                            </LemonButton>
-                        </Popconfirm>
-                    )}
+                    <Popconfirm
+                        placement="topRight"
+                        title={
+                            <>
+                                Exporting by csv is limited to 10,000 users.
+                                <br />
+                                To return more, please use <a href={apiDocsURL}>the API</a>. Do you want to export by
+                                CSV?
+                            </>
+                        }
+                        onConfirm={() => triggerExport(exporterProps[0])}
+                    >
+                        <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
+                            {listFilters.properties && listFilters.properties.length > 0 ? (
+                                <div style={{ display: 'block' }}>
+                                    Export (<strong>{listFilters.properties.length}</strong> filter)
+                                </div>
+                            ) : (
+                                'Export'
+                            )}
+                        </LemonButton>
+                    </Popconfirm>
                 </div>
                 <PropertyFilters
                     pageKey="persons-list-page"

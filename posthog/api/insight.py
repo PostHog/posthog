@@ -61,7 +61,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
-from posthog.tasks.update_cache import update_insight_cache
+from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -322,7 +322,7 @@ class InsightSerializer(InsightBasicSerializer):
         dashboard = self.context.get("dashboard", None)
 
         if should_refresh(self.context["request"]):
-            return update_insight_cache(insight, dashboard)
+            return synchronously_update_insight_cache(insight, dashboard)
 
         cache_key = insight.filters_hash
         if dashboard is not None:

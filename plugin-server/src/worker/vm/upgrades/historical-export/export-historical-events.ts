@@ -197,7 +197,11 @@ export function addHistoricalEventsExportCapability(
 
         let exportEventsError: Error | unknown | null = null
 
-        if (!fetchEventsError) {
+        if (fetchEventsError) {
+            await meta.storage.del(EXPORT_RUNNING_KEY)
+            createLog(`Failed fetching events. Stopping export - please try again later.`)
+            return
+        } else {
             try {
                 await methods.exportEvents!(events)
             } catch (error) {
@@ -205,8 +209,7 @@ export function addHistoricalEventsExportCapability(
             }
         }
 
-        // Retry on every error from "our side" but only on a RetryError from the plugin dev
-        if (fetchEventsError || exportEventsError instanceof RetryError) {
+        if (exportEventsError instanceof RetryError) {
             const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
 
             // "Failed processing events 0-100 from 2021-08-19T12:34:26.061Z to 2021-08-19T12:44:26.061Z. Retrying in 3s"

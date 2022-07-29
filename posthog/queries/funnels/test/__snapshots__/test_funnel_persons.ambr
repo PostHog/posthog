@@ -35,10 +35,10 @@
                                if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
         FROM
           (SELECT *,
-                  if(latest_0 < latest_1
+                  if(latest_0 <= latest_1
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                     AND latest_1 < latest_2
-                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                       AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -223,10 +223,10 @@
                                if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
         FROM
           (SELECT *,
-                  if(latest_0 < latest_1
+                  if(latest_0 <= latest_1
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                     AND latest_1 < latest_2
-                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                       AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
@@ -411,10 +411,10 @@
                                if(isNull(latest_0),(null, null, null, null),if(isNull(latest_1), step_0_matching_event, if(isNull(latest_2), step_1_matching_event, step_2_matching_event))) as final_matching_event
         FROM
           (SELECT *,
-                  if(latest_0 < latest_1
+                  if(latest_0 <= latest_1
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY
-                     AND latest_1 < latest_2
-                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 < latest_1
+                     AND latest_1 <= latest_2
+                     AND latest_2 <= latest_0 + INTERVAL 7 DAY, 3, if(latest_0 <= latest_1
                                                                       AND latest_1 <= latest_0 + INTERVAL 7 DAY, 2, 1)) AS steps ,
                   if(isNotNull(latest_1)
                      AND latest_1 <= latest_0 + INTERVAL 7 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,

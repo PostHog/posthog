@@ -1139,14 +1139,12 @@ export class DB {
                 topic: KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                ...personDistinctIdCreated,
-                                version,
-                                person_id: person.uuid,
-                                is_deleted: 0,
-                            })
-                        ),
+                        value: JSON.stringify({
+                            ...personDistinctIdCreated,
+                            version,
+                            person_id: person.uuid,
+                            is_deleted: 0,
+                        }),
                     },
                 ],
             },
@@ -1157,13 +1155,11 @@ export class DB {
                 topic: KAFKA_PERSON_UNIQUE_ID,
                 messages: [
                     {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                ...personDistinctIdCreated,
-                                person_id: person.uuid,
-                                is_deleted: 0,
-                            })
-                        ),
+                        value: JSON.stringify({
+                            ...personDistinctIdCreated,
+                            person_id: person.uuid,
+                            is_deleted: 0,
+                        }),
                     },
                 ],
             })
@@ -1219,9 +1215,7 @@ export class DB {
                 topic: KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
-                        value: Buffer.from(
-                            JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
-                        ),
+                        value: JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 }),
                     },
                 ],
             })
@@ -1231,14 +1225,10 @@ export class DB {
                     topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
-                            ),
+                            value: JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 }),
                         },
                         {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
-                            ),
+                            value: JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 }),
                         },
                     ],
                 })
@@ -1937,16 +1927,14 @@ export class DB {
             topic: KAFKA_GROUPS,
             messages: [
                 {
-                    value: Buffer.from(
-                        JSON.stringify({
-                            group_type_index: groupTypeIndex,
-                            group_key: groupKey,
-                            team_id: teamId,
-                            group_properties: JSON.stringify(properties),
-                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                            version,
-                        })
-                    ),
+                    value: JSON.stringify({
+                        group_type_index: groupTypeIndex,
+                        group_key: groupKey,
+                        team_id: teamId,
+                        group_properties: JSON.stringify(properties),
+                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                        version,
+                    }),
                 },
             ],
         })
@@ -2040,14 +2028,5 @@ export class DB {
             'getPluginTranspilationLock'
         )
         return response.rowCount > 0
-    }
-
-    public async addEventToBuffer(event: Record<string, any>, processAt: DateTime): Promise<void> {
-        await this.postgresQuery(
-            `INSERT INTO posthog_eventbuffer (event, process_at, locked) VALUES ($1, $2, $3)`,
-            [event, processAt.toISO(), false],
-            'addEventToBuffer'
-        )
-        this.statsd?.increment('events_sent_to_buffer')
     }
 }

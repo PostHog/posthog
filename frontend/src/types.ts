@@ -1385,6 +1385,7 @@ export interface FeatureFlagType {
     is_simple_flag: boolean
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
+    experiment_set: string[] | null
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -1944,6 +1945,12 @@ export type Duration = {
 }
 
 export type CombinedEvent = EventDefinition | ActionType
+
+export enum CombinedEventType {
+    All = 'all',
+    Event = 'event',
+    ActionEvent = 'action_event',
+}
 
 export interface IntegrationType {
     id: number
