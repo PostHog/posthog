@@ -16,6 +16,8 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.
 $_primary: map-get($colors, 'primary');
+$_primary_bg_hover: rgba($_primary, 0.1);
+$_primary_bg_active: rgba($_primary, 0.2);
 $_lifecycle_new: #99c5ff;
 $_lifecycle_returning: #71b96b;
 $_lifecycle_resurrecting: #c277cf;
@@ -28,8 +30,8 @@ $_lifecycle_dormant: #f86234;
     }
 
     //TODO: Remove the primary-bg...
-    --primary-bg-hover: rgba(map-get($colors, 'primary'), 0.1);
-    --primary-bg-active: rgba(map-get($colors, 'primary'), 0.2);
+    --primary-bg-hover: var(--primary-highlight);
+    --primary-bg-active: #{$_primary_bg_active};
 
     --bg-mid: #f2f2f2;
     --bg-side: #fafaf9;
