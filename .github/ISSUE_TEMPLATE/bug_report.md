@@ -18,8 +18,7 @@ labels: bug
 ## Environment
 
 - [ ] PostHog Cloud
-- [ ] self-hosted PostHog (ClickHouse-based), version/commit: _please provide_
-- [ ] self-hosted PostHog (Postgres-based, legacy), version/commit: _please provide_
+- [ ] self-hosted PostHog, version/commit: please provide
 
 ## Additional context
 
