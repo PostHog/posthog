@@ -52,6 +52,10 @@ def on_worker_start(**kwargs) -> None:
 
     sentry_init()
 
+    from posthog.models.instance_setting import get_instance_setting
+
+    update_cache_consumer_rate_limit.s(get_instance_setting("UPDATE_CACHE_ITEM_TASK_RATE_LIMIT")).apply()
+
 
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
@@ -434,13 +438,12 @@ def update_cache_consumer_rate_limit(rate_limit: Optional[Union[str, int]]) -> N
     from structlog import get_logger
 
     logger = get_logger(__name__)
-
     if rate_limit is not None:
         logger.info("set_update_cache_consumer_rate_limit", rate_limit=rate_limit)
         app.control.rate_limit("posthog.celery.update_cache_item_task", rate_limit)
 
 
-@app.task(ignore_result=False, rate_limit="6/m")
+@app.task(ignore_result=False, rate_limit=None)
 def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str, Any]]:
     """
     Tasks used in a group (as this is) must not ignore their results
