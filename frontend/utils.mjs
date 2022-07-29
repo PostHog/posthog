@@ -299,7 +299,7 @@ export async function buildOrWatch(config) {
     if (isDev) {
         chokidar
             .watch(path.resolve(absWorkingDir, 'src'), {
-                ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
+                ignored: /.*((Type|\.test\.stories)\.[tj]sx|windi.scss)$/,
                 ignoreInitial: true,
             })
             .on('all', async (event, filePath) => {
