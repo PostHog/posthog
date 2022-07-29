@@ -55,12 +55,12 @@ function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: 
                     )}
                     <tr>
                         <td>Conversion so far</td>
-                        <td>{percentage(series.conversionRates.total, 1, true)}</td>
+                        <td>{percentage(series.conversionRates.total, 2, true)}</td>
                     </tr>
                     {stepIndex > 0 && (
                         <tr>
                             <td>Conversion from previous</td>
-                            <td>{percentage(series.conversionRates.fromPrevious, 1, true)}</td>
+                            <td>{percentage(series.conversionRates.fromPrevious, 2, true)}</td>
                         </tr>
                     )}
                     {stepIndex > 0 && series.median_conversion_time != null && (
