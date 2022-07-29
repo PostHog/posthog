@@ -71,9 +71,9 @@ def active_teams() -> List[int]:
     if not all_teams:
         teams_by_recency = sync_execute(
             """
-            SELECT team_id, date_diff('second', max(_timestamp), now()) AS age
+            SELECT team_id, date_diff('second', max(timestamp), now()) AS age
             FROM events
-            WHERE _timestamp > date_sub(DAY, 3, now())
+            WHERE timestamp > date_sub(DAY, 3, now()) AND timestamp < now()
             GROUP BY team_id
             ORDER BY age;
         """
