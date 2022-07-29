@@ -15,7 +15,7 @@ export type PiscinaTaskWorker = ({ task, args }: { task: string; args: any }) =>
 export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<PiscinaTaskWorker> {
     initApp(config)
 
-    await runInTransaction(
+    return runInTransaction(
         {
             name: 'createWorker',
         },
