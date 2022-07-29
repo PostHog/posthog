@@ -34,7 +34,7 @@
             "type": "string"
         },
         "created_at": {
-            "description": "Used for autocapture. DOM element hierarchy",
+            "description": "Timestamp when event was created",
             "type": "number"
         },
         "person_id": {
