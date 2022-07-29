@@ -1,4 +1,3 @@
-import stylePlugin from 'esbuild-style-plugin'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import { lessLoader } from 'esbuild-plugin-less'
 import * as path from 'path'
@@ -123,17 +122,7 @@ export const commonConfig = {
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
-    // plugins: [sassPlugin(), lessPlugin],
-    plugins: [
-        stylePlugin({
-            postcssConfigFile: path.resolve(process.cwd(), './postcss.config.js'),
-            renderOptions: {
-                lessOptions: {
-                    javascriptEnabled: true,
-                },
-            },
-        }),
-    ],
+    plugins: [sassPlugin(), lessPlugin],
     define: {
         global: 'globalThis',
         'process.env.NODE_ENV': isDev ? '"development"' : '"production"',
@@ -299,7 +288,7 @@ export async function buildOrWatch(config) {
     if (isDev) {
         chokidar
             .watch(path.resolve(absWorkingDir, 'src'), {
-                ignored: /.*((Type|\.test\.stories)\.[tj]sx|windi.scss)$/,
+                ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
                 ignoreInitial: true,
             })
             .on('all', async (event, filePath) => {
