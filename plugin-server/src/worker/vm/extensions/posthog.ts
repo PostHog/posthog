@@ -15,6 +15,7 @@ interface InternalData {
     properties: Properties
     team_id: number
     uuid: string
+    groups?: Record<string, string>
 }
 
 export interface DummyPostHog {
@@ -41,6 +42,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
                     now: data.timestamp,
                     sent_at: data.timestamp,
                     uuid: data.uuid,
+                    ...(data.groups ? { groups: data.groups } : {}),
                 } as RawEventMessage),
             },
         ],
@@ -52,7 +54,12 @@ export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHo
 
     return {
         capture: async (event, properties = {}) => {
-            const { timestamp = DateTime.utc().toISO(), distinct_id = distinctId, ...otherProperties } = properties
+            const {
+                timestamp = DateTime.utc().toISO(),
+                distinct_id = distinctId,
+                groups = null,
+                ...otherProperties
+            } = properties
             const data: InternalData = {
                 distinct_id,
                 event,
@@ -65,6 +72,7 @@ export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHo
                 },
                 team_id: pluginConfig.team_id,
                 uuid: new UUIDT().toString(),
+                ...(groups ? { groups } : {}),
             }
             await queueEvent(hub, pluginConfig, data)
             hub.statsd?.increment('vm_posthog_extension_capture_called')

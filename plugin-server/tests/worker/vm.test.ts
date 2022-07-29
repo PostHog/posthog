@@ -1021,6 +1021,37 @@ describe('vm tests', () => {
         })
     })
 
+    test('posthog.capture accepts groups', async () => {
+        const indexJs = `
+            function runEveryMinute(meta) {
+                posthog.capture('my-new-event', { random: 'properties', distinct_id: 'custom id', groups: {company: 'id:5'} })
+                return 'haha'
+            }
+        `
+        await resetTestDatabase(indexJs)
+        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
+
+        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
+
+        const response = await vm.tasks.schedule.runEveryMinute.exec()
+
+        expect(response).toBe('haha')
+        expect(response).toBe('haha')
+        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
+        expect(queueMessageSpy.mock.calls[0][0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
+        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].messages[0].value.toString())
+        expect(JSON.parse(parsedMessage.data)).toMatchObject({
+            distinct_id: 'custom id',
+            event: 'my-new-event',
+            groups: { company: 'id:5' },
+            properties: expect.objectContaining({
+                $lib: 'posthog-plugin-server',
+                random: 'properties',
+                distinct_id: 'custom id',
+            }),
+        })
+    })
+
     test('onEvent', async () => {
         const indexJs = `
             async function onEvent (event, meta) {
