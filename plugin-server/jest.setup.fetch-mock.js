@@ -14,7 +14,7 @@ jest.mock('node-fetch', () => {
             ['content-disposition', `attachment; filename="GeoLite2-City-${DateTime.local().toISODate()}.mmdb"`],
         ]),
     }
-    return jest.fn(
+    const fetch = jest.fn(
         (url, options) =>
             new Promise((resolve) =>
                 resolve({
@@ -26,4 +26,9 @@ jest.mock('node-fetch', () => {
                 })
             )
     )
+    return {
+        ...jest.requireActual('node-fetch'),
+        __esModule: true,
+        default: fetch,
+    }
 })

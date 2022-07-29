@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import * as fetch from 'node-fetch'
+import fetch from 'node-fetch'
 
 import { Action, Person, PreIngestionEvent } from '../../../src/types'
 import { UUIDT } from '../../../src/utils/utils'

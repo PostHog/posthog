@@ -1,4 +1,4 @@
-import * as fetch from 'node-fetch'
+import fetch from 'node-fetch'
 
 import { Hub, PluginTaskType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
