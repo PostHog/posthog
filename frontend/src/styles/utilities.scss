@@ -95,6 +95,30 @@ $colors: (
     }
 }
 
+// Margins/padding
+@each $kind in ('margin', 'padding') {
+    $char: str-slice($kind, 0, 1);
+
+    .#{$char}-auto {
+        #{$kind}: auto;
+    }
+    .#{$char}x-auto {
+        #{$kind}-left: auto;
+        #{$kind}-right: auto;
+    }
+
+    .#{$char}y-auto {
+        #{$kind}-top: auto;
+        #{$kind}-bottom: auto;
+    }
+
+    @each $side in $sides {
+        .m#{str-slice($side, 0, 1)}-auto {
+            #{$kind}-#{$side}: auto;
+        }
+    }
+}
+
 @each $name, $hex in $colors {
     .text-#{$name} {
         color: $hex;
@@ -232,4 +256,48 @@ $colors: (
 }
 .items-stretch {
     align-items: stretch;
+}
+
+.font-thin {
+    font-weight: 100;
+}
+.font-extralight {
+    font-weight: 200;
+}
+.font-light {
+    font-weight: 300;
+}
+.font-normal {
+    font-weight: 400;
+}
+.font-medium {
+    font-weight: 500;
+}
+.font-semibold {
+    font-weight: 600;
+}
+.font-bold {
+    font-weight: 700;
+}
+.font-extrabold {
+    font-weight: 800;
+}
+.font-black {
+    font-weight: 900;
+}
+
+.whitespace-normal {
+    white-space: normal;
+}
+.whitespace-nowrap {
+    white-space: nowrap;
+}
+.whitespace-pre {
+    white-space: pre;
+}
+.whitespace-pre-line {
+    white-space: pre-line;
+}
+.whitespace-pre-wrap {
+    white-space: pre-wrap;
 }
