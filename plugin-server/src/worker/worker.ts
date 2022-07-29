@@ -15,18 +15,25 @@ export type PiscinaTaskWorker = ({ task, args }: { task: string; args: any }) =>
 export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<PiscinaTaskWorker> {
     initApp(config)
 
-    status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
+    await runInTransaction(
+        {
+            name: 'createWorker',
+        },
+        async () => {
+            status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
-    const [hub, closeHub] = await createHub(config, threadId)
-    await setupPlugins(hub)
+            const [hub, closeHub] = await createHub(config, threadId)
+            await setupPlugins(hub)
 
-    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, closeHub)
-    }
+            for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+                process.on(signal, closeHub)
+            }
 
-    process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
+            process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
 
-    return createTaskRunner(hub)
+            return createTaskRunner(hub)
+        }
+    )
 }
 
 export const createTaskRunner =
