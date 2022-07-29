@@ -1,4 +1,4 @@
-from typing import Any, List, Union
+from typing import Any, Dict, List, Union
 
 from dateutil import parser
 from rest_framework import exceptions, request, serializers, viewsets
@@ -27,14 +27,14 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def my_prompts(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:  # for mypy otherwise unauthenticated users don't have distinct_id
             raise exceptions.NotAuthenticated()
-        local_states: List[dict[str, Any]] = []
+        local_states: List[Dict[str, Any]] = []
         for key in request.data:
             parsed_state = dict(
                 request.data[key], last_updated_at=parser.isoparse(request.data[key]["last_updated_at"])
             )
             local_states.append(parsed_state)
 
-        my_prompts: dict[str, Any] = {"sequences": [], "state": {}}
+        my_prompts: Dict[str, Any] = {"sequences": [], "state": {}}
         states_to_update: List[PromptSequenceState] = []
         states_to_create: List[PromptSequenceState] = []
 
@@ -47,7 +47,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
         all_sequences = get_active_prompt_sequences()
 
-        new_states: list[dict] = []
+        new_states: List[Dict] = []
 
         for sequence in all_sequences:
             local_state = next((s for s in local_states if sequence["key"] == s["key"]), None)
@@ -83,7 +83,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         for seq in sequences_requiring_previous_completion:
             must_be_completed = seq["rule"]["must_be_completed"]
-            current_state: Union[dict, None] = next((s for s in new_states if s["key"] in must_be_completed), None)
+            current_state: Union[Dict, None] = next((s for s in new_states if s["key"] in must_be_completed), None)
             if not current_state or not current_state["completed"]:
                 continue
             sequences.append(seq)

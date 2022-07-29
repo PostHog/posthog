@@ -1,3 +1,5 @@
+from typing import Dict, List
+
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -8,7 +10,7 @@ from posthog.test.base import APIBaseTest
 
 
 class TestPrompt(APIBaseTest):
-    sequences: list[dict] = None  # type: ignore
+    sequences: List[Dict] = None
 
     @classmethod
     def setUpTestData(cls):
