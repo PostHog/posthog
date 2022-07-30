@@ -48,7 +48,11 @@ export interface ActivityLogItem {
 export type Description = string | JSX.Element | null
 // the extended description gives extra context, like the insight details card to describe a change to an insight
 export type ExtendedDescription = JSX.Element | undefined
-export type ChangeMapping = { description: Description[] | null; extendedDescription?: ExtendedDescription }
+export type ChangeMapping = {
+    description: Description[] | null
+    extendedDescription?: ExtendedDescription
+    suffix?: string | JSX.Element | null // to override the default suffix
+}
 export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
 
 export interface HumanizedActivityLogItem {

@@ -13,29 +13,33 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
-const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
-    const name = item.detail.name || '(empty string)'
-    return item.item_id ? <Link to={urls.featureFlag(item.item_id)}>{name}</Link> : name
+const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
+    // detail.name
+    // item_id
+    const displayName = name || '(empty string)'
+    return id ? <Link to={urls.featureFlag(id)}>{displayName}</Link> : displayName
 }
 
-const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: ActivityChange) => ChangeMapping | null> = {
-    name: function onName(change) {
+const featureFlagActionsMapping: Record<
+    keyof FeatureFlagType,
+    (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
+> = {
+    name: function onName() {
         return {
-            description: [
-                <>
-                    changed the description to <strong>"{change?.after}"</strong>
-                </>,
-            ],
+            description: [<>changed the description</>],
         }
     },
-    active: function onActive(change) {
+    active: function onActive(change, logItem) {
         let isActive: boolean = !!change?.after
         if (typeof change?.after === 'string') {
             isActive = change?.after.toLowerCase() === 'true'
         }
         const describeChange: string = isActive ? 'enabled' : 'disabled'
 
-        return { description: [<>{describeChange} the flag</>] }
+        return {
+            description: [<>{describeChange}</>],
+            suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
+        }
     },
     filters: function onChangedFilter(change) {
         const filtersBefore = change?.before as FeatureFlagFilters
@@ -138,8 +142,8 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         console.error({ change }, 'could not describe this change')
         return null
     },
-    deleted: function onSoftDelete() {
-        return { description: [<>deleted the flag</>] }
+    deleted: function onSoftDelete(_, logItem) {
+        return { description: [<>deleted</>], suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</> }
     },
     rollout_percentage: function onRolloutPercentage(change) {
         return {
@@ -150,8 +154,13 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
             ],
         }
     },
-    key: function onKey(change) {
-        return { description: [<>changed flag key from ${change?.before}</>] }
+    key: function onKey(change, logItem) {
+        const changeBefore = change?.before as string
+        const changeAfter = change?.after as string
+        return {
+            description: [<>changed flag key on {changeBefore} to</>],
+            suffix: <>{nameOrLinkToFlag(logItem?.item_id, changeAfter)}</>,
+        }
     },
     ensure_experience_continuity: function onExperienceContinuity(change) {
         let isEnabled: boolean = !!change?.after
@@ -160,7 +169,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         }
         const describeChange: string = isEnabled ? 'enabled' : 'disabled'
 
-        return { description: [<>`${describeChange} experience continuity`</>] }
+        return { description: [<>{describeChange} experience continuity</>] }
     },
     // fields that are excluded on the backend
     id: () => null,
@@ -177,22 +186,26 @@ export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange
     }
 
     if (logItem.activity == 'created') {
-        return { description: <>created the flag: {nameOrLinkToFlag(logItem)}</> }
+        return { description: <>created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</> }
     }
     if (logItem.activity == 'deleted') {
-        return { description: <>deleted the flag: {logItem.detail.name}</> }
+        return { description: <>deleted {logItem.detail.name}</> }
     }
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
+        let changeSuffix: Description = <>on {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const { description } = featureFlagActionsMapping[change.field](change)
+            const { description, suffix } = featureFlagActionsMapping[change.field](change, logItem)
             if (description) {
                 changes = changes.concat(description)
+            }
+            if (suffix) {
+                changeSuffix = suffix
             }
         }
 
@@ -203,9 +216,10 @@ export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange
                         listParts={changes}
                         prefix={
                             <>
-                                On {nameOrLinkToFlag(logItem)}, <strong>{logItem.user.first_name}</strong>
+                                <strong>{logItem.user.first_name}</strong>
                             </>
                         }
+                        suffix={changeSuffix}
                     />
                 ),
             }

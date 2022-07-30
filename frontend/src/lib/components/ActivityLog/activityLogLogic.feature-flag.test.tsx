@@ -79,6 +79,23 @@ describe('the activity log logic', () => {
                 `/api/projects/${MOCK_TEAM_ID}/feature_flags/7/activity/`
             )
 
+            it('can handle change of key', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'key',
+                        before: 'the-first-key',
+                        after: 'the-second-key',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'peter changed flag key on the-first-key to the-second-key'
+                )
+            })
+
             it('can handle soft deletion change', async () => {
                 await featureFlagsTestSetup('test flag', 'updated', [
                     {
@@ -90,9 +107,7 @@ describe('the activity log logic', () => {
                 ])
 
                 const actual = logic.values.humanizedActivity
-                expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test flag, peter deleted the flag'
-                )
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter deleted test flag')
             })
 
             it('can handle soft enabling flag', async () => {
@@ -106,9 +121,7 @@ describe('the activity log logic', () => {
                 ])
 
                 const actual = logic.values.humanizedActivity
-                expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test flag, peter enabled the flag'
-                )
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter enabled test flag')
             })
 
             it('can handle soft disabling flag', async () => {
@@ -122,8 +135,38 @@ describe('the activity log logic', () => {
                 ])
 
                 const actual = logic.values.humanizedActivity
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter disabled test flag')
+            })
+
+            it('can handle enabling experience continuity for a flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'ensure_experience_continuity',
+                        after: 'true',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test flag, peter disabled the flag'
+                    'peter enabled experience continuity on test flag'
+                )
+            })
+
+            it('can handle disabling experience continuity for a flag', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'ensure_experience_continuity',
+                        after: 'false',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'peter disabled experience continuity on test flag'
                 )
             })
 
@@ -178,7 +221,7 @@ describe('the activity log logic', () => {
 
                 const actual = logic.values.humanizedActivity
                 expect(render(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                    'On test flag, peter removed 2 release conditions'
+                    'peter removed 2 release conditions on test flag'
                 )
             })
 
@@ -229,7 +272,7 @@ describe('the activity log logic', () => {
 
                 const actual = logic.values.humanizedActivity
                 expect(render(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                    'On test flag, peter removed 1 release condition'
+                    'peter removed 1 release condition on test flag'
                 )
             })
 
@@ -246,7 +289,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test flag, peter changed rollout percentage to 36%'
+                    'peter changed rollout percentage to 36% on test flag'
                 )
             })
 
@@ -290,7 +333,7 @@ describe('the activity log logic', () => {
 
                 const actual = logic.values.humanizedActivity
                 expect(render(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                    'On test flag, peter changed the filter conditions to apply to 30% of all users, and removed 1 release condition'
+                    'peter changed the filter conditions to apply to 30% of all users, and removed 1 release condition on test flag'
                 )
             })
 
@@ -313,7 +356,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test flag, peter changed rollout percentage to 36%, and changed the description to "strawberry"'
+                    'peter changed rollout percentage to 36%, and changed the description on test flag'
                 )
             })
 
@@ -330,7 +373,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test flag, peter changed the filter conditions to apply to 99% of all users'
+                    'peter changed the filter conditions to apply to 99% of all users on test flag'
                 )
             })
 
@@ -372,7 +415,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On with cohort, peter changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411'
+                    'peter changed the filter conditions to apply to 100% ofID 98, and 100% ofID 411 on with cohort'
                 )
             })
 
@@ -405,7 +448,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On with simple rollout change, peter changed the filter conditions to apply to 77% of all users'
+                    'peter changed the filter conditions to apply to 77% of all users on with simple rollout change'
                 )
             })
 
@@ -463,7 +506,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On with null rollout change, peter changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev'
+                    'peter changed the filter conditions to apply to 100% ofemail = someone@somewhere.dev on with null rollout change'
                 )
             })
 
@@ -533,7 +576,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On with two changes, peter changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100'
+                    'peter changed the filter conditions to apply to 76% ofInitial Browser = Chrome , and 99% ofInitial Browser Version = 100 on with two changes'
                 )
             })
         })
