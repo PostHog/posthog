@@ -24,7 +24,7 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/insights/activity/`]: {
+                    [`/api/projects/${MOCK_TEAM_ID}/insights/activity`]: {
                         results: insightsActivityResponseJson,
                         next: 'a provided url',
                     },
@@ -61,7 +61,7 @@ describe('the activity log logic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/insights/activity/`]: {
+                    [`/api/projects/${MOCK_TEAM_ID}/insights/activity`]: {
                         results: insightsActivityResponseJson,
                         next: 'a provided url',
                     },
@@ -195,7 +195,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter changed the name to "finish"'
+                    'peter renamed "start" to "finish"'
                 )
             })
 
@@ -247,10 +247,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 const renderedDescription = render(<>{actual[0].description}</>).container
-                expect(renderedDescription).toHaveTextContent(
-                    // text is huge don't assert on entire content
-                    'changed details'
-                )
+                expect(renderedDescription).toHaveTextContent('peter changed details on test insight')
             })
 
             it('can handle change of filters on a retention graph', async () => {
@@ -280,10 +277,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 const renderedDescription = render(<>{actual[0].description}</>).container
-                expect(renderedDescription).toHaveTextContent(
-                    // text is huge don't assert on entire content
-                    'On test insight, peter changed details'
-                )
+                expect(renderedDescription).toHaveTextContent('peter changed details on test insight')
             })
 
             it('can handle soft delete', async () => {
@@ -297,7 +291,7 @@ describe('the activity log logic', () => {
                 ])
                 const actual = logic.values.humanizedActivity
 
-                expect(render(<>{actual[0].description}</>).container).toHaveTextContent('deleted')
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter deleted test insight')
             })
 
             it('can handle change of short id', async () => {
@@ -312,7 +306,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter changed the short id to "changed"'
+                    'peter changed the short id to "changed" on test insight'
                 )
             })
 
@@ -322,13 +316,14 @@ describe('the activity log logic', () => {
                         type: 'Insight',
                         action: 'changed',
                         field: 'derived_name',
+                        before: 'original',
                         after: 'changed',
                     },
                 ])
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter changed the name to "changed"'
+                    'peter renamed "original" to "changed"'
                 )
             })
 
@@ -344,7 +339,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter changed the description to "changed"'
+                    'peter changed the description to "changed" on test insight'
                 )
             })
 
@@ -359,9 +354,7 @@ describe('the activity log logic', () => {
                 ])
                 const actual = logic.values.humanizedActivity
 
-                expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter favorited the insight'
-                )
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter favorited test insight')
             })
 
             it('can handle removal of favorited', async () => {
@@ -376,7 +369,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter un-favorited the insight'
+                    'peter un-favorited test insight'
                 )
             })
 
@@ -393,7 +386,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter added the tag 3'
+                    'peter added tag 3 on test insight'
                 )
             })
 
@@ -410,7 +403,24 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter removed the tag 3'
+                    'peter removed tag 3 on test insight'
+                )
+            })
+
+            it('can handle addition and removal of tags', async () => {
+                await insightTestSetup('test insight', 'updated', [
+                    {
+                        type: 'Insight',
+                        action: 'changed',
+                        field: 'tags',
+                        before: ['1', '2', '3'],
+                        after: ['1', '4', '5'],
+                    },
+                ])
+                const actual = logic.values.humanizedActivity
+
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                    'peter added tags 4 5 , and removed tags 2 3 on test insight'
                 )
             })
 
@@ -427,19 +437,19 @@ describe('the activity log logic', () => {
                         after: [
                             { id: '1', name: 'anything' },
                             { id: '2', name: 'another' },
-                            { id: '3', name: 'added' },
+                            { id: '3', name: 'the-new-one' },
                         ],
                     },
                 ])
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter added to dashboard added'
+                    'peter added test insight to the-new-one'
                 )
             })
 
             it('can handle removal of dashboards link', async () => {
-                await insightTestSetup('test insight', 'updated', [
+                await insightTestSetup('test-insight', 'updated', [
                     {
                         type: 'Insight',
                         action: 'changed',
@@ -458,7 +468,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'On test insight, peter removed from dashboard removed'
+                    'peter removed test-insight from removed'
                 )
             })
             const formats = ['png', 'pdf', 'csv']
@@ -476,7 +486,7 @@ describe('the activity log logic', () => {
                     const actual = logic.values.humanizedActivity
 
                     expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                        `exported the insight test insight as a ${format}`
+                        `exported test insight as a ${format}`
                     )
                 })
             })
