@@ -1,24 +1,33 @@
 import { StatsD, Tags } from 'hot-shots'
 
+import { runInSpan } from '../sentry'
 import { UUID } from './utils'
 
 type StopCallback = () => void
 
-export async function instrumentQuery<T>(
+export function instrumentQuery<T>(
     statsd: StatsD | undefined,
     metricName: string,
     tag: string | undefined,
     runQuery: () => Promise<T>
 ): Promise<T> {
-    const tags: Tags | undefined = tag ? { queryTag: tag } : undefined
-    const timer = new Date()
+    return runInSpan(
+        {
+            op: metricName,
+            description: tag,
+        },
+        async () => {
+            const tags: Tags | undefined = tag ? { queryTag: tag } : undefined
+            const timer = new Date()
 
-    statsd?.increment(`${metricName}.total`, tags)
-    try {
-        return await runQuery()
-    } finally {
-        statsd?.timing(metricName, timer, tags)
-    }
+            statsd?.increment(`${metricName}.total`, tags)
+            try {
+                return await runQuery()
+            } finally {
+                statsd?.timing(metricName, timer, tags)
+            }
+        }
+    )
 }
 
 export function captureEventLoopMetrics(statsd: StatsD, instanceId: UUID): StopCallback {
