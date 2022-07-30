@@ -6,11 +6,9 @@ import {
     ActivityLogItem,
     ActivityScope,
     Describer,
-    humanize,
     PersonMerge,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { personActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import React from 'react'
@@ -18,35 +16,6 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 
 describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
-
-    describe('when scoped to person', () => {
-        beforeEach(() => {
-            useMocks({
-                get: {
-                    '/api/person/7/activity': { results: personActivityResponseJson },
-                },
-            })
-            initKeaTests()
-            logic = activityLogLogic({ scope: ActivityScope.PERSON, id: 7, describer: personActivityDescriber })
-            logic.mount()
-        })
-
-        it('sets a key', () => {
-            expect(logic.key).toEqual('activity/Person/7')
-        })
-
-        it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
-        })
-
-        it('can load a page of activity', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
-
-            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
-                JSON.stringify(humanize(personActivityResponseJson, personActivityDescriber))
-            )
-        })
-    })
 
     describe('humanzing', () => {
         interface APIMockSetup {

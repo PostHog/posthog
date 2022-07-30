@@ -6,11 +6,9 @@ import {
     ActivityLogItem,
     ActivityScope,
     Describer,
-    humanize,
     PersonMerge,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { insightsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
 import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import React from 'react'
@@ -19,107 +17,6 @@ import { insightActivityDescriber } from 'scenes/saved-insights/activityDescript
 
 describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>
-
-    describe('when not scoped by ID', () => {
-        beforeEach(() => {
-            useMocks({
-                get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/insights/activity`]: {
-                        results: insightsActivityResponseJson,
-                        next: 'a provided url',
-                    },
-                },
-            })
-            initKeaTests()
-            logic = activityLogLogic({ scope: ActivityScope.INSIGHT, describer: insightActivityDescriber })
-            logic.mount()
-        })
-
-        it('sets a key', () => {
-            expect(logic.key).toEqual('activity/Insight/all')
-        })
-
-        it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
-        })
-
-        it('can load a page of activity', async () => {
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({
-                nextPageLoading: false,
-                previousPageLoading: false,
-            })
-
-            // react fragments confuse equality check so,
-            // stringify to confirm this value has the humanized version of the response
-            // detailed tests for humanization are below
-            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
-                JSON.stringify(humanize(insightsActivityResponseJson, insightActivityDescriber))
-            )
-        })
-    })
-    describe('when scoped by ID', () => {
-        beforeEach(() => {
-            useMocks({
-                get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/insights/activity`]: {
-                        results: insightsActivityResponseJson,
-                        next: 'a provided url',
-                    },
-                },
-            })
-            initKeaTests()
-            logic = activityLogLogic({ scope: ActivityScope.INSIGHT, id: 7, describer: insightActivityDescriber })
-            logic.mount()
-        })
-
-        it('sets a key', () => {
-            expect(logic.key).toEqual('activity/Insight/7')
-        })
-
-        it('loads on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
-        })
-    })
-
-    describe('when starting at page 4', () => {
-        beforeEach(() => {
-            useMocks({
-                get: {
-                    [`/api/projects/${MOCK_TEAM_ID}/insights/7/activity/`]: (req) => {
-                        const isOnPageFour = req.url.searchParams.get('page') === '4'
-
-                        return [
-                            200,
-                            {
-                                results: isOnPageFour ? insightsActivityResponseJson : [],
-                                next: 'a provided url',
-                            },
-                        ]
-                    },
-                },
-            })
-            initKeaTests()
-            logic = activityLogLogic({
-                scope: ActivityScope.INSIGHT,
-                id: 7,
-                describer: insightActivityDescriber,
-                startingPage: 4,
-            })
-            logic.mount()
-        })
-
-        it('sets a key', () => {
-            expect(logic.key).toEqual('activity/Insight/7')
-        })
-
-        it('loads data from page 4 on mount', async () => {
-            await expectLogic(logic).toDispatchActions(['fetchNextPage', 'fetchNextPageSuccess'])
-
-            expect(JSON.stringify(logic.values.humanizedActivity)).toEqual(
-                JSON.stringify(humanize(insightsActivityResponseJson, insightActivityDescriber))
-            )
-        })
-    })
 
     describe('humanzing', () => {
         interface APIMockSetup {
