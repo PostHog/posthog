@@ -161,6 +161,7 @@ class Migration(AsyncMigrationDefinition):
                     table_name=TEMPORARY_PERSONS_TABLE_NAME,
                     final=True,
                     deduplicate=True,
+                    per_shard=True,
                 )
             ),
             AsyncMigrationOperation(
@@ -170,6 +171,7 @@ class Migration(AsyncMigrationDefinition):
                     table_name=TEMPORARY_PDI2_TABLE_NAME,
                     final=True,
                     deduplicate=True,
+                    per_shard=True,
                 )
             ),
             AsyncMigrationOperation(
