@@ -39,7 +39,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     <SentenceList
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong> merged people into this person:
+                                <strong>{logItem.user.first_name}</strong> merged
                             </>
                         }
                         listParts={logItem.detail.merge.source.flatMap((di) => (
@@ -47,6 +47,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                                 <PersonHeader person={di} />
                             </span>
                         ))}
+                        suffix="into this person"
                     />
                 ),
             }
@@ -61,7 +62,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     <SentenceList
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong> split this person into:{' '}
+                                <strong>{logItem.user.first_name}</strong> split this person into
                             </>
                         }
                         listParts={distinctIds.map((di) => (

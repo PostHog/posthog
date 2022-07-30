@@ -135,7 +135,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'peter merged people into this person: User A, and User C'
+                    'peter merged User A, and User C into this person'
                 )
             })
 
@@ -153,7 +153,7 @@ describe('the activity log logic', () => {
                 const actual = logic.values.humanizedActivity
 
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                    'peter split this person into: a, and b'
+                    'peter split this person into a, and b'
                 )
             })
         })
