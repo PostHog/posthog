@@ -249,7 +249,7 @@ describe('the activity log logic', () => {
                 const renderedDescription = render(<>{actual[0].description}</>).container
                 expect(renderedDescription).toHaveTextContent(
                     // text is huge don't assert on entire content
-                    'changed details to:Query summary'
+                    'changed details'
                 )
             })
 

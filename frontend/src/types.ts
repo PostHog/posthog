@@ -1929,8 +1929,6 @@ export interface SubscriptionType {
     deleted?: boolean
 }
 
-export type Description = string | JSX.Element | null
-
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
 
 export type Duration = {

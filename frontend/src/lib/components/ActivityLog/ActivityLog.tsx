@@ -88,6 +88,11 @@ export const ActivityLog = ({
                                 <ProfilePicture showName={false} email={logItem.email} size={'xl'} />
                                 <div className="details">
                                     <div className="activity-description">{logItem.description}</div>
+                                    {logItem.extendedDescription && (
+                                        <div className="activity-description-extended">
+                                            {logItem.extendedDescription}
+                                        </div>
+                                    )}
                                     <div className={'text-muted'}>
                                         <TZLabel time={logItem.created_at} />
                                     </div>

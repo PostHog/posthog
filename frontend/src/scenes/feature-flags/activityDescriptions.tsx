@@ -1,7 +1,13 @@
-import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityChange,
+    ActivityLogItem,
+    ChangeMapping,
+    Description,
+    HumanizedChange,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { Description, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import React from 'react'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { pluralize } from 'lib/utils'
@@ -12,13 +18,15 @@ const nameOrLinkToFlag = (item: ActivityLogItem): string | JSX.Element => {
     return item.item_id ? <Link to={urls.featureFlag(item.item_id)}>{name}</Link> : name
 }
 
-const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: ActivityChange) => Description[] | null> = {
+const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: ActivityChange) => ChangeMapping | null> = {
     name: function onName(change) {
-        return [
-            <>
-                changed the description to <strong>"{change?.after}"</strong>
-            </>,
-        ]
+        return {
+            description: [
+                <>
+                    changed the description to <strong>"{change?.after}"</strong>
+                </>,
+            ],
+        }
     },
     active: function onActive(change) {
         let isActive: boolean = !!change?.after
@@ -27,7 +35,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         }
         const describeChange: string = isActive ? 'enabled' : 'disabled'
 
-        return [<>{describeChange} the flag</>]
+        return { description: [<>{describeChange} the flag</>] }
     },
     filters: function onChangedFilter(change) {
         const filtersBefore = change?.before as FeatureFlagFilters
@@ -124,24 +132,26 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         }
 
         if (changes.length > 0) {
-            return changes
+            return { description: changes }
         }
 
         console.error({ change }, 'could not describe this change')
         return null
     },
     deleted: function onSoftDelete() {
-        return [<>deleted the flag</>]
+        return { description: [<>deleted the flag</>] }
     },
     rollout_percentage: function onRolloutPercentage(change) {
-        return [
-            <>
-                changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div>
-            </>,
-        ]
+        return {
+            description: [
+                <>
+                    changed rollout percentage to <div className="highlighted-activity">{change?.after}%</div>
+                </>,
+            ],
+        }
     },
     key: function onKey(change) {
-        return [<>changed flag key from ${change?.before}</>]
+        return { description: [<>changed flag key from ${change?.before}</>] }
     },
     ensure_experience_continuity: function onExperienceContinuity(change) {
         let isEnabled: boolean = !!change?.after
@@ -150,7 +160,7 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
         }
         const describeChange: string = isEnabled ? 'enabled' : 'disabled'
 
-        return [<>`${describeChange} experience continuity`</>]
+        return { description: [<>`${describeChange} experience continuity`</>] }
     },
     // fields that are excluded on the backend
     id: () => null,
@@ -160,17 +170,17 @@ const featureFlagActionsMapping: Record<keyof FeatureFlagType, (change?: Activit
     experiment_set: () => null,
 }
 
-export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
+export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
     if (logItem.scope != 'FeatureFlag') {
         console.error('feature flag describer received a non-feature flag activity')
-        return null
+        return { description: null }
     }
 
     if (logItem.activity == 'created') {
-        return <>created the flag: {nameOrLinkToFlag(logItem)}</>
+        return { description: <>created the flag: {nameOrLinkToFlag(logItem)}</> }
     }
     if (logItem.activity == 'deleted') {
-        return <>deleted the flag: {logItem.detail.name}</>
+        return { description: <>deleted the flag: {logItem.detail.name}</> }
     }
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
@@ -180,25 +190,27 @@ export function flagActivityDescriber(logItem: ActivityLogItem): string | JSX.El
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const nextChange: Description[] | null = featureFlagActionsMapping[change.field](change)
-            if (nextChange) {
-                changes = changes.concat(nextChange)
+            const { description } = featureFlagActionsMapping[change.field](change)
+            if (description) {
+                changes = changes.concat(description)
             }
         }
 
         if (changes.length) {
-            return (
-                <SentenceList
-                    listParts={changes}
-                    prefix={
-                        <>
-                            On {nameOrLinkToFlag(logItem)}, <strong>{logItem.user.first_name}</strong>
-                        </>
-                    }
-                />
-            )
+            return {
+                description: (
+                    <SentenceList
+                        listParts={changes}
+                        prefix={
+                            <>
+                                On {nameOrLinkToFlag(logItem)}, <strong>{logItem.user.first_name}</strong>
+                            </>
+                        }
+                    />
+                ),
+            }
         }
     }
 
-    return null
+    return { description: null }
 }
