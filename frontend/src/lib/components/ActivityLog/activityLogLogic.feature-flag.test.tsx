@@ -96,7 +96,7 @@ describe('the activity log logic', () => {
                 )
             })
 
-            it('can handle soft deletion change', async () => {
+            it('can handle soft deletion', async () => {
                 await featureFlagsTestSetup('test flag', 'updated', [
                     {
                         type: 'FeatureFlag',
@@ -108,6 +108,20 @@ describe('the activity log logic', () => {
 
                 const actual = logic.values.humanizedActivity
                 expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter deleted test flag')
+            })
+
+            it('can handle soft un-deletion', async () => {
+                await featureFlagsTestSetup('test flag', 'updated', [
+                    {
+                        type: 'FeatureFlag',
+                        action: 'changed',
+                        field: 'deleted',
+                        after: 'false',
+                    },
+                ])
+
+                const actual = logic.values.humanizedActivity
+                expect(render(<>{actual[0].description}</>).container).toHaveTextContent('peter un-deleted test flag')
             })
 
             it('can handle soft enabling flag', async () => {

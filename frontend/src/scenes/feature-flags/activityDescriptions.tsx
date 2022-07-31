@@ -142,8 +142,12 @@ const featureFlagActionsMapping: Record<
         console.error({ change }, 'could not describe this change')
         return null
     },
-    deleted: function onSoftDelete(_, logItem) {
-        return { description: [<>deleted</>], suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</> }
+    deleted: function onSoftDelete(change, logItem) {
+        const isDeleted: boolean = !!change?.after
+        return {
+            description: [<>{isDeleted ? 'deleted' : 'un-deleted'}</>],
+            suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
+        }
     },
     rollout_percentage: function onRolloutPercentage(change) {
         return {

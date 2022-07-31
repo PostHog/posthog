@@ -15,43 +15,9 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                 {
                     type: 'FeatureFlag',
                     action: 'changed',
-                    field: 'filters',
-                    before: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                            {
-                                properties: [],
-                                rollout_percentage: 30,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                    after: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                        ],
-                        multivariate: null,
-                    },
+                    field: 'name',
+                    before: 'starting',
+                    after: 'finishing',
                 },
             ],
             merge: null,
@@ -61,94 +27,28 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2022-05-24T12:28:14.507709Z',
     },
     {
-        user: { first_name: 'Alex Kim', email: 'alex@posthog.com' },
+        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1474',
+        item_id: '984',
         detail: {
             merge: null,
-            changes: [
-                {
-                    type: 'FeatureFlag',
-                    action: 'changed',
-                    field: 'filters',
-                    before: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                            {
-                                properties: [],
-                                rollout_percentage: 30,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                    after: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                },
-            ],
-            name: 'data-management',
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
+            name: 'cloud-announcement',
         },
-        created_at: '2022-03-21T15:58:55.792014Z',
+        created_at: '2022-03-20T15:26:58.006900Z',
     },
     {
-        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1846',
+        item_id: '984',
         detail: {
             merge: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
-            name: 'test-ff',
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
+            name: 'cloud-announcement',
         },
-        created_at: '2022-03-21T15:50:25.894422Z',
-    },
-    {
-        user: { first_name: 'Neil', email: 'neil@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1846',
-        detail: {
-            merge: null,
-            changes: null,
-            name: 'test-ff',
-        },
-        created_at: '2022-03-21T15:50:15.625221Z',
-    },
-    {
-        user: { first_name: 'Paul', email: 'paul@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1825',
-        detail: {
-            merge: null,
-            changes: null,
-            name: 'feature_that_will_dazzle',
-        },
-        created_at: '2022-03-21T13:22:14.605131Z',
+        created_at: '2022-03-20T15:26:58.006900Z',
     },
     {
         user: { first_name: 'Paul', email: 'paul@posthog.com' },
@@ -251,30 +151,6 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '984',
         detail: {
             merge: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
-            name: 'cloud-announcement',
-        },
-        created_at: '2022-03-20T15:26:58.006900Z',
-    },
-    {
-        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
-        activity: 'updated',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '984',
-        detail: {
-            merge: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
-            name: 'cloud-announcement',
-        },
-        created_at: '2022-03-20T15:26:46.397726Z',
-    },
-    {
-        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
-        activity: 'updated',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '984',
-        detail: {
-            merge: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -359,6 +235,156 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             name: 'data-management',
         },
         created_at: '2022-03-19T16:58:47.747634Z',
+    },
+    {
+        user: { first_name: 'Alex Kim', email: 'alex@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1474',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
+                                rollout_percentage: null,
+                            },
+                            {
+                                properties: [],
+                                rollout_percentage: 30,
+                            },
+                        ],
+                        multivariate: null,
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
+                                rollout_percentage: null,
+                            },
+                        ],
+                        multivariate: null,
+                    },
+                },
+            ],
+            name: 'data-management',
+        },
+        created_at: '2022-03-21T15:58:55.792014Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: true, after: false }],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'key',
+                    before: 'the-original-key',
+                    after: 'the-new-key',
+                },
+            ],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'ensure_experience_continuity',
+                    before: false,
+                    after: true,
+                },
+            ],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'ensure_experience_continuity',
+                    before: true,
+                    after: false,
+                },
+            ],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Paul', email: 'paul@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1825',
+        detail: {
+            merge: null,
+            changes: null,
+            name: 'feature_that_will_dazzle',
+        },
+        created_at: '2022-03-21T13:22:14.605131Z',
     },
 ]
 
