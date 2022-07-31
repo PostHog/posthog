@@ -2,6 +2,8 @@ import { ActivityLogItem, HumanizedChange } from 'lib/components/ActivityLog/hum
 import React from 'react'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
     if (logItem.scope != 'Person') {
@@ -67,7 +69,7 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                         }
                         listParts={distinctIds.map((di) => (
                             <span key={di} className="highlighted-activity">
-                                {di}
+                                <Link href={urls.person(di)}>{di}</Link>
                             </span>
                         ))}
                     />
