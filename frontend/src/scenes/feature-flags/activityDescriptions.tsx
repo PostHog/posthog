@@ -144,7 +144,7 @@ const featureFlagActionsMapping: Record<
         return null
     },
     deleted: function onSoftDelete(change, logItem) {
-        const isDeleted = humanizeBoolean(!!change?.after)
+        const isDeleted = humanizeBoolean(change?.after)
         return {
             description: [<>{isDeleted ? 'deleted' : 'un-deleted'}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
@@ -168,7 +168,7 @@ const featureFlagActionsMapping: Record<
         }
     },
     ensure_experience_continuity: function onExperienceContinuity(change) {
-        const isEnabled = humanizeBoolean(!!change?.after)
+        const isEnabled = humanizeBoolean(change?.after)
         const describeChange: string = isEnabled ? 'enabled' : 'disabled'
 
         return { description: [<>{describeChange} experience continuity</>] }

@@ -75,7 +75,7 @@ const insightActionsMapping: Record<
         return null
     },
     deleted: function onSoftDelete(change, logItem) {
-        const isDeleted = humanizeBoolean(!!change?.after)
+        const isDeleted = humanizeBoolean(change?.after)
         const describeChange = isDeleted ? 'deleted' : 'un-deleted'
         return {
             description: [<>{describeChange}</>],
