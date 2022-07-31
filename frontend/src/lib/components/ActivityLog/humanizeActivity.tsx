@@ -65,6 +65,14 @@ export interface HumanizedActivityLogItem {
 
 export type Describer = (logItem: ActivityLogItem) => HumanizedChange
 
+export function humanizeBoolean(candidate: unknown): boolean {
+    let theBooleanValue: boolean = !!candidate
+    if (typeof candidate === 'string') {
+        theBooleanValue = candidate.toLowerCase() === 'true'
+    }
+    return theBooleanValue
+}
+
 export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
     if (!describer) {
         // TODO make a default describer

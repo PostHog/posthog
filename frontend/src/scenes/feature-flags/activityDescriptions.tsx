@@ -3,6 +3,7 @@ import {
     ActivityLogItem,
     ChangeMapping,
     Description,
+    humanizeBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
@@ -143,7 +144,7 @@ const featureFlagActionsMapping: Record<
         return null
     },
     deleted: function onSoftDelete(change, logItem) {
-        const isDeleted: boolean = !!change?.after
+        const isDeleted = humanizeBoolean(!!change?.after)
         return {
             description: [<>{isDeleted ? 'deleted' : 'un-deleted'}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
@@ -167,10 +168,7 @@ const featureFlagActionsMapping: Record<
         }
     },
     ensure_experience_continuity: function onExperienceContinuity(change) {
-        let isEnabled: boolean = !!change?.after
-        if (typeof change?.after === 'string') {
-            isEnabled = change?.after.toLowerCase() === 'true'
-        }
+        const isEnabled = humanizeBoolean(!!change?.after)
         const describeChange: string = isEnabled ? 'enabled' : 'disabled'
 
         return { description: [<>{describeChange} experience continuity</>] }

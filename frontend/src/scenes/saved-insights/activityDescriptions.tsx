@@ -3,6 +3,7 @@ import {
     ActivityLogItem,
     ChangeMapping,
     Description,
+    humanizeBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
@@ -73,9 +74,11 @@ const insightActionsMapping: Record<
         console.error({ change }, 'could not describe this change')
         return null
     },
-    deleted: function onSoftDelete(_, logItem) {
+    deleted: function onSoftDelete(change, logItem) {
+        const isDeleted = humanizeBoolean(!!change?.after)
+        const describeChange = isDeleted ? 'deleted' : 'un-deleted'
         return {
-            description: [<>deleted</>],
+            description: [<>{describeChange}</>],
             suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
         }
     },
@@ -109,7 +112,7 @@ const insightActionsMapping: Record<
         }
     },
     favorited: function onFavorited(change, logItem) {
-        const isFavoriteAfter = change?.after as boolean
+        const isFavoriteAfter = humanizeBoolean(change?.after)
         return {
             description: [
                 <>
@@ -155,18 +158,25 @@ const insightActionsMapping: Record<
             (before) => !dashboardsAfter.some((after) => after.id === before.id)
         )
 
-        const describeAdded = addedDashboards.map((d) => (
-            <>
-                added {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to {linkToDashboard(d)}
-            </>
-        ))
-        const describeRemoved = removedDashboards.map((d) => (
-            <>
-                removed {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from {linkToDashboard(d)}
-            </>
-        ))
+        const addedSentence = (
+            <SentenceList
+                prefix={<>added {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to</>}
+                listParts={addedDashboards.map((d) => (
+                    <>{linkToDashboard(d)}</>
+                ))}
+            />
+        )
 
-        return { description: describeAdded.concat(describeRemoved), suffix: <></> }
+        const removedSentence = (
+            <SentenceList
+                prefix={<>removed {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from</>}
+                listParts={removedDashboards.map((d) => (
+                    <>{linkToDashboard(d)}</>
+                ))}
+            />
+        )
+
+        return { description: [addedSentence, removedSentence], suffix: <></> }
     },
     // fields that are excluded on the backend
     id: () => null,
