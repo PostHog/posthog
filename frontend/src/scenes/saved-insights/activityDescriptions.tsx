@@ -158,23 +158,23 @@ const insightActionsMapping: Record<
             (before) => !dashboardsAfter.some((after) => after.id === before.id)
         )
 
-        const addedSentence = (
+        const addedSentence = addedDashboards.length ? (
             <SentenceList
                 prefix={<>added {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to</>}
                 listParts={addedDashboards.map((d) => (
                     <>{linkToDashboard(d)}</>
                 ))}
             />
-        )
+        ) : null
 
-        const removedSentence = (
+        const removedSentence = removedDashboards.length ? (
             <SentenceList
                 prefix={<>removed {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from</>}
                 listParts={removedDashboards.map((d) => (
                     <>{linkToDashboard(d)}</>
                 ))}
             />
-        )
+        ) : null
 
         return { description: [addedSentence, removedSentence], suffix: <></> }
     },
