@@ -3,7 +3,7 @@ import {
     ActivityLogItem,
     ChangeMapping,
     Description,
-    humanizeBoolean,
+    detectBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/components/Link'
@@ -75,7 +75,7 @@ const insightActionsMapping: Record<
         return null
     },
     deleted: function onSoftDelete(change, logItem) {
-        const isDeleted = humanizeBoolean(change?.after)
+        const isDeleted = detectBoolean(change?.after)
         const describeChange = isDeleted ? 'deleted' : 'un-deleted'
         return {
             description: [<>{describeChange}</>],
@@ -112,7 +112,7 @@ const insightActionsMapping: Record<
         }
     },
     favorited: function onFavorited(change, logItem) {
-        const isFavoriteAfter = humanizeBoolean(change?.after)
+        const isFavoriteAfter = detectBoolean(change?.after)
         return {
             description: [
                 <>

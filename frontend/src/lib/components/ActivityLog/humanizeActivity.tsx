@@ -65,12 +65,12 @@ export interface HumanizedActivityLogItem {
 
 export type Describer = (logItem: ActivityLogItem) => HumanizedChange
 
-export function humanizeBoolean(candidate: unknown): boolean {
-    let theBooleanValue: boolean = !!candidate
+export function detectBoolean(candidate: unknown): boolean {
+    let b: boolean = !!candidate
     if (typeof candidate === 'string') {
-        theBooleanValue = candidate.toLowerCase() === 'true'
+        b = candidate.toLowerCase() === 'true'
     }
-    return theBooleanValue
+    return b
 }
 
 export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
