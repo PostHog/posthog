@@ -365,35 +365,6 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
 export const personActivityResponseJson: ActivityLogItem[] = [
     {
         user: { first_name: 'Paul', email: 'paul.dambra@gmail.com' },
-        activity: 'split_person',
-        scope: ActivityScope.PERSON,
-        item_id: '502792727',
-        detail: {
-            changes: [
-                {
-                    type: 'Person',
-                    action: 'split',
-                    field: undefined,
-                    before: undefined,
-                    after: {
-                        distinct_ids: [
-                            '1819208c6ed32c-0e427ef09bbae-3297640-75300-1819208c6ee74b',
-                            '18192189287517-0e66a695611002-3297640-75300-18192189288790',
-                            '1819220a99e5ec-0005fee037f8d2-3297640-75300-1819220a99f6b7',
-                            '1819231753016b-0b04ab5a3ab143-3297640-75300-181923175313d4',
-                            '1819249450126c-0162012e0be59d-3297640-75300-1819249450238e',
-                        ],
-                    },
-                },
-            ],
-            merge: null,
-            name: null,
-            short_id: null,
-        },
-        created_at: '2022-06-23T20:53:17.620277Z',
-    },
-    {
-        user: { first_name: 'Paul', email: 'paul.dambra@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.PERSON,
         item_id: '502792727',
@@ -581,6 +552,35 @@ export const personActivityResponseJson: ActivityLogItem[] = [
             short_id: null,
         },
         created_at: '2022-06-23T20:52:53.637157Z',
+    },
+    {
+        user: { first_name: 'Paul', email: 'paul.dambra@gmail.com' },
+        activity: 'split_person',
+        scope: ActivityScope.PERSON,
+        item_id: '502792727',
+        detail: {
+            changes: [
+                {
+                    type: 'Person',
+                    action: 'split',
+                    field: undefined,
+                    before: undefined,
+                    after: {
+                        distinct_ids: [
+                            '1819208c6ed32c-0e427ef09bbae-3297640-75300-1819208c6ee74b',
+                            '18192189287517-0e66a695611002-3297640-75300-18192189288790',
+                            '1819220a99e5ec-0005fee037f8d2-3297640-75300-1819220a99f6b7',
+                            '1819231753016b-0b04ab5a3ab143-3297640-75300-181923175313d4',
+                            '1819249450126c-0162012e0be59d-3297640-75300-1819249450238e',
+                        ],
+                    },
+                },
+            ],
+            merge: null,
+            name: null,
+            short_id: null,
+        },
+        created_at: '2022-06-23T20:53:17.620277Z',
     },
 ]
 
