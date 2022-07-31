@@ -10,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { expectLogic } from 'kea-test-utils'
 
-export interface APIMockSetup {
+interface APIMockSetup {
     name: string
     activity: string
     changes?: ActivityChange[] | null
@@ -18,13 +18,7 @@ export interface APIMockSetup {
     merge?: PersonMerge | null
 }
 
-export const makeAPIItem = ({
-    name,
-    activity,
-    changes = null,
-    scope,
-    merge = null,
-}: APIMockSetup): ActivityLogItem => ({
+const makeAPIItem = ({ name, activity, changes = null, scope, merge = null }: APIMockSetup): ActivityLogItem => ({
     user: { first_name: 'peter', email: 'peter@posthog.com' },
     activity,
     scope,
@@ -37,7 +31,7 @@ export const makeAPIItem = ({
     created_at: '2022-02-05T16:28:39.594Z',
 })
 
-export async function testSetup(
+async function testSetup(
     activityLogItem: ActivityLogItem,
     scope: ActivityScope,
     describer: Describer,
@@ -65,6 +59,7 @@ export const makeTestSetup = (scope: ActivityScope, describer: Describer, url: s
         changes: ActivityChange[] | null,
         merge?: PersonMerge
     ): Promise<ReturnType<typeof activityLogLogic.build>> => {
-        return await testSetup(makeAPIItem({ scope, name, activity, changes, merge }), scope, describer, url)
+        const activityLogItem = makeAPIItem({ scope, name, activity, changes, merge })
+        return await testSetup(activityLogItem, scope, describer, url)
     }
 }
