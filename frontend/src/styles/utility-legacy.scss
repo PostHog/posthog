@@ -1,27 +1,5 @@
 // className="(.+\s)*mb(\s.+)*"
 
-.text-default {
-    color: var(--default);
-    font-size: 14px;
-    line-height: 20px;
-    font-weight: 400;
-}
-
-.text-small {
-    @extend .text-default;
-    font-size: 12px;
-}
-
-.text-extra-small {
-    @extend .text-default;
-    font-size: 10px;
-}
-
-.text-xxs {
-    @extend .text-default;
-    font-size: 8px;
-}
-
 .subtitle {
     display: flex;
     align-items: center;
@@ -47,103 +25,10 @@
     font-weight: bold;
 }
 
-.l5 {
-    // DEPRECATED: Shouldn't be used
-    font-size: 13px;
-    font-weight: bold;
-}
-
-.text-muted {
-    color: var(--muted);
-}
-
-.text-muted-alt {
-    color: var(--muted-alt);
-}
-
-.primary {
-    color: var(--primary);
-}
-
-.primary-alt {
-    color: var(--primary-alt);
-}
-
-// Spacing & layout
-//className="(.+\s)*gap(\s.+)*"
-
-.pb {
-    padding-bottom: 1rem;
-}
-
-.pt {
-    padding-top: 1rem;
-}
-
-.pr {
-    padding-right: 1rem;
-}
-
-.pl {
-    padding-left: 1rem;
-}
-
-.px {
-    padding-left: 1rem;
-    padding-right: 1rem;
-}
-
-.py {
-    padding-top: 1rem;
-    padding-bottom: 1rem;
-}
-
 .col {
     position: relative;
     max-width: 100%;
     min-height: 1px;
-}
-
-// TODO: Remove needs colors setup for tailwind...
-.border-all {
-    border: 1px solid var(--border);
-}
-
-.border-top {
-    border-top: 1px solid var(--border);
-}
-
-.border-bottom {
-    border-bottom: 1px solid var(--border);
-}
-
-// Color styles
-.bg-primary {
-    background-color: var(--primary);
-}
-
-.text-primary {
-    color: var(--primary) !important;
-}
-
-.text-success {
-    color: var(--success) !important;
-}
-
-.text-danger {
-    color: var(--danger) !important;
-}
-
-.text-warning {
-    color: var(--warning) !important;
-}
-
-.text-muted {
-    color: var(--muted) !important;
-}
-
-.text-muted-alt {
-    color: var(--muted-alt) !important;
 }
 
 .highlighted {

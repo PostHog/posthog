@@ -100,7 +100,7 @@ export function EditSubscription({
     return (
         <>
             <VerticalForm logic={subscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
-                <header className="flex items-center border-bottom pb-2">
+                <header className="flex items-center border-b pb-2">
                     <LemonButton type="stealth" onClick={onCancel} size="small">
                         <IconChevronLeft fontSize={'1rem'} />
                         Back
@@ -333,7 +333,7 @@ export function EditSubscription({
                             <div className="ant-form-item-label">
                                 <label title="Recurrence">Recurrence</label>
                             </div>
-                            <div className="flex gap-2 items-center rounded border-all p-2 flex-wrap">
+                            <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>
                                 <Field name={'interval'} style={{ marginBottom: 0 }}>
                                     <LemonSelect {...commonSelectProps} options={intervalOptions} />

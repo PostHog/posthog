@@ -17,7 +17,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
         <>
             <a href={href} className="full-width" onDragStart={reportBookmarkletDragged}>
                 <Row
-                    className="primary-alt"
+                    className="text-primary-alt"
                     justify="center"
                     align="middle"
                     style={{ borderRadius: 4, background: '#F6F8FF', padding: '16px 0px' }}

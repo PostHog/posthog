@@ -318,7 +318,7 @@ export function Paths(): JSX.Element {
                                                             </span>{' '}
                                                             Continuing
                                                         </span>{' '}
-                                                        <span className="primary text-xs">
+                                                        <span className="text-primary text-xs">
                                                             <ValueInspectorButton
                                                                 style={{ paddingRight: 0, fontSize: 12 }}
                                                                 onClick={() => openPersonsModal(pathItemCard.name)}
@@ -359,7 +359,7 @@ export function Paths(): JSX.Element {
                                                             </span>{' '}
                                                             Dropping off
                                                         </span>{' '}
-                                                        <span className="primary">
+                                                        <span className="text-primary">
                                                             <ValueInspectorButton
                                                                 style={{ paddingRight: 0, fontSize: 12 }}
                                                                 onClick={() =>
@@ -460,7 +460,7 @@ export function Paths(): JSX.Element {
                                             <Row style={{ alignSelf: 'center' }}>
                                                 <span
                                                     onClick={() => openPersonsModal(undefined, pathItemCard.name)}
-                                                    className="primary text-xs"
+                                                    className="text-primary text-xs"
                                                     style={{ alignSelf: 'center', paddingRight: 4, fontWeight: 500 }}
                                                 >
                                                     {continuingValue + dropOffValue}

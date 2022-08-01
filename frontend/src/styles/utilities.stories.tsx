@@ -30,14 +30,14 @@ export const Overview = (): JSX.Element => {
 export const Flex = (): JSX.Element => {
     return (
         <div className="space-y-2">
-            <div className="border-all rounded-lg p-2">
+            <div className="border rounded-lg p-2">
                 <div className="flex items-center justify-between gap-2">
                     <LemonButton type="primary">Button!</LemonButton>
                     <span>I am vertically centered!</span>
                 </div>
             </div>
 
-            <div className="border-all rounded-lg p-2">
+            <div className="border rounded-lg p-2">
                 <div className="flex items-end justify-end gap-2">
                     <LemonButton type="primary">Button!</LemonButton>
                     <span>I am bottom aligned!</span>
@@ -110,7 +110,7 @@ export const Dimensions = (): JSX.Element => {
 
             <div className="space-y-2">
                 {[8, 16, 20, 'full', 'screen'].map((x) => (
-                    <div key={x} className={`border-all rounded-lg p-2 w-${x}`}>
+                    <div key={x} className={`border rounded-lg p-2 w-${x}`}>
                         w-{x}
                     </div>
                 ))}

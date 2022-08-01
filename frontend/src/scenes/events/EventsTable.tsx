@@ -403,7 +403,7 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 {(showEventFilter || showPropertyFilter) && (
-                    <div className="flex py-4 space-x-4 border-top">
+                    <div className="flex py-4 space-x-4 border-t">
                         {showEventFilter && (
                             <LemonEventName
                                 value={eventFilter}
@@ -429,7 +429,7 @@ export function EventsTable({
                     <div
                         className={clsx(
                             'flex justify-between pt-4 mb-4',
-                            (showEventFilter || showPropertyFilter) && 'border-top'
+                            (showEventFilter || showPropertyFilter) && 'border-t'
                         )}
                     >
                         {showAutoload && (

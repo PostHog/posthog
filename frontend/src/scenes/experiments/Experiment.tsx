@@ -270,9 +270,9 @@ export function Experiment(): JSX.Element {
                                                                     key={`${variant}-${idx}`}
                                                                     className={`feature-flag-variant ${
                                                                         idx === 0
-                                                                            ? 'border-top'
+                                                                            ? 'border-t'
                                                                             : idx >= 3
-                                                                            ? 'border-bottom'
+                                                                            ? 'border-b'
                                                                             : ''
                                                                     }`}
                                                                 >
@@ -342,7 +342,7 @@ export function Experiment(): JSX.Element {
                                                     )}
 
                                                     {newExperimentData.parameters.feature_flag_variants.length < 4 && (
-                                                        <div className="feature-flag-variant border-bottom">
+                                                        <div className="feature-flag-variant border-b">
                                                             <LemonButton
                                                                 onClick={() => addExperimentGroup()}
                                                                 fullWidth
@@ -751,7 +751,7 @@ export function Experiment(): JSX.Element {
                                     {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
                                         <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
                                             {!!experimentData?.secondary_metrics.length && (
-                                                <Col className="border-bottom">
+                                                <Col className="border-b">
                                                     <Row align="middle" justify="space-between" className="mb-2">
                                                         <Col className="card-secondary" span={2 * secondaryColumnSpan}>
                                                             Secondary metrics
@@ -785,7 +785,7 @@ export function Experiment(): JSX.Element {
                                                             <>
                                                                 {experimentData.secondary_metrics.map((metric, idx) => (
                                                                     <Row
-                                                                        className="border-top"
+                                                                        className="border-t"
                                                                         key={idx}
                                                                         justify="space-between"
                                                                         style={{
@@ -838,7 +838,7 @@ export function Experiment(): JSX.Element {
                                                         <>
                                                             {experimentData.secondary_metrics.map((metric, idx) => (
                                                                 <Row
-                                                                    className="border-top"
+                                                                    className="border-t"
                                                                     key={idx}
                                                                     justify="space-between"
                                                                     style={{

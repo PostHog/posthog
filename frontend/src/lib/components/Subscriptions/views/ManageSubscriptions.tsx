@@ -83,7 +83,7 @@ export function ManageSubscriptions({
 
     return (
         <>
-            <header className="border-bottom pb-4">
+            <header className="border-b pb-4">
                 <h4 className="mt-2">Manage Subscriptions</h4>
             </header>
 

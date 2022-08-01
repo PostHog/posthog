@@ -106,7 +106,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
 
                             <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="space-y-2">
                                 {insight && (
-                                    <div className="rounded border-all">
+                                    <div className="rounded border">
                                         <LemonButton
                                             fullWidth
                                             type="stealth"
@@ -119,7 +119,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                             ) : null}
                                         </LemonButton>
                                         {showPreview && (
-                                            <div className="SharingPreview border-top">
+                                            <div className="SharingPreview border-t">
                                                 <iframe
                                                     style={{ display: 'block' }}
                                                     {...iframeProperties}

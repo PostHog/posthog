@@ -156,7 +156,7 @@ export function TaxonomicPropertyFilter({
                             ) : (
                                 <>
                                     {orFiltering && propertyGroupType ? (
-                                        <div className="primary flex items-center">
+                                        <div className="text-primary flex items-center">
                                             <IconPlus className="mr-2" />
                                             Add filter
                                         </div>
