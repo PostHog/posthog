@@ -18,7 +18,12 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
 from posthog.queries.util import get_earliest_timestamp
-from posthog.tasks.update_cache import synchronously_update_insight_cache, update_cache_item, update_cached_items
+from posthog.tasks.update_cache import (
+    synchronously_update_insight_cache,
+    update_cache_item,
+    update_cached_items,
+    update_filters_hash_caches,
+)
 from posthog.test.base import APIBaseTest
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key, get_safe_cache
@@ -90,6 +95,53 @@ def _create_dashboard_tile_with_known_cache_key(
         assert insight.filters_hash == cache_key
 
     return dashboard, tile
+
+
+class TestTurboCacheUpdate(APIBaseTest):
+    @patch("posthog.models.instance_setting.get_instance_setting")
+    @patch("posthog.celery.update_cache_item_task.s")
+    def test_does_not_queue_a_task_if_the_cache_key_is_already_queued(
+        self, patch_update_cache_item: MagicMock, patched_get_instance_setting: MagicMock,
+    ) -> None:
+        patched_get_instance_setting.return_value = True
+
+        tile_one = _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None)
+        tile_two = _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None)
+
+        insight_that_matches_tiles = create_shared_insight(
+            team=self.team, is_enabled=True, filters={"events": [{"id": "$pageview"}]}
+        )
+        insight_with_different_cache_key = create_shared_insight(
+            team=self.team, is_enabled=True, filters={"events": [{"id": "$rageclick"}]}
+        )
+
+        assert tile_one.filters_hash == tile_two.filters_hash
+        assert insight_that_matches_tiles.filters_hash == tile_one.filters_hash
+        assert insight_that_matches_tiles.filters_hash != insight_with_different_cache_key.filters_hash
+
+        seen_keys: List[str] = []
+
+        def fake_redis_set(name: str, value: str, **kwargs: Any) -> bool:
+            if value in seen_keys:
+                return False
+            else:
+                seen_keys.append(value)
+                return True
+
+        with patch("posthog.tasks.update_cache.get_client") as mock_get_client:
+            mock_set = MagicMock(create=True)
+            mock_set.side_effect = fake_redis_set
+
+            mock_get_client.return_value.set = mock_set
+            update_filters_hash_caches()
+
+            assert seen_keys == [tile_one.filters_hash, insight_with_different_cache_key.filters_hash]
+            assert patch_update_cache_item.mock_calls == [
+                call(tile_one.filters_hash, ANY, ANY),
+                call().apply_async(),
+                call(insight_with_different_cache_key.filters_hash, ANY, ANY),
+                call().apply_async(),
+            ]
 
 
 class TestSynchronousCacheUpdate(APIBaseTest):

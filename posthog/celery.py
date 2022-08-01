@@ -428,9 +428,20 @@ def calculate_cohort():
 
 @app.task(ignore_result=True)
 def check_cached_items():
-    from posthog.tasks.update_cache import update_cached_items
+    import structlog
 
-    update_cached_items()
+    logger = structlog.get_logger(__name__)
+    try:
+        from posthog.models.instance_setting import get_instance_setting
+        from posthog.tasks.update_cache import update_cached_items, update_filters_hash_caches
+
+        if get_instance_setting("ENABLE_TURBO_INSIGHT_CACHE"):
+            update_filters_hash_caches()
+        else:
+            update_cached_items()
+    except Exception as ex:
+        logger.error("check_cached_items.error", ex=ex, exc_info=True)
+        raise ex
 
 
 @app.task(ignore_result=True)
@@ -454,9 +465,20 @@ def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str
 
     The `update_cache_consumer_rate_limit` can be used to update the rate limit
     """
-    from posthog.tasks.update_cache import update_cache_item
+    import structlog
 
-    return update_cache_item(key, cache_type, payload)
+    logger = structlog.get_logger(__name__)
+    try:
+        from posthog.models.instance_setting import get_instance_setting
+        from posthog.tasks.update_cache import _update_cache_item_task, update_cache_item
+
+        if get_instance_setting("ENABLE_TURBO_INSIGHT_CACHE"):
+            return _update_cache_item_task(key, cache_type, payload)
+        else:
+            return update_cache_item(key, cache_type, payload)
+    except Exception as ex:
+        logger.error("check_cached_items.error", ex=ex, exc_info=True)
+        raise ex
 
 
 @app.task(ignore_result=True)

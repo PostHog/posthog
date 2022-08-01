@@ -56,6 +56,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'SLACK_APP_SIGNING_SECRET',
     'PARALLEL_DASHBOARD_ITEM_CACHE',
     'UPDATE_CACHE_ITEM_TASK_RATE_LIMIT',
+    'ENABLE_TURBO_INSIGHT_CACHE',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType>({

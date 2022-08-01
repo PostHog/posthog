@@ -29,6 +29,7 @@ from posthog.constants import (
     FunnelVizType,
 )
 from posthog.decorators import CacheType
+from posthog.insight_cache.cache_update_lock import clear_cache_update_lock, should_queue_for_update
 from posthog.logging.timing import timed
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -86,6 +87,44 @@ def active_teams() -> List[int]:
         all_teams = teams_by_recency
 
     return [int(team) for team, _ in all_teams]
+
+
+def update_filters_hash_caches() -> None:
+    recent_teams = active_teams()
+
+    dashboard_tiles = (
+        DashboardTile.objects.exclude(dashboard__deleted=True)
+        .filter(insight__team_id__in=recent_teams)
+        .exclude(insight__deleted=True)
+        .exclude(insight__filters={})
+        .select_related("insight", "dashboard")
+        .order_by(F("dashboard__last_accessed_at").desc(nulls_first=True))
+    )
+    breakpoint()
+    for tile in dashboard_tiles.iterator():
+        push_to_queue(tile.insight, tile.dashboard)
+
+    shared_insights = (
+        Insight.objects.filter(sharingconfiguration__enabled=True)
+        .filter(team_id__in=recent_teams)
+        .exclude(deleted=True)
+        .exclude(filters={})
+        .order_by(F("last_modified_at").asc(nulls_first=True))
+    )
+    for insight in shared_insights.iterator():
+        push_to_queue(insight, None)
+
+
+def push_to_queue(insight: Insight, dashboard: Optional[Dashboard]) -> None:
+    cache_key, cache_type, payload = insight_update_task_params(insight, dashboard)
+    update_filters_hash(cache_key, dashboard, insight)
+    tags = {"cache_key": cache_key, "insight_id": insight.id, "dashboard_id": "None" if not dashboard else dashboard.id}
+    breakpoint()
+    if should_queue_for_update(cache_key):
+        statsd.incr("update_cache.acquired_lock_for_key", tags=tags)
+        update_cache_item_task.s(cache_key, cache_type, payload).apply_async()
+    else:
+        statsd.incr("update_cache.skipped_already_cached_key", tags=tags)
 
 
 def update_cached_items() -> Tuple[int, int]:
@@ -188,6 +227,15 @@ def on_instance_setting_save(sender: Any, instance: Any, **kwargs: Any) -> None:
 
     if instance.value is not None:
         update_cache_consumer_rate_limit.s(instance.value).apply()
+
+
+@timed("locking_update_cache_item_timer")
+def _update_cache_item_task(key: str, cache_type: CacheType, payload: dict) -> List[Dict[str, Any]]:
+    try:
+        cached_result = update_cache_item(key, cache_type, payload)
+        return cached_result
+    finally:
+        clear_cache_update_lock(key)
 
 
 @timed("update_cache_item_timer")

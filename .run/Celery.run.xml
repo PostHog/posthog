@@ -10,6 +10,7 @@
       <env name="KAFKA_URL" value="kafka://localhost" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+      <env name="UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS" value="15" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/env/bin" />

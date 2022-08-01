@@ -149,6 +149,11 @@ CONSTANCE_CONFIG = {
         "A celery rate limit string to apply to the update cache item task",
         str,
     ),
+    "ENABLE_TURBO_INSIGHT_CACHE": (
+        get_from_env("ENABLE_TURBO_INSIGHT_CACHE", default=False, type_cast=str_to_bool),
+        "Whether to run the new insight cache mechanism.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -178,6 +183,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "UPDATE_CACHE_ITEM_TASK_RATE_LIMIT",
+    "ENABLE_TURBO_INSIGHT_CACHE",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
