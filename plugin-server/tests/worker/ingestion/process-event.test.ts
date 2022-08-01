@@ -53,7 +53,7 @@ describe('EventsProcessor#createEvent()', () => {
         elementsList: [],
         person: {
             uuid: personUuid,
-            properties: { foo: 'bar' },
+            properties: { foo: 'bar', second: '2' },
             team_id: 1,
             id: 1,
             created_at: DateTime.fromISO(timestamp).toUTC(),
@@ -61,9 +61,13 @@ describe('EventsProcessor#createEvent()', () => {
     }
 
     it('emits event with person columns, re-using event properties', async () => {
-        jest.spyOn(eventsProcessor.db, 'getPersonData')
-
-        const result = await eventsProcessor.createEvent(preIngestionEvent)
+        // We might not have set the value for a person property if there's a newer timestamped value due to ingestion
+        // ordering, but the event should still have person_properties based on what it tried to set them to.
+        const preEvent = {
+            ...preIngestionEvent,
+            properties: { event: 'property', $set: { pineapple: 'pizza', second: '3' } },
+        }
+        const result = await eventsProcessor.createEvent(preEvent)
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -73,14 +77,14 @@ describe('EventsProcessor#createEvent()', () => {
             expect.objectContaining({
                 uuid: eventUuid,
                 event: '$pageview',
-                properties: { event: 'property' },
+                properties: { event: 'property', $set: { pineapple: 'pizza', second: '3' } },
                 timestamp: timestamp,
                 team_id: 2,
                 distinct_id: 'my_id',
                 elements_chain: '',
                 created_at: expect.any(String),
                 person_id: personUuid,
-                person_properties: { foo: 'bar' },
+                person_properties: { foo: 'bar', pineapple: 'pizza', second: '3' },
                 group0_properties: '',
                 group1_properties: '',
                 group2_properties: '',
@@ -93,8 +97,7 @@ describe('EventsProcessor#createEvent()', () => {
                 $group_4: '',
             })
         )
-        expect(result).toEqual(preIngestionEvent)
-        expect(jest.mocked(eventsProcessor.db.getPersonData)).not.toHaveBeenCalled()
+        expect(result).toEqual(preEvent)
     })
 
     it('emits event with group columns', async () => {
@@ -132,7 +135,6 @@ describe('EventsProcessor#createEvent()', () => {
     })
 
     it('emits event with person columns if not previously fetched', async () => {
-        jest.spyOn(eventsProcessor.db, 'getPersonData')
         await eventsProcessor.db.createPerson(
             DateTime.fromISO(timestamp).toUTC(),
             { foo: 'bar', a: 2 },
@@ -147,7 +149,6 @@ describe('EventsProcessor#createEvent()', () => {
 
         const result = await eventsProcessor.createEvent({
             ...preIngestionEvent,
-            // :TRICKY: We pretend the person has been updated in-between processing and creating the event
             properties: { $set: { a: 1 } },
             person: undefined,
         })
@@ -161,17 +162,18 @@ describe('EventsProcessor#createEvent()', () => {
                 uuid: eventUuid,
                 distinct_id: 'my_id',
                 person_id: personUuid,
-                person_properties: { foo: 'bar', a: 1 },
+                person_properties: { foo: 'bar', a: 1 }, // using the property provided with the event
             })
         )
-        expect(result.person).toEqual({
-            id: expect.any(Number),
-            properties: { foo: 'bar', a: 2 },
-            team_id: 2,
-            uuid: personUuid,
-            created_at: DateTime.fromISO(timestamp).toUTC(),
-        })
-        expect(jest.mocked(eventsProcessor.db.getPersonData)).toHaveBeenCalledWith(2, 'my_id')
+        expect(result.person).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                properties: { foo: 'bar', a: 2 },
+                team_id: 2,
+                uuid: personUuid,
+                created_at: DateTime.fromISO(timestamp).toUTC(),
+            })
+        )
     })
 
     it('handles the person no longer existing', async () => {
