@@ -229,15 +229,15 @@ export class EventsProcessor {
         }
 
         const message = JSON.stringify({
-                  ...eventPayload,
-                  person_id: personInfo?.uuid,
-                  person_properties: eventPersonProperties,
-                  person_created_at: personInfo
-                      ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
-                      : null,
-                  ...groupsProperties,
-                  ...groupsCreatedAt,
-              })
+            ...eventPayload,
+            person_id: personInfo?.uuid,
+            person_properties: eventPersonProperties,
+            person_created_at: personInfo
+                ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
+                : null,
+            ...groupsProperties,
+            ...groupsCreatedAt,
+        })
 
         await this.kafkaProducer.queueMessage({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
