@@ -16,6 +16,7 @@ $spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 2
 $sides: 'top', 'right', 'bottom', 'left';
 
 // See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
+// NOTE: Currently this has to be manually synced wit `tailwind.config.j` to allow IDE auto-completion
 $colors: (
     'primary-highlight': #e8edff,
     'primary-light': #345cff,
