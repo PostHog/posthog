@@ -165,6 +165,7 @@ export function Experiments(): JSX.Element {
                         pagination={{ pageSize: 100 }}
                         nouns={['experiment', 'experiments']}
                         data-attr="experiment-table"
+                        data-tooltip="experiments-table"
                     />
                 </>
             ) : (

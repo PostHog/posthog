@@ -182,6 +182,9 @@ $_lifecycle_dormant: #f86234;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
 
+    //In App Prompts
+    --in-app-prompts-width: 26rem;
+
     // Deprecated color transforms from SCSS var heydays
     --depr-lighten-danger-40: #{lighten($_danger, 40%)};
     --depr-darken-text-light-20: #{darken($_text_light, 20%)};
