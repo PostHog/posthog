@@ -1929,14 +1929,6 @@ export interface SubscriptionType {
     deleted?: boolean
 }
 
-export type Description = string | JSX.Element | null
-
-export interface ChangeDescriptions {
-    descriptions: Description[]
-    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
-    bareName: boolean
-}
-
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
 
 export type Duration = {
