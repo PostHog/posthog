@@ -6,10 +6,10 @@ from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
     CREATE_TABLE_QUERIES,
+    KAFKA_EVENTS_TABLE_JSON_SQL,
     build_query,
     get_table_name,
 )
-from posthog.models.event.sql import KAFKA_EVENTS_TABLE_JSON_SQL
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
