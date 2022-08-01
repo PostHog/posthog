@@ -107,7 +107,6 @@ export const FEATURE_FLAGS = {
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
-    INSIGHT_ACTIVITY_LOG: '8545-insight-activity-log', // owner: @pauldambra
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
