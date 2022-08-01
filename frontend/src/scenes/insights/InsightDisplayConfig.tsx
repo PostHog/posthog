@@ -15,8 +15,11 @@ import { Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { isYAxisFormat } from 'scenes/insights/yAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -83,6 +86,8 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const showPathOptions = activeView === InsightType.PATHS
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const { setFilters } = useActions(insightLogic)
+
     return (
         <div className="display-config-inner">
             <div className="display-config-inner-row">
@@ -147,6 +152,32 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     <span className="filter">
                         <span className="head-title-item">Chart type</span>
                         <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
+                    </span>
+                )}
+                {activeView === InsightType.TRENDS && (
+                    <span className="filter">
+                        <span className="head-title-item">y-axis format</span>
+                        <LemonSelect
+                            value={filters.y_axis_format || 'numeric'}
+                            onChange={(value) => {
+                                if (value && isYAxisFormat(value)) {
+                                    setFilters({ y_axis_format: value })
+                                }
+                            }}
+                            bordered
+                            dropdownPlacement={'bottom-end'}
+                            dropdownMatchSelectWidth={false}
+                            data-attr="chart-filter"
+                            options={
+                                {
+                                    numeric: { label: 'numeric' },
+                                    duration: { label: 'duration' },
+                                    percentage: { label: 'percentage' },
+                                } as LemonSelectOptions
+                            }
+                            type={'stealth'}
+                            size={'small'}
+                        />
                     </span>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (

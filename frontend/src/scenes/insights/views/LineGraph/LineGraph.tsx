@@ -19,7 +19,7 @@ import {
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
-import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
+import { areObjectValuesEmpty, compactNumber, humanFriendlyDuration, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -32,6 +32,7 @@ import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtil
 import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { YAxisFormat } from 'scenes/insights/yAxisFormat'
 
 //--Chart Style Options--//
 if (registerables) {
@@ -53,13 +54,13 @@ interface LineGraphProps {
     ['data-attr']: string
     insightNumericId?: number
     inSharedMode?: boolean
-    percentage?: boolean
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     timezone?: string | null
+    yAxisFormat?: YAxisFormat
 }
 
 const noop = (): void => {}
@@ -83,6 +84,12 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
     )
 }
 
+function toPercentage(value: number | string): string {
+    const numVal = Number(value)
+    const fixedValue = numVal < 1 ? numVal.toFixed(2) : numVal.toFixed(0)
+    return `${fixedValue}%`
+}
+
 export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -93,13 +100,13 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     insightNumericId,
     inSharedMode = false,
-    percentage = false,
     showPersonsModal = true,
     isCompare = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
     timezone,
+    yAxisFormat = 'numeric',
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
@@ -358,7 +365,13 @@ export function LineGraph_({
                                         timezone={timezone}
                                         seriesData={seriesData}
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
-                                        renderCount={tooltipConfig?.renderCount}
+                                        renderCount={
+                                            tooltipConfig?.renderCount || yAxisFormat === 'percentage'
+                                                ? toPercentage
+                                                : yAxisFormat === 'duration'
+                                                ? humanFriendlyDuration
+                                                : compactNumber
+                                        }
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!onClick || !showPersonsModal}
                                         groupTypeLabel={
@@ -541,20 +554,18 @@ export function LineGraph_({
                     display: true,
                     ticks: {
                         precision: 0,
-                        ...(percentage
-                            ? {
-                                  callback: function (value) {
-                                      const numVal = Number(value)
-                                      const fixedValue = numVal < 1 ? numVal.toFixed(2) : numVal.toFixed(0)
-                                      return `${fixedValue}%` // convert it to percentage
-                                  },
-                              }
-                            : {
-                                  ...tickOptions,
-                                  callback: (value) => {
-                                      return compactNumber(Number(value))
-                                  },
-                              }),
+                        ...tickOptions,
+                        callback: (value) => {
+                            switch (yAxisFormat) {
+                                case 'duration':
+                                    return humanFriendlyDuration(value)
+                                case 'percentage':
+                                    return toPercentage(value)
+                                case 'numeric': // numeric is default
+                                default:
+                                    return compactNumber(Number(value))
+                            }
+                        },
                     },
                     grid: {
                         borderColor: colors.axisLine as string,
