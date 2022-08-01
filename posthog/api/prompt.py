@@ -13,7 +13,7 @@ from posthog.models.prompt import PromptSequenceState, get_active_prompt_sequenc
 class PromptSequenceStateSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = PromptSequenceState
-        read_only_fields = ["key", "last_updated_at", "step", "completed", "dismissed"]
+        fields = ["key", "last_updated_at", "step", "completed", "dismissed"]
 
 
 class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
