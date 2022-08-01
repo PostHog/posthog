@@ -50,6 +50,10 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
         all_sequences = get_active_prompt_sequences()
 
+        # for the sake of the prompts V1 experiments, we avoid showing prompts to historical users
+        if request.user.date_joined < parser.isoparse("2022-08-01T00:00:00.000Z"):
+            all_sequences = []
+
         new_states: List[Dict] = []
 
         for sequence in all_sequences:
