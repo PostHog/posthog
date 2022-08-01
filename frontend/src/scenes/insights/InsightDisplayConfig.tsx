@@ -160,7 +160,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         <LemonSelect
                             value={filters.y_axis_format || 'numeric'}
                             onChange={(value) => {
-                                if (value && isYAxisFormat(value)) {
+                                if (isYAxisFormat(value)) {
                                     setFilters({ y_axis_format: value })
                                 }
                             }}
