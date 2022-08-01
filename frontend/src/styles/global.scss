@@ -212,7 +212,7 @@ body strong {
 }
 
 .page-caption {
-    @extend .text-default;
+    @extend .text-sm;
     max-width: 48rem;
     margin-bottom: 1rem;
 }
@@ -321,6 +321,7 @@ input::-ms-clear {
 }
 
 .Toastify__toast-body {
+    @extend .text-sm;
     @extend .text-default;
     font-weight: 500;
     padding: 0;
@@ -420,12 +421,12 @@ input::-ms-clear {
 
     label {
         font-weight: bold;
-        @extend .text-default;
+        @extend .text-sm;
     }
 
     .caption {
         color: var(--muted);
-        @extend .text-small;
+        @extend .text-sm;
     }
 
     .ant-radio-button-wrapper {
