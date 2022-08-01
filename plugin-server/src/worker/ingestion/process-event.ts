@@ -213,19 +213,13 @@ export class EventsProcessor {
         const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
-        let personInfo = preIngestionEvent.person
-
+        const personInfo = preIngestionEvent.person || (await this.db.fetchPerson(teamId, distinctId))
         if (personInfo) {
-            eventPersonProperties = JSON.stringify(personInfo.properties)
-        } else {
-            personInfo = await this.db.getPersonData(teamId, distinctId)
-            if (personInfo) {
-                // For consistency, we'd like events to contain the properties that they set, even if those were changed
-                // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
-                // $set properties if they exist.
-                const latestPersonProperties = personInfo ? personInfo?.properties : {}
-                eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
-            }
+            // For consistency, we'd like events to contain the properties that they set, even if those were changed
+            // before the event is ingested. Thus we fetch the updated properties but override the values with the event's
+            // $set properties if they exist.
+            const latestPersonProperties = personInfo ? personInfo?.properties : {}
+            eventPersonProperties = JSON.stringify({ ...latestPersonProperties, ...(properties.$set || {}) })
         }
 
         const eventPayload: IEvent = {
