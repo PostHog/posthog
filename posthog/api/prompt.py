@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Union
 
 from dateutil import parser
-from rest_framework import exceptions, request, serializers, viewsets
+from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -25,7 +25,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
     @action(methods=["PATCH"], detail=False)
     def my_prompts(self, request: request.Request, **kwargs):
-        if not request.user.is_authenticated:  # for mypy otherwise unauthenticated users don't have distinct_id
+        if not request.user.is_authenticated:  # for mypy otherwise check on distict_id below fails
             raise exceptions.NotAuthenticated()
         local_states: List[Dict[str, Any]] = []
         for key in request.data:
@@ -43,6 +43,9 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             .values_list("person_id", flat=True)
             .first()
         )
+
+        if not person_id:
+            return Response("", status=status.HTTP_404_NOT_FOUND)
 
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
         all_sequences = get_active_prompt_sequences()
