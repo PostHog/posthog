@@ -2,14 +2,12 @@ import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { IEvent } from '../../config/idl/protos'
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
     Hub,
     IngestionEvent,
     IngestionPersonData,
-    PostgresSessionRecordingEvent,
     PreIngestionEvent,
     SessionRecordingEvent,
     Team,
@@ -24,12 +22,6 @@ import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
-
-export interface EventProcessingResult {
-    event: IEvent | SessionRecordingEvent | PostgresSessionRecordingEvent
-    eventId?: number
-    elements?: Element[]
-}
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -217,7 +209,7 @@ export class EventsProcessor {
             }
         }
 
-        const eventPayload: IEvent = {
+        const eventPayload = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
