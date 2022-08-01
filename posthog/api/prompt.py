@@ -1,7 +1,7 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional
 
 from dateutil import parser
-from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -13,7 +13,7 @@ from posthog.models.prompt import PromptSequenceState, get_active_prompt_sequenc
 class PromptSequenceStateSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = PromptSequenceState
-        fields = ["key", "last_updated_at", "step", "completed", "dismissed"]
+        read_only_fields = ["key", "last_updated_at", "step", "completed", "dismissed"]
 
 
 class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -45,7 +45,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         )
 
         if not person_id:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            raise exceptions.NotFound()
 
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
         all_sequences = get_active_prompt_sequences()
@@ -54,7 +54,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         for sequence in all_sequences:
             local_state = next((s for s in local_states if sequence["key"] == s["key"]), None)
-            saved_state: Union[PromptSequenceState, None] = next(
+            saved_state: Optional[PromptSequenceState] = next(
                 (s for s in saved_states if sequence["key"] == s.key), None
             )
 
@@ -86,7 +86,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         for seq in sequences_requiring_previous_completion:
             must_be_completed = seq["rule"]["must_be_completed"]
-            current_state: Union[Dict, None] = next((s for s in new_states if s["key"] in must_be_completed), None)
+            current_state: Optional[Dict] = next((s for s in new_states if s["key"] in must_be_completed), None)
             if not current_state or not current_state["completed"]:
                 continue
             sequences.append(seq)
