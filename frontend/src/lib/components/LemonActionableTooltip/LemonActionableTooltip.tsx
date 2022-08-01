@@ -2,7 +2,7 @@ import React from 'react'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { Popup } from 'lib/components/Popup/Popup'
 import { IconOpenInNew } from 'lib/components/icons'
-import { CloseOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { IconClose, IconChevronLeft, IconChevronRight } from 'lib/components/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import './LemonActionableTooltip.scss'
 
@@ -43,7 +43,7 @@ export const LemonActionableTooltip = ({
                     <div className="LemonActionableTooltip__header">
                         {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
                         <LemonButton size="small" type="stealth" onClick={close}>
-                            <CloseOutlined />
+                            <IconClose />
                         </LemonButton>
                     </div>
                     <div className="LemonActionableTooltip__body">{text}</div>
@@ -57,9 +57,8 @@ export const LemonActionableTooltip = ({
                                         disabled={step === 0}
                                         size="small"
                                         type="stealth"
-                                    >
-                                        <LeftOutlined />
-                                    </LemonButton>
+                                        icon={<IconChevronLeft />}
+                                    />
                                     <div>
                                         Tip {step + 1} of {maxSteps}
                                     </div>
@@ -69,9 +68,8 @@ export const LemonActionableTooltip = ({
                                         disabled={step === maxSteps - 1}
                                         size="small"
                                         type="stealth"
-                                    >
-                                        <RightOutlined />
-                                    </LemonButton>
+                                        icon={<IconChevronRight />}
+                                    />
                                 </>
                             )}
                         </div>
