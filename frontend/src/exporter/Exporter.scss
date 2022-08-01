@@ -16,8 +16,13 @@ html.export-type-image {
 html.export-type-embed {
     overflow: hidden;
     overflow-y: auto;
+
     .Exporter {
         padding: 0;
+    }
+
+    // Insights can resize to fit any height, whereas dashboards cannot
+    .Exporter--insight {
         height: 100vh;
         max-height: 100vh;
     }
