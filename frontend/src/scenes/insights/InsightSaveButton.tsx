@@ -26,7 +26,7 @@ export function InsightSaveButton({
             data-attr="insight-save-button"
             disabled={disabled}
             loading={!disabled && insightSaving}
-            data-tooltip={'insight-save-button'}
+            data-tooltip="insight-save-button"
             sideAction={{
                 popup: {
                     placement: 'bottom-end',

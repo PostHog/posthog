@@ -44,6 +44,7 @@ export function ProjectHomepage(): JSX.Element {
                 Invite members
             </LemonButton>
             <LemonButton
+                data-attr="project-home-new-insight"
                 data-tooltip="project-button"
                 onClick={() => {
                     router.actions.push(urls.insightNew())
