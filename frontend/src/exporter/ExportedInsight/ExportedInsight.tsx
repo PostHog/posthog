@@ -59,7 +59,7 @@ export function ExportedInsight({
                             {description && <div className="ExportedInsight__header-description">{description}</div>}
                         </div>
 
-                        {!whitelabel && <FriendlyLogo style={{ fontSize: '1rem' }} />}
+                        {!whitelabel && <FriendlyLogo />}
                     </div>
                 )}
                 {showWatermark && (

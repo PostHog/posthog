@@ -16,6 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 interface Props {
     id?: string
@@ -110,34 +111,37 @@ function DashboardScene(): JSX.Element {
                         DashboardPlacement.Export,
                         DashboardPlacement.InternalMetrics,
                     ].includes(placement) && (
-                        <div className="flex pb-4 border-b space-x-4">
-                            <div className="flex items-center" style={{ height: '2rem' }}>
-                                <TZIndicator style={{ marginRight: '0.5rem' }} />
-                                <DateFilter
-                                    defaultValue="Custom"
-                                    showCustom
-                                    dateFrom={dashboardFilters?.date_from ?? undefined}
-                                    dateTo={dashboardFilters?.date_to ?? undefined}
-                                    onChange={setDates}
-                                    disabled={!canEditDashboard}
-                                    makeLabel={(key) => (
-                                        <>
-                                            <CalendarOutlined />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
+                        <>
+                            <div className="flex space-x-4">
+                                <div className="flex items-center" style={{ height: '2rem' }}>
+                                    <TZIndicator style={{ marginRight: '0.5rem' }} />
+                                    <DateFilter
+                                        defaultValue="Custom"
+                                        showCustom
+                                        dateFrom={dashboardFilters?.date_from ?? undefined}
+                                        dateTo={dashboardFilters?.date_to ?? undefined}
+                                        onChange={setDates}
+                                        disabled={!canEditDashboard}
+                                        makeLabel={(key) => (
+                                            <>
+                                                <CalendarOutlined />
+                                                <span className="hide-when-small"> {key}</span>
+                                            </>
+                                        )}
+                                    />
+                                </div>
+                                <PropertyFilters
+                                    onChange={setProperties}
+                                    pageKey={'dashboard_' + dashboard?.id}
+                                    propertyFilters={dashboard?.filters.properties}
+                                    useLemonButton
                                 />
                             </div>
-                            <PropertyFilters
-                                onChange={setProperties}
-                                pageKey={'dashboard_' + dashboard?.id}
-                                propertyFilters={dashboard?.filters.properties}
-                                useLemonButton
-                            />
-                        </div>
+                            <LemonDivider large />
+                        </>
                     )}
                     {placement !== DashboardPlacement.Export && (
-                        <div className="flex py-4 space-x-4 dashoard-items-actions">
+                        <div className="flex pb-4 space-x-4 dashoard-items-actions">
                             <div
                                 className="left-item"
                                 style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
