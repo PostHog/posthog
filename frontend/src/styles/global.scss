@@ -176,6 +176,13 @@ body strong {
     font-weight: 600;
 }
 
+// This may look odd but sets up our utility classes
+* {
+    border-style: solid;
+    border-width: 0;
+    border-color: var(--border);
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
