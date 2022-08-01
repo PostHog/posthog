@@ -413,7 +413,7 @@ export function EditSubscription({
                     </section>
                 )}
 
-                <footer className="flex justify-between pt">
+                <footer className="flex justify-between pt-4">
                     <div>
                         {subscription && id !== 'new' && (
                             <LemonButton

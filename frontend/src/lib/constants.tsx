@@ -117,6 +117,7 @@ export const FEATURE_FLAGS = {
     // Re-enable person modal CSV downloads when frontend can support new entity properties
     PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
+    IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

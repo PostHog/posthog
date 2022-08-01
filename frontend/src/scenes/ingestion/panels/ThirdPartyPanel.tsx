@@ -216,7 +216,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         }}
                                     >
                                         <h4>Steps:</h4>
-                                        <ol className="pl">
+                                        <ol className="pl-4">
                                             <li>
                                                 Complete the steps in the {thirdPartyIntegrationSource.name}{' '}
                                                 integration.

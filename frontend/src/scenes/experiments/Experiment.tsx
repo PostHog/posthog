@@ -446,7 +446,7 @@ export function Experiment(): JSX.Element {
 
                                     <Row className="metrics-selection">
                                         <Col span={12}>
-                                            <div className="mb-2">
+                                            <div className="mb-2" data-tooltip="experiment-goal-type">
                                                 <b>Goal type</b>
                                                 <div className="text-muted">
                                                     {experimentInsightType === InsightType.TRENDS
@@ -545,8 +545,10 @@ export function Experiment(): JSX.Element {
                                                 />
                                             </Col>
                                         </Col>
-                                        <Col span={12} className="pl">
-                                            <div className="card-secondary mb-4">Goal preview</div>
+                                        <Col span={12} className="pl-4">
+                                            <div className="card-secondary mb-4" data-tooltip="experiment-preview">
+                                                Goal preview
+                                            </div>
                                             <InsightContainer
                                                 disableHeader={experimentInsightType === InsightType.TRENDS}
                                                 disableTable={true}
@@ -963,7 +965,7 @@ export function Experiment(): JSX.Element {
                                                     experimentResults.probability[b] - experimentResults.probability[a]
                                             )
                                             .map((variant, idx) => (
-                                                <Col key={idx} className="pr">
+                                                <Col key={idx} className="pr-4">
                                                     <div>
                                                         <b>{capitalizeFirstLetter(variant)}</b>
                                                     </div>

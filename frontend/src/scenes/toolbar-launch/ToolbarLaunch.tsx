@@ -49,6 +49,7 @@ function ToolbarLaunch(): JSX.Element {
             <LemonDivider />
 
             <LemonSwitch
+                data-tooltip="toolbar-authorized-toggle"
                 label="Enable the PostHog toolbar"
                 onChange={() =>
                     updateUser({

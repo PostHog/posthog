@@ -166,7 +166,7 @@ export function ExperimentPreview({
                             )}
                             <Col span={12}>
                                 <div className="card-secondary">Recommended Sample Size</div>
-                                <div className="pb">
+                                <div className="pb-4">
                                     <span className="l4">~{humanFriendlyNumber(funnelSampleSize || 0)}</span> persons
                                 </div>
                             </Col>
@@ -290,7 +290,7 @@ export function ExperimentPreview({
             </Col>
 
             {experimentId !== 'new' && !editingExistingExperiment && !experiment?.start_date && (
-                <Col span={12} className="pl">
+                <Col span={12} className="pl-4">
                     <ExperimentWorkflow />
                 </Col>
             )}

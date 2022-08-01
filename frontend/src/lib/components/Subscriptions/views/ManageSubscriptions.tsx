@@ -129,7 +129,7 @@ export function ManageSubscriptions({
                 )}
             </section>
 
-            <footer className="flex justify-between pt">
+            <footer className="flex justify-between pt-4">
                 <div>
                     {!!subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
