@@ -1,7 +1,7 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional
 
 from dateutil import parser
-from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -45,16 +45,20 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         )
 
         if not person_id:
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+            raise exceptions.NotFound()
 
         saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
         all_sequences = get_active_prompt_sequences()
+
+        # for the sake of the prompts V1 experiments, we avoid showing prompts to historical users
+        if request.user.date_joined < parser.isoparse("2022-08-01T00:00:00.000Z"):
+            all_sequences = []
 
         new_states: List[Dict] = []
 
         for sequence in all_sequences:
             local_state = next((s for s in local_states if sequence["key"] == s["key"]), None)
-            saved_state: Union[PromptSequenceState, None] = next(
+            saved_state: Optional[PromptSequenceState] = next(
                 (s for s in saved_states if sequence["key"] == s.key), None
             )
 
@@ -86,7 +90,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         for seq in sequences_requiring_previous_completion:
             must_be_completed = seq["rule"]["must_be_completed"]
-            current_state: Union[Dict, None] = next((s for s in new_states if s["key"] in must_be_completed), None)
+            current_state: Optional[Dict] = next((s for s in new_states if s["key"] in must_be_completed), None)
             if not current_state or not current_state["completed"]:
                 continue
             sequences.append(seq)

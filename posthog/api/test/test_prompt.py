@@ -17,7 +17,7 @@ class TestPrompt(APIBaseTest):
     def setUpTestData(cls):
         super().setUpTestData()
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @freeze_time("2022-08-25T22:09:14.252Z")
     def test_my_prompts(self):
 
         distinct_id_user = User.objects.create_and_join(self.organization, "distinct_id_user@posthog.com", None)
@@ -39,7 +39,7 @@ class TestPrompt(APIBaseTest):
         local_state = {
             "start-flow": {
                 "key": "start-flow",
-                "last_updated_at": "2021-08-25T22:09:14.252Z",
+                "last_updated_at": "2022-08-25T22:09:14.252Z",
                 "step": 0,
                 "completed": True,
                 "dismissed": False,
@@ -63,7 +63,7 @@ class TestPrompt(APIBaseTest):
         local_state = {
             "start-flow": {
                 "key": "start-flow",
-                "last_updated_at": "2021-08-24T22:09:14.252Z",
+                "last_updated_at": "2022-08-24T22:09:14.252Z",
                 "step": 1,
                 "completed": False,
                 "dismissed": False,

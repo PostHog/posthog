@@ -1971,6 +1971,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "david-everett",
+      "name": "David Everett",
+      "avatar_url": "https://avatars.githubusercontent.com/u/98620729?v=4",
+      "profile": "https://github.com/david-everett",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
