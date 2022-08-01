@@ -78,6 +78,8 @@ def active_teams() -> List[int]:
             ORDER BY age;
         """
         )
+        if not teams_by_recency:
+            return []
         redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {team: score for team, score in teams_by_recency})
         redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
         all_teams = teams_by_recency
