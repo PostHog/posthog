@@ -32,7 +32,7 @@
                     font-weight: 600;
                     letter-spacing: 0.5px;
                     text-transform: uppercase;
-                    color: var(--text-muted);
+                    color: var(--muted);
                     margin-bottom: 4px;
                 }
 
@@ -93,7 +93,7 @@
 
                     .definition-column-name-content-description {
                         font-size: 13px;
-                        color: var(--text-muted);
+                        color: var(--muted);
                         text-overflow: ellipsis;
                     }
                 }
@@ -129,7 +129,7 @@
         display: flex;
         align-items: center;
         flex-direction: row;
-        color: var(--text-muted);
+        color: var(--muted);
         margin: 0.5rem 0;
 
         pre {

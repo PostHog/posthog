@@ -1,9 +1,9 @@
 .nps-prompt {
-    background-color: var(--bg-menu);
+    background-color: var(--default);
     border-radius: var(--radius);
     padding: 1rem;
     padding-top: 6px;
-    color: var(--text-light);
+    color: var(--light);
     position: fixed;
     bottom: 16px;
     right: 16px;
@@ -79,17 +79,17 @@
     .ant-btn:not(.ant-btn-link) {
         background-color: var(--bg-depth);
         border: 1px solid #000;
-        color: var(--text-light);
+        color: var(--light);
     }
 
     textarea {
-        color: var(--text-light);
+        color: var(--light);
         background-color: var(--bg-depth);
         border-color: #000;
     }
 
     .ant-btn-link span {
-        color: var(--text-light);
+        color: var(--light);
         text-decoration: underline !important;
     }
 }

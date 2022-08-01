@@ -42,7 +42,7 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const href = asLink(props.person)
 
     const content = (
-        <div className="flex-center">
+        <div className="flex items-center">
             {props.withIcon && (
                 <ProfilePicture
                     name={

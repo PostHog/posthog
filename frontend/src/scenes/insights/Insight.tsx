@@ -125,7 +125,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     />
                 }
                 buttons={
-                    <div className="space-between-items items-center gap-05">
+                    <div className="flex justify-between items-center gap-2">
                         {insightMode !== ItemMode.Edit && (
                             <>
                                 <More
@@ -274,7 +274,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         <UserActivityIndicator
                             at={insight.last_modified_at}
                             by={insight.last_modified_by}
-                            className="mt-05"
+                            className="mt-2"
                         />
                     </>
                 }

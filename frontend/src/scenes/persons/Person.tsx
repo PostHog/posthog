@@ -38,7 +38,7 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <div className="mr">
+            <div className="mr-4">
                 <span className="text-muted">IDs:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}

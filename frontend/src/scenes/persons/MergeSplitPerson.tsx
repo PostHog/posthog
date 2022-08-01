@@ -61,7 +61,7 @@ function MergePerson(): JSX.Element {
 
     return (
         <>
-            <p className="mb">
+            <p className="mb-4">
                 Merge all properties and events of the selected persons into <strong>{person.name}</strong>{' '}
                 <span style={{ fontSize: '1.2em' }}>(</span>
                 <code title={person.distinct_ids[0]}>{midEllipsis(person.distinct_ids[0], 20)}</code>

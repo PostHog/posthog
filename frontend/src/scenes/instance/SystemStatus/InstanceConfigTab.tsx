@@ -101,12 +101,12 @@ export function InstanceConfigTab(): JSX.Element {
 
     return (
         <div>
-            <div className="flex-center">
+            <div className="flex items-center">
                 <div style={{ flexGrow: 1 }}>
                     <h3 className="l3" style={{ marginTop: 16 }}>
                         Instance configuration
                     </h3>
-                    <div className="mb">
+                    <div className="mb-4">
                         Changing these settings will take effect on your entire instance.{' '}
                         <a href="https://posthog.com/docs/self-host/configure/instance-settings" target="_blank">
                             Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
@@ -155,7 +155,7 @@ export function InstanceConfigTab(): JSX.Element {
             <h3 className="l3" style={{ marginTop: 32 }}>
                 Environment configuration
             </h3>
-            <div className="mb">
+            <div className="mb-4">
                 These settings can only be modified by environment variables.{' '}
                 <a href="https://posthog.com/docs/self-host/configure/environment-variables" target="_blank">
                     Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />

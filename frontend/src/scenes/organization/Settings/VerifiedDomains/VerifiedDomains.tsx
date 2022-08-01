@@ -34,7 +34,7 @@ export function VerifiedDomains(): JSX.Element {
 
     return (
         <>
-            <div className="flex-center">
+            <div className="flex items-center">
                 <div style={{ flexGrow: 1 }}>
                     <div id="domain-whitelist" /> {/** For backwards link compatibility. Remove after 2022-06-01. */}
                     <h2 id="authentication-domains" className="subtitle">
@@ -94,15 +94,15 @@ function VerifiedDomainsTable(): JSX.Element {
                       ),
                       render: function Verified(_, { is_verified, verified_at }) {
                           return is_verified ? (
-                              <div className="flex-center text-success">
+                              <div className="flex items-center text-success">
                                   <IconCheckmark style={iconStyle} /> Verified
                               </div>
                           ) : verified_at ? (
-                              <div className="flex-center text-danger">
+                              <div className="flex items-center text-danger">
                                   <IconExclamation style={iconStyle} /> Verification expired
                               </div>
                           ) : (
-                              <div className="flex-center text-warning">
+                              <div className="flex items-center text-warning">
                                   <IconWarningAmber style={iconStyle} /> Pending verification
                               </div>
                           )
@@ -126,7 +126,7 @@ function VerifiedDomainsTable(): JSX.Element {
             ),
             render: function AutomaticProvisioning(_, { jit_provisioning_enabled, id, is_verified }) {
                 return is_verified ? (
-                    <div className="flex-center">
+                    <div className="flex items-center">
                         <LemonSwitch
                             checked={jit_provisioning_enabled}
                             disabled={updatingDomainLoading || !is_verified}
@@ -156,7 +156,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         <Link
                             to={UPGRADE_LINK(preflight?.cloud).url}
                             target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex-center"
+                            className="flex items-center"
                         >
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
                             enforcement
@@ -186,7 +186,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         <Link
                             to={UPGRADE_LINK(preflight?.cloud).url}
                             target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex-center"
+                            className="flex items-center"
                         >
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SAML
                         </Link>
@@ -197,15 +197,15 @@ function VerifiedDomainsTable(): JSX.Element {
                 return is_verified ? (
                     <>
                         {has_saml ? (
-                            <div className="flex-center text-success">
+                            <div className="flex items-center text-success">
                                 <IconCheckmark style={iconStyle} /> SAML enabled
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
-                            <div className="flex-center text-warning">
+                            <div className="flex items-center text-warning">
                                 <IconWarningAmber style={iconStyle} /> SAML partially configured
                             </div>
                         ) : (
-                            <div className="flex-center">
+                            <div className="flex items-center">
                                 <IconOffline style={iconStyle} /> SAML not set up
                             </div>
                         )}

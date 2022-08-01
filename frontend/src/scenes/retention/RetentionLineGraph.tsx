@@ -55,7 +55,7 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                         return (
                             <>
                                 {value}
-                                <span className="ml-025">Cohort</span>
+                                <span className="ml-1">Cohort</span>
                             </>
                         )
                     },

@@ -109,7 +109,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                 {onboardingSidebarEnabled && !isSmallScreen && <Sidebar />}
                 <div className="bridge-page IngestionContainer">
                     {!onboardingSidebarEnabled && (
-                        <div className="mb">
+                        <div className="mb-4">
                             <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                         </div>
                     )}

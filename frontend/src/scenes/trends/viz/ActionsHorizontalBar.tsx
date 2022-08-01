@@ -58,7 +58,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                     return (
                         <>
                             <SeriesLetter
-                                className="mr-025"
+                                className="mr-1"
                                 hasBreakdown={false}
                                 seriesIndex={tooltipData?.[0]?.action?.order ?? 0}
                             />

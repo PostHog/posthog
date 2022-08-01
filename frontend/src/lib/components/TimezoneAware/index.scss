@@ -21,7 +21,7 @@
             }
 
             .scope {
-                color: var(--text-muted);
+                color: var(--muted);
                 margin-right: 16px;
                 flex-grow: 1;
                 font-style: italic;
@@ -36,7 +36,7 @@
 }
 
 .tz-indicator {
-    color: var(--text-muted);
+    color: var(--muted);
     font-weight: 700;
     cursor: pointer;
 }

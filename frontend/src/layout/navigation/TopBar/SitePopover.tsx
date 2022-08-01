@@ -40,7 +40,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
         <div className="SitePopover__section">
-            {title && <h5 className="flex-center">{title}</h5>}
+            {title && <h5 className="flex items-center">{title}</h5>}
             {children}
         </div>
     )

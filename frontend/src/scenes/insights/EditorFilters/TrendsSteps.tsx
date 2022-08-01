@@ -24,7 +24,7 @@ export function TrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
     return (
         <>
             {filters.insight === InsightType.LIFECYCLE && (
-                <div className="mb-05">
+                <div className="mb-2">
                     Showing <b>Unique users</b> who did
                 </div>
             )}

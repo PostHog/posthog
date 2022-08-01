@@ -45,7 +45,7 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                         }}
                         data-attr={'editor-filter-group-collapse-' + slugify(title)}
                     >
-                        <div className="flex items-center space-x-05">
+                        <div className="flex items-center space-x-2">
                             <span>{title}</span>
                             <LemonBubble count={count} />
                         </div>

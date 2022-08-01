@@ -1,4 +1,4 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
 .Breadcrumbs {
     display: flex;
@@ -10,7 +10,7 @@
     margin-top: 1rem;
     cursor: default;
     overflow-x: auto;
-    @media screen and (min-width: $md) {
+    @include screen($md) {
         // Disable fullwidth hacks for viewport widths where the sidebar affects layout
         width: auto;
         padding: 0;
@@ -27,7 +27,7 @@
     user-select: none;
 
     &--current {
-        color: var(--text-default);
+        color: var(--default);
         cursor: default;
     }
 

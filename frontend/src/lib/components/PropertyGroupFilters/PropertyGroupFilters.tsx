@@ -53,7 +53,7 @@ export function PropertyGroupFilters({
                 <div className="property-group-filters">
                     <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                         {showHeader ? (
-                            <div className="flex-center space-between-items">
+                            <div className="flex items-center justify-between">
                                 {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
                                 {propertyGroupFilter.type && propertyGroupFilter.values.length > 1 && (
                                     <AndOrFilterSelect
@@ -66,13 +66,13 @@ export function PropertyGroupFilters({
                         ) : null}
                         <LemonDivider large />
                         <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
-                        <div className="mt">
+                        <div className="mt-4">
                             {propertyGroupFilter.values?.map(
                                 (group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                                     return (
                                         <React.Fragment key={propertyGroupIndex}>
                                             <div className="property-group">
-                                                <Row justify="space-between" align="middle" className="mb-05">
+                                                <Row justify="space-between" align="middle" className="mb-2">
                                                     <AndOrFilterSelect
                                                         onChange={(type) =>
                                                             setInnerPropertyGroupType(type, propertyGroupIndex)
@@ -129,7 +129,7 @@ export function PropertyGroupFilters({
             )}
             <LemonButton
                 data-attr={`${pageKey}-add-filter-group`}
-                className="mb mt"
+                className="my-4"
                 type="secondary"
                 onClick={() => addFilterGroup()}
                 icon={<IconPlusMini color="var(--primary)" />}
@@ -158,7 +158,7 @@ export function AndOrFilterSelect({
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <Row align="middle" wrap={false} className="and-or-filter">
-            <span className="ml-05">{prefix}</span>
+            <span className="ml-2">{prefix}</span>
             <Select
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"

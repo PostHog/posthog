@@ -186,7 +186,7 @@ export function UniversalSearchPopup({
                         setVisible(!visible)
                     }}
                     className={clsx(
-                        { 'full-width': fullWidth },
+                        { 'w-full': fullWidth },
                         '',
                         'universal-search-box',
                         isSideBarShown && 'universal-search-box--sidebar-shown'

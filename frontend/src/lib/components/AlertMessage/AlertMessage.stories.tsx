@@ -19,6 +19,9 @@ Info.args = { type: 'info', children: 'PSA: Every dish can be improved by adding
 export const Warning = Template.bind({})
 Warning.args = { type: 'warning', children: 'This spacecraft is about to explode. Please evacuate immediately.' }
 
+export const Error = Template.bind({})
+Error.args = { type: 'error', children: 'This spacecraft has exploded. Too late...' }
+
 export const Closable = Template.bind({})
 Closable.args = {
     type: 'info',

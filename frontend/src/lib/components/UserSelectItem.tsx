@@ -9,7 +9,7 @@ export interface UserSelectItemProps {
 
 export function UserSelectItem({ user }: UserSelectItemProps): JSX.Element {
     return (
-        <span className="flex gap-05 items-center">
+        <span className="flex gap-2 items-center">
             <ProfilePicture name={user.first_name} email={user.email} size="sm" />
             <span>
                 {user.first_name} <b>{`<${user.email}>`}</b>

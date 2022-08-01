@@ -49,7 +49,7 @@ export function InsightTooltip({
     altRightTitle,
     renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
         <>
-            <SeriesLetter className="mr-05" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
+            <SeriesLetter className="mr-2" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
         </>
     ),
@@ -163,7 +163,7 @@ export function InsightTooltip({
             key: 'datum',
             className: 'datum-label-column',
             width: 120,
-            title: <span className="no-wrap">{title}</span>,
+            title: <span className="whitespace-nowrap">{title}</span>,
             sticky: true,
             render: function renderDatum(_, datum, rowIdx) {
                 return renderSeries(

@@ -222,7 +222,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     />
                     <Column
                         title={
-                            <div className="flex-center">
+                            <div className="flex items-center">
                                 Completed
                                 <Tooltip
                                     title={`${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
@@ -240,7 +240,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     />
                     <Column
                         title={
-                            <div className="flex-center">
+                            <div className="flex items-center">
                                 Dropped off
                                 <Tooltip
                                     title={

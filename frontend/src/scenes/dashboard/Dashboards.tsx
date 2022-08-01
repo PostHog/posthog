@@ -75,7 +75,7 @@ export function Dashboards(): JSX.Element {
                             </Link>
                             {!canEditDashboard && (
                                 <Tooltip title="You don't have edit permissions for this dashboard.">
-                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em' }} />
+                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em', display: 'inline' }} />
                                 </Tooltip>
                             )}
                             {is_shared && (
@@ -91,6 +91,7 @@ export function Dashboards(): JSX.Element {
                                             color: 'var(--warning)',
                                             fontSize: '1rem',
                                             verticalAlign: '-0.125em',
+                                            display: 'inline',
                                         }}
                                     />
                                 </Tooltip>
@@ -260,7 +261,7 @@ export function Dashboards(): JSX.Element {
                     nouns={['dashboard', 'dashboards']}
                 />
             ) : (
-                <div className="mt">
+                <div className="mt-4">
                     <p>Create your first dashboard:</p>
                     <Row gutter={[16, 16]}>
                         <Col xs={24} xl={6}>

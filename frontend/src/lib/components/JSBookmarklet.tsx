@@ -17,7 +17,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
         <>
             <a href={href} className="full-width" onDragStart={reportBookmarkletDragged}>
                 <Row
-                    className="primary-alt"
+                    className="text-primary-alt"
                     justify="center"
                     align="middle"
                     style={{ borderRadius: 4, background: '#F6F8FF', padding: '16px 0px' }}
@@ -26,7 +26,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
                     <p style={{ marginBottom: 0, fontSize: 16, fontWeight: 700 }}>PostHog Bookmarklet</p>
                 </Row>
             </a>
-            <p className="text-center text-muted fw-500 mt-05">
+            <p className="text-center text-muted font-medium mt-2">
                 Drag to your bookmarks. Do not click on this link. The bookmarklet only works for the current browser
                 session.
             </p>

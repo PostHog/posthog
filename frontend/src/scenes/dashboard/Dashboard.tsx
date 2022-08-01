@@ -110,8 +110,8 @@ function DashboardScene(): JSX.Element {
                         DashboardPlacement.Export,
                         DashboardPlacement.InternalMetrics,
                     ].includes(placement) && (
-                        <div className="flex pb border-bottom space-x-05">
-                            <div className="flex-center" style={{ height: '2rem' }}>
+                        <div className="flex pb-4 border-b space-x-4">
+                            <div className="flex items-center" style={{ height: '2rem' }}>
                                 <TZIndicator style={{ marginRight: '0.5rem' }} />
                                 <DateFilter
                                     defaultValue="Custom"
@@ -137,7 +137,7 @@ function DashboardScene(): JSX.Element {
                         </div>
                     )}
                     {placement !== DashboardPlacement.Export && (
-                        <div className="flex pt pb space-x dashoard-items-actions">
+                        <div className="flex py-4 space-x-4 dashoard-items-actions">
                             <div
                                 className="left-item"
                                 style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
