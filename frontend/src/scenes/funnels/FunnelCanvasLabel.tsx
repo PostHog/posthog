@@ -34,7 +34,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                           Total conversion rate
                       </span>
                       <span className="text-muted-alt mr-1">:</span>
-                      <span className="l4">{percentage(conversionMetrics.totalRate, 1, true)}</span>
+                      <span className="l4">{percentage(conversionMetrics.totalRate, 2, true)}</span>
                   </>,
               ]
             : []),

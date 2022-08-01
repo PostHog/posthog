@@ -103,7 +103,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                         </>
                     ),
                     render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                        percentage(breakdown?.conversionRates?.total ?? 0, 1, true),
+                        percentage(breakdown?.conversionRates?.total ?? 0, 2, true),
                     align: 'right',
                 },
             ],
@@ -192,10 +192,10 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 icon={<IconFlag />}
                                 size="small"
                             >
-                                {percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)}
+                                {percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 2, true)}
                             </LemonRow>
                         ) : (
-                            percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)
+                            percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 2, true)
                         )
                     },
                     align: 'right',
@@ -226,14 +226,14 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       >
                                           {percentage(
                                               breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
-                                              1,
+                                              2,
                                               true
                                           )}
                                       </LemonRow>
                                   ) : (
                                       percentage(
                                           breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
-                                          1,
+                                          2,
                                           true
                                       )
                                   )
