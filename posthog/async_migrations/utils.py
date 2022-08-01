@@ -1,5 +1,6 @@
+import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 import posthoganalytics
 import structlog
@@ -25,7 +26,7 @@ from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
 
-SLEEP_TIME_SECONDS = 20
+SLEEP_TIME_SECONDS = 20 if not TEST else 1
 
 
 def send_analytics_to_posthog(event, data):
@@ -74,22 +75,31 @@ def execute_op_clickhouse(
     client._request_information = None
 
 
-def execute_on_each_shard(sql, args, settings=None) -> None:
+def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
     """
     Executes query on each shard separately (if enabled) or on the cluster as a whole (if not enabled).
 
     Note that the shard selection is stable - subsequent queries are guaranteed to hit the same shards!
     """
-    if "{on_cluster_clause}" not in sql:
-        raise Exception("SQL must include {on_cluster_clause} to allow execution on each shard")
 
     if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
         sql = sql.format(on_cluster_clause="")
     else:
         sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
 
-    for _, _, connection in _get_all_shard_connections():
-        connection.execute(sql, args, settings=settings)
+    async def run_on_all_shards():
+        tasks = []
+        for _, _, connection_pool in _get_all_shard_connections():
+            tasks.append(asyncio.create_task(run_on_connection(connection_pool)))
+
+        await asyncio.wait(tasks)
+
+    async def run_on_connection(connection_pool):
+        await asyncio.sleep(0)  # returning control to event loop to make parallelism possible
+        with connection_pool.get_client() as connection:
+            connection.execute(sql, args, settings=settings)
+
+    asyncio.run(run_on_all_shards())
 
 
 def _get_all_shard_connections():
@@ -108,11 +118,9 @@ def _get_all_shard_connections():
         )
         for shard, host in rows:
             ch_pool = make_ch_pool(host=host)
-            with ch_pool.get_client() as connection:
-                yield shard, host, connection
+            yield shard, host, ch_pool
     else:
-        with default_ch_pool.get_client() as connection:
-            yield None, None, connection
+        yield None, None, default_ch_pool
 
 
 def execute_op_postgres(sql: str, query_id: str):
@@ -130,21 +138,23 @@ def _get_number_running_on_cluster(query_pattern: str) -> int:
         """
         SELECT count()
         FROM clusterAllReplicas(%(cluster)s, system, 'processes')
-        WHERE query LIKE %(query_pattern)s
+        WHERE query LIKE %(query_pattern)s AND query NOT LIKE '%%clusterAllReplicas%%'
         """,
         {"cluster": CLICKHOUSE_CLUSTER, "query_pattern": query_pattern},
     )[0][0]
 
 
-def _sleep_until_finished(query_pattern: str) -> None:
+def sleep_until_finished(name, is_running: Callable[[], bool]) -> None:
     from time import sleep
 
-    while _get_number_running_on_cluster(query_pattern) > 0:
-        logger.debug("Query still running, waiting until it's complete", query_pattern=query_pattern)
+    while is_running():
+        logger.debug("Operation still running, waiting until it's complete", name=name)
         sleep(SLEEP_TIME_SECONDS)
 
 
-def run_optimize_table(unique_name: str, query_id: str, table_name: str, deduplicate=False, final=False):
+def run_optimize_table(
+    *, unique_name: str, query_id: str, table_name: str, deduplicate=False, final=False, per_shard=False
+):
     """
     Runs the passed OPTIMIZE TABLE query.
 
@@ -152,17 +162,20 @@ def run_optimize_table(unique_name: str, query_id: str, table_name: str, dedupli
     we'll wait for that to complete first.
     """
     if not TEST and _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0:
-        _sleep_until_finished(f"%%optimize:{unique_name}%%")
+        sleep_until_finished(unique_name, lambda: _get_number_running_on_cluster(f"%%optimize:{unique_name}%%") > 0)
     else:
         final_clause = "FINAL" if final else ""
         deduplicate_clause = "DEDUPLICATE" if deduplicate else ""
-        on_cluster_clause = "{on_cluster_clause}"
-        sql = f"OPTIMIZE TABLE {table_name} {on_cluster_clause} {final_clause} {deduplicate_clause}"
+        sql = f"OPTIMIZE TABLE {table_name} {{on_cluster_clause}} {final_clause} {deduplicate_clause}"
+
+        if not per_shard:
+            sql = sql.format(on_cluster_clause=f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'")
+
         execute_op_clickhouse(
             sql,
             query_id=f"optimize:{unique_name}/{query_id}",
             settings={"max_execution_time": ASYNC_MIGRATIONS_DEFAULT_TIMEOUT_SECONDS, "mutations_sync": 2},
-            per_shard=True,
+            per_shard=per_shard,
         )
 
 

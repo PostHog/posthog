@@ -79,7 +79,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     }
                 />
                 <Divider />
-                <Row gutter={[16, 24]} style={{ maxWidth: 640 }}>
+                <Row gutter={[16, 24]} style={{ maxWidth: 640 }} data-tooltip="cohorts-type">
                     <Col xs={24} sm={12}>
                         <Field name="name" label="Name" className="Cohort__Name">
                             <LemonInput data-attr="cohort-name" />

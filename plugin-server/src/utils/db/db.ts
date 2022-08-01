@@ -223,6 +223,7 @@ export class DB {
     }
 
     public postgresTransaction<ReturnType extends any>(
+        tag: string,
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
         return instrumentQuery(this.statsd, 'query.postgres_transation', undefined, async () => {
@@ -925,7 +926,7 @@ export class DB {
     ): Promise<Person> {
         const kafkaMessages: ProducerRecord[] = []
 
-        const person = await this.postgresTransaction(async (client) => {
+        const person = await this.postgresTransaction('createPerson', async (client) => {
             const insertResult = await this.postgresQuery(
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
                 [
@@ -1139,14 +1140,12 @@ export class DB {
                 topic: KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                ...personDistinctIdCreated,
-                                version,
-                                person_id: person.uuid,
-                                is_deleted: 0,
-                            })
-                        ),
+                        value: JSON.stringify({
+                            ...personDistinctIdCreated,
+                            version,
+                            person_id: person.uuid,
+                            is_deleted: 0,
+                        }),
                     },
                 ],
             },
@@ -1157,13 +1156,11 @@ export class DB {
                 topic: KAFKA_PERSON_UNIQUE_ID,
                 messages: [
                     {
-                        value: Buffer.from(
-                            JSON.stringify({
-                                ...personDistinctIdCreated,
-                                person_id: person.uuid,
-                                is_deleted: 0,
-                            })
-                        ),
+                        value: JSON.stringify({
+                            ...personDistinctIdCreated,
+                            person_id: person.uuid,
+                            is_deleted: 0,
+                        }),
                     },
                 ],
             })
@@ -1219,9 +1216,7 @@ export class DB {
                 topic: KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
-                        value: Buffer.from(
-                            JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 })
-                        ),
+                        value: JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 }),
                     },
                 ],
             })
@@ -1231,14 +1226,10 @@ export class DB {
                     topic: KAFKA_PERSON_UNIQUE_ID,
                     messages: [
                         {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 })
-                            ),
+                            value: JSON.stringify({ ...usefulColumns, person_id: target.uuid, is_deleted: 0 }),
                         },
                         {
-                            value: Buffer.from(
-                                JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 })
-                            ),
+                            value: JSON.stringify({ ...usefulColumns, person_id: source.uuid, is_deleted: 1 }),
                         },
                     ],
                 })
@@ -1895,16 +1886,14 @@ export class DB {
             topic: KAFKA_GROUPS,
             messages: [
                 {
-                    value: Buffer.from(
-                        JSON.stringify({
-                            group_type_index: groupTypeIndex,
-                            group_key: groupKey,
-                            team_id: teamId,
-                            group_properties: JSON.stringify(properties),
-                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                            version,
-                        })
-                    ),
+                    value: JSON.stringify({
+                        group_type_index: groupTypeIndex,
+                        group_key: groupKey,
+                        team_id: teamId,
+                        group_properties: JSON.stringify(properties),
+                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                        version,
+                    }),
                 },
             ],
         })
@@ -1933,7 +1922,7 @@ export class DB {
         jobName: string,
         jobPayloadJson: Record<string, any>
     ): Promise<void> {
-        await this.postgresTransaction(async (client) => {
+        await this.postgresTransaction('addOrUpdatePublicJob', async (client) => {
             let publicJobs: Record<string, any> = (
                 await this.postgresQuery(
                     'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',

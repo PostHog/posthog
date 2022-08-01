@@ -112,12 +112,12 @@ export const FEATURE_FLAGS = {
     ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
-    SUBSCRIPTIONS_SLACK: 'subscriptions-slack', // owner: @benjackwhite
-    SESSION_ANALYSIS: 'session-analysis', // owner: @rcmarron
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
     FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
     // Re-enable person modal CSV downloads when frontend can support new entity properties
     PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
+    BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
+    IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

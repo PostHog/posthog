@@ -240,7 +240,7 @@ export class EventsProcessor {
         }
 
         const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
-        let message: Buffer
+        let message: Buffer | string
         if (useExternalSchemas) {
             // Proto ingestion, which is deprecated - we won't support new additions to the schema
             message = EventProto.encodeDelimited(EventProto.create(eventPayload as IEvent)).finish() as Buffer
@@ -255,7 +255,7 @@ export class EventsProcessor {
                 ...groupsProperties,
                 ...groupsCreatedAt,
             }
-            message = Buffer.from(JSON.stringify(rawEvent))
+            message = JSON.stringify(rawEvent)
         }
 
         await this.kafkaProducer.queueMessage({

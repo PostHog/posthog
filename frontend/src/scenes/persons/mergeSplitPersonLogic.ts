@@ -16,7 +16,7 @@ export interface SplitPersonLogicProps {
     person: PersonType
 }
 
-export type PersonIds = NonNullable<PersonType['id']>[]
+export type PersonUuids = NonNullable<PersonType['uuid']>[]
 
 export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
     props: {} as SplitPersonLogicProps,
@@ -31,7 +31,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
     }),
     actions: {
         setActivity: (activity: ActivityType) => ({ activity }),
-        setSelectedPersonsToMerge: (persons: PersonIds) => ({ persons }),
+        setSelectedPersonsToMerge: (persons: PersonUuids) => ({ persons }),
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),
         cancel: true,
     },
@@ -44,7 +44,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
         ],
         person: [props.person, {}],
         selectedPersonsToMerge: [
-            [] as PersonIds,
+            [] as PersonUuids,
             {
                 setSelectedPersonsToMerge: (_, { persons }) => persons,
             },
@@ -73,7 +73,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
                 execute: async () => {
                     if (values.activity === ActivityType.MERGE) {
                         const newPerson = await api.create('api/person/' + values.person.id + '/merge/', {
-                            ids: values.selectedPersonsToMerge,
+                            uuids: values.selectedPersonsToMerge,
                         })
                         if (newPerson.id) {
                             lemonToast.success('Persons have been merged')

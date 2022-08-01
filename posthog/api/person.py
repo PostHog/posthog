@@ -372,7 +372,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))
+        people = Person.objects.filter(team_id=self.team_id, uuid__in=request.data.get("uuids"))
         person = self.get_object()
         person.merge_people([p for p in people])
 

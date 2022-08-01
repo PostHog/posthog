@@ -63,6 +63,7 @@ interface EventsTable {
     showActionsButton?: boolean
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
+    'data-tooltip'?: string
 }
 
 export function EventsTable({
@@ -84,6 +85,7 @@ export function EventsTable({
     showActionsButton = true,
     showPersonColumn = true,
     linkPropertiesToFilters = true,
+    'data-tooltip': dataTooltip,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -433,6 +435,7 @@ export function EventsTable({
                         {showAutoload && (
                             <LemonSwitch
                                 type="primary"
+                                data-tooltip="live-events-refresh-toggle"
                                 id="autoload-switch"
                                 label="Automatically load new events"
                                 checked={automaticLoadEnabled}
@@ -473,6 +476,7 @@ export function EventsTable({
                 ) : null}
                 <EventBufferNotice additionalInfo=" – this helps ensure accuracy of insights grouped by unique users" />
                 <LemonTable
+                    data-tooltip={dataTooltip}
                     dataSource={eventsFormatted}
                     loading={isLoading}
                     columns={columns}

@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { Consumer } from 'kafkajs'
 
@@ -95,8 +94,6 @@ export async function emitConsumerGroupMetrics(
             memberId: consumerGroupMemberId || 'unknown',
             instanceId: pluginsServer.instanceId.toString(),
         })
-
-        Sentry.captureException(error)
     }
 }
 

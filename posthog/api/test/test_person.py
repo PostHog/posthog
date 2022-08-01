@@ -252,7 +252,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         person2 = _create_person(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
 
-        response = self.client.post("/api/person/%s/merge/" % person1.pk, {"ids": [person2.pk, person3.pk]},)
+        response = self.client.post("/api/person/%s/merge/" % person1.uuid, {"uuids": [person2.uuid, person3.uuid]},)
         mock_capture_internal.assert_has_calls(
             [
                 mock.call(

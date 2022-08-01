@@ -101,6 +101,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <>
                                     <LemonButton
                                         data-attr="edit-definition"
+                                        data-tooltip="data-management-event-edit-button"
                                         type="secondary"
                                         style={{ marginRight: 8 }}
                                         onClick={() => {
@@ -138,9 +139,9 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             <EventDefinitionProperties definition={definition} />
                             <Divider />
                             <div className="definition-matching-events">
-                                <span className="definition-matching-events-header">Matching raw events</span>
+                                <span className="definition-matching-events-header">Matching events</span>
                                 <p className="definition-matching-events-subtext">
-                                    This is the list of recent raw events that match this definition.
+                                    This is the list of recent events that match this definition.
                                 </p>
                                 <EventsTable
                                     sceneUrl={backDetailUrl}

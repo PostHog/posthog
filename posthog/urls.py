@@ -6,6 +6,7 @@ from django.http import HttpRequest, HttpResponse
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators import csrf
 from django.views.decorators.csrf import csrf_exempt
+from django_prometheus.exports import ExportToDjangoView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 from posthog.api import (
@@ -141,6 +142,13 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
 ]
+
+if settings.DEBUG:
+    # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
+    # that in production we expose these metrics on a separate port, to ensure
+    # external clients cannot see them. See the gunicorn setup for details on
+    # what we do.
+    urlpatterns.append(path("_metrics", ExportToDjangoView))
 
 if settings.TEST:
 

@@ -23,6 +23,7 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
+    prompt,
     property_definition,
     sharing,
     team,
@@ -41,10 +42,11 @@ router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
 router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Should be completely unused now
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
 router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be deleted - unified into insight viewset
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
+
+router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)
@@ -56,6 +58,7 @@ project_plugins_configs_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
+projects_router.register(r"prompts", prompt.PromptSequenceStateViewSet, "project_feature_flags", ["team_id"])
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
