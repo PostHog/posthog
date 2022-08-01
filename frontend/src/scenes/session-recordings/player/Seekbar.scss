@@ -22,7 +22,7 @@ $tick_hover_size: 5px;
             width: $thumb_size;
             height: $thumb_size;
             border: 2px solid var(--bg-light);
-            background-color: var(--brand-red);
+            background-color: var(--recording-slider-color);
             transform-origin: center;
             transform: translateX(-$thumb_size / 2);
             transition: transform 50ms;
@@ -56,7 +56,7 @@ $tick_hover_size: 5px;
 
         .current-bar {
             z-index: 3;
-            background-color: var(--brand-red);
+            background-color: var(--recording-slider-color);
             position: absolute;
             height: 2px;
             top: ($slider-height - 2px) / 2;

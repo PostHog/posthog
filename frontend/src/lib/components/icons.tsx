@@ -175,6 +175,18 @@ export function IconLogout(): JSX.Element {
     )
 }
 
+/** Material Design Terminal icon. */
+export function IconTerminal({ style }: { style?: CSSProperties }): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" style={style} fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+                d="M5.2 19.091C4.88 19.091 4.6 18.971 4.36 18.731C4.12 18.491 4 18.211 4 17.891V7.49102C4 7.17102 4.12 6.89102 4.36 6.65102C4.6 6.41102 4.88 6.29102 5.2 6.29102H18.8C19.12 6.29102 19.4 6.41102 19.64 6.65102C19.88 6.89102 20 7.17102 20 7.49102V17.891C20 18.211 19.88 18.491 19.64 18.731C19.4 18.971 19.12 19.091 18.8 19.091H5.2ZM5.2 17.891H18.8V9.17102H5.2V17.891ZM8.4 16.451L7.56 15.611L9.62 13.531L7.54 11.451L8.4 10.611L11.32 13.531L8.4 16.451ZM12.2 16.531V15.331H16.6V16.531H12.2Z"
+                fill="currentColor"
+            />
+        </svg>
+    )
+}
+
 /** Material Design open in app icon.*/
 export function IconOpenInApp(): JSX.Element {
     return (
@@ -1231,7 +1243,7 @@ export function UnverifiedEvent({ width = 24, height = 24, ...props }: React.SVG
         >
             <path
                 d="M4.8 17.4H19.2V15.6H4.8V17.4ZM6.6 21H17.4V19.2H6.6V21ZM19.2 13.8H4.8C3.81 13.8 3 12.99 3 12V4.8C3 3.81 3.81 3 4.8 3H19.2C20.19 3 21 3.81 21 4.8V12C21 12.99 20.19 13.8 19.2 13.8ZM19.2 4.8H4.8V12H19.2V4.8Z"
-                fill="#747EA2"
+                fill="currentColor"
             />
         </svg>
     )

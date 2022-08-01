@@ -7,6 +7,7 @@ import { IconClose } from 'lib/components/icons'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { PlayerMeta } from 'scenes/session-recordings/player/PlayerMeta'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
@@ -15,30 +16,21 @@ interface SessionPlayerDrawerProps {
 
 export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPlayerDrawerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
-    if (featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]) {
+    if (isSessionRecordingsPlayerV3) {
         return (
-            <Modal visible>
-                <Col style={{ height: '100vh' }}>
-                    <Row
-                        style={{ height: 48, borderBottom: '1px solid var(--border)' }}
-                        align="middle"
-                        justify="space-between"
-                    >
-                        <Button type="link" onClick={onClose}>
-                            <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'recordings'}
-                        </Button>
-                        <div
-                            className="text-muted cursor-pointer flex-center"
-                            style={{ fontSize: '1.5em', paddingRight: 8 }}
-                            onClick={onClose}
-                        >
-                            <IconClose />
-                        </div>
-                    </Row>
-                    <Row className="session-drawer-body">
-                        <SessionRecordingPlayer />
-                    </Row>
+            <Modal
+                className="session-player-wrapper-v3"
+                title={<PlayerMeta />}
+                visible
+                destroyOnClose
+                closeIcon={<IconClose />}
+                onCancel={onClose}
+                footer={null}
+            >
+                <Col className="session-drawer-body">
+                    <SessionRecordingPlayer />
                 </Col>
             </Modal>
         )
@@ -50,14 +42,14 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
             visible
             width="100%"
             onClose={onClose}
-            className="session-player-drawer-v2"
+            className="session-player-wrapper-v2"
             closable={false}
             // zIndex: 1061 ensures it opens above the insight person modal which is 1060
             style={{ zIndex: 1061 }}
         >
-            <Col style={{ height: '100vh' }}>
+            <Col style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
                 <Row
-                    style={{ height: 48, borderBottom: '1px solid var(--border)' }}
+                    style={{ height: 48, borderBottom: '1px solid var(--border)', flexShrink: 0 }}
                     align="middle"
                     justify="space-between"
                 >

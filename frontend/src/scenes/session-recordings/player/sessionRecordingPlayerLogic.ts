@@ -25,8 +25,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData']],
-        actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
+        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData', 'tab']],
+        actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab']],
     }),
     actions({
         tryInitReplayer: () => true,

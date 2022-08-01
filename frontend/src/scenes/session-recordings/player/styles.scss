@@ -1,13 +1,5 @@
 @import '../../../styles/mixins';
 
-.session-drawer-body {
-    height: calc(100vh - 48px);
-
-    @include screen($md) {
-        height: unset;
-    }
-}
-
 .session-player-v2,
 .session-player-v3 {
     display: flex;
@@ -19,57 +11,67 @@
         display: flex;
         flex-wrap: wrap;
         flex-direction: row;
-        flex: 1;
         background-color: var(--bg-light);
-        height: calc(100% - 48px - 2 * var(--recording-spacing));
-
-        @include screen($md) {
-            flex: unset;
-            // Subtract controller and top navbar heights + padding
-            height: calc(100vh - 2 * 48px - 2 * var(--recording-spacing));
-        }
 
         .player-container {
             height: 100%;
             flex: 1;
             min-width: 1px;
             position: relative;
-            padding: var(--recording-spacing) var(--recording-spacing) 0 var(--recording-spacing);
 
             @include screen($md) {
                 width: 100%;
             }
         }
-
-        .player-sidebar {
-            display: flex;
-            flex-direction: column;
-            width: 350px;
-            padding: var(--recording-spacing) var(--recording-spacing) 0 0;
-
-            .player-meta {
-                margin-bottom: var(--recording-spacing);
-            }
-
-            .player-events {
-                width: 100%;
-                height: 100%;
-                position: relative;
-            }
-        }
-    }
-
-    // In small screen view when player events is outside of player body
-    .player-sidebar {
-        width: 100%;
-        min-width: unset;
-        max-width: unset;
-        padding: 0 var(--recording-spacing) var(--recording-spacing) var(--recording-spacing);
     }
 
     .player-controller {
         padding: var(--recording-spacing);
         background-color: var(--bg-light);
+
+        .rrweb-controller {
+            > * {
+                user-select: none;
+            }
+
+            .rrweb-controller-icon {
+                cursor: pointer;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+
+                &.rrweb-controller-icon-seek {
+                    height: 24px;
+                    width: 24px;
+
+                    span.seek-seconds {
+                        position: absolute;
+                        font-size: 6px;
+                    }
+
+                    .seek-icon {
+                        position: absolute;
+                        font-size: 18px;
+                    }
+                }
+            }
+        }
+    }
+
+    .player-sidebar {
+        display: flex;
+        flex-direction: column;
+        padding: var(--recording-spacing) var(--recording-spacing) 0 0;
+
+        .player-meta {
+            margin-bottom: var(--recording-spacing);
+        }
+
+        .player-events {
+            width: 100%;
+            height: inherit;
+            position: relative;
+        }
     }
 
     .rrweb-player {
@@ -77,9 +79,7 @@
         width: 100%;
         overflow: hidden;
         border: 1px solid var(--border);
-        border-radius: var(--radius);
         background-color: var(--bg-depth);
-        box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
 
         position: relative;
 
@@ -146,87 +146,162 @@
     .rrweb-progress {
         width: 100%;
         cursor: pointer;
-        margin-right: 1rem;
+        margin: 0 1rem;
     }
 
-    .rrweb-controller {
-        display: flex;
-        width: 100%;
-        background-color: var(--bg-light);
-        border-radius: var(--radius);
-        border: 1px solid var(--border);
-        padding: 0 1rem;
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-around;
-        box-sizing: border-box;
-        height: 40px;
-        color: black;
+    // Console
+    .ant-tabs-content {
+        height: 100%;
+    }
 
-        > * {
-            user-select: none;
+    .ant-tabs-tabpane {
+        height: 100%;
+    }
+}
+
+// Session player v3 can exist inside of a modal
+.ant-modal.session-player-wrapper-v3 {
+    width: calc(100vw - 2rem) !important;
+    max-width: 880px;
+    height: calc(100vh - 2rem);
+    top: 1rem;
+    padding: 0;
+
+    .ant-modal-content {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+
+        .ant-modal-header {
+            padding: 0.75rem;
+            border-color: var(--border);
+            flex-shrink: 0;
         }
 
-        .rrweb-controller-icon {
-            margin-right: 1rem;
-            cursor: pointer;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+        .ant-modal-body {
+            padding: 0;
+            overflow-y: auto;
+            flex: 1;
 
-            &.rrweb-controller-icon-play-pause {
-                margin-right: 0px;
-            }
+            .session-drawer-body {
+                height: 100%;
 
-            &.rrweb-controller-icon-seek {
-                height: 18px;
-                width: 18px;
+                .session-player-body {
+                    height: 550px;
 
-                span.seek-seconds {
-                    position: absolute;
-                    font-size: 6px;
+                    .player-container {
+                        padding: 10px;
+                    }
                 }
 
-                .seek-icon {
-                    position: absolute;
-                    font-size: 18px;
+                .player-controller {
+                    padding: 0.75rem;
+
+                    .rrweb-controller {
+                        display: flex;
+                        flex-direction: column;
+                        width: 100%;
+
+                        .rrweb-controller__top {
+                            display: flex;
+                            align-items: center;
+                            flex-direction: row;
+                            width: 100%;
+                            height: 32px;
+                            margin-bottom: 0.5rem;
+                        }
+
+                        .rrweb-controller__bottom {
+                            width: 100%;
+                            height: 32px;
+                        }
+                    }
+                }
+
+                .player-sidebar {
+                    height: 100%;
+                    width: 100%;
+                    padding: 0;
+                    border: none;
                 }
             }
-        }
-    }
-
-    .rrweb-speed-toggle {
-        cursor: pointer;
-        margin-right: 1rem;
-    }
-
-    .rrweb-inactivity-toggle {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        white-space: nowrap;
-        cursor: pointer;
-
-        .inactivity-label {
-            font-size: 14px;
-            margin-right: var(--recording-spacing);
         }
     }
 }
 
-.ant-drawer.session-player-drawer-v2 {
+.ant-drawer.session-player-wrapper-v2 {
     .ant-drawer-body {
         padding: 0;
+
+        .session-drawer-body {
+            flex: 1;
+
+            .session-player-body {
+                max-height: calc(100vh - 2 * 48px - 2 * var(--recording-spacing));
+                flex: 1;
+
+                .player-container {
+                    padding: var(--recording-spacing) var(--recording-spacing) 0 var(--recording-spacing);
+
+                    .rrweb-player {
+                        box-shadow: 0 4px 4px 0 rgba(0, 0, 0, 0.25);
+                        border-radius: var(--radius);
+                    }
+                }
+            }
+
+            .player-controller {
+                .rrweb-controller {
+                    display: flex;
+                    width: 100%;
+                    background-color: var(--bg-light);
+                    border-radius: var(--radius);
+                    border: 1px solid var(--border);
+                    padding: 0 1rem;
+                    flex-direction: row;
+                    align-items: center;
+                    justify-content: space-around;
+                    box-sizing: border-box;
+                    height: 40px;
+                    color: black;
+
+                    .rrweb-speed-toggle {
+                        cursor: pointer;
+                        margin-right: 1rem;
+                    }
+
+                    .rrweb-inactivity-toggle {
+                        display: flex;
+                        flex-direction: row;
+                        align-items: center;
+                        white-space: nowrap;
+                        cursor: pointer;
+
+                        .inactivity-label {
+                            font-size: 14px;
+                            margin-right: var(--recording-spacing);
+                        }
+                    }
+                }
+            }
+
+            // In small screen view when player events is outside of player body
+            .player-sidebar {
+                min-width: unset;
+                max-width: unset;
+                padding: 0 var(--recording-spacing) var(--recording-spacing) var(--recording-spacing);
+                width: 100%;
+                height: 100vh;
+
+                @include screen($md) {
+                    width: 350px;
+                    height: 100%;
+                }
+            }
+        }
     }
 
     .ant-drawer-close {
         padding: 1rem;
     }
-}
-
-.ant-tabs-content {
-    height: 100%;
-}
-.ant-tabs-tabpane {
-    height: 100%;
 }

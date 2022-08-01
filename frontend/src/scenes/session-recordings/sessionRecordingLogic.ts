@@ -19,6 +19,7 @@ import {
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
+    SessionRecordingTab,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -147,6 +148,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
         loadEvents: (url?: string) => ({ url }),
+        setTab: (tab: SessionRecordingTab) => ({ tab }),
     }),
     reducers({
         filters: [
@@ -159,6 +161,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
             null as SessionRecordingId | null,
             {
                 loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
+            },
+        ],
+        tab: [
+            SessionRecordingTab.EVENTS as SessionRecordingTab,
+            {
+                setTab: (_, { tab }) => tab,
             },
         ],
         chunkPaginationIndex: [
@@ -239,6 +247,11 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                 SessionRecordingUsageType.ANALYZED,
                 10
             )
+        },
+        setTab: ({ tab }) => {
+            if (tab === SessionRecordingTab.CONSOLE) {
+                eventUsageLogic.findMounted()?.actions?.reportRecordingConsoleViewed(values.orderedConsoleLogs.length)
+            }
         },
     })),
     loaders(({ values }) => ({
