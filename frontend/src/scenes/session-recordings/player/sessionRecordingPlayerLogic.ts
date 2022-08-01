@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -11,6 +12,7 @@ import {
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
 } from './playerUtils'
+import React from 'react'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -19,14 +21,14 @@ export interface Player {
     windowId: string
 }
 
-export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>({
-    path: ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic'],
-    connect: {
+export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
+    path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
+    connect({
         logic: [eventUsageLogic],
         values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData']],
         actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess']],
-    },
-    actions: {
+    }),
+    actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
         setPlay: true,
@@ -52,8 +54,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
-    },
-    reducers: () => ({
+        handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => ({ event }),
+    }),
+    reducers(() => ({
         rootFrame: [
             null as HTMLDivElement | null,
             {
@@ -108,8 +111,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
-    }),
-    selectors: {
+    })),
+    selectors({
         currentPlayerState: [
             (selectors) => [
                 selectors.playingState,
@@ -141,8 +144,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         jumpTimeMs: [(selectors) => [selectors.speed], (speed) => 10 * 1000 * speed],
-    },
-    listeners: ({ values, actions, cache }) => ({
+    }),
+    listeners(({ values, actions, cache }) => ({
         setRootFrame: () => {
             actions.tryInitReplayer()
         },
@@ -457,14 +460,35 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 cancelAnimationFrame(cache.timer)
             }
         },
+        handleKeyDown: ({ event }) => {
+            // Don't trigger keydown evens if in input box
+            if ((event.target as HTMLInputElement)?.matches('input')) {
+                return
+            }
+            if (event.key === ' ') {
+                actions.togglePlayPause()
+                event.preventDefault()
+            } else if (event.key === 'ArrowLeft') {
+                actions.seekBackward()
+            } else if (event.key === 'ArrowRight') {
+                actions.seekForward()
+            } else {
+                // Playback speeds shortcuts
+                for (let i = 0; i < PLAYBACK_SPEEDS.length; i++) {
+                    if (event.key === (i + 1).toString()) {
+                        actions.setSpeed(PLAYBACK_SPEEDS[i])
+                    }
+                }
+            }
+        },
+    })),
+    windowValues({
+        isSmallScreen: (window: any) => window.innerWidth < getBreakpoint('md'),
     }),
-    windowValues: {
-        isSmallScreen: (window) => window.innerWidth < getBreakpoint('md'),
-    },
-    events: ({ values, actions }) => ({
+    events(({ values, actions }) => ({
         beforeUnmount: () => {
             values.player?.replayer?.pause()
             actions.setPlayer(null)
         },
-    }),
-})
+    })),
+])

@@ -1,7 +1,7 @@
 import './styles.scss'
 import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { PLAYBACK_SPEEDS, sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
@@ -15,10 +15,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
-export function SessionRecordingPlayerV2(): JSX.Element {
-    const { togglePlayPause, seekForward, seekBackward, setSpeed, setRootFrame } =
-        useActions(sessionRecordingPlayerLogic)
-    const { isSmallScreen } = useValues(sessionRecordingPlayerLogic)
+export function useFrameRef(): React.MutableRefObject<HTMLDivElement | null> {
+    const { setRootFrame } = useActions(sessionRecordingPlayerLogic)
     const frame = useRef<HTMLDivElement | null>(null)
     // Need useEffect to populate replayer on component paint
     useEffect(() => {
@@ -27,28 +25,22 @@ export function SessionRecordingPlayerV2(): JSX.Element {
         }
     }, [frame])
 
-    const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-        // Don't trigger keydown evens if in input box
-        if ((event.target as HTMLInputElement)?.matches('input')) {
-            return
-        }
-        if (event.key === ' ') {
-            togglePlayPause()
-            event.preventDefault()
-        } else if (event.key === 'ArrowLeft') {
-            seekBackward()
-        } else if (event.key === 'ArrowRight') {
-            seekForward()
-        } else {
-            // Playback speeds shortcuts
-            for (let i = 0; i < PLAYBACK_SPEEDS.length; i++) {
-                if (event.key === (i + 1).toString()) {
-                    setSpeed(PLAYBACK_SPEEDS[i])
-                }
-            }
-        }
-    }
+    return frame
+}
 
+export function SessionRecordingPlayer(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]) {
+        return <SessionRecordingPlayerV3 />
+    }
+    return <SessionRecordingPlayerV2 />
+}
+
+export function SessionRecordingPlayerV2(): JSX.Element {
+    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic)
+    const { isSmallScreen } = useValues(sessionRecordingPlayerLogic)
+    const frame = useFrameRef()
     return (
         <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
             <Row className="session-player-body" wrap={false}>
@@ -61,6 +53,24 @@ export function SessionRecordingPlayerV2(): JSX.Element {
                 <PlayerController />
             </Row>
             {isSmallScreen && <PlayerSidebar />}
+        </Col>
+    )
+}
+
+export function SessionRecordingPlayerV3(): JSX.Element {
+    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic)
+    const frame = useFrameRef()
+    return (
+        <Col className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
+            <Row className="session-player-body" wrap={false}>
+                <div className="player-container ph-no-capture">
+                    <PlayerFrame ref={frame} />
+                </div>
+            </Row>
+            <Row className="player-controller" align="middle">
+                <PlayerController />
+            </Row>
+            <PlayerSidebar />
         </Col>
     )
 }
