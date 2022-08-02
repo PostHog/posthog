@@ -120,7 +120,7 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         assert sorted([p["id"] for p in week3_actors]) == sorted(["org:1"])
 
     @snapshot_clickhouse_queries
-    def test_timezones(self, patch_feature_enabled):
+    def test_timezones(self):
         journeys_for(
             {
                 "person1": [

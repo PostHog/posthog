@@ -1214,7 +1214,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     @snapshot_clickhouse_queries
-    def test_timezones_trends(self, patch_feature_enabled):
+    def test_timezones_trends(self):
         journeys_for(
             {
                 "user_one": [

@@ -558,7 +558,7 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             self.assertEquals(sorted_results, sorted_expected)
 
         @snapshot_clickhouse_queries
-        def test_timezones(self, patch_something):
+        def test_timezones(self):
             self._create_events(
                 data=[
                     (

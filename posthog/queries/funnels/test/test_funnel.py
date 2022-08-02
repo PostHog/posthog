@@ -2253,7 +2253,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             )
 
         @snapshot_clickhouse_queries
-        def test_timezones(self, patch_feature_enabled):
+        def test_timezones(self):
             self.team.timezone = "US/Pacific"
             self.team.save()
 

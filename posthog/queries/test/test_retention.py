@@ -1014,7 +1014,7 @@ def retention_test_factory(retention):
                 )
 
         @snapshot_clickhouse_queries
-        def test_timezones(self, patch_feature_enabled):
+        def test_timezones(self):
             _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             _create_person(team_id=self.team.pk, distinct_ids=["person2"])
 
