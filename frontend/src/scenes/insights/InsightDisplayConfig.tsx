@@ -150,13 +150,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 )}
             </div>
             <div className="flex items-center space-x-2 flex-wrap mx-0 my-2">
-                {showChartFilter(activeView) && (
-                    <span className="space-x-2 flex items-center text-sm">
-                        <span className="head-title-item">Chart type</span>
-                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
-                    </span>
-                )}
-                {activeView === InsightType.TRENDS && canFormatAxis(filters.display) && (
+                {activeView === InsightType.TRENDS && (
                     <span className="space-x-2 flex items-center text-sm">
                         <span>y-axis format</span>
                         <LemonSelect
@@ -170,12 +164,20 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             dropdownPlacement={'bottom-end'}
                             dropdownMatchSelectWidth={false}
                             data-attr="chart-y-axis-format"
+                            disabled={!canFormatAxis(filters.display)}
                             options={yAxisFormatSelectOptions}
                             type={'stealth'}
                             size={'small'}
                         />
                     </span>
                 )}
+                {showChartFilter(activeView) && (
+                    <span className="space-x-2 flex items-center text-sm">
+                        <span className="head-title-item">Chart type</span>
+                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
+                    </span>
+                )}
+
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <span className="space-x-2 flex items-center text-sm">

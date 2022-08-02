@@ -1,5 +1,5 @@
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { compactNumber, humanFriendlyDuration } from 'lib/utils'
+import { compactNumber, humanFriendlyDuration, percentage } from 'lib/utils'
 import { ChartDisplayType } from '~/types'
 
 const formats = ['numeric', 'duration', 'percentage'] as const
@@ -13,18 +13,12 @@ export const yAxisFormatSelectOptions = formats.reduce((target, format) => {
     return target
 }, {} as LemonSelectOptions)
 
-const toPercentage = (value: number | string): string => {
-    const numVal = Number(value)
-    const fixedValue = numVal < 1 ? numVal.toFixed(2) : numVal.toFixed(0)
-    return `${fixedValue}%`
-}
-
 export const formatYAxisValue = (yAxisFormat: YAxisFormat, value: number | string): string => {
     switch (yAxisFormat) {
         case 'duration':
             return humanFriendlyDuration(value)
         case 'percentage':
-            return toPercentage(value)
+            return percentage(Number(value) / 100)
         case 'numeric': // numeric is default
         default:
             return compactNumber(Number(value))
