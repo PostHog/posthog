@@ -208,7 +208,12 @@ export class EventsProcessor {
         let personInfo: IngestionPersonData | undefined = await personContainer.get()
 
         if (personInfo) {
-            eventPersonProperties = JSON.stringify(personInfo.properties)
+            eventPersonProperties = JSON.stringify({
+                ...personInfo.properties,
+                // For consistency, we'd like events to contain the properties that they set, even if those were changed
+                // before the event is ingested.
+                ...(properties.$set || {}),
+            })
         } else {
             personInfo = await this.db.getPersonData(teamId, distinctId)
             if (personInfo) {

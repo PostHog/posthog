@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { Hub, PreIngestionEvent } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
+import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
@@ -38,6 +39,8 @@ afterEach(async () => {
 })
 
 describe('EventsProcessor#createEvent()', () => {
+    let personContainer: LazyPersonContainer
+
     const eventUuid = new UUIDT().toString()
     const personUuid = new UUIDT().toString()
     const timestamp = '2020-02-23T02:15:00.000Z'
@@ -51,19 +54,23 @@ describe('EventsProcessor#createEvent()', () => {
         event: '$pageview',
         properties: { event: 'property' },
         elementsList: [],
-        person: {
+    }
+
+    beforeEach(() => {
+        personContainer = new LazyPersonContainer(2, 'my_id', hub)
+        personContainer.set({
             uuid: personUuid,
             properties: { foo: 'bar' },
             team_id: 1,
             id: 1,
             created_at: DateTime.fromISO(timestamp).toUTC(),
-        },
-    }
+        } as any)
+    })
 
     it('emits event with person columns, re-using event properties', async () => {
         jest.spyOn(eventsProcessor.db, 'getPersonData')
 
-        const result = await eventsProcessor.createEvent(preIngestionEvent)
+        const result = await eventsProcessor.createEvent(preIngestionEvent, personContainer)
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -109,7 +116,10 @@ describe('EventsProcessor#createEvent()', () => {
             1
         )
 
-        await eventsProcessor.createEvent({ ...preIngestionEvent, properties: { $group_0: 'group_key' } })
+        await eventsProcessor.createEvent(
+            { ...preIngestionEvent, properties: { $group_0: 'group_key' } },
+            personContainer
+        )
 
         const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
         expect(events.length).toEqual(1)
@@ -145,12 +155,14 @@ describe('EventsProcessor#createEvent()', () => {
             ['my_id']
         )
 
-        const result = await eventsProcessor.createEvent({
-            ...preIngestionEvent,
+        await eventsProcessor.createEvent(
+            {
+                ...preIngestionEvent,
+                properties: { $set: { a: 1 } },
+            },
             // :TRICKY: We pretend the person has been updated in-between processing and creating the event
-            properties: { $set: { a: 1 } },
-            person: undefined,
-        })
+            new LazyPersonContainer(2, 'my_id', hub)
+        )
 
         await eventsProcessor.kafkaProducer.flush()
 
@@ -164,21 +176,10 @@ describe('EventsProcessor#createEvent()', () => {
                 person_properties: { foo: 'bar', a: 1 },
             })
         )
-        expect(result.person).toEqual({
-            id: expect.any(Number),
-            properties: { foo: 'bar', a: 2 },
-            team_id: 2,
-            uuid: personUuid,
-            created_at: DateTime.fromISO(timestamp).toUTC(),
-        })
-        expect(jest.mocked(eventsProcessor.db.getPersonData)).toHaveBeenCalledWith(2, 'my_id')
     })
 
     it('handles the person no longer existing', async () => {
-        const result = await eventsProcessor.createEvent({
-            ...preIngestionEvent,
-            person: undefined,
-        })
+        await eventsProcessor.createEvent(preIngestionEvent, new LazyPersonContainer(2, 'my_id', hub))
         await eventsProcessor.kafkaProducer.flush()
 
         const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
@@ -191,7 +192,5 @@ describe('EventsProcessor#createEvent()', () => {
                 person_properties: '',
             })
         )
-
-        expect(result.person).toEqual(undefined)
     })
 })
