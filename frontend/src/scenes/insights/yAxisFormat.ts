@@ -1,5 +1,6 @@
-export type YAxisFormat = 'numeric' | 'duration' | 'percentage'
+const formats = ['numeric', 'duration', 'percentage'] as const
+export type YAxisFormat = typeof formats[number]
 
 export const isYAxisFormat = (candidate: unknown): candidate is YAxisFormat => {
-    return typeof candidate === 'string' && ['numeric', 'duration', 'percentage'].includes(candidate)
+    return formats.includes(candidate as YAxisFormat)
 }
