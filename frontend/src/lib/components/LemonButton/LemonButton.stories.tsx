@@ -6,11 +6,14 @@ import {
     LemonButtonWithPopup,
     LemonButtonWithPopupProps,
     LemonButtonWithSideAction,
-    LemonButtonWithSideActionProps,
 } from './LemonButton'
 import { IconCalculate, IconInfo, IconPlus } from '../icons'
 import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
+import { capitalizeFirstLetter } from 'lib/utils'
+
+const statuses: LemonButtonProps['status'][] = [undefined, 'danger', 'highlighted', 'muted', 'success', 'warning']
+const types: LemonButtonProps['type'][] = ['default', 'primary', 'secondary', 'tertiary', 'stealth', 'alt']
 
 export default {
     title: 'Lemon UI/Lemon Button',
@@ -29,133 +32,112 @@ const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonPro
     return <LemonButton {...props} />
 }
 
-const PopupTemplate: ComponentStory<typeof LemonButtonWithPopup> = (props: LemonButtonWithPopupProps) => {
-    return <LemonButtonWithPopup {...props} />
+export const Default = BasicTemplate.bind({})
+Default.args = {}
+
+const StatusesComponent = ({ noText, ...props }: Partial<LemonButtonProps> & { noText?: boolean }): JSX.Element => {
+    return (
+        <div className="flex gap-2 border rounded-lg p-2">
+            {statuses.map((status, j) => (
+                <LemonButton key={j} status={status} icon={<IconCalculate />} {...props}>
+                    {!noText ? capitalizeFirstLetter(status || 'default') : undefined}
+                </LemonButton>
+            ))}
+        </div>
+    )
 }
 
-const SideActionTemplate: ComponentStory<typeof LemonButtonWithSideAction> = (
-    props: LemonButtonWithSideActionProps
-) => {
-    return <LemonButtonWithSideAction {...props} />
+const TypesAndStatusesComponent = ({
+    noText,
+    ...props
+}: Partial<LemonButtonProps> & { noText?: boolean }): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            {types.map((type) => (
+                <>
+                    <h5>type={capitalizeFirstLetter(type || '')}</h5>
+                    <StatusesComponent {...props} type={type} noText={noText} />
+                </>
+            ))}
+        </div>
+    )
+}
+
+export const TypesAndStatuses = (): JSX.Element => {
+    return <TypesAndStatusesComponent />
+}
+
+const PopupTemplate: ComponentStory<typeof LemonButtonWithPopup> = (props: LemonButtonWithPopupProps) => {
+    return <LemonButtonWithPopup {...props} />
 }
 
 const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
     return <More {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
-Default.args = {}
-
-export const TextOnly = BasicTemplate.bind({})
-TextOnly.args = {
-    icon: null,
+export const IconOnly = (): JSX.Element => {
+    return <StatusesComponent noText />
 }
 
-export const IconOnly = BasicTemplate.bind({})
-IconOnly.args = {
-    children: null,
+export const Sizes = (): JSX.Element => {
+    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large', 'tall']
+
+    return (
+        <div className="space-y-2">
+            {sizes.map((size) => (
+                <>
+                    <h5>size={size}</h5>
+                    <StatusesComponent size={size} type="primary" />
+                </>
+            ))}
+        </div>
+    )
 }
 
-export const Primary = BasicTemplate.bind({})
-Primary.args = {
-    type: 'primary',
+export const Disabled = (): JSX.Element => {
+    return <StatusesComponent disabled />
 }
 
-export const Secondary = BasicTemplate.bind({})
-Secondary.args = {
-    type: 'secondary',
+export const Loading = (): JSX.Element => {
+    return <StatusesComponent loading />
 }
 
-export const Tertiary = BasicTemplate.bind({})
-Tertiary.args = {
-    type: 'tertiary',
+export const WithSideIcon = (): JSX.Element => {
+    return <StatusesComponent sideIcon={<IconInfo />} />
 }
 
-export const Stealth = BasicTemplate.bind({})
-Stealth.args = {
-    type: 'stealth',
+export const FullWidth = (): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <LemonButton fullWidth>Full Width</LemonButton>
+            <LemonButton type="primary" fullWidth>
+                Full Width
+            </LemonButton>
+            <LemonButton type="secondary" fullWidth icon={<IconCalculate />}>
+                Full Width
+            </LemonButton>
+        </div>
+    )
 }
 
-export const Highlighted = BasicTemplate.bind({})
-Highlighted.args = {
-    type: 'highlighted',
-}
-
-export const Alt = BasicTemplate.bind({})
-Alt.args = {
-    type: 'alt',
-}
-
-export const WithInternalLink = BasicTemplate.bind({})
-WithInternalLink.args = {
-    to: '/home',
-}
-
-export const WithExternalLink = BasicTemplate.bind({})
-WithExternalLink.args = {
-    href: 'https://example.com/',
-}
-
-export const Success = BasicTemplate.bind({})
-Success.args = {
-    status: 'success',
-}
-
-export const Warning = BasicTemplate.bind({})
-Warning.args = {
-    status: 'warning',
-}
-
-export const Danger = BasicTemplate.bind({})
-Danger.args = {
-    status: 'danger',
-}
-
-export const Disabled = BasicTemplate.bind({})
-Disabled.args = {
-    disabled: true,
-}
-
-export const Loading = BasicTemplate.bind({})
-Loading.args = {
-    loading: true,
-}
-
-export const Small = BasicTemplate.bind({})
-Small.args = {
-    size: 'small',
-}
-
-export const Large = BasicTemplate.bind({})
-Large.args = {
-    size: 'large',
-}
-
-export const FullWidth = BasicTemplate.bind({})
-FullWidth.args = {
-    fullWidth: true,
-}
-
-export const WithSideIcon = BasicTemplate.bind({})
-WithSideIcon.args = {
-    sideIcon: <IconInfo />,
-}
-
-export const WithSideAction = SideActionTemplate.bind({}) // FIXME: This one's too wide
-WithSideAction.args = {
-    sideAction: {
-        icon: <IconPlus />,
-        tooltip: 'Create new',
-    },
-}
-
-export const FullWidthWithSideAction = SideActionTemplate.bind({})
-FullWidthWithSideAction.args = {
-    fullWidth: true,
-    sideAction: {
-        icon: <IconPlus />,
-        tooltip: 'Create new',
-    },
+export const WithSideAction = (): JSX.Element => {
+    return (
+        <div className="flex items-center gap-2">
+            {statuses.map((status, i) => (
+                <LemonButtonWithSideAction
+                    key={i}
+                    sideAction={{
+                        icon: <IconPlus />,
+                        tooltip: 'Create new',
+                        onClick: () => alert('Side action!'),
+                    }}
+                    status={status}
+                >
+                    {capitalizeFirstLetter(status || 'Default')}
+                </LemonButtonWithSideAction>
+            ))}
+        </div>
+    )
 }
 
 export const WithPopupToTheRight = PopupTemplate.bind({})
