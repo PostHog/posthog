@@ -81,6 +81,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             insightNumericId={insight.id}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
+            aggregationAxisFormat={insight.filters?.aggregation_axis_format}
             onClick={
                 !showPersonsModal || insight.filters?.formula
                     ? undefined
