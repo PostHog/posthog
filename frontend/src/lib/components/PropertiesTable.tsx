@@ -274,7 +274,7 @@ export function PropertiesTable({
         return Object.keys(properties).length > 0 ? (
             <>
                 {searchable && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                    <div className="flex justify-between gap-4">
                         <Input.Search
                             placeholder="Search for property keys and values"
                             className="mb-4"

@@ -1,6 +1,6 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
-import { Col, Popover, Row, Typography } from 'antd'
+import { Popover, Typography } from 'antd'
 import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -604,14 +604,12 @@ export function PropertyKeyDescription({
                 </p>
             ) : null}
             {data.description || data.examples ? <hr /> : null}
-            <Row align={'middle'}>
-                <Col flex="1 1 75%" style={{ padding: '4px 0px' }}>
-                    Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
-                </Col>
-                <Col flex="1 0 25%" style={{ padding: '4px 0px' }}>
-                    {propertyType && <div className="property-value-type">{propertyType}</div>}
-                </Col>
-            </Row>
+            <div>
+                <span>
+                    Sent as <code className="p-1">{value}</code>
+                </span>
+                <span>{propertyType && <div className="property-value-type">{propertyType}</div>}</span>
+            </div>
         </span>
     )
 }

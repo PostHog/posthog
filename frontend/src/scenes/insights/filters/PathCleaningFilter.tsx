@@ -37,8 +37,8 @@ export function PathCleaningFilter(): JSX.Element {
             <Row align="middle" justify="space-between" style={{ paddingLeft: 0 }}>
                 <Popup
                     visible={open}
-                    placement={'bottom-end'}
-                    fallbackPlacements={['bottom-start']}
+                    placement={'top-end'}
+                    fallbackPlacements={['top-start']}
                     onClickOutside={() => setOpen(false)}
                     overlay={
                         <PathRegexPopup
