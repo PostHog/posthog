@@ -154,6 +154,10 @@ export const keyMapping: KeyMappingInterface = {
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
         },
+        $enabled_feature_flags: {
+            label: 'Enabled Feature Flags',
+            description: 'Object of the feature flags that were active while this event was sent.',
+        },
         $feature_flag_response: {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',
@@ -523,6 +527,61 @@ export const keyMapping: KeyMappingInterface = {
                 </span>
             ),
             examples: ['01:04:12'],
+        },
+        $app_build: {
+            label: 'App Build',
+            description: 'The build number for the app',
+        },
+        $app_name: {
+            label: 'App Name',
+            description: 'The name of the app',
+        },
+        $app_namespace: {
+            label: 'App Namespace',
+            description: 'The namespace of the app as identified in the app store',
+            examples: ['com.posthog.app'],
+        },
+        $app_version: {
+            label: 'App Version',
+            description: 'The version of the app',
+        },
+        $device_manufacturer: {
+            label: 'Device Manufacturer',
+            description: 'The manufacturer of the device',
+            examples: ['Apple', 'Samsung'],
+        },
+        $device_name: {
+            label: 'Device Name',
+            description: 'Name of the device',
+            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
+        },
+        $locale: {
+            label: 'Locale',
+            description: 'The locale of the device',
+            examples: ['en-US', 'de-DE'],
+        },
+        $os_name: {
+            label: 'OS Name',
+            description: 'The Operating System name',
+            examples: ['iOS', 'Android'],
+        },
+        $os_version: {
+            label: 'OS Version',
+            description: 'The Operating System version',
+            examples: ['15.5'],
+        },
+        $timezone: {
+            label: 'Timezone',
+            description: 'The timezone as reported by the device',
+        },
+
+        $touch_x: {
+            label: 'Touch X',
+            description: 'The location of a Touch event on the X axis',
+        },
+        $touch_y: {
+            label: 'Touch Y',
+            description: 'The location of a Touch event on the Y axis',
         },
     },
     element: {
