@@ -308,13 +308,13 @@ def async_migration_from_starting_to_running_atomic(migration_instance: AsyncMig
     return True
 
 
-def async_migration_from_starting_to_not_started_atomic(migration_instance: AsyncMigration) -> bool:
-    # update to not started iff the state was Starting
+def async_migration_from_starting_to_rolled_back_atomic(migration_instance: AsyncMigration) -> bool:
+    # update to RolledBack (which blocks starting a migration) iff the state was Starting
     with transaction.atomic():
         instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
         if instance.status != MigrationStatus.Starting:
             return False
-        instance.status = MigrationStatus.NotStarted
+        instance.status = MigrationStatus.RolledBack
         instance.save()
     return True
 

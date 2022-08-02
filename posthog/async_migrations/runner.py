@@ -58,7 +58,7 @@ def start_async_migration(
         not migration_instance
         or over_concurrent_migrations_limit
         or not posthog_version_valid
-        or migration_instance.status != MigrationStatus.Starting
+        or migration_instance.status not in [MigrationStatus.Starting, MigrationStatus.NotStarted]
     ):
         logger.error(f"Initial check failed for async migration {migration_name}")
         return False

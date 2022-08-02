@@ -5,7 +5,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
 from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.utils import (
-    async_migration_from_starting_to_not_started_atomic,
+    async_migration_from_starting_to_rolled_back_atomic,
     force_stop_migration,
     rollback_migration,
     trigger_migration,
@@ -130,7 +130,7 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
     def _force_stop(self, rollback: bool):
         migration_instance = self.get_object()
         if migration_instance.status == MigrationStatus.Starting:
-            if async_migration_from_starting_to_not_started_atomic(migration_instance):
+            if async_migration_from_starting_to_rolled_back_atomic(migration_instance):
                 return response.Response({"success": True}, status=200)
         if migration_instance.status != MigrationStatus.Running:
             return response.Response(
