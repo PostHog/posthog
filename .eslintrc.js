@@ -80,6 +80,26 @@ module.exports = {
                 ],
             },
         ],
+        'react/forbid-elements': [
+            1,
+            {
+                forbid: [
+                    {
+                        element: 'Row',
+                        message:
+                            'use flex utility classes instead e.g. <Row align="middle"> could be <div className="flex items-center">',
+                    },
+                    {
+                        element: 'Col',
+                        message: 'use flex utility classes instead. Most of the time can simply be a plain <div>',
+                    },
+                    {
+                        element: 'Button',
+                        message: 'use <LemonButton> instead',
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {
