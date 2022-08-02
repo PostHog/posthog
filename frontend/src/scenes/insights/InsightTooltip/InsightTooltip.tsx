@@ -17,7 +17,7 @@ import { IconHandClick } from 'lib/components/icons'
 import { shortTimeZone } from 'lib/utils'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useValues } from 'kea'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -41,6 +41,24 @@ export function ClickToInspectActors({
     )
 }
 
+function renderDatumToTableCell(
+    datumMathProperty: string | undefined,
+    datumValue: number,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
+    renderCount: (value: number) => React.ReactNode
+): ReactNode {
+    let innerValue = datumMathProperty
+        ? formatPropertyValueForDisplay(datumMathProperty, datumValue)
+        : renderCount(datumValue ?? 0)
+
+    if (datumMathProperty && innerValue === datumValue.toString()) {
+        // formatPropertyValueForDisplay didn't change the value...
+        innerValue = renderCount(datumValue ?? 0)
+    }
+
+    return <div className="series-data-cell">{innerValue}</div>
+}
+
 export function InsightTooltip({
     date,
     timezone = 'UTC',
@@ -54,7 +72,7 @@ export function InsightTooltip({
         </>
     ),
     renderCount = (value: number) => {
-        return <>{typeof value === 'number' ? humanFriendlyNumber(value) : value}</>
+        return <>{humanFriendlyNumber(value)}</>
     },
     hideColorCol = false,
     hideInspectActorsSection = false,
@@ -123,14 +141,12 @@ export function InsightTooltip({
                                     colIdx
                                 )),
                         render: function renderSeriesColumnData(_, datum) {
-                            const innerValue = datum.seriesData?.[colIdx]?.action?.math_property
-                                ? formatPropertyValueForDisplay(
-                                      datum.seriesData?.[colIdx]?.action?.math_property,
-                                      datum.seriesData?.[colIdx]?.count
-                                  )
-                                : renderCount(datum.seriesData?.[colIdx]?.count ?? 0)
-
-                            return <div className="series-data-cell">{innerValue}</div>
+                            return renderDatumToTableCell(
+                                datum.seriesData?.[colIdx]?.action?.math_property,
+                                datum.seriesData?.[colIdx]?.count,
+                                formatPropertyValueForDisplay,
+                                renderCount
+                            )
                         },
                     })
                 })
@@ -186,14 +202,15 @@ export function InsightTooltip({
             key: 'counts',
             className: 'datum-counts-column',
             width: 50,
-            title: <span style={{ whiteSpace: 'nowrap' }}>{rightTitle ?? undefined}</span>,
+            title: <span className="whitespace-nowrap">{rightTitle ?? undefined}</span>,
             align: 'right',
             render: function renderDatum(_, datum) {
-                const innerValue = datum.action?.math_property
-                    ? formatPropertyValueForDisplay(datum.action?.math_property, datum.count)
-                    : renderCount(datum.count ?? 0)
-
-                return <div className="series-data-cell">{innerValue}</div>
+                return renderDatumToTableCell(
+                    datum.action?.math_property,
+                    datum.count,
+                    formatPropertyValueForDisplay,
+                    renderCount
+                )
             },
         })
 
