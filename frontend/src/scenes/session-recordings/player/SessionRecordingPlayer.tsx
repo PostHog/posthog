@@ -5,8 +5,6 @@ import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerControllerV2, PlayerControllerV3 } from 'scenes/session-recordings/player/PlayerController'
 import { Col, Row } from 'antd'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerSidebarV2, PlayerSidebarV3 } from 'scenes/session-recordings/player/PlayerSidebar'
 
@@ -21,15 +19,6 @@ export function useFrameRef(): React.MutableRefObject<HTMLDivElement | null> {
     }, [frame])
 
     return frame
-}
-
-export function SessionRecordingPlayer(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]) {
-        return <SessionRecordingPlayerV3 />
-    }
-    return <SessionRecordingPlayerV2 />
 }
 
 export function SessionRecordingPlayerV2(): JSX.Element {

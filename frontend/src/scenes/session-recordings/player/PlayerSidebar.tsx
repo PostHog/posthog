@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { PlayerMeta } from 'scenes/session-recordings/player/PlayerMeta'
+import { PlayerMetaV2 } from 'scenes/session-recordings/player/PlayerMeta'
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -21,7 +21,7 @@ export function PlayerSidebarV2(): JSX.Element {
     return (
         <Col className="player-sidebar">
             <div className="player-meta">
-                <PlayerMeta />
+                <PlayerMetaV2 />
             </div>
             <div className="player-events">
                 {!sessionConsoleEnabled ? (

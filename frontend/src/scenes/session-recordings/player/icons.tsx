@@ -2,7 +2,13 @@
 
 import React, { CSSProperties } from 'react'
 import { RedoOutlined, UndoOutlined } from '@ant-design/icons'
+import clsx from 'clsx'
 
+interface IconProps {
+    onClick?: () => void
+    style?: CSSProperties
+    className?: string
+}
 function BaseIcon({
     children,
     onClick = () => {},
@@ -10,10 +16,7 @@ function BaseIcon({
     style = {},
 }: {
     children: JSX.Element
-    onClick?: () => void
-    className?: string
-    style?: CSSProperties
-}): JSX.Element {
+} & IconProps): JSX.Element {
     return (
         <div onClick={onClick} className={`rrweb-controller-icon ${className}`} style={style}>
             {children}
@@ -26,10 +29,8 @@ export function IconSeekBack({
     time,
     style,
 }: {
-    onClick: () => void
     time: number
-    style?: CSSProperties
-}): JSX.Element {
+} & IconProps): JSX.Element {
     return (
         <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
             <>
@@ -45,10 +46,8 @@ export function IconSeekForward({
     time,
     style,
 }: {
-    onClick: () => void
     time: number
-    style?: CSSProperties
-}): JSX.Element {
+} & IconProps): JSX.Element {
     return (
         <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
             <>
@@ -59,15 +58,7 @@ export function IconSeekForward({
     )
 }
 
-export function IconPlay({
-    onClick,
-    style,
-    className = '',
-}: {
-    onClick?: () => void
-    style?: CSSProperties
-    className?: string
-}): JSX.Element {
+export function IconPlay({ onClick, style, className = '' }: IconProps): JSX.Element {
     return (
         <BaseIcon onClick={onClick} className={className} style={style}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -77,15 +68,7 @@ export function IconPlay({
     )
 }
 
-export function IconPause({
-    onClick,
-    style,
-    className = '',
-}: {
-    onClick?: () => void
-    style?: CSSProperties
-    className?: string
-}): JSX.Element {
+export function IconPause({ onClick, style, className = '' }: IconProps): JSX.Element {
     return (
         <BaseIcon onClick={onClick} className={className} style={style}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -95,5 +78,31 @@ export function IconPause({
                 />
             </svg>
         </BaseIcon>
+    )
+}
+
+export function IconWindow({
+    onClick,
+    style,
+    windowNumber,
+    className = '',
+}: { windowNumber: number } & IconProps): JSX.Element {
+    return (
+        <div onClick={onClick} className={clsx('icon-window', className)} style={style}>
+            <span className="icon-window-number">{windowNumber}</span>
+            <svg
+                className="icon-window-icon"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+            >
+                <path
+                    d="M19 4H5C3.89 4 3 4.9 3 6V18C3 19.1 3.89 20 5 20H19C20.1 20 21 19.1 21 18V6C21 4.9 20.11 4 19 4ZM19 18H5V8H19V18Z"
+                    fill="currentColor"
+                />
+            </svg>
+        </div>
     )
 }

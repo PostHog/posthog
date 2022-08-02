@@ -1,7 +1,10 @@
 .tz-label {
-    border-bottom: 1px dotted var(--border-dark);
-    cursor: default;
     white-space: nowrap;
+
+    &.tz-label--hoverable {
+        border-bottom: 1px dotted var(--border-dark);
+        cursor: default;
+    }
 }
 
 .tz-label-popover {

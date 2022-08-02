@@ -26,6 +26,13 @@
     font-size: 18px; // 2/3 of width/height in the smallest size, 1/2 in the biggest, interpolated in between
     user-select: none;
 
+    &.xxl {
+        width: 48px;
+        height: 48px;
+        line-height: 48px;
+        font-size: 20px;
+    }
+
     &.xl {
         width: 40px;
         height: 40px;

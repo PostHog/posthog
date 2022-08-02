@@ -1,13 +1,16 @@
 import React from 'react'
 import { Drawer } from 'lib/components/Drawer'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import {
+    SessionRecordingPlayerV2,
+    SessionRecordingPlayerV3,
+} from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { Button, Col, Modal, Row } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { IconClose } from 'lib/components/icons'
 import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { PlayerMeta } from 'scenes/session-recordings/player/PlayerMeta'
+import { PlayerMetaV3 } from 'scenes/session-recordings/player/PlayerMeta'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
@@ -22,7 +25,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
         return (
             <Modal
                 className="session-player-wrapper-v3"
-                title={<PlayerMeta />}
+                title={<PlayerMetaV3 />}
                 visible
                 destroyOnClose
                 closeIcon={<IconClose />}
@@ -30,7 +33,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                 footer={null}
             >
                 <Col className="session-drawer-body">
-                    <SessionRecordingPlayer />
+                    <SessionRecordingPlayerV3 />
                 </Col>
             </Modal>
         )
@@ -65,7 +68,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                     </div>
                 </Row>
                 <Row className="session-drawer-body">
-                    <SessionRecordingPlayer />
+                    <SessionRecordingPlayerV2 />
                 </Row>
             </Col>
         </Drawer>
