@@ -167,7 +167,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             }
                             onChange={(value) => {
                                 if (isAggregationAxisFormat(value)) {
-                                    setFilters({ aggregation_axis_format: value })
+                                    setFilters({ ...filters, aggregation_axis_format: value })
                                 }
                             }}
                             bordered
