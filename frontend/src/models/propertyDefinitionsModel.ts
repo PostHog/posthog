@@ -11,7 +11,6 @@ export interface PropertySelectOption extends SelectOption {
 }
 
 export interface PropertyDefinitionStorage {
-    count: number
     next: null | string
     results: PropertyDefinition[]
 }
@@ -67,7 +66,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
                     const propertyStorage = await api.get(url)
                     breakpoint()
                     return {
-                        count: propertyStorage.count,
                         results: [...values.propertyStorage.results, ...propertyStorage.results],
                         next: propertyStorage.next,
                     }
@@ -80,7 +78,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
             { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
             {
                 updatePropertyDefinition: (state, { property }) => ({
-                    count: state.count,
                     results: state.results.map((p) => (property.id === p.id ? property : p)),
                     next: state.next,
                 }),

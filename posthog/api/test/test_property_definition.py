@@ -46,7 +46,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def test_list_property_definitions(self):
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS))
+        self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
         self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS))
 
@@ -58,7 +58,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     def test_list_numerical_property_definitions(self):
         response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(len(response.json()["results"]), 3)
 
         self.assertEqual(len(response.json()["results"]), 3)
         properties = sorted([_i["name"] for _i in response.json()["results"]])
@@ -72,7 +72,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 308)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
         self.assertEqual(response.json()["results"][0]["name"], "$browser")  # Order by name (ascending)
 
@@ -87,7 +86,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response = self.client.get(response.json()["next"])
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(response.json()["count"], 308)
             self.assertEqual(
                 len(response.json()["results"]), 100 if i < 2 else 8,
             )  # Each page has 100 except the last one
@@ -115,12 +113,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(response_data["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(len(response_data["results"]), 2)  # first_visit, is_first_movie
 
         # Fuzzy search
         response = self.client.get("/api/projects/@current/property_definitions/?search=p ting")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["is_event_property"], None)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["app_rating"])
@@ -128,7 +126,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         # Handles URL encoding properly
         response = self.client.get("/api/projects/@current/property_definitions/?search=%24cur")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(len(response.json()["results"]), 1)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["$current_url"])
 
@@ -137,7 +135,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             "/api/projects/@current/property_definitions/?search=%24&event_names=%5B%22%24pageview%22%5D"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(len(response.json()["results"]), 2)
         self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(response.json()["results"][0]["is_event_property"], True)
         self.assertEqual(response.json()["results"][1]["name"], "$current_url")
@@ -147,25 +145,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/property_definitions/?search=hase%20")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(len(response.json()["results"]), 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["purchase", "purchase_value"])
 
     def test_is_event_property_filter(self):
         response = self.client.get("/api/projects/@current/property_definitions/?search=firs")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)  # first_visit, is_first_movie
+        self.assertEqual(len(response.json()["results"]), 2)  # first_visit, is_first_movie
 
         response = self.client.get(
             "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=true"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["name"], "first_visit")
 
         response = self.client.get(
             "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=false"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["name"], "is_first_movie")

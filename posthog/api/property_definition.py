@@ -1,6 +1,6 @@
 import json
 from collections import OrderedDict
-from typing import Type
+from typing import Optional, Type
 
 from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
@@ -95,11 +95,18 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
             },
         }
 
-    def get_next_link(self):
+    def get_next_link(self) -> Optional[str]:
+        if self.request is None or self.limit is None:
+            return None
+
         url = self.request.build_absolute_uri()
         url = replace_query_param(url, self.limit_query_param, self.limit)
 
-        offset = self.offset + self.limit
+        if self.offset is None:
+            offset = self.limit
+        else:
+            offset = self.offset + self.limit
+
         return replace_query_param(url, self.offset_query_param, offset)
 
     def get_html_context(self):
