@@ -90,9 +90,9 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
 
     return (
         <div className="display-config-inner">
-            <div className="display-config-inner-row">
+            <div className="flex items-center space-x-2 flex-wrap mx-0 my-2">
                 {showDateFilter[activeView] && !disableTable && (
-                    <span className="filter">
+                    <span className="space-x-2 flex items-center text-sm">
                         <span className="head-title-item">Date range</span>
                         <InsightDateFilter
                             defaultValue={'Last 7 days'}
@@ -112,7 +112,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 )}
 
                 {showIntervalFilter(activeView, filters) && (
-                    <span className="filter">
+                    <span className="space-x-2 flex items-center text-sm">
                         <span className="head-title-item">
                             <span className="hide-lte-md">grouped </span>by
                         </span>
@@ -125,38 +125,40 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 !filters.compare &&
                 (!filters.display || filters.display === ChartDisplayType.ActionsLineGraph) &&
                 featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL] ? (
-                    <SmoothingFilter />
+                    <span className="space-x-2 flex items-center text-sm">
+                        <SmoothingFilter />
+                    </span>
                 ) : null}
 
                 {activeView === InsightType.RETENTION && (
-                    <>
+                    <span className="space-x-2 flex items-center text-sm">
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
-                    </>
+                    </span>
                 )}
 
                 {showPathOptions && (
-                    <span className="filter">
+                    <span className="space-x-2 flex items-center text-sm">
                         <PathStepPicker />
                     </span>
                 )}
 
                 {showComparePrevious[activeView] && (
-                    <span className="filter">
+                    <span className="space-x-2 flex items-center text-sm">
                         <CompareFilter />
                     </span>
                 )}
             </div>
-            <div className="display-config-inner-row">
+            <div className="flex items-center space-x-2 flex-wrap mx-0 my-2">
                 {showChartFilter(activeView) && (
-                    <span className="filter">
+                    <span className="space-x-2 flex items-center text-sm">
                         <span className="head-title-item">Chart type</span>
                         <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
                     </span>
                 )}
                 {activeView === InsightType.TRENDS && (
-                    <span className="filter">
-                        <span className="head-title-item">y-axis format</span>
+                    <span className="space-x-2 flex items-center text-sm">
+                        <span>y-axis format</span>
                         <LemonSelect
                             value={filters.y_axis_format || 'numeric'}
                             onChange={(value) => {
@@ -176,13 +178,13 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
-                        <span className="filter">
+                        <span className="space-x-2 flex items-center text-sm">
                             <FunnelDisplayLayoutPicker />
                         </span>
                     </>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
-                    <span className="filter">
+                    <span className="space-x-2 flex items-center text-sm">
                         <FunnelBinsPicker />
                     </span>
                 )}
