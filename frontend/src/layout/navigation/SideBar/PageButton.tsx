@@ -31,7 +31,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
     return sideAction ? (
         <LemonButtonWithSideAction
             fullWidth
-            type={'stealth'}
+            type={isActive ? 'default' : 'stealth'}
             active={isActive}
             onClick={hideSideBarMobile}
             sideAction={{
@@ -42,18 +42,18 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             {...buttonProps}
         >
-            {title || sceneConfigurations[identifier].name}
+            <span className="text-default">{title || sceneConfigurations[identifier].name}</span>
         </LemonButtonWithSideAction>
     ) : (
         <LemonButton
             fullWidth
-            type={'stealth'}
+            type={isActive ? 'default' : 'stealth'}
             active={isActive}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             onClick={hideSideBarMobile}
             {...buttonProps}
         >
-            <span className="grow">{title || sceneConfigurations[identifier].name}</span>
+            <span className="text-default grow">{title || sceneConfigurations[identifier].name}</span>
             {highlight === 'beta' ? (
                 <LemonTag type="warning" className="ml-1 float-right">
                     Beta
