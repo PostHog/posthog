@@ -68,6 +68,18 @@ module.exports = {
                 ],
             },
         ],
+        'react/forbid-dom-props': [
+            1,
+            {
+                forbid: [
+                    {
+                        propName: 'style',
+                        message:
+                            'style should be avoided in favor of utility CSS classes - see https://storybook.posthog.net/?path=/docs/lemon-ui-utilities--overview',
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {
