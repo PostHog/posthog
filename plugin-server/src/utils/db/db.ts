@@ -893,6 +893,7 @@ export class DB {
                 posthog_person.properties_last_updated_at,
                 posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
+                posthog_person.version,
                 posthog_person.is_identified
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
