@@ -58,6 +58,7 @@ export const keyMapping: KeyMappingInterface = {
                 'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
+
         $screen_height: {
             label: 'Screen Height',
             description: "The height of the user's entire screen (in pixels).",
@@ -67,6 +68,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Screen Width',
             description: "The width of the user's entire screen (in pixels).",
             examples: ['1440', '1920'],
+        },
+        $screen_name: {
+            label: 'Screen Name',
+            description: 'The name of the active screen.',
         },
         $viewport_height: {
             label: 'Viewport Height',
