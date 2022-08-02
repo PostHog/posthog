@@ -19,7 +19,7 @@ import {
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
-import { areObjectValuesEmpty, compactNumber, humanFriendlyDuration, lightenDarkenColor, mapRange } from '~/lib/utils'
+import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -32,7 +32,7 @@ import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtil
 import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { YAxisFormat } from 'scenes/insights/yAxisFormat'
+import { formatYAxisValue, YAxisFormat } from 'scenes/insights/yAxisFormat'
 
 //--Chart Style Options--//
 if (registerables) {
@@ -82,12 +82,6 @@ export const LineGraph = (props: LineGraphProps): JSX.Element => {
             <LineGraph_ {...props} />
         </ErrorBoundary>
     )
-}
-
-function toPercentage(value: number | string): string {
-    const numVal = Number(value)
-    const fixedValue = numVal < 1 ? numVal.toFixed(2) : numVal.toFixed(0)
-    return `${fixedValue}%`
 }
 
 export function LineGraph_({
@@ -366,11 +360,8 @@ export function LineGraph_({
                                         seriesData={seriesData}
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
                                         renderCount={
-                                            tooltipConfig?.renderCount || yAxisFormat === 'percentage'
-                                                ? toPercentage
-                                                : yAxisFormat === 'duration'
-                                                ? humanFriendlyDuration
-                                                : compactNumber
+                                            tooltipConfig?.renderCount ||
+                                            ((value: number): string => formatYAxisValue(yAxisFormat, value))
                                         }
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -556,15 +547,7 @@ export function LineGraph_({
                         precision: 0,
                         ...tickOptions,
                         callback: (value) => {
-                            switch (yAxisFormat) {
-                                case 'duration':
-                                    return humanFriendlyDuration(value)
-                                case 'percentage':
-                                    return toPercentage(value)
-                                case 'numeric': // numeric is default
-                                default:
-                                    return compactNumber(Number(value))
-                            }
+                            return formatYAxisValue(yAxisFormat, value)
                         },
                     },
                     grid: {
