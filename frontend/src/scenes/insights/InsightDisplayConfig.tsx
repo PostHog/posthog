@@ -17,9 +17,9 @@ import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isYAxisFormat } from 'scenes/insights/yAxisFormat'
+import { isYAxisFormat, yAxisFormatSelectOptions } from 'scenes/insights/yAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -168,13 +168,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             dropdownPlacement={'bottom-end'}
                             dropdownMatchSelectWidth={false}
                             data-attr="chart-filter"
-                            options={
-                                {
-                                    numeric: { label: 'numeric' },
-                                    duration: { label: 'duration' },
-                                    percentage: { label: 'percentage' },
-                                } as LemonSelectOptions
-                            }
+                            options={yAxisFormatSelectOptions}
                             type={'stealth'}
                             size={'small'}
                         />
