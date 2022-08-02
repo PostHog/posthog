@@ -1,6 +1,6 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
-import { Col, Popover, Row, Typography } from 'antd'
+import { Popover, Typography } from 'antd'
 import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'

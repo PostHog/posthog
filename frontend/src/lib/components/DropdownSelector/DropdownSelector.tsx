@@ -1,5 +1,5 @@
 /* Custom dropdown selector with an icon a help caption  */
-import { Dropdown, Menu, Row } from 'antd'
+import { Dropdown, Menu } from 'antd'
 import clsx from 'clsx'
 import React from 'react'
 import { IconArrowDropDown } from '../icons'
