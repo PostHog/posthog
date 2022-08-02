@@ -90,9 +90,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         response = Trends().run(
             Filter(
                 data={
-                    "events": [
-                        {"id": "watched movie", "name": "watched movie", "type": "events", **events_extra},
-                    ],
+                    "events": [{"id": "watched movie", "name": "watched movie", "type": "events", **events_extra},],
                     "date_from": "2020-01-02T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     **extra,
@@ -261,13 +259,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         response = Trends().run(
             Filter(
                 data={
-                    "events": [
-                        {
-                            "id": "watched tv",
-                            "name": "watched tv",
-                            "type": "events",
-                        },
-                    ],
+                    "events": [{"id": "watched tv", "name": "watched tv", "type": "events",},],
                     "date_from": "2020-01-02T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "episode_length",
@@ -280,9 +272,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-            [
-                ("[300.0,300.01]", 4.0, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),
-            ],
+            [("[300.0,300.01]", 4.0, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]),],
         )
 
     def test_breakdown_by_event_property_with_bucketing_and_single_bucket(self):
@@ -322,13 +312,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         response = Trends().run(
             Filter(
                 data={
-                    "events": [
-                        {
-                            "id": "watched tv",
-                            "name": "watched tv",
-                            "type": "events",
-                        },
-                    ],
+                    "events": [{"id": "watched tv", "name": "watched tv", "type": "events",},],
                     "date_from": "2020-01-02T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     "breakdown": "episode_length",
@@ -341,18 +325,13 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-            [
-                ("[300.0,320.01]", 4.0, [1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-            ],
+            [("[300.0,320.01]", 4.0, [1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),],
         )
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_event_property_with_entity_session_filter(self):
         response = self._run(
-            {
-                "breakdown": "$current_url",
-                "breakdown_type": "event",
-            },
+            {"breakdown": "$current_url", "breakdown_type": "event",},
             events_extra={
                 "properties": [{"key": "$session_duration", "type": "session", "operator": "gt", "value": 30}]
             },
