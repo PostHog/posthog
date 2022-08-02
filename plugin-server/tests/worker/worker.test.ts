@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
 
 import { loadPluginSchedule } from '../../src/main/services/schedule'
-import { Hub, PostIngestionEvent } from '../../src/types'
+import { Hub, PreIngestionEvent } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
@@ -161,7 +161,7 @@ describe('worker', () => {
             const spy = jest
                 .spyOn(EventPipelineRunner.prototype, 'runBufferEventPipeline')
                 .mockResolvedValue('runBufferEventPipeline result' as any)
-            const event: PostIngestionEvent = {
+            const event: PreIngestionEvent = {
                 eventUuid: 'uuid1',
                 distinctId: 'my_id',
                 ip: '127.0.0.1',
