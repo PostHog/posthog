@@ -88,10 +88,11 @@ def get_breakdown_prop_values(
 
         groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
 
-    if filter.breakdown_type == "session" or entity.math_property == "$session_duration":
-        session_query, sessions_join_params = SessionQuery(filter=filter, team=team).get_query()
+    session_query = SessionQuery(filter=filter, team=team)
+    if session_query.is_used:
+        session_query_clause, sessions_join_params = session_query.get_query()
         sessions_join_clause = f"""
-                INNER JOIN ({session_query}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                INNER JOIN ({session_query_clause}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
         """
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,
@@ -107,7 +108,9 @@ def get_breakdown_prop_values(
         from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
         entity_filter, entity_params = FunnelEventQuery(
-            filter, team, using_person_on_events=team.actor_on_events_querying_enabled,
+            filter,
+            team,
+            using_person_on_events=team.actor_on_events_querying_enabled,
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:
@@ -237,7 +240,10 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
         props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events",
+        team_id=team.pk,
+        property_group=props_to_filter,
+        prepend="all_cohort_",
+        table_name="all_events",
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
