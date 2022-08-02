@@ -157,7 +157,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-2 flex-wrap my-2">
+            <div className="flex items-center space-x-4 flex-wrap my-2">
                 {activeView === InsightType.TRENDS && (
                     <ConfigFilter>
                         <span>Aggregation Axis format</span>
