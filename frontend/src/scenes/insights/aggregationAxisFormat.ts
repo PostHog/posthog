@@ -1,5 +1,5 @@
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { compactNumber, humanFriendlyDuration, percentage } from 'lib/utils'
+import { capitalizeFirstLetter, compactNumber, humanFriendlyDuration, percentage } from 'lib/utils'
 import { ChartDisplayType } from '~/types'
 
 const formats = ['numeric', 'duration', 'percentage'] as const
@@ -9,7 +9,7 @@ export const isAggregationAxisFormat = (candidate: unknown): candidate is Aggreg
     formats.includes(candidate as AggregationAxisFormat)
 
 export const aggregationAxisFormatSelectOptions = formats.reduce((target, format) => {
-    target[format as string] = { label: format as string }
+    target[format as string] = { label: capitalizeFirstLetter(format as string) }
     return target
 }, {} as LemonSelectOptions)
 
