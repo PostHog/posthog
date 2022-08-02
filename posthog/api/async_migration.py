@@ -17,6 +17,7 @@ from posthog.models.async_migration import (
     MigrationStatus,
     get_all_running_async_migrations,
 )
+from posthog.models.instance_setting import get_instance_setting
 from posthog.permissions import IsStaffUser
 
 logger = structlog.get_logger(__name__)
@@ -101,8 +102,11 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         migration_instance = self.get_object()
 
-        if not is_posthog_version_compatible(
-            migration_instance.posthog_min_version, migration_instance.posthog_max_version
+        if not (
+            get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION")
+            or is_posthog_version_compatible(
+                migration_instance.posthog_min_version, migration_instance.posthog_max_version
+            )
         ):
             return response.Response(
                 {

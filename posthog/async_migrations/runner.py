@@ -59,8 +59,9 @@ def start_async_migration(
         logger.error(f"Initial check failed for async migration {migration_name}")
         return False
 
-    if ignore_posthog_version or is_posthog_version_compatible(
-        migration_instance.posthog_min_version, migration_instance.posthog_max_version
+    if not (
+        ignore_posthog_version
+        or is_posthog_version_compatible(migration_instance.posthog_min_version, migration_instance.posthog_max_version)
     ):
         process_error(
             migration_instance,
