@@ -15,7 +15,6 @@ export async function processPersonsStep(
     const timestamp = parseEventTimestamp(event, runner.hub.statsd)
 
     const personInfo: Person | undefined = await updatePersonState(
-        // can this return undefined?
         event,
         event.team_id,
         String(event.distinct_id),
