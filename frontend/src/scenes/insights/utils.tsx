@@ -12,7 +12,7 @@ import {
     PathType,
     StepOrderValue,
 } from '~/types'
-import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -28,6 +28,7 @@ import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import React, { ReactNode } from 'react'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -297,6 +298,38 @@ export function summarizeInsightFilters(
             }
     }
     return summary
+}
+
+/*
+There are overlapping places in Insights where:
+
+* sometimes we are rendering a property which might have an existing format method
+* or we are rendering a numeric value
+
+This allows the caller to specify how to render the numeric value
+If the property formatter does not want to format it
+ */
+export function formatAggregationValue(
+    property: string | undefined,
+    propertyValue: number,
+    renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
+    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
+): ReactNode {
+    let formattedValue =
+        property && formatPropertyValueForDisplay
+            ? formatPropertyValueForDisplay(property, propertyValue)
+            : renderCount(propertyValue ?? 0)
+
+    if (property && formattedValue === propertyValue.toString()) {
+        // formatPropertyValueForDisplay didn't change the value...
+        formattedValue = renderCount(propertyValue ?? 0)
+    }
+
+    // This depends on `formatPropertyValueForDisplay`. Which can return an array.
+    // But since `propertyValue` is a number. `formatPropertyValueForDisplay` will only return a string
+    // To make typescript happy we handle the possible but impossible string array inside this function
+    // And only ever return string | null
+    return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
 export function formatBreakdownLabel(
