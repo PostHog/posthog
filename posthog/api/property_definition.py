@@ -1,8 +1,12 @@
 import json
+from collections import OrderedDict
 from typing import Type
 
 from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -48,6 +52,60 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
         raise EnterpriseFeatureException()
 
 
+class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
+    def paginate_queryset(self, queryset, request, view=None):
+        # because this uses a raw query set
+        # slicing the query set is being handled outside the paginator
+        # and, we don't count the query set
+        self.limit = self.get_limit(request)
+        if self.limit is None:
+            return None
+
+        self.offset = self.get_offset(request)
+        self.request = request
+
+        return list(queryset)
+
+    def get_paginated_response(self, data):
+        next_link = self.get_next_link() if data else None
+        previous_link = self.get_previous_link()
+        return Response(OrderedDict([("next", next_link), ("previous", previous_link), ("results", data),]))
+
+    def get_paginated_response_schema(self, schema):
+        return {
+            "type": "object",
+            "properties": {
+                "next": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "http://api.example.org/accounts/?{offset_param}=400&{limit_param}=100".format(
+                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
+                    ),
+                },
+                "previous": {
+                    "type": "string",
+                    "nullable": True,
+                    "format": "uri",
+                    "example": "http://api.example.org/accounts/?{offset_param}=200&{limit_param}=100".format(
+                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
+                    ),
+                },
+                "results": schema,
+            },
+        }
+
+    def get_next_link(self):
+        url = self.request.build_absolute_uri()
+        url = replace_query_param(url, self.limit_query_param, self.limit)
+
+        offset = self.offset + self.limit
+        return replace_query_param(url, self.offset_query_param, offset)
+
+    def get_html_context(self):
+        return {"previous_url": self.get_previous_link(), "next_url": self.get_next_link()}
+
+
 class PropertyDefinitionViewSet(
     TaggedItemViewSetMixin,
     StructuredViewSetMixin,
@@ -62,6 +120,7 @@ class PropertyDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
+    pagination_class = NotCountingLimitOffsetPaginator
 
     def get_queryset(self):
         use_entreprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore
@@ -115,8 +174,8 @@ class PropertyDefinitionViewSet(
             **search_kwargs,
         }
 
-        limit = self.paginator.get_limit(self.request)
-        offset = self.paginator.get_offset(self.request)
+        limit = self.paginator.get_limit(self.request)  # type: ignore
+        offset = self.paginator.get_offset(self.request)  # type: ignore
 
         if use_entreprise_taxonomy:
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
