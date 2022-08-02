@@ -31,6 +31,8 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                 closeIcon={<IconClose />}
                 onCancel={onClose}
                 footer={null}
+                // zIndex: 1061 ensures it opens above the insight person modal which is 1060
+                style={{ zIndex: 1061 }}
             >
                 <Col className="session-drawer-body">
                     <SessionRecordingPlayerV3 />
