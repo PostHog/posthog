@@ -436,6 +436,37 @@ describe('DB', () => {
         })
     })
 
+    describe('fetchPerson()', () => {
+        it('returns undefined if person does not exist', async () => {
+            const team = await getFirstTeam(hub)
+            const person = await hub.db.fetchPerson(team.id, 'some_id')
+
+            expect(person).toEqual(undefined)
+        })
+
+        it('returns person object if person exists', async () => {
+            const team = await getFirstTeam(hub)
+            const uuid = new UUIDT().toString()
+            const createdPerson = await db.createPerson(TIMESTAMP, { foo: 'bar' }, {}, {}, team.id, null, true, uuid, [
+                'some_id',
+            ])
+
+            const person = await db.fetchPerson(team.id, 'some_id')
+
+            expect(person).toEqual(createdPerson)
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: uuid.toString(),
+                    properties: { foo: 'bar' },
+                    is_identified: true,
+                    created_at: TIMESTAMP,
+                    version: 0,
+                })
+            )
+        })
+    })
+
     describe('fetchGroupTypes() and insertGroupType()', () => {
         it('fetches group types that have been inserted', async () => {
             expect(await db.fetchGroupTypes(2)).toEqual({})
