@@ -50,17 +50,24 @@ def start_async_migration(
 
     migration_instance = AsyncMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = get_all_running_async_migrations().count() >= MAX_CONCURRENT_ASYNC_MIGRATIONS
-    posthog_version_valid = ignore_posthog_version or is_posthog_version_compatible(
-        migration_instance.posthog_min_version, migration_instance.posthog_max_version
-    )
 
     if (
         not migration_instance
         or over_concurrent_migrations_limit
-        or not posthog_version_valid
         or migration_instance.status not in [MigrationStatus.Starting, MigrationStatus.NotStarted]
     ):
         logger.error(f"Initial check failed for async migration {migration_name}")
+        return False
+
+    if ignore_posthog_version or is_posthog_version_compatible(
+        migration_instance.posthog_min_version, migration_instance.posthog_max_version
+    ):
+        process_error(
+            migration_instance,
+            f"Migration is not available on this PostHog version",
+            status=MigrationStatus.FailedAtStartup,
+            rollback=False,
+        )
         return False
 
     if migration_definition is None:
@@ -68,7 +75,10 @@ def start_async_migration(
             migration_definition = get_async_migration_definition(migration_name)
         except Exception:
             process_error(
-                migration_instance, f"Migration definition not available", status=MigrationStatus.FailedAtStartup
+                migration_instance,
+                f"Migration definition not available",
+                status=MigrationStatus.FailedAtStartup,
+                rollback=False,
             )
             return False
 

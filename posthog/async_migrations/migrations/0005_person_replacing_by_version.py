@@ -70,6 +70,9 @@ class Migration(AsyncMigrationDefinition):
 
     depends_on = "0004_replicated_schema"
 
+    posthog_min_version = "1.38.0"
+    posthog_max_version = "1.39.99"
+
     def is_required(self) -> bool:
         person_table_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",

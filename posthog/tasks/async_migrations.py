@@ -19,7 +19,9 @@ from posthog.models.instance_setting import get_instance_setting
 @app.task(track_started=True, ignore_result=False, max_retries=0)
 def run_async_migration(migration_name: str, fresh_start: bool = True) -> None:
     if fresh_start:
-        start_async_migration(migration_name)
+        start_async_migration(
+            migration_name, ignore_posthog_version=get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION")
+        )
         return
 
     # Resumable operations

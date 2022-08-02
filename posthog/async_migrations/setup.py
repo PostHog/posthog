@@ -75,10 +75,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
-def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> Optional[AsyncMigration]:
-    if migration.is_hidden():
-        return None
-
+def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> AsyncMigration:
     sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
 
     sm.description = migration.description

@@ -80,6 +80,13 @@ export function AsyncMigrations(): JSX.Element {
             },
         },
         {
+            title: 'Available',
+            render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
+                const versions = asyncMigration.posthog_min_version + ' -> ' + asyncMigration.posthog_max_version
+                return <div>{versions}</div>
+            },
+        },
+        {
             title: 'Progress',
             render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
                 const progress = asyncMigration.progress
