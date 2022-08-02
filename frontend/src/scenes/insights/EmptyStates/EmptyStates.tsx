@@ -10,9 +10,6 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import clsx from 'clsx'
-import { LemonButton } from 'lib/components/LemonButton'
-import { deleteWithUndo } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
 import './EmptyStates.scss'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
@@ -28,47 +25,6 @@ export function InsightEmptyState(): JSX.Element {
                 </div>
                 <h2>There are no matching events for this query</h2>
                 <p className="text-center">Try changing the date range or pick another action, event, or breakdown.</p>
-            </div>
-        </div>
-    )
-}
-
-export function InsightDeprecatedState({
-    itemId,
-    itemName,
-    deleteCallback,
-}: {
-    itemId: number
-    itemName: string
-    deleteCallback?: () => void
-}): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    return (
-        <div className="insight-empty-state">
-            <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <WarningOutlined />
-                </div>
-                <h2>This insight no longer exists.</h2>
-                <p className="text-center">This type of insight no longer exists in PostHog.</p>
-                <div>
-                    <LemonButton
-                        type="highlighted"
-                        style={{ margin: '0 auto' }}
-                        onClick={() =>
-                            deleteWithUndo({
-                                object: {
-                                    id: itemId,
-                                    name: itemName,
-                                },
-                                endpoint: `projects/${currentTeamId}/insights`,
-                                callback: deleteCallback,
-                            })
-                        }
-                    >
-                        Remove from dashboard
-                    </LemonButton>
-                </div>
             </div>
         </div>
     )

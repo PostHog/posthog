@@ -19,7 +19,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     icon?: React.ReactElement | null
     /** HTML tag to render the row with. */
     tag?: T
-    status?: 'success' | 'warning' | 'danger' | 'highlighted' | 'muted'
+    status?: 'default' | 'success' | 'warning' | 'danger' | 'highlighted' | 'muted'
     /** Extended content, e.g. a description, to show in the lower button area. */
     extendedContent?: React.ReactNode
     loading?: boolean
@@ -56,7 +56,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
         relaxedIconWidth = false,
         className,
         tag,
-        status,
+        status = 'default',
         extendedContent,
         tooltip,
         sideIcon,
@@ -80,7 +80,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
             className: clsx(
                 'LemonRow',
                 className,
-                status && `LemonRow--status-${status}`,
+                status && status !== 'default' ? `LemonRow--status-${status}` : undefined,
                 symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
                 disabled && 'LemonRow--disabled',

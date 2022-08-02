@@ -90,7 +90,7 @@ export function DateFilter({
                     return null
                 }
 
-                const isHighlighted = dateFrom === values[0] && dateTo === values[1]
+                const isActive = dateFrom === values[0] && dateTo === values[1]
                 const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
 
                 return (
@@ -101,7 +101,8 @@ export function DateFilter({
                                 setDate(values[0], values[1])
                                 close()
                             }}
-                            type={isHighlighted ? 'highlighted' : 'stealth'}
+                            active={isActive}
+                            type={'stealth'}
                             fullWidth
                         >
                             {key}
@@ -124,7 +125,7 @@ export function DateFilter({
                 />
             )}
             <LemonDivider />
-            <LemonButton onClick={openDateRange} type={isFixedDateRange ? 'highlighted' : 'stealth'} fullWidth>
+            <LemonButton onClick={openDateRange} active={isFixedDateRange} type={'stealth'} fullWidth>
                 {'Custom fixed time period'}
             </LemonButton>
         </div>

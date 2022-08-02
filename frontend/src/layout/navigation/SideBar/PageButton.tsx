@@ -31,11 +31,12 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
     return sideAction ? (
         <LemonButtonWithSideAction
             fullWidth
-            type={isActive ? 'highlighted' : 'stealth'}
+            type={'stealth'}
+            active={isActive}
             onClick={hideSideBarMobile}
             sideAction={{
                 ...sideAction,
-                type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth',
+                type: 'stealth',
                 'data-attr': sideAction.identifier ? `menu-item-${sideAction.identifier.toLowerCase()}` : undefined,
             }}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
@@ -46,7 +47,8 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
     ) : (
         <LemonButton
             fullWidth
-            type={isActive ? 'highlighted' : 'stealth'}
+            type={'stealth'}
+            active={isActive}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             onClick={hideSideBarMobile}
             {...buttonProps}

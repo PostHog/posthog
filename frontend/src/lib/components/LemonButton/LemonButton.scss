@@ -68,9 +68,9 @@
     &.LemonButton--active {
         background: var(--primary-light);
     }
-    // &:not(:disabled):active {
-    //     background: var(--primary-active);
-    // }
+    &:not(:disabled):active {
+        background: var(--primary-dark);
+    }
     &.LemonRow--status-danger {
         background: var(--danger);
         &:not(:disabled):hover,
@@ -93,7 +93,13 @@
     }
     &.LemonRow--status-success {
         background: var(--success);
-        // TODO: Hover/active colors are not defined for success yet
+        &:not(:disabled):hover,
+        &.LemonButton--active {
+            background: var(--success-light);
+        }
+        &:not(:disabled):active {
+            background: var(--success-dark);
+        }
     }
     .LemonRow__icon,
     .spinner {
@@ -116,21 +122,8 @@
     }
 }
 
-// Order matters - translucent should be before highlighted, but after all the other types
-.LemonButton--translucent {
-    background: transparent;
-}
-
 .LemonButton--bordered {
     border: 1px solid var(--border);
-}
-
-.LemonButton--highlighted {
-    background: var(--primary-bg-hover);
-    color: var(--default);
-    .LemonRow__icon {
-        color: var(--primary);
-    }
 }
 
 .LemonRow--outlined.LemonButton {
@@ -138,7 +131,7 @@
     &.LemonButton--active,
     &:not(:disabled):active {
         background: inherit;
-        border-color: var(--primary);
+        border: 1px solid var(--primary);
     }
 }
 

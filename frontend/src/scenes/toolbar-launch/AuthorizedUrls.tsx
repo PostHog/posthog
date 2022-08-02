@@ -125,16 +125,10 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     />
                     {appUrlsKeyed.map((keyedAppURL, index) => {
                         return (
-                            <LemonRow
-                                outlined
-                                fullWidth
-                                size="tall"
+                            <div
                                 key={index}
                                 className={clsx(
-                                    'AuthorizedUrlRow',
-                                    keyedAppURL.type,
-                                    'flex items-center',
-                                    'mr',
+                                    'AuthorizedUrlRow border rounded flex items-center py-2 px-4 h-14',
                                     editUrlIndex !== index && 'highlight-on-hover'
                                 )}
                             >
@@ -200,7 +194,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                         </div>
                                     </>
                                 )}
-                            </LemonRow>
+                            </div>
                         )
                     })}
                 </div>

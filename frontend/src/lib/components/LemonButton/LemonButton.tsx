@@ -10,12 +10,11 @@ import './LemonButton.scss'
 export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
-export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref'> {
+export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref' | 'status'> {
     ref?: React.Ref<HTMLElement>
-    type?: 'default' | 'alt' | 'primary' | 'secondary' | 'tertiary' | 'stealth' | 'highlighted'
+    type?: 'default' | 'alt' | 'primary' | 'secondary' | 'tertiary' | 'stealth'
+    status?: 'default' | 'success' | 'warning' | 'danger'
     htmlType?: LemonRowPropsBase<'button'>['type']
-    /** Whether the button should have transparent background in its base state (i.e. non-hover). */
-    translucent?: boolean
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -37,7 +36,6 @@ function LemonButtonInternal(
         children,
         type = 'default',
         htmlType = 'button',
-        translucent = false,
         active = false,
         className,
         popup,
@@ -55,7 +53,6 @@ function LemonButtonInternal(
             'LemonButton',
             type !== 'default' && `LemonButton--${type}`,
             active && 'LemonButton--active',
-            translucent && 'LemonButton--translucent',
             bordered && 'LemonButton--bordered',
             className
         ),
@@ -126,7 +123,6 @@ export function LemonButtonWithSideAction({
                 className="LemonButtonWithSideAction--side-button"
                 type={buttonProps.type}
                 popup={sidePopup as LemonButtonPopup}
-                translucent
                 {...sideActionRest}
             />
         </div>

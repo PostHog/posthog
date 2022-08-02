@@ -112,18 +112,33 @@ function Pages(): JSX.Element {
                                                 />
                                             ))
                                         ) : (
-                                            <LemonRow icon={<IconPin />} fullWidth>
-                                                <span>
-                                                    <Link
-                                                        onClick={() => setArePinnedDashboardsShown(false)}
-                                                        to={urls.dashboards()}
-                                                    >
-                                                        Pin some dashboards
-                                                    </Link>
-                                                    <br />
-                                                    for them to show up here
-                                                </span>
-                                            </LemonRow>
+                                            <>
+                                                <div className="mb-2 flex items-center gap-2">
+                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <span>
+                                                        <Link
+                                                            onClick={() => setArePinnedDashboardsShown(false)}
+                                                            to={urls.dashboards()}
+                                                        >
+                                                            Pin some dashboards
+                                                        </Link>
+                                                        <br />
+                                                        for them to show up here
+                                                    </span>
+                                                </div>
+                                                <LemonRow icon={<IconPin />} fullWidth>
+                                                    <span>
+                                                        <Link
+                                                            onClick={() => setArePinnedDashboardsShown(false)}
+                                                            to={urls.dashboards()}
+                                                        >
+                                                            Pin some dashboards
+                                                        </Link>
+                                                        <br />
+                                                        for them to show up here
+                                                    </span>
+                                                </LemonRow>
+                                            </>
                                         )}
                                     </div>
                                 ),

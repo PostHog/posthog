@@ -677,11 +677,7 @@ export function Experiment(): JSX.Element {
                                     {experimentData.end_date ? (
                                         <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
                                     ) : (
-                                        <LemonButton
-                                            type="highlighted"
-                                            className="end-experiment-btn"
-                                            onClick={() => endExperiment()}
-                                        >
+                                        <LemonButton status="success" type="primary" onClick={() => endExperiment()}>
                                             End experiment
                                         </LemonButton>
                                     )}

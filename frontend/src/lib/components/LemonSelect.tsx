@@ -111,11 +111,10 @@ export function LemonSelect<O extends LemonSelectOptions>({
                                             setLocalValue(key)
                                         }
                                     }}
-                                    type={
-                                        /* Intentionally == instead of === because JS treats object number keys as strings, */
-                                        /* messing comparisons up a bit */
-                                        key == localValue ? 'highlighted' : 'stealth'
-                                    }
+                                    type="stealth"
+                                    /* Intentionally == instead of === because JS treats object number keys as strings, */
+                                    /* messing comparisons up a bit */
+                                    active={key == localValue}
                                     disabled={option.disabled}
                                     fullWidth
                                     data-attr={option['data-attr']}

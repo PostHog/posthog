@@ -12,7 +12,7 @@ import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-const statuses: LemonButtonProps['status'][] = [undefined, 'danger', 'highlighted', 'muted', 'success', 'warning']
+const statuses: LemonButtonProps['status'][] = ['default', 'danger', 'success', 'warning']
 const types: LemonButtonProps['type'][] = ['default', 'primary', 'secondary', 'tertiary', 'stealth', 'alt']
 
 export default {
