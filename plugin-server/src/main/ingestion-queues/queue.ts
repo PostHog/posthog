@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { ClonableIngestionEvent, Hub, IngestionEvent, WorkerMethods } from '../../types'
+import { ClonablePostIngestionEvent, Hub, PostIngestionEvent, WorkerMethods } from '../../types'
 import { status } from '../../utils/status'
 import { KafkaQueue } from './kafka-queue'
 
@@ -25,10 +25,10 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        runAsyncHandlersEventPipeline: (event: IngestionEvent) => {
+        runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runAsyncHandlersEventPipeline'
-            const clonableEvent: ClonableIngestionEvent = {
+            const clonableEvent: ClonablePostIngestionEvent = {
                 ...event,
                 timestamp: event.timestamp.toISO(),
             }

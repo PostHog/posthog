@@ -1,7 +1,7 @@
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { Hub, IngestionEvent } from '../../../src/types'
+import { Hub, PreIngestionEvent } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
@@ -42,12 +42,12 @@ describe('EventsProcessor#createEvent()', () => {
     const personUuid = new UUIDT().toString()
     const timestamp = '2020-02-23T02:15:00.000Z'
 
-    const preIngestionEvent: IngestionEvent = {
+    const preIngestionEvent: PreIngestionEvent = {
         eventUuid,
         distinctId: 'my_id',
         ip: '127.0.0.1',
         teamId: 2,
-        timestamp: timestamp,
+        timestamp: DateTime.fromISO(timestamp),
         event: '$pageview',
         properties: { event: 'property' },
         elementsList: [],

@@ -1,12 +1,14 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { KafkaMessage } from 'kafkajs'
 
-import { ClonableIngestionEvent, Event, IngestionEvent, RawEvent } from '../types'
+import { ClonableIngestionEvent, Event, PostIngestionEvent, RawEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToDateTime } from './utils'
 
-export function convertToProcessedPluginEvent(event: IngestionEvent | ClonableIngestionEvent): ProcessedPluginEvent {
+export function convertToProcessedPluginEvent(
+    event: PostIngestionEvent | ClonableIngestionEvent
+): ProcessedPluginEvent {
     return {
         distinct_id: event.distinctId,
         ip: event.ip,
@@ -41,7 +43,7 @@ export function convertToParsedEvent(rawEvent: RawEvent): Event {
     }
 }
 
-export function convertToIngestionEvent(event: RawEvent): IngestionEvent {
+export function convertToIngestionEvent(event: RawEvent): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     return {
         eventUuid: event.uuid,

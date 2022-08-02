@@ -1,4 +1,6 @@
-import { IngestionEvent } from '../../../../src/types'
+import { DateTime } from 'luxon'
+
+import { PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
 import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/6-runAsyncHandlersStep'
 import { runOnEvent, runOnSnapshot } from '../../../../src/worker/plugins/run'
@@ -7,12 +9,12 @@ jest.mock('../../../../src/worker/plugins/run')
 
 const testPerson: any = { id: 'testid' }
 const testElements: any = ['element1', 'element2']
-const ingestionEvent: IngestionEvent = {
+const ingestionEvent: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: '2020-02-23T02:15:00Z',
+    timestamp: DateTime.fromISO('2020-02-23T02:15:00Z'),
     event: '$pageview',
     properties: {},
     elementsList: testElements,

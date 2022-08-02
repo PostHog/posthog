@@ -1,10 +1,13 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Element, IngestionEvent, IngestionPersonData } from '../../../types'
+import { Element, IngestionPersonData, PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent, runOnSnapshot } from '../../plugins/run'
 import { EventPipelineRunner, StepResult } from './runner'
 
-export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: IngestionEvent): Promise<StepResult> {
+export async function runAsyncHandlersStep(
+    runner: EventPipelineRunner,
+    event: PostIngestionEvent
+): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
         await Promise.all([
             processOnEvent(runner, event),
@@ -15,7 +18,7 @@ export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: I
     return null
 }
 
-async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent) {
+async function processOnEvent(runner: EventPipelineRunner, event: PostIngestionEvent) {
     const processedPluginEvent = convertToProcessedPluginEvent(event)
     const isSnapshot = event.event === '$snapshot'
     const method = isSnapshot ? runOnSnapshot : runOnEvent
@@ -31,7 +34,7 @@ async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent
 
 async function processWebhooks(
     runner: EventPipelineRunner,
-    event: IngestionEvent,
+    event: PostIngestionEvent,
     person: IngestionPersonData | undefined,
     elements: Element[] | undefined
 ) {

@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { DateTime } from 'luxon'
 
 import { loadPluginSchedule } from '../../src/main/services/schedule'
-import { Hub, IngestionEvent } from '../../src/types'
+import { Hub, PostIngestionEvent } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { delay, UUIDT } from '../../src/utils/utils'
@@ -83,7 +84,7 @@ describe('worker', () => {
             event: expect.anything(),
         })
 
-        const ingestResponse3 = await ingestEvent({ ...createEvent(), uuid: undefined })
+        const ingestResponse3 = await ingestEvent({ ...createEvent(), uuid: undefined as any })
         expect(ingestResponse3.error).toEqual('Not a valid UUID: "undefined"')
 
         await delay(2000)
@@ -160,12 +161,12 @@ describe('worker', () => {
             const spy = jest
                 .spyOn(EventPipelineRunner.prototype, 'runBufferEventPipeline')
                 .mockResolvedValue('runBufferEventPipeline result' as any)
-            const event: IngestionEvent = {
+            const event: PostIngestionEvent = {
                 eventUuid: 'uuid1',
                 distinctId: 'my_id',
                 ip: '127.0.0.1',
                 teamId: 2,
-                timestamp: '2020-02-23T02:15:00Z',
+                timestamp: DateTime.fromISO('2020-02-23T02:15:00Z'),
                 event: '$pageview',
                 properties: {},
                 elementsList: [],

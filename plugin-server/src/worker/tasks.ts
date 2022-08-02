@@ -1,7 +1,15 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import { DateTime } from 'luxon'
 
-import { Action, ClonableIngestionEvent, EnqueuedPluginJob, Hub, IngestionEvent, PluginTaskType, Team } from '../types'
+import {
+    Action,
+    ClonablePostIngestionEvent,
+    EnqueuedPluginJob,
+    Hub,
+    PluginTaskType,
+    PostIngestionEvent,
+    Team,
+} from '../types'
 import { convertToProcessedPluginEvent } from '../utils/event'
 import { EventPipelineRunner } from './ingestion/event-pipeline/runner'
 import { runPluginTask, runProcessEvent } from './plugins/run'
@@ -37,8 +45,8 @@ export const workerTasks: Record<string, TaskRunner> = {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runBufferEventPipeline(args.event)
     },
-    runAsyncHandlersEventPipeline: async (hub, args: { event: ClonableIngestionEvent }) => {
-        const event: IngestionEvent = {
+    runAsyncHandlersEventPipeline: async (hub, args: { event: ClonablePostIngestionEvent }) => {
+        const event: PostIngestionEvent = {
             ...args.event,
             timestamp: DateTime.fromISO(args.event.timestamp),
         }

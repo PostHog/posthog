@@ -7,8 +7,9 @@ import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka
 import {
     Element,
     Hub,
-    IngestionEvent,
     IngestionPersonData,
+    PostIngestionEvent,
+    PreIngestionEvent,
     RawEvent,
     RawSessionRecordingEvent,
     Team,
@@ -59,7 +60,7 @@ export class EventsProcessor {
         timestamp: DateTime,
         eventUuid: string,
         person: IngestionPersonData | undefined = undefined
-    ): Promise<IngestionEvent | null> {
+    ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
         }
@@ -68,7 +69,7 @@ export class EventsProcessor {
             event: JSON.stringify(data),
         })
 
-        let result: IngestionEvent | null = null
+        let result: PreIngestionEvent | null = null
         try {
             // We know `normalizeEvent` has been called here.
             const properties: Properties = data.properties!
@@ -146,7 +147,7 @@ export class EventsProcessor {
         properties: Properties,
         timestamp: DateTime,
         person: IngestionPersonData | undefined
-    ): Promise<IngestionEvent> {
+    ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
         let elementsList: Element[] = []
@@ -191,7 +192,7 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(preIngestionEvent: IngestionEvent): Promise<IngestionEvent> {
+    async createEvent(preIngestionEvent: PreIngestionEvent): Promise<PostIngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -281,7 +282,7 @@ export class EventsProcessor {
         snapshot_data: Record<any, any>,
         properties: Properties,
         ip: string | null
-    ): Promise<IngestionEvent> {
+    ): Promise<PostIngestionEvent> {
         if (!timestamp) {
             timestamp = DateTime.utc()
         }

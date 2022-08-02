@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { IngestionEvent, Person } from '../../../../src/types'
+import { Person, PreIngestionEvent } from '../../../../src/types'
 import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
 import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-pluginsProcessEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/3-processPersonsStep'
@@ -52,12 +52,12 @@ const pluginEvent: PluginEvent = {
     uuid: 'uuid1',
 }
 
-const preIngestionEvent: IngestionEvent = {
+const preIngestionEvent: PreIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: '2020-02-23T02:15:00Z',
+    timestamp: DateTime.fromISO('2020-02-23T02:15:00Z'),
     event: '$pageview',
     properties: {},
     elementsList: [],

@@ -3,12 +3,12 @@ import { DateTime } from 'luxon'
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { IngestionEvent, RawEvent } from '../../../src/types'
+import { PostIngestionEvent, RawEvent } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
 
 jest.mock('../../../src/utils/status')
 
-const event: IngestionEvent = {
+const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     ip: '127.0.0.1',

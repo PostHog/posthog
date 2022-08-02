@@ -400,7 +400,7 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
+    runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -554,7 +554,7 @@ export interface Event extends BaseEvent {
     group4_properties: Record<string, any>
 }
 
-export interface IngestionEvent {
+export interface PostIngestionEvent {
     eventUuid: string
     event: string
     ip: string | null
@@ -566,8 +566,11 @@ export interface IngestionEvent {
     person?: IngestionPersonData | undefined
 }
 
-/** Variant of IngestionEvent that can be cloned by Piscina - only for communication between threads. */
-export interface ClonableIngestionEvent extends Omit<IngestionEvent, 'timestamp'> {
+/** Currently same as PostIngestionEvent. */
+export type PreIngestionEvent = PostIngestionEvent
+
+/** Variant of PostIngestionEvent that can be cloned by Piscina - only for communication between threads. */
+export interface ClonablePostIngestionEvent extends Omit<PostIngestionEvent, 'timestamp'> {
     timestamp: string
 }
 
@@ -860,7 +863,7 @@ export interface JobQueueConsumerControl {
 }
 
 export type IngestEventResponse =
-    | { success: true; actionMatches: Action[]; preIngestionEvent: IngestionEvent | null }
+    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
     | { success: false; error: string }
 
 export interface EventDefinitionType {
