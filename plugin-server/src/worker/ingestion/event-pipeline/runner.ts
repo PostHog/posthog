@@ -121,7 +121,7 @@ export class EventPipelineRunner {
                 await this.handleError(error, currentStepName, currentArgs)
                 return {
                     lastStep: currentStepName,
-                    args: currentArgs,
+                    args: currentArgs.map((arg: any) => this.serialize(arg)),
                     error: error.message,
                 }
             }
@@ -177,5 +177,13 @@ export class EventPipelineRunner {
                 })
             }
         }
+    }
+
+    private serialize(arg: any) {
+        if (arg instanceof LazyPersonContainer) {
+            // :KLUDGE: cloneObject fails with hub if we don't do this
+            return { teamId: arg.teamId, distinctId: arg.distinctId, loaded: arg.loaded }
+        }
+        return arg
     }
 }
