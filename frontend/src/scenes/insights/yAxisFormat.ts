@@ -1,5 +1,6 @@
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
 import { compactNumber, humanFriendlyDuration } from 'lib/utils'
+import { ChartDisplayType } from '~/types'
 
 const formats = ['numeric', 'duration', 'percentage'] as const
 export type YAxisFormat = typeof formats[number]
@@ -28,4 +29,16 @@ export const formatYAxisValue = (yAxisFormat: YAxisFormat, value: number | strin
         default:
             return compactNumber(Number(value))
     }
+}
+
+export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): boolean => {
+    return (
+        !!chartDisplayType &&
+        [
+            ChartDisplayType.ActionsLineGraph,
+            ChartDisplayType.ActionsLineGraphCumulative,
+            ChartDisplayType.ActionsBar,
+            ChartDisplayType.ActionsBarValue,
+        ].includes(chartDisplayType)
+    )
 }

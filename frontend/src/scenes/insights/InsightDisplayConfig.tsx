@@ -19,7 +19,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isYAxisFormat, yAxisFormatSelectOptions } from 'scenes/insights/yAxisFormat'
+import { canFormatAxis, isYAxisFormat, yAxisFormatSelectOptions } from 'scenes/insights/yAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -156,7 +156,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
                     </span>
                 )}
-                {activeView === InsightType.TRENDS && (
+                {activeView === InsightType.TRENDS && canFormatAxis(filters.display) && (
                     <span className="space-x-2 flex items-center text-sm">
                         <span>y-axis format</span>
                         <LemonSelect
