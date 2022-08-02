@@ -7,6 +7,7 @@ import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -175,6 +176,26 @@ export const pathsLogic = kea<pathsLogicType>({
             (s) => [s.filter],
             (filter: Partial<FilterType>) => {
                 return filter.path_groupings?.map((name) => ({ name }))
+            },
+        ],
+        taxonomicGroupTypes: [
+            (s) => [s.filter],
+            (filter: Partial<FilterType>) => {
+                const taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
+                if (filter.include_event_types) {
+                    if (filter.include_event_types.includes(PathType.PageView)) {
+                        taxonomicGroupTypes.push(TaxonomicFilterGroupType.PageviewUrls)
+                    }
+                    if (filter.include_event_types.includes(PathType.Screen)) {
+                        taxonomicGroupTypes.push(TaxonomicFilterGroupType.Screens)
+                    }
+                    if (filter.include_event_types.includes(PathType.CustomEvent)) {
+                        taxonomicGroupTypes.push(TaxonomicFilterGroupType.CustomEvents)
+                    }
+                }
+
+                taxonomicGroupTypes.push(TaxonomicFilterGroupType.Wildcards)
+                return taxonomicGroupTypes
             },
         ],
     },
