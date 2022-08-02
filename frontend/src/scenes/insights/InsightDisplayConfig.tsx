@@ -169,7 +169,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             bordered
                             dropdownPlacement={'bottom-end'}
                             dropdownMatchSelectWidth={false}
-                            data-attr="chart-filter"
+                            data-attr="chart-y-axis-format"
                             options={yAxisFormatSelectOptions}
                             type={'stealth'}
                             size={'small'}
