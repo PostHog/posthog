@@ -183,10 +183,14 @@ class TestUpdateCache(APIBaseTest):
     def test_not_all_filters_affect_the_filters_hash(self) -> None:
         insight_one = create_shared_insight(self.team, is_enabled=True, filters={"events": [{"id": "$pageview"}]},)
         insight_two = create_shared_insight(
-            self.team, is_enabled=True, filters={"events": [{"id": "$pageview"}], "y_axis_format": "percentage"},
+            self.team,
+            is_enabled=True,
+            filters={"events": [{"id": "$pageview"}], "aggregation_axis_format": "percentage"},
         )
         insight_three = create_shared_insight(
-            self.team, is_enabled=True, filters={"events": [{"id": "$pageview"}], "y_axis_format": "duration"},
+            self.team,
+            is_enabled=True,
+            filters={"events": [{"id": "$pageview"}], "aggregation_axis_format": "duration"},
         )
 
         assert insight_one.filters_hash == insight_two.filters_hash

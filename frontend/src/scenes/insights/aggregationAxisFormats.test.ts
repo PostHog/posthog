@@ -1,6 +1,10 @@
-import { formatYAxisValue, isYAxisFormat, YAxisFormat } from 'scenes/insights/yAxisFormat'
+import {
+    formatAggregationAxisValue,
+    isAggregationAxisFormat,
+    AggregationAxisFormat,
+} from 'scenes/insights/aggregationAxisFormat'
 
-describe('y axis formats', () => {
+describe('aggregation axis formats', () => {
     const testcases = [
         { candidate: null, expected: false },
         { candidate: 1, expected: false },
@@ -14,8 +18,8 @@ describe('y axis formats', () => {
     testcases.forEach((testcase) => {
         it(`correctly detects that "${testcase.candidate}" ${
             testcase.expected ? 'is' : 'is _not_'
-        } a valid y axis format`, () => {
-            expect(isYAxisFormat(testcase.candidate)).toEqual(testcase.expected)
+        } a valid aggregation axis format`, () => {
+            expect(isAggregationAxisFormat(testcase.candidate)).toEqual(testcase.expected)
         })
     })
 
@@ -32,7 +36,9 @@ describe('y axis formats', () => {
     ]
     formatTestcases.forEach((testcase) => {
         it(`correctly formats "${testcase.candidate}" as ${testcase.expected} when it is a ${testcase.format}`, () => {
-            expect(formatYAxisValue(testcase.format as YAxisFormat, testcase.candidate)).toEqual(testcase.expected)
+            expect(formatAggregationAxisValue(testcase.format as AggregationAxisFormat, testcase.candidate)).toEqual(
+                testcase.expected
+            )
         })
     })
 })

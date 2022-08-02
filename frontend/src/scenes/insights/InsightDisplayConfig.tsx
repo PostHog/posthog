@@ -19,7 +19,11 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { canFormatAxis, isYAxisFormat, yAxisFormatSelectOptions } from 'scenes/insights/yAxisFormat'
+import {
+    isAggregationAxisFormat,
+    aggregationAxisFormatSelectOptions,
+    canFormatAxis,
+} from 'scenes/insights/aggregationAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -156,20 +160,22 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
             <div className="flex items-center space-x-2 flex-wrap my-2">
                 {activeView === InsightType.TRENDS && (
                     <ConfigFilter>
-                        <span>Y-Axis format</span>
+                        <span>Aggregation Axis format</span>
                         <LemonSelect
-                            value={filters.y_axis_format || 'numeric'}
+                            value={
+                                canFormatAxis(filters.display) ? filters.aggregation_axis_format || 'numeric' : 'N/A'
+                            }
                             onChange={(value) => {
-                                if (isYAxisFormat(value)) {
-                                    setFilters({ y_axis_format: value })
+                                if (isAggregationAxisFormat(value)) {
+                                    setFilters({ aggregation_axis_format: value })
                                 }
                             }}
                             bordered
                             dropdownPlacement={'bottom-end'}
                             dropdownMatchSelectWidth={false}
-                            data-attr="chart-y-axis-format"
                             disabled={!canFormatAxis(filters.display)}
-                            options={yAxisFormatSelectOptions}
+                            data-attr="chart-aggregation-axis-format"
+                            options={aggregationAxisFormatSelectOptions}
                             type={'stealth'}
                             size={'small'}
                         />

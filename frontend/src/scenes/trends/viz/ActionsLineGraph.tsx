@@ -31,7 +31,7 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
-            yAxisFormat={filters.y_axis_format}
+            aggregationAxisFormat={filters.aggregation_axis_format}
             tooltip={
                 filters.insight === InsightType.LIFECYCLE
                     ? {
