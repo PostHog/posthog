@@ -39,7 +39,7 @@ export const parameters = {
     },
     options: {
         // automatically show code panel
-        showPanel: true,
+        showPanel: false,
         storySort: {
             method: 'alphabetical',
             order: [
@@ -57,7 +57,7 @@ export const parameters = {
     viewMode: 'docs',
     // auto-expand code blocks in docs
     docs: {
-        source: { state: 'open' },
+        source: { state: 'closed' },
     },
 }
 

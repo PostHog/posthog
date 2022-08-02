@@ -18,6 +18,7 @@ const types: LemonButtonProps['type'][] = ['default', 'primary', 'secondary', 't
 export default {
     title: 'Lemon UI/Lemon Button',
     component: LemonButton,
+
     argTypes: {
         icon: {
             defaultValue: <IconCalculate />,
@@ -35,37 +36,33 @@ const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonPro
 export const Default = BasicTemplate.bind({})
 Default.args = {}
 
-const StatusesComponent = ({ noText, ...props }: Partial<LemonButtonProps> & { noText?: boolean }): JSX.Element => {
+const StatusesTemplate: ComponentStory<typeof LemonButton> = ({ ...props }) => {
     return (
         <div className="flex gap-2 border rounded-lg p-2">
             {statuses.map((status, j) => (
                 <LemonButton key={j} status={status} icon={<IconCalculate />} {...props}>
-                    {!noText ? capitalizeFirstLetter(status || 'default') : undefined}
+                    {!(props as any).noText ? capitalizeFirstLetter(status || 'default') : undefined}
                 </LemonButton>
             ))}
         </div>
     )
 }
 
-const TypesAndStatusesComponent = ({
-    noText,
-    ...props
-}: Partial<LemonButtonProps> & { noText?: boolean }): JSX.Element => {
+const TypesAndStatusesTemplate: ComponentStory<typeof LemonButton> = (props) => {
     return (
         <div className="space-y-2">
             {types.map((type) => (
                 <>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
-                    <StatusesComponent {...props} type={type} noText={noText} />
+                    <StatusesTemplate {...props} type={type} />
                 </>
             ))}
         </div>
     )
 }
 
-export const TypesAndStatuses = (): JSX.Element => {
-    return <TypesAndStatusesComponent />
-}
+export const TypesAndStatuses = TypesAndStatusesTemplate.bind({})
+TypesAndStatuses.args = {}
 
 const PopupTemplate: ComponentStory<typeof LemonButtonWithPopup> = (props: LemonButtonWithPopupProps) => {
     return <LemonButtonWithPopup {...props} />
@@ -75,9 +72,8 @@ const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
     return <More {...props} />
 }
 
-export const IconOnly = (): JSX.Element => {
-    return <StatusesComponent noText />
-}
+export const IconOnly = StatusesTemplate.bind({})
+IconOnly.args = { noText: true } as any
 
 export const Sizes = (): JSX.Element => {
     const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large', 'tall']
@@ -87,24 +83,21 @@ export const Sizes = (): JSX.Element => {
             {sizes.map((size) => (
                 <>
                     <h5>size={size}</h5>
-                    <StatusesComponent size={size} type="primary" />
+                    <StatusesTemplate size={size} type="primary" />
                 </>
             ))}
         </div>
     )
 }
 
-export const Disabled = (): JSX.Element => {
-    return <StatusesComponent disabled />
-}
+export const Disabled = StatusesTemplate.bind({})
+Disabled.args = { disabled: true }
 
-export const Loading = (): JSX.Element => {
-    return <StatusesComponent loading />
-}
+export const Loading = StatusesTemplate.bind({})
+Loading.args = { loading: true }
 
-export const WithSideIcon = (): JSX.Element => {
-    return <StatusesComponent sideIcon={<IconInfo />} />
-}
+export const WithSideIcon = StatusesTemplate.bind({})
+WithSideIcon.args = { sideIcon: <IconInfo /> }
 
 export const FullWidth = (): JSX.Element => {
     return (

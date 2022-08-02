@@ -90,6 +90,7 @@ function LemonButtonInternal(
     }
     return workingButton
 }
+
 export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
