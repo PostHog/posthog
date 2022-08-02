@@ -166,8 +166,8 @@ describe('Trends', () => {
 
         cy.get('[data-attr=insight-save-button]').click()
         cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.get('.modal-row button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.get('.modal-row button').first().contains('Added')
+        cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
+        cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
 
         cy.wait(200)
         cy.get('[data-attr=success-toast]').contains('Insight added to dashboard').should('exist')

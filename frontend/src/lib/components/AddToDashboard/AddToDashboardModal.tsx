@@ -51,7 +51,11 @@ const DashboardRelationRow = ({
     const { currentTeam } = useValues(teamLogic)
     const isPrimary = dashboard.id === currentTeam?.primary_dashboard
     return (
-        <div style={style} className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}>
+        <div
+            data-attr="dashboard-list-item"
+            style={style}
+            className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
+        >
             <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
             {isPrimary && (
                 <Tooltip title="Primary dashboards are shown on the project home page">
@@ -155,7 +159,7 @@ export function AddToDashboardModal({
                     type="secondary"
                     size="small"
                     onClick={closeModal}
-                    style={{ marginTop: 0 }} /* lemon section styling was adding a margin top */
+                    style={{ marginTop: 0 }} /* LemonModal > section styling was adding a margin top */
                 >
                     Close
                 </LemonButton>
