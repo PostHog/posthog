@@ -1,6 +1,5 @@
 import json
 from datetime import datetime
-from unittest.mock import patch
 
 import pytz
 from rest_framework import status
@@ -1015,7 +1014,6 @@ def retention_test_factory(retention):
                 )
 
         @snapshot_clickhouse_queries
-        @patch("posthoganalytics.feature_enabled", return_value=True)
         def test_timezones(self, patch_feature_enabled):
             _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
             _create_person(team_id=self.team.pk, distinct_ids=["person2"])

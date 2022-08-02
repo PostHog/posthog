@@ -1,5 +1,4 @@
 import json
-from unittest.mock import patch
 
 from freezegun import freeze_time
 from rest_framework.test import APIRequestFactory
@@ -559,7 +558,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
             self.assertEquals(sorted_results, sorted_expected)
 
         @snapshot_clickhouse_queries
-        @patch("posthoganalytics.feature_enabled", return_value=True)
         def test_timezones(self, patch_something):
             self._create_events(
                 data=[

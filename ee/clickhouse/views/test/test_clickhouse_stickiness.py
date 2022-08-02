@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
 from django.test.client import Client
 from freezegun.api import freeze_time
@@ -121,7 +120,6 @@ class TestClickhouseStickiness(ClickhouseTestMixin, stickiness_test_factory(Clic
         assert sorted([p["id"] for p in week3_actors]) == sorted(["org:1"])
 
     @snapshot_clickhouse_queries
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_timezones(self, patch_feature_enabled):
         journeys_for(
             {
