@@ -20,7 +20,8 @@ class Cluster(ABC):
     index: int  # Cluster index
     matrix: "Matrix"  # Parent
     start: timezone.datetime  # Start of the simulation
-    end: timezone.datetime  # End of the simulation
+    now: timezone.datetime  # Current moment in the simulation
+    end: timezone.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
     # Grid containing all people in the cluster.
@@ -49,6 +50,7 @@ class Cluster(ABC):
         self.finance_provider = matrix.finance_provider
         self.file_provider = matrix.file_provider
         self.start = matrix.start + (matrix.end - matrix.start) * self._initation_distribution()
+        self.now = matrix.now
         self.end = matrix.end
         self.radius = self._radius_distribution()
         self.people_matrix = [
@@ -108,7 +110,7 @@ class Cluster(ABC):
 
     def _print_simulation_update(self, person_spiral_index: int, person: SimPerson):
         print(
-            f"Simulated person {person_spiral_index + 1} in cluster {self} ({len(person.events)} event{'' if len(person.events) == 1 else 's'}):"
+            f"Simulated person {person_spiral_index + 1} in cluster {self} ({len(person.past_events)} event{'' if len(person.past_events) == 1 else 's'}):"
         )
         for person_row in self.people_matrix:
             print(" ".join(("X" if hasattr(person, "_simulation_time") else "-" for person in person_row)))
@@ -123,6 +125,7 @@ class Matrix(ABC):
     cluster_model: Type[Cluster]
 
     start: timezone.datetime
+    now: timezone.datetime
     end: timezone.datetime
     # A mapping of groups. The first key is the group type, the second key is the group key.
     groups: DefaultDict[str, DefaultDict[str, Dict[str, Any]]]
@@ -140,10 +143,19 @@ class Matrix(ABC):
     file_provider: mimesis.File
 
     def __init__(
-        self, seed: Optional[str] = None, *, start: timezone.datetime, end: timezone.datetime, n_clusters: int,
+        self,
+        seed: Optional[str] = None,
+        *,
+        now: timezone.datetime,
+        days_past: int = 120,
+        days_future: int = 30,
+        n_clusters: int,
     ):
-        self.start = start
-        self.end = end
+        if now is None:
+            now = timezone.now()
+        self.now = now
+        self.start = (now - timezone.timedelta(days=days_past)).replace(hour=0, minute=0, second=0, microsecond=0)
+        self.end = (now + timezone.timedelta(days=days_future + 1)).replace(hour=0, minute=0, second=0, microsecond=0)
         # We initialize random data providers here and pass it down as a performance measure
         # Provider initialization is a bit intensive, as it loads some JSON data,
         # so doing it at cluster or person level could be overly taxing

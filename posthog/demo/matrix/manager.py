@@ -98,7 +98,7 @@ class MatrixManager:
             )
             for group_key, group in groups.items():
                 self.save_sim_group(
-                    target_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.end
+                    target_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
                 )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         sim_persons = self.matrix.people
@@ -174,16 +174,16 @@ class MatrixManager:
 
     @staticmethod
     def save_sim_person(team: Team, subject: SimPerson):
-        if not subject.events:
+        if not subject.past_events:
             return  # Don't save a person who never participated
         from posthog.models.event.util import create_event
         from posthog.models.person.util import create_person, create_person_distinct_id
 
-        person_uuid_str = str(UUIDT(unix_time_ms=int(subject.events[0].timestamp.timestamp() * 1000)))
-        create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties, version=0)
-        for distinct_id in subject.distinct_ids:
+        person_uuid_str = str(UUIDT(unix_time_ms=int(subject.past_events[0].timestamp.timestamp() * 1000)))
+        create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
+        for distinct_id in subject.distinct_ids_at_now:
             create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
-        for event in subject.events:
+        for event in subject.past_events:
             event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
             create_event(
                 event_uuid=event_uuid,
