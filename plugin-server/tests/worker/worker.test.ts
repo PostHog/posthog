@@ -166,7 +166,7 @@ describe('worker', () => {
                 distinctId: 'my_id',
                 ip: '127.0.0.1',
                 teamId: 2,
-                timestamp: DateTime.fromISO('2020-02-23T02:15:00Z'),
+                timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }),
                 event: '$pageview',
                 properties: {},
                 elementsList: [],
