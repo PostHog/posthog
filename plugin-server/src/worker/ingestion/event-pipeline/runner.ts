@@ -5,6 +5,7 @@ import { runInSpan } from '../../../sentry'
 import { Hub, IngestionEvent } from '../../../types'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
+import { LazyPersonContainer } from '../lazy-person-container'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { emitToBufferStep } from './1-emitToBufferStep'
 import { pluginsProcessEventStep } from './2-pluginsProcessEventStep'
@@ -75,18 +76,16 @@ export class EventPipelineRunner {
 
     async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
-        const person = await this.hub.db.fetchPerson(event.team_id, event.distinct_id)
-        const result = await this.runPipeline('pluginsProcessEventStep', event, person)
-        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested', {
-            didPersonExistAtStart: String(!person),
-        })
+        const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
+        const result = await this.runPipeline('pluginsProcessEventStep', event, personContainer)
+        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
         return result
     }
 
     async runAsyncHandlersEventPipeline(event: IngestionEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
-        const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
-        const result = await this.runPipeline('runAsyncHandlersStep', { ...event, person })
+        const personContainer = new LazyPersonContainer(event.teamId, event.distinctId, this.hub)
+        const result = await this.runPipeline('runAsyncHandlersStep', event, personContainer)
         this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
         return result
     }

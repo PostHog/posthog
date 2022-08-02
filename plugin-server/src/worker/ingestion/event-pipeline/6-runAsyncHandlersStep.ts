@@ -2,13 +2,19 @@ import { runInstrumentedFunction } from '../../../main/utils'
 import { Action, Element, IngestionEvent, IngestionPersonData } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent, runOnSnapshot } from '../../plugins/run'
+import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
-export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: IngestionEvent): Promise<StepResult> {
+export async function runAsyncHandlersStep(
+    runner: EventPipelineRunner,
+    event: IngestionEvent,
+    personContainer: LazyPersonContainer
+): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
         await Promise.all([
             processOnEvent(runner, event),
-            processWebhooks(runner, event, event.person, event.elementsList),
+            // :TODO: Refactor onEvent/Webhooks
+            processWebhooks(runner, event, await personContainer.get(), event.elementsList),
         ])
     }
 

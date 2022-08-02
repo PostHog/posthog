@@ -11,10 +11,85 @@ Array [
         "event": "$pageview",
         "eventUuid": "uuid1",
         "ip": "127.0.0.1",
-        "person": "testPerson",
         "properties": Object {},
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00Z",
+      },
+      LazyPersonContainer {
+        "distinctId": "my_id",
+        "hub": Object {
+          "db": Object {
+            "fetchPerson": [MockFunction],
+            "kafkaProducer": Object {
+              "queueMessage": [MockFunction],
+            },
+          },
+          "statsd": Object {
+            "increment": [MockFunction] {
+              "calls": Array [
+                Array [
+                  "kafka_queue.event_pipeline.start",
+                  Object {
+                    "pipeline": "asyncHandlers",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step",
+                  Object {
+                    "step": "runAsyncHandlersStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step.last",
+                  Object {
+                    "step": "runAsyncHandlersStep",
+                    "team_id": "2",
+                  },
+                ],
+                Array [
+                  "kafka_queue.async_handlers.processed",
+                ],
+              ],
+              "results": Array [
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+              ],
+            },
+            "timing": [MockFunction] {
+              "calls": Array [
+                Array [
+                  "kafka_queue.event_pipeline.step.timing",
+                  2022-08-02T11:12:57.677Z,
+                  Object {
+                    "step": "runAsyncHandlersStep",
+                  },
+                ],
+              ],
+              "results": Array [
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+              ],
+            },
+          },
+        },
+        "promise": null,
+        "teamId": 2,
       },
     ],
   ],
@@ -37,7 +112,166 @@ Array [
         "timestamp": "2020-02-23T02:15:00Z",
         "uuid": "uuid1",
       },
-      "testPerson",
+      LazyPersonContainer {
+        "distinctId": "my_id",
+        "hub": Object {
+          "db": Object {
+            "fetchPerson": [MockFunction],
+            "kafkaProducer": Object {
+              "queueMessage": [MockFunction],
+            },
+          },
+          "statsd": Object {
+            "increment": [MockFunction] {
+              "calls": Array [
+                Array [
+                  "kafka_queue.event_pipeline.start",
+                  Object {
+                    "pipeline": "buffer",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step",
+                  Object {
+                    "step": "pluginsProcessEventStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step",
+                  Object {
+                    "step": "processPersonsStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step",
+                  Object {
+                    "step": "prepareEventStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step",
+                  Object {
+                    "step": "createEventStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step",
+                  Object {
+                    "step": "runAsyncHandlersStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step.last",
+                  Object {
+                    "step": "runAsyncHandlersStep",
+                    "team_id": "2",
+                  },
+                ],
+                Array [
+                  "kafka_queue.buffer_event.processed_and_ingested",
+                ],
+              ],
+              "results": Array [
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+              ],
+            },
+            "timing": [MockFunction] {
+              "calls": Array [
+                Array [
+                  "kafka_queue.event_pipeline.step.timing",
+                  2022-08-02T11:12:57.675Z,
+                  Object {
+                    "step": "pluginsProcessEventStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step.timing",
+                  2022-08-02T11:12:57.675Z,
+                  Object {
+                    "step": "processPersonsStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step.timing",
+                  2022-08-02T11:12:57.675Z,
+                  Object {
+                    "step": "prepareEventStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step.timing",
+                  2022-08-02T11:12:57.675Z,
+                  Object {
+                    "step": "createEventStep",
+                  },
+                ],
+                Array [
+                  "kafka_queue.event_pipeline.step.timing",
+                  2022-08-02T11:12:57.675Z,
+                  Object {
+                    "step": "runAsyncHandlersStep",
+                  },
+                ],
+              ],
+              "results": Array [
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+                Object {
+                  "type": "return",
+                  "value": undefined,
+                },
+              ],
+            },
+          },
+        },
+        "promise": null,
+        "teamId": 2,
+      },
     ],
   ],
   Array [
