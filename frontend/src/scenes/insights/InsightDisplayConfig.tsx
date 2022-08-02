@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { PropsWithChildren, ReactNode } from 'react'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -81,6 +81,10 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
+function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
+    return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
+}
+
 export function InsightDisplayConfig({ filters, activeView, disableTable }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
@@ -89,11 +93,11 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
     const { setFilters } = useActions(insightLogic)
 
     return (
-        <div className="display-config-inner">
-            <div className="flex items-center space-x-2 flex-wrap mx-0 my-2">
+        <div className="flex justify-between items-center flex-wrap">
+            <div className="flex items-center space-x-2 flex-wrap my-2">
                 {showDateFilter[activeView] && !disableTable && (
-                    <span className="space-x-2 flex items-center text-sm">
-                        <span className="head-title-item">Date range</span>
+                    <ConfigFilter>
+                        <span>Date range</span>
                         <InsightDateFilter
                             defaultValue={'Last 7 days'}
                             disabled={showFunnelBarOptions && isFunnelEmpty(filters)}
@@ -108,16 +112,16 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                                 </>
                             )}
                         />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {showIntervalFilter(activeView, filters) && (
-                    <span className="space-x-2 flex items-center text-sm">
-                        <span className="head-title-item">
+                    <ConfigFilter>
+                        <span>
                             <span className="hide-lte-md">grouped </span>by
                         </span>
                         <IntervalFilter view={activeView} />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {activeView === InsightType.TRENDS &&
@@ -125,34 +129,34 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 !filters.compare &&
                 (!filters.display || filters.display === ChartDisplayType.ActionsLineGraph) &&
                 featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL] ? (
-                    <span className="space-x-2 flex items-center text-sm">
+                    <ConfigFilter>
                         <SmoothingFilter />
-                    </span>
+                    </ConfigFilter>
                 ) : null}
 
                 {activeView === InsightType.RETENTION && (
-                    <span className="space-x-2 flex items-center text-sm">
+                    <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {showPathOptions && (
-                    <span className="space-x-2 flex items-center text-sm">
+                    <ConfigFilter>
                         <PathStepPicker />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {showComparePrevious[activeView] && (
-                    <span className="space-x-2 flex items-center text-sm">
+                    <ConfigFilter>
                         <CompareFilter />
-                    </span>
+                    </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-2 flex-wrap mx-0 my-2">
+            <div className="flex items-center space-x-2 flex-wrap my-2">
                 {activeView === InsightType.TRENDS && (
-                    <span className="space-x-2 flex items-center text-sm">
-                        <span>y-axis format</span>
+                    <ConfigFilter>
+                        <span>Y-Axis format</span>
                         <LemonSelect
                             value={filters.y_axis_format || 'numeric'}
                             onChange={(value) => {
@@ -169,26 +173,26 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             type={'stealth'}
                             size={'small'}
                         />
-                    </span>
+                    </ConfigFilter>
                 )}
                 {showChartFilter(activeView) && (
-                    <span className="space-x-2 flex items-center text-sm">
-                        <span className="head-title-item">Chart type</span>
+                    <ConfigFilter>
+                        <span>Chart type</span>
                         <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
-                        <span className="space-x-2 flex items-center text-sm">
+                        <ConfigFilter>
                             <FunnelDisplayLayoutPicker />
-                        </span>
+                        </ConfigFilter>
                     </>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
-                    <span className="space-x-2 flex items-center text-sm">
+                    <ConfigFilter>
                         <FunnelBinsPicker />
-                    </span>
+                    </ConfigFilter>
                 )}
             </div>
         </div>
