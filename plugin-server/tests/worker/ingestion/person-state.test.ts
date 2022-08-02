@@ -90,6 +90,17 @@ describe('PersonState.update()', () => {
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
     })
 
+    it('handles person being created in a race condition', async () => {
+        const originalPerson = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+
+        // Simulate person trying to be created in a race condition
+        jest.spyOn(hub.personManager, 'isNewPerson').mockResolvedValueOnce(true)
+        const racePerson = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+
+        expect(racePerson).toEqual(originalPerson)
+        expect(racePerson?.version).toEqual(0)
+    })
+
     it('creates person with properties', async () => {
         const createdPerson = await personState({
             event: '$pageview',

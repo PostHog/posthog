@@ -103,6 +103,8 @@ export class PersonState {
                 this.updateIsIdentified)
         ) {
             result = await this.updatePersonProperties()
+        } else if (!result) {
+            result = await this.db.fetchPerson(this.teamId, this.distinctId)
         }
         return result
     }
