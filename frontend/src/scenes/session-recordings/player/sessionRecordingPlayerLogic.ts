@@ -1,3 +1,4 @@
+import { KeyboardEvent } from 'react'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
@@ -12,7 +13,6 @@ import {
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
 } from './playerUtils'
-import React from 'react'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -54,7 +54,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setRootFrame: (frame: HTMLDivElement) => ({ frame }),
         checkBufferingCompleted: true,
         initializePlayerFromStart: true,
-        handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => ({ event }),
+        handleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => ({ event }),
     }),
     reducers(() => ({
         rootFrame: [
