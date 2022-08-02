@@ -56,7 +56,7 @@ describe('runAsyncHandlersStep()', () => {
         await runAsyncHandlersStep(runner, ingestionEvent, personContainer)
 
         expect(runner.hub.actionMatcher.match).toHaveBeenCalled()
-        expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, testPerson, [
+        expect(runner.hub.hookCannon.findAndFireHooks).toHaveBeenCalledWith(ingestionEvent, personContainer, [
             'action1',
             'action2',
         ])
