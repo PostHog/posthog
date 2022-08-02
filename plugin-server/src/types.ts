@@ -37,6 +37,9 @@ import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-man
 import { LazyPluginVM } from './worker/vm/lazy'
 import { PromiseManager } from './worker/vm/promise-manager'
 
+/** Re-export Element from scaffolding, for backwards compat. */
+export { Element } from '@posthog/plugin-scaffold'
+
 export enum LogLevel {
     None = 'none',
     Debug = 'debug',
@@ -461,6 +464,28 @@ export interface PropertyUsage {
     volume: number | null
 }
 
+/** Raw Organization row from database. */
+export interface RawOrganization {
+    id: string
+    name: string
+    created_at: string
+    updated_at: string
+    available_features: string[]
+}
+
+/** Usable Team model. */
+export interface Team {
+    id: number
+    uuid: string
+    organization_id: string
+    name: string
+    anonymize_ips: boolean
+    api_token: string
+    slack_incoming_webhook: string
+    session_recording_opt_in: boolean
+    ingested_event: boolean
+}
+
 /** Properties shared by RawEventMessage and EventMessage. */
 export interface BaseEventMessage {
     distinct_id: string
@@ -489,31 +514,6 @@ export interface EventMessage extends BaseEventMessage {
     sent_at: DateTime | null
 }
 
-/** Raw Organization row from database. */
-export interface RawOrganization {
-    id: string
-    name: string
-    created_at: string
-    updated_at: string
-    available_features: string[]
-}
-
-/** Usable Team model. */
-export interface Team {
-    id: number
-    uuid: string
-    organization_id: string
-    name: string
-    anonymize_ips: boolean
-    api_token: string
-    slack_incoming_webhook: string
-    session_recording_opt_in: boolean
-    ingested_event: boolean
-}
-
-/** Re-export Element from scaffolding, for backwards compat. */
-export { Element } from '@posthog/plugin-scaffold'
-
 /** Properties shared by RawEvent and Event. */
 interface BaseEvent {
     uuid: string
@@ -539,7 +539,7 @@ export interface RawEvent extends BaseEvent {
     group4_properties?: string
 }
 
-/** Parsed event row. */
+/** Parsed event row from ClickHouse. */
 export interface Event extends BaseEvent {
     timestamp: DateTime
     created_at: DateTime
@@ -554,7 +554,10 @@ export interface Event extends BaseEvent {
     group4_properties: Record<string, any>
 }
 
-export interface PostIngestionEvent {
+/** Event in a database-agnostic shape, AKA an ingestion event.
+ * This is what should be passed around most of the time in the plugin server.
+ */
+interface BaseIngestionEvent {
     eventUuid: string
     event: string
     ip: string | null
@@ -566,11 +569,14 @@ export interface PostIngestionEvent {
     person?: IngestionPersonData | undefined
 }
 
-/** Currently same as PostIngestionEvent. */
-export type PreIngestionEvent = PostIngestionEvent
+/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
+export type PreIngestionEvent = BaseIngestionEvent
 
-/** Variant of PostIngestionEvent that can be cloned by Piscina - only for communication between threads. */
-export interface ClonablePostIngestionEvent extends Omit<PostIngestionEvent, 'timestamp'> {
+/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
+export type PostIngestionEvent = BaseIngestionEvent
+
+/** Ingestion event that can be cloned by Piscina - only for communication between threads. */
+export interface ClonableIngestionEvent extends Omit<PostIngestionEvent, 'timestamp'> {
     timestamp: string
 }
 

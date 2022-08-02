@@ -283,9 +283,6 @@ export class EventsProcessor {
         properties: Properties,
         ip: string | null
     ): Promise<PostIngestionEvent> {
-        if (!timestamp) {
-            timestamp = DateTime.utc()
-        }
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO

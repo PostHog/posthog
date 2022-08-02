@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import {
     Action,
-    ClonablePostIngestionEvent,
+    ClonableIngestionEvent,
     EnqueuedPluginJob,
     Hub,
     PluginTaskType,
@@ -45,7 +45,7 @@ export const workerTasks: Record<string, TaskRunner> = {
         const runner = new EventPipelineRunner(hub, args.event)
         return await runner.runBufferEventPipeline(args.event)
     },
-    runAsyncHandlersEventPipeline: async (hub, args: { event: ClonablePostIngestionEvent }) => {
+    runAsyncHandlersEventPipeline: async (hub, args: { event: ClonableIngestionEvent }) => {
         const event: PostIngestionEvent = {
             ...args.event,
             timestamp: DateTime.fromISO(args.event.timestamp),
