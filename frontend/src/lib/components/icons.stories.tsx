@@ -46,15 +46,11 @@ export function Library(): JSX.Element {
                     render: function RenderIcon(Icon) {
                         Icon = Icon as IconDefinition['icon']
                         return (
-                            <span
+                            <Icon
                                 style={{
-                                    display: 'inline-flex',
                                     fontSize: '1.5rem',
-                                    outline: '1px solid var(--primary)',
                                 }}
-                            >
-                                <Icon />
-                            </span>
+                            />
                         )
                     },
                 },

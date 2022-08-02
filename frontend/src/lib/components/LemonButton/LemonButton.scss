@@ -11,7 +11,7 @@
         opacity: var(--opacity-disabled);
         cursor: not-allowed;
     }
-    .LemonRow__icon {
+    .LemonIcon {
         color: var(--primary);
     }
     &.LemonRow--status-danger {
@@ -42,7 +42,7 @@
 
 .LemonButton--tertiary {
     color: var(--muted-alt);
-    .LemonRow__icon {
+    .LemonIcon {
         color: var(--muted-alt);
     }
 }
@@ -56,7 +56,7 @@
         background: var(--bg-light);
         border-color: currentColor;
     }
-    .LemonRow__icon {
+    .LemonIcon {
         color: var(--muted-alt);
     }
 }
@@ -101,7 +101,7 @@
             background: var(--success-dark);
         }
     }
-    .LemonRow__icon,
+    .LemonIcon,
     .spinner {
         color: #fff !important;
     }
@@ -109,7 +109,7 @@
 
 .LemonButton--alt {
     color: var(--primary-alt);
-    .LemonRow__icon {
+    .LemonIcon {
         color: var(--primary-alt);
     }
 }
@@ -117,7 +117,7 @@
 .LemonButton--stealth {
     color: var(--default);
     font-weight: 400;
-    .LemonRow__icon {
+    .LemonIcon {
         color: var(--muted-alt);
     }
 }
