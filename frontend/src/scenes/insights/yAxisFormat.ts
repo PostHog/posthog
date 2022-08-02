@@ -32,7 +32,6 @@ export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): b
             ChartDisplayType.ActionsLineGraph,
             ChartDisplayType.ActionsLineGraphCumulative,
             ChartDisplayType.ActionsBar,
-            ChartDisplayType.ActionsBarValue,
         ].includes(chartDisplayType)
     )
 }

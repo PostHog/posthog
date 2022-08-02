@@ -523,7 +523,7 @@ export function LineGraph_({
                         precision: 0,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return compactNumber(Number(value))
+                            return formatYAxisValue(yAxisFormat, value)
                         },
                     },
                 },
