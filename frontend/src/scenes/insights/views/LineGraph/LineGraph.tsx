@@ -710,7 +710,7 @@ export function LineGraph_({
                         getPopupContainer={
                             annotationsRoot?.current ? () => annotationsRoot.current as HTMLDivElement : undefined
                         }
-                        onCreateAnnotation={(textInput, applyAll) => {
+                        onCreate={(textInput, applyAll) => {
                             const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
                             if (date) {
                                 if (applyAll) {
@@ -721,7 +721,7 @@ export function LineGraph_({
                             }
                         }}
                         onClose={() => setFocused(false)}
-                        dynamic={true}
+                        dynamic
                         left={(focused ? holdLeft : left) - 12.5}
                         top={topExtent}
                         label="Add note"
