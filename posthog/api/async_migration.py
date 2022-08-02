@@ -1,3 +1,4 @@
+import structlog
 from rest_framework import permissions, response, serializers, viewsets
 from rest_framework.decorators import action
 
@@ -17,6 +18,8 @@ from posthog.models.async_migration import (
     get_all_running_async_migrations,
 )
 from posthog.permissions import IsStaffUser
+
+logger = structlog.get_logger(__name__)
 
 
 class AsyncMigrationErrorsSerializer(serializers.ModelSerializer):
@@ -70,9 +73,13 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
         return AsyncMigrationError.objects.filter(async_migration=async_migration).count()
 
     def get_parameter_definitions(self, async_migration: AsyncMigration):
-        definition = get_async_migration_definition(async_migration.name)
-        # Ignore typecasting logic for parameters
-        return {key: param[:2] for key, param in definition.parameters.items()}
+        try:
+            definition = get_async_migration_definition(async_migration.name)
+            # Ignore typecasting logic for parameters
+            return {key: param[:2] for key, param in definition.parameters.items()}
+        except Exception as e:
+            logger.error(f"Failed to get definition for {async_migration.name}, error {e}")
+        return {}
 
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):

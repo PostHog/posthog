@@ -64,7 +64,13 @@ def start_async_migration(
         return False
 
     if migration_definition is None:
-        migration_definition = get_async_migration_definition(migration_name)
+        try:
+            migration_definition = get_async_migration_definition(migration_name)
+        except Exception:
+            process_error(
+                migration_instance, f"Migration definition not available", status=MigrationStatus.FailedAtStartup
+            )
+            return False
 
     if not migration_definition.is_required():
         complete_migration(migration_instance, email=False)
