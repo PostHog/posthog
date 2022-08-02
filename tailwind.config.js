@@ -157,7 +157,7 @@ module.exports = {
         // 'mixBlendMode', // The mix-blend-mode utilities like mix-blend-hard-light
         // 'objectFit', // The object-fit utilities like object-fill
         // 'objectPosition', // The object-position utilities like object-left-top
-        // 'opacity', // The opacity utilities like opacity-50
+        'opacity', // The opacity utilities like opacity-50
         // 'order', // The order utilities like order-8
         // 'outlineColor', // The outline-color utilities like outline-green-700
         // 'outlineOffset', // The outline-offset utilities like outline-offset-2

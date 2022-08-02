@@ -81,29 +81,27 @@ export function ProjectHomepage(): JSX.Element {
             </div>
             {currentTeam?.primary_dashboard ? (
                 <div>
-                    <div>
-                        <Row className="homepage-dashboard-header">
-                            <div className="dashboard-title-container">
-                                {!dashboard && <Skeleton active paragraph={false} />}
-                                {dashboard?.name && (
-                                    <>
-                                        <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
-                                        <Typography.Title className="dashboard-name" level={4}>
-                                            {dashboard?.name}
-                                        </Typography.Title>
-                                    </>
-                                )}
-                            </div>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="project-home-new-insight"
-                                onClick={showPrimaryDashboardModal}
-                            >
-                                Change dashboard
-                            </LemonButton>
-                        </Row>
-                        <LemonDivider large />
-                    </div>
+                    <Row className="homepage-dashboard-header">
+                        <div className="dashboard-title-container">
+                            {!dashboard && <Skeleton active paragraph={false} />}
+                            {dashboard?.name && (
+                                <>
+                                    <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
+                                    <Typography.Title className="dashboard-name" level={4}>
+                                        {dashboard?.name}
+                                    </Typography.Title>
+                                </>
+                            )}
+                        </div>
+                        <LemonButton
+                            type="secondary"
+                            data-attr="project-home-new-insight"
+                            onClick={showPrimaryDashboardModal}
+                        >
+                            Change dashboard
+                        </LemonButton>
+                    </Row>
+                    <LemonDivider large />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}
