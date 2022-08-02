@@ -188,7 +188,7 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         )
 
 
-def _get_distinct_id(data: Dict[str, Any]) -> str:
+def get_distinct_id(data: Dict[str, Any]) -> str:
     raw_value: Any = ""
     try:
         raw_value = data["$distinct_id"]
@@ -196,9 +196,14 @@ def _get_distinct_id(data: Dict[str, Any]) -> str:
         try:
             raw_value = data["properties"]["distinct_id"]
         except KeyError:
-            raw_value = data["distinct_id"]
+            try:
+                raw_value = data["distinct_id"]
+            except KeyError:
+                statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
+                raise ValueError('All events must have the event field "distinct_id"!')
     if not raw_value:
-        raise ValueError()
+        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
+        raise ValueError('Event field "distinct_id" should not be blank!')
     return str(raw_value)[0:200]
 
 
@@ -290,23 +295,15 @@ def get_event(request):
     site_url = request.build_absolute_uri("/")[:-1]
 
     ip = None if not ingestion_context or ingestion_context.anonymize_ips else get_ip_address(request)
-    for event in events:
-        event_uuid = UUIDT()
-        distinct_id = get_distinct_id(event)
-        if not distinct_id:
-            continue
 
-        payload_uuid = event.get("uuid", None)
-        if payload_uuid:
-            if UUIDT.is_valid_uuid(payload_uuid):
-                event_uuid = UUIDT(uuid_str=payload_uuid)
-            else:
-                statsd.incr("invalid_event_uuid")
+    try:
+        processed_events = list(validate_events(events, ingestion_context))
+    except ValueError as e:
+        return cors_response(
+            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+        )
 
-        event = parse_event(event, distinct_id, ingestion_context)
-        if not event:
-            continue
-
+    for event, event_uuid, distinct_id in processed_events:
         if send_events_to_dead_letter_queue:
             kafka_event = parse_kafka_event_data(
                 distinct_id=distinct_id,
@@ -352,6 +349,25 @@ def get_event(request):
     return cors_response(request, JsonResponse({"status": 1}))
 
 
+def validate_events(events, ingestion_context):
+    for event in events:
+        event_uuid = UUIDT()
+        distinct_id = get_distinct_id(event)
+        payload_uuid = event.get("uuid", None)
+        if payload_uuid:
+            if UUIDT.is_valid_uuid(payload_uuid):
+                event_uuid = UUIDT(uuid_str=payload_uuid)
+            else:
+                statsd.incr("invalid_event_uuid")
+                raise ValueError('Event field "uuid" is not a valid UUID!')
+
+        event = parse_event(event, distinct_id, ingestion_context)
+        if not event:
+            continue
+
+        yield event, event_uuid, distinct_id
+
+
 def parse_event(event, distinct_id, ingestion_context):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
@@ -368,19 +384,6 @@ def parse_event(event, distinct_id, ingestion_context):
         _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
 
     return event
-
-
-def get_distinct_id(event):
-    try:
-        distinct_id = _get_distinct_id(event)
-    except KeyError:
-        statsd.incr("invalid_event", tags={"error": "missing_distinct_id"})
-        return
-    except ValueError:
-        statsd.incr("invalid_event", tags={"error": "invalid_distinct_id"})
-        return
-
-    return distinct_id
 
 
 def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=UUIDT()) -> None:
