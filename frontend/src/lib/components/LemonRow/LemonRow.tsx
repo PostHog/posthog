@@ -47,7 +47,7 @@ export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> ex
 
 /** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a standard row of content.
  *
- * Do NOT use for general layout if you simply need flexbox though. In that case `display: flex` is much lighter.
+ * Do NOT use for general layout if you simply need flexbox though. In that case `<div className="flex">` is much lighter.
  */
 export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements = 'div'>(
     {
