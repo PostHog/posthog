@@ -44,14 +44,34 @@ export interface ActivityLogItem {
     detail: ActivityLogDetail
 }
 
+// the description of a single activity log is a sentence describing one or more changes that makes up the entry
+export type Description = string | JSX.Element | null
+// the extended description gives extra context, like the insight details card to describe a change to an insight
+export type ExtendedDescription = JSX.Element | undefined
+export type ChangeMapping = {
+    description: Description[] | null
+    extendedDescription?: ExtendedDescription
+    suffix?: string | JSX.Element | null // to override the default suffix
+}
+export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
+
 export interface HumanizedActivityLogItem {
     email?: string
     name?: string
-    description: string | JSX.Element
+    description: Description
+    extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
 }
 
-export type Describer = (logItem: ActivityLogItem) => string | JSX.Element | null
+export type Describer = (logItem: ActivityLogItem) => HumanizedChange
+
+export function detectBoolean(candidate: unknown): boolean {
+    let b: boolean = !!candidate
+    if (typeof candidate === 'string') {
+        b = candidate.toLowerCase() === 'true'
+    }
+    return b
+}
 
 export function humanize(results: ActivityLogItem[], describer?: Describer): HumanizedActivityLogItem[] {
     if (!describer) {
@@ -62,12 +82,13 @@ export function humanize(results: ActivityLogItem[], describer?: Describer): Hum
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
-        const description = describer(logItem)
+        const { description, extendedDescription } = describer(logItem)
         if (description !== null) {
             logLines.push({
                 email: logItem.user.email,
                 name: logItem.user.first_name,
                 description,
+                extendedDescription,
                 created_at: dayjs(logItem.created_at),
             })
         }

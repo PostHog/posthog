@@ -26,10 +26,10 @@ export const scene: SceneExport = {
 function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <div className="mr">
+            <div className="mr-4">
                 <span className="text-muted">Type:</span> {groupTypeName}
             </div>
-            <div className="mr">
+            <div className="mr-4">
                 <span className="text-muted">Key:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}

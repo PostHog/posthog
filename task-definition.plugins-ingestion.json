@@ -53,10 +53,6 @@
                     "value": "--max-old-space-size=4096"
                 },
                 {
-                    "name": "CRASH_IF_NO_PERSISTENT_JOB_QUEUE",
-                    "value": "0"
-                },
-                {
                     "name": "CAPTURE_INTERNAL_METRICS",
                     "value": "False"
                 },
@@ -83,10 +79,6 @@
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
                     "value": "5"
-                },
-                {
-                    "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
-                    "value": "True"
                 },
                 {
                     "name": "PERSON_INFO_TO_REDIS_TEAMS",

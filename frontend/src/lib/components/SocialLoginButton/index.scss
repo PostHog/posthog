@@ -1,4 +1,4 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
 .social-logins {
     margin-top: 1rem;
@@ -16,13 +16,7 @@
 
     .caption {
         margin-bottom: 0.5rem;
-        color: var(--text-muted);
-    }
-
-    @media screen and (max-width: $sm) {
-        .link-social-login {
-            padding: 0 0.5rem;
-        }
+        color: var(--muted);
     }
 }
 
@@ -30,9 +24,14 @@
     display: inline-flex;
     align-items: center;
     color: var(--primary);
+    padding: 0 0.5rem;
 
     .anticon {
         color: var(--primary-alt);
         transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+    }
+
+    @include screen($sm) {
+        padding: 0.5rem 1rem;
     }
 }

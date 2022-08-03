@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { PropsWithChildren, ReactNode } from 'react'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
@@ -15,8 +15,15 @@ import { Tooltip } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonSelect } from 'lib/components/LemonSelect'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import {
+    isAggregationAxisFormat,
+    aggregationAxisFormatSelectOptions,
+    canFormatAxis,
+} from 'scenes/insights/aggregationAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -78,17 +85,23 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
+function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
+    return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
+}
+
 export function InsightDisplayConfig({ filters, activeView, disableTable }: InsightDisplayConfigProps): JSX.Element {
     const showFunnelBarOptions = activeView === InsightType.FUNNELS
     const showPathOptions = activeView === InsightType.PATHS
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const { setFilters } = useActions(insightLogic)
+
     return (
-        <div className="display-config-inner">
-            <div className="display-config-inner-row">
+        <div className="flex justify-between items-center flex-wrap">
+            <div className="flex items-center space-x-2 flex-wrap my-2">
                 {showDateFilter[activeView] && !disableTable && (
-                    <span className="filter">
-                        <span className="head-title-item">Date range</span>
+                    <ConfigFilter>
+                        <span>Date range</span>
                         <InsightDateFilter
                             defaultValue={'Last 7 days'}
                             disabled={showFunnelBarOptions && isFunnelEmpty(filters)}
@@ -103,16 +116,16 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                                 </>
                             )}
                         />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {showIntervalFilter(activeView, filters) && (
-                    <span className="filter">
-                        <span className="head-title-item">
+                    <ConfigFilter>
+                        <span>
                             <span className="hide-lte-md">grouped </span>by
                         </span>
                         <IntervalFilter view={activeView} />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {activeView === InsightType.TRENDS &&
@@ -120,46 +133,72 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 !filters.compare &&
                 (!filters.display || filters.display === ChartDisplayType.ActionsLineGraph) &&
                 featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL] ? (
-                    <SmoothingFilter />
+                    <ConfigFilter>
+                        <SmoothingFilter />
+                    </ConfigFilter>
                 ) : null}
 
                 {activeView === InsightType.RETENTION && (
-                    <>
+                    <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
-                    </>
+                    </ConfigFilter>
                 )}
 
                 {showPathOptions && (
-                    <span className="filter">
+                    <ConfigFilter>
                         <PathStepPicker />
-                    </span>
+                    </ConfigFilter>
                 )}
 
                 {showComparePrevious[activeView] && (
-                    <span className="filter">
+                    <ConfigFilter>
                         <CompareFilter />
-                    </span>
+                    </ConfigFilter>
                 )}
             </div>
-            <div className="display-config-inner-row">
-                {showChartFilter(activeView) && (
-                    <span className="filter">
-                        <span className="head-title-item">Chart type</span>
-                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
-                    </span>
+            <div className="flex items-center space-x-4 flex-wrap my-2">
+                {activeView === InsightType.TRENDS && (
+                    <ConfigFilter>
+                        <span>Units</span>
+                        <LemonSelect
+                            value={
+                                canFormatAxis(filters.display) ? filters.aggregation_axis_format || 'numeric' : 'N/A'
+                            }
+                            onChange={(value) => {
+                                if (isAggregationAxisFormat(value)) {
+                                    setFilters({ ...filters, aggregation_axis_format: value })
+                                }
+                            }}
+                            bordered
+                            dropdownPlacement={'bottom-end'}
+                            dropdownMatchSelectWidth={false}
+                            disabled={!canFormatAxis(filters.display)}
+                            data-attr="chart-aggregation-axis-format"
+                            options={aggregationAxisFormatSelectOptions}
+                            type={'stealth'}
+                            size={'small'}
+                        />
+                    </ConfigFilter>
                 )}
+                {showChartFilter(activeView) && (
+                    <ConfigFilter>
+                        <span>Chart type</span>
+                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
+                    </ConfigFilter>
+                )}
+
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
-                        <span className="filter">
+                        <ConfigFilter>
                             <FunnelDisplayLayoutPicker />
-                        </span>
+                        </ConfigFilter>
                     </>
                 )}
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
-                    <span className="filter">
+                    <ConfigFilter>
                         <FunnelBinsPicker />
-                    </span>
+                    </ConfigFilter>
                 )}
             </div>
         </div>

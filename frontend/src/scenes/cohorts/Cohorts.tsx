@@ -160,7 +160,7 @@ export function Cohorts(): JSX.Element {
                         setSearchTerm(e.target.value)
                     }}
                 />
-                <div className="mb float-right">
+                <div className="mb-4 float-right">
                     <LemonButton
                         type="primary"
                         data-attr="create-cohort"
@@ -177,6 +177,7 @@ export function Cohorts(): JSX.Element {
                     pagination={{ pageSize: 100 }}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                     nouns={['cohort', 'cohorts']}
+                    data-tooltip="cohorts-table"
                 />
             </div>
         </div>

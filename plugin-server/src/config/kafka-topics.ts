@@ -5,7 +5,6 @@ import { isTestEnv } from '../utils/env-utils'
 const suffix = isTestEnv() ? '_test' : ''
 export const prefix = process.env.KAFKA_PREFIX || ''
 
-export const KAFKA_EVENTS = `${prefix}clickhouse_events_proto${suffix}`
 export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
 export const KAFKA_PERSON = `${prefix}clickhouse_person${suffix}`
 export const KAFKA_PERSON_UNIQUE_ID = `${prefix}clickhouse_person_unique_id${suffix}`

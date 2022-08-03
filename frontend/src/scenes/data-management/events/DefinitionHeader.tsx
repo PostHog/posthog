@@ -1,12 +1,13 @@
 import React from 'react'
 import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
 import {
+    ActionEvent,
     AutocaptureIcon,
     PageleaveIcon,
     PageviewIcon,
     PropertyIcon,
-    UnverifiedEventStack,
-    VerifiedEventStack,
+    UnverifiedEvent,
+    VerifiedEvent,
     VerifiedPropertyIcon,
 } from 'lib/components/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -21,55 +22,65 @@ import {
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { actionsModel } from '~/models/actionsModel'
-
-export enum DefinitionType {
-    Event = 'event',
-    Property = 'property',
-    Action = 'action',
-}
+import { isActionEvent } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (!!keyMapping.event[definition.name]) {
         return (
-            <Tooltip title="Verified PostHog event property">
+            <Tooltip title="PostHog event property">
                 <VerifiedPropertyIcon className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    return <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+    return (
+        <Tooltip title="Event property">
+            <PropertyIcon className="taxonomy-icon taxonomy-icon-muted" />
+        </Tooltip>
+    )
 }
 
 export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
+    if (isActionEvent(definition)) {
+        return (
+            <Tooltip title="Calculated event">
+                <ActionEvent className="taxonomy-icon taxonomy-icon-muted" />
+            </Tooltip>
+        )
+    }
     // Rest are events
     if (definition.name === '$pageview') {
         return (
-            <Tooltip title="Verified PostHog event">
+            <Tooltip title="PostHog event">
                 <PageviewIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$pageleave') {
         return (
-            <Tooltip title="Verified PostHog event">
+            <Tooltip title="PostHog event">
                 <PageleaveIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$autocapture') {
         return (
-            <Tooltip title="Verified PostHog event">
+            <Tooltip title="PostHog event">
                 <AutocaptureIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name && (definition.verified || !!keyMapping.event[definition.name])) {
         return (
-            <Tooltip title={`Verified${!!keyMapping.event[definition.name] ? ' PostHog' : ' event'}`}>
-                <VerifiedEventStack className="taxonomy-icon taxonomy-icon-verified" />
+            <Tooltip title={`${!!keyMapping.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
+                <VerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
-    return <UnverifiedEventStack className="taxonomy-icon taxonomy-icon-muted" />
+    return (
+        <Tooltip title={`Unverified event`}>
+            <UnverifiedEvent className="taxonomy-icon taxonomy-icon-muted" />
+        </Tooltip>
+    )
 }
 
 interface SharedDefinitionHeaderProps {
@@ -138,15 +149,15 @@ export function ActionHeader({
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: 'Events',
-                searchPlaceholder: 'events',
+                name: 'Calculated events',
+                searchPlaceholder: 'calculated events',
                 type: TaxonomicFilterGroupType.Actions,
                 logic: actionsModel,
                 value: 'actions',
                 getName: (action: ActionType) => action.name || '',
                 getValue: (action: ActionType) => action.name || '',
                 getFullDetailUrl: (action: ActionType) => (action.action_id ? urls.action(action.action_id) : ''),
-                getPopupHeader: () => 'event',
+                getPopupHeader: () => 'calculated event',
                 getIcon: getEventDefinitionIcon,
             }}
             shouldSimplifyActions
@@ -167,8 +178,8 @@ export function EventDefinitionHeader({
         <RawDefinitionHeader
             definition={definition}
             group={{
-                name: shouldSimplifyActions ? 'Raw events' : 'Events',
-                searchPlaceholder: shouldSimplifyActions ? 'raw events' : 'events',
+                name: 'Events',
+                searchPlaceholder: 'events',
                 type: TaxonomicFilterGroupType.Events,
                 getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                 getValue: (eventDefinition: EventDefinition) => eventDefinition.name,

@@ -28,7 +28,7 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
 
     return (
         <>
-            <div className="mb">
+            <div className="mb-4">
                 <div className="text-right">
                     <LemonButton
                         data-attr="add-prop-button"

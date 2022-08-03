@@ -35,7 +35,7 @@
             cursor: pointer;
             .dropdown-icon {
                 border-radius: var(--radius);
-                background-color: var(--primary-hover);
+                background-color: var(--primary-light);
             }
         }
 
@@ -102,7 +102,7 @@
                 border-radius: var(--radius);
 
                 &.checked {
-                    background: var(--primary-hover);
+                    background: var(--primary-light);
                 }
             }
 
@@ -111,7 +111,7 @@
                 text-align: center;
                 font-size: 14px;
                 line-height: 24px;
-                color: var(--text-default);
+                color: var(--default);
                 margin: 1em 4px;
             }
         }

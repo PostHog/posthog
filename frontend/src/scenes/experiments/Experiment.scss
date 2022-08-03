@@ -127,7 +127,7 @@
 
             .ant-form-item-explain-error {
                 margin-top: 0.5rem;
-                color: var(--error-red);
+                color: var(--danger);
             }
 
             .ant-form-item-label {
@@ -175,7 +175,7 @@
 
     .exp-description {
         font-style: italic;
-        color: var(--text-muted);
+        color: var(--muted);
     }
 
     .participants {

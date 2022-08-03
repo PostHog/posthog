@@ -1,8 +1,6 @@
 @import '../../styles/mixins';
 
 .dashboard {
-    margin-top: 1rem;
-
     .dashboard-items-action-icon {
         margin-right: 6px;
     }
@@ -96,49 +94,6 @@
         margin-top: 1rem;
     }
 
-    .dashboard-select {
-        flex: 1;
-        @extend %mixin-text-ellipsis;
-        padding-right: 2rem;
-
-        .ant-select-single {
-            max-width: 100%;
-            line-height: 40px;
-
-            .ant-select-selector {
-                align-items: center;
-                padding-left: 0;
-                padding-right: 8px;
-                line-height: 40px;
-                height: 40px;
-
-                .ant-select-selection-item {
-                    font-size: 28px;
-                    font-weight: 600;
-                    line-height: 40px;
-                    width: 100%;
-                    height: 35px;
-                    display: flex;
-                    align-items: center;
-
-                    .anticon-share-alt {
-                        font-size: 16px;
-                        margin-left: 6px !important;
-                        margin-right: 4px;
-                    }
-                }
-            }
-            &.ant-select-open {
-                .ant-select-arrow {
-                    color: var(--depr-rgba-text-default-0-4);
-                }
-            }
-            .ant-select-arrow {
-                color: var(--text-default);
-                font-size: 14px;
-            }
-        }
-    }
     .dashboard-meta {
         white-space: nowrap;
         display: flex;

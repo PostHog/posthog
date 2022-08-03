@@ -1,10 +1,10 @@
 import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import fetch from 'node-fetch'
 import { format } from 'util'
 
 import { Action, Hook, IngestionEvent, IngestionPersonData } from '../../types'
 import { DB } from '../../utils/db/db'
+import fetch from '../../utils/fetch'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
 import { SiteUrlManager } from './site-url-manager'

@@ -24,7 +24,7 @@ export function ExpandIcon({
     const iconPrefix = `${prefixCls}-row-expand-icon`
     return (
         <div
-            style={{ display: 'flex', alignItems: 'center' }}
+            className="flex items-center"
             onClick={(e) => {
                 onExpand(record, e)
                 e.stopPropagation()
@@ -32,7 +32,7 @@ export function ExpandIcon({
         >
             <button
                 type="button"
-                className={clsx(iconPrefix, 'mr-05', {
+                className={clsx(iconPrefix, 'mr-2', {
                     [`${iconPrefix}-spaced`]: !expandable,
                     [`${iconPrefix}-expanded`]: expandable && expanded,
                     [`${iconPrefix}-collapsed`]: expandable && !expanded,

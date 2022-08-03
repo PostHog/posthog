@@ -89,6 +89,8 @@ RUN apk --update --no-cache --virtual .geolite-deps add \
     && \
     ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) \
     && \
+    chmod -R 755 ./share/GeoLite2-City.mmdb \
+    && \
     apk del .geolite-deps
 
 
@@ -173,4 +175,8 @@ COPY gunicorn.config.py ./
 
 # Expose container port and run entry point script
 EXPOSE 8000
+
+# Expose the port from which we serve OpenMetrics data
+EXPOSE 8001
+
 CMD ["./bin/docker"]

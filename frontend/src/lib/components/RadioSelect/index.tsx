@@ -58,7 +58,7 @@ export function RadioSelect({
     }
 
     return (
-        <div className="mt">
+        <div className="mt-4">
             {focusSelection && selectedOption && (
                 <div className="text-center">
                     <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => handleClick(null)}>

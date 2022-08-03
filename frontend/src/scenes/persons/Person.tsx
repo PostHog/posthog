@@ -38,7 +38,7 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <div className="mr">
+            <div className="mr-4">
                 <span className="text-muted">IDs:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}
@@ -131,6 +131,7 @@ export function Person(): JSX.Element | null {
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
                             style={{ marginLeft: 8 }}
+                            data-tooltip="person-split-merge-button"
                         >
                             Split or merge IDs
                         </Button>
@@ -144,6 +145,7 @@ export function Person(): JSX.Element | null {
                     navigateToTab(tab as PersonsTabType)
                 }}
                 destroyInactiveTabPane={true}
+                data-tooltip="persons-tabs"
             >
                 <TabPane
                     tab={<span data-attr="persons-properties-tab">Properties</span>}

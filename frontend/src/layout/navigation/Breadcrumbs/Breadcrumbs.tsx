@@ -23,12 +23,8 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
             data-attr={`breadcrumb-${index}`}
         >
             {breadcrumb.symbol}
-            {breadcrumb.name}
-            {breadcrumb.popup && (
-                <IconArrowDropDown
-                    style={{ color: 'var(--muted-alt)', marginLeft: 4, marginRight: 0, fontSize: '1.2em' }}
-                />
-            )}
+            <span>{breadcrumb.name}</span>
+            {breadcrumb.popup && <IconArrowDropDown className="text-muted-alt text-lg" />}
         </div>
     )
 

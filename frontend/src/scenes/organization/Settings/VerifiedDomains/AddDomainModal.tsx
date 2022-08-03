@@ -45,7 +45,7 @@ export function AddDomainModal(): JSX.Element {
                     onPressEnter={handleSubmit}
                 />
                 {submitted && errored && (
-                    <span className="text-danger text-small">
+                    <span className="text-danger text-xs">
                         Please enter a valid domain or subdomain name (e.g. my.posthog.com)
                     </span>
                 )}

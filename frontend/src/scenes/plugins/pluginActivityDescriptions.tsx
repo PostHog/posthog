@@ -1,28 +1,32 @@
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, ActivityScope, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import React from 'react'
 import { SECRET_FIELD_VALUE } from './utils'
 
-export function pluginActivityDescriber(logItem: ActivityLogItem): string | JSX.Element | null {
+export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
     if (logItem.scope !== ActivityScope.PLUGIN && logItem.scope !== ActivityScope.PLUGIN_CONFIG) {
         console.error('plugin describer received a non-plugin activity')
-        return null
+        return { description: null }
     }
 
     if (logItem.activity == 'installed') {
-        return (
-            <>
-                installed the app: <b>{logItem.detail.name}</b>
-            </>
-        )
+        return {
+            description: (
+                <>
+                    installed the app: <b>{logItem.detail.name}</b>
+                </>
+            ),
+        }
     }
 
     if (logItem.activity == 'uninstalled') {
-        return (
-            <>
-                uninstalled the app: <b>{logItem.detail.name}</b>
-            </>
-        )
+        return {
+            description: (
+                <>
+                    uninstalled the app: <b>{logItem.detail.name}</b>
+                </>
+            ),
+        }
     }
 
     if (logItem.activity == 'enabled') {
@@ -35,25 +39,29 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): string | JSX.
                 </>
             )
         }
-        return (
-            <SentenceList
-                listParts={changes}
-                prefix={
-                    <>
-                        enabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}
-                        {changes.length > 0 ? ', with' : '.'}
-                    </>
-                }
-            />
-        )
+        return {
+            description: (
+                <SentenceList
+                    listParts={changes}
+                    prefix={
+                        <>
+                            enabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}
+                            {changes.length > 0 ? ', with' : '.'}
+                        </>
+                    }
+                />
+            ),
+        }
     }
 
     if (logItem.activity == 'disabled') {
-        return (
-            <>
-                disabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}.
-            </>
-        )
+        return {
+            description: (
+                <>
+                    disabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}.
+                </>
+            ),
+        }
     }
 
     if (logItem.activity == 'config_updated') {
@@ -84,17 +92,19 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): string | JSX.
             }
             changes.push(changeWording)
         }
-        return (
-            <SentenceList
-                listParts={changes}
-                suffix={
-                    <>
-                        on app <b>{logItem.detail.name}</b> with config ID {logItem.item_id}.
-                    </>
-                }
-            />
-        )
+        return {
+            description: (
+                <SentenceList
+                    listParts={changes}
+                    suffix={
+                        <>
+                            on app <b>{logItem.detail.name}</b> with config ID {logItem.item_id}.
+                        </>
+                    }
+                />
+            ),
+        }
     }
 
-    return null
+    return { description: null }
 }

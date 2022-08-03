@@ -8,7 +8,7 @@
     color: var(--primary-alt);
 
     &.danger {
-        background-color: var(--depr-rgba-danger-0-09);
+        background-color: var(--danger-highlight);
         color: var(--danger);
     }
 
@@ -31,7 +31,7 @@
     }
 
     .closable {
-        color: var(--text-muted);
+        color: var(--muted);
         align-self: flex-start;
         padding-left: 1rem;
         cursor: pointer;

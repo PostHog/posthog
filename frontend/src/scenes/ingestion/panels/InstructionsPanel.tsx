@@ -44,7 +44,7 @@ export function InstructionsPanel(): JSX.Element {
     const FrameworkSnippet: React.ComponentType = frameworksSnippet[framework as string] as React.ComponentType
 
     return (
-        <div className="InstructionsPanel mb-2">
+        <div className="InstructionsPanel mb-8">
             {platform === WEB ? (
                 <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
                     <WebInstructions />

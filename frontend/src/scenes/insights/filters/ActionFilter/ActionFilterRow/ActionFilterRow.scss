@@ -37,26 +37,11 @@
     .series-indicator {
         padding-top: 5px;
     }
-
-    .row-action-btn {
-        padding: 0 4px;
-        &:hover,
-        &:focus,
-        &.visible {
-            border: 1px solid var(--primary);
-        }
-
-        &.delete {
-            padding: 0;
-            width: unset;
-            color: var(--depr-rgba-danger-0-6);
-        }
-    }
 }
 
 .ActionFilterRowDragHandle {
     cursor: move;
-    color: var(--text-default);
+    color: var(--default);
     font-size: 1.2em;
     padding-right: 5px;
 

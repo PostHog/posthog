@@ -37,6 +37,8 @@ def traces_sampler(sampling_context: dict) -> float:
         elif path.startswith(("/_health", "/_readyz", "/_livez")):
             return 0.0001  # 0.01%
         # API endpoints
+        elif path.startswith(("/api/feature_flag")):
+            return 0.0001  # 0.01%
         elif path.startswith(("/api")):
             return 0.01  # 1%
         else:

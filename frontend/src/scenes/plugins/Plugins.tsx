@@ -65,7 +65,11 @@ export function Plugins(): JSX.Element | null {
                     </>
                 }
             />
-            <Tabs activeKey={pluginTab} onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}>
+            <Tabs
+                data-tooltip="apps-tabs"
+                activeKey={pluginTab}
+                onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}
+            >
                 <TabPane tab="Installed" key={PluginTab.Installed}>
                     <InstalledTab />
                 </TabPane>
