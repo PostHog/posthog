@@ -9,7 +9,6 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
-from django.utils import timezone
 from rest_framework import exceptions, generics, permissions, response, serializers, validators
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
@@ -89,12 +88,7 @@ class SignupSerializer(serializers.Serializer):
         email = validated_data["email"]
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
-        matrix = HedgeboxMatrix(
-            settings.SECRET_KEY,
-            start=timezone.datetime.now() - timezone.timedelta(days=120),
-            end=timezone.datetime.now(),
-            n_clusters=50,
-        )
+        matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=50,)
         with transaction.atomic():
             self._organization, self._team, self._user = MatrixManager(matrix, pre_save=True).ensure_account_and_save(
                 email, first_name, organization_name
