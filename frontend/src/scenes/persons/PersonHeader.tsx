@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { midEllipsis } from 'lib/utils'
 
 export interface PersonHeaderProps {
     person?: Pick<PersonType, 'properties' | 'distinct_ids'> | null
@@ -14,18 +15,21 @@ export interface PersonHeaderProps {
 }
 
 export function asDisplay(person: PersonType | PersonActorType | null | undefined): string {
+    if (!person) {
+        return 'Unknown'
+    }
     const team = teamLogic.findMounted()?.values?.currentTeam
     const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
-    const customPropertyKey = personDisplayNameProperties.find((x) => person?.properties?.[x])
-    const propertyIdentifier = customPropertyKey ? person?.properties?.[customPropertyKey] : undefined
+    const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
+    const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
     const customIdentifier: string =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-    const display: string | undefined = customIdentifier || person?.distinct_ids?.[0]
+    const display: string | undefined = (customIdentifier || person.distinct_ids?.[0])?.trim()
 
-    return display?.trim() || 'Unknown'
+    return display ? midEllipsis(display, 40) : 'Person without ID'
 }
 
 export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
