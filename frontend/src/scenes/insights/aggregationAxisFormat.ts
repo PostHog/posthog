@@ -51,3 +51,19 @@ export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): b
         ].includes(chartDisplayType)
     )
 }
+
+export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
+    switch (chartDisplayType) {
+        case ChartDisplayType.ActionsLineGraph:
+        case ChartDisplayType.ActionsLineGraphCumulative:
+        case ChartDisplayType.ActionsBar:
+            return 'Y-Axis Unit'
+        case ChartDisplayType.ActionsBarValue:
+            return 'X-Axis Unit'
+        case ChartDisplayType.ActionsTable:
+        case ChartDisplayType.ActionsPie:
+        case ChartDisplayType.WorldMap:
+        default:
+            return 'Unit'
+    }
+}
