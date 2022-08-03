@@ -114,7 +114,7 @@ export class EventPipelineRunner {
                     })
                     return {
                         lastStep: currentStepName,
-                        args: currentArgs,
+                        args: currentArgs.map((arg: any) => this.serialize(arg)),
                     }
                 }
             } catch (error) {
