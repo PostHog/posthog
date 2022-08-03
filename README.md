@@ -39,18 +39,44 @@ Sign up for a free [PostHog Cloud](https://app.posthog.com/signup) project
 
 We bring all the tools into one place to give you everything you need to build better products:
 - **Event-based Analytics** on users or groups - capture your product's usage data to see which users are doing what in your application
-- **Product data visualizations** [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [cohorts](https://posthog.com/docs/features/cohorts), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
-- **Complete control** over your data - [host it yourself](https://posthog.com/docs/self-host/overview#deploy) on any infrastructure
-- **Session recording** to [watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained privacy controls
-- **Automatically capture** [clicks and pageviews](https://posthog.com/docs/features/actions) to analyze what your users are doing without pushing events manually
+- **Product data visualizations** [graphs], [funnels], [cohorts], [paths], [retention], and [dashboards]
+- **Complete control** over your data - [host it yourself] on any infrastructure
+- **Session recording** to [watch videos] of your users' behavior, with fine-grained privacy controls
+- **Automatically capture** [clicks and pageviews] to analyze what your users are doing without pushing events manually
 - **Feature flags** to understand the impact of new features before rolling them out more widely
-- **Heatmaps** to understand how users interact with your product with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
-- **Automated Analysis** to find [correlations](https://posthog.com/docs/user-guides/correlation) between successful users and their behaviors or attributes 
+- **Heatmaps** to understand how users interact with your product with the [PostHog Toolbar]
+- **Automated Analysis** to find [correlations] between successful users and their behaviors or attributes 
 - **Plays nicely with data warehouses** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built plugins - such as BigQuery, Redshift, Snowflake and S3
-- **Infinitely extensible** use custom [plugins](https://posthog.com/docs/user-guides/plugins) to extend PostHog and integrate with any service or tool
-- **Ready-made libraries** for **[JS](https://posthog.com/docs/integrations/js-integration), [Python](https://posthog.com/docs/integrations/python-integration), [Ruby](https://posthog.com/docs/integrations/ruby-integration), [Node](https://posthog.com/docs/integrations/node-integration), [Go](https://posthog.com/docs/integrations/go-integration)**, [Android](https://posthog.com/docs/integrations/android-integration), [iOS](https://posthog.com/docs/integrations/ios-integration), [PHP](https://posthog.com/docs/integrations/php-integration), [Flutter](https://posthog.com/docs/integrations/flutter-integration), [React Native](https://posthog.com/docs/integrations/react-native-integration), [Elixir](https://posthog.com/docs/integrations/elixir-integration), [Nim](https://github.com/Yardanico/posthog-nim) + an [API](https://posthog.com/docs/integrations/api) for anything else
-- **And much much more...** for a [full list of PostHog features](https://posthog.com/features).
+- **Infinitely extensible** use custom [plugins] to extend PostHog and integrate with any service or tool
+- **Ready-made libraries** for **[JS], [Python], [Ruby], [Node], [Go]**, [Android], [iOS], [PHP], [Flutter], [React Native], [Elixir], [Nim] + an [API] for anything else
+- **And much much more...** for a [full list of PostHog features].
 
+[Android]: https://posthog.com/docs/integrations/android-integration
+[API]: https://posthog.com/docs/integrations/api
+[clicks and pageviews]: https://posthog.com/docs/features/actions
+[cohorts]: https://posthog.com/docs/features/cohorts
+[correlations]: https://posthog.com/docs/user-guides/correlation
+[dashboards]: https://posthog.com/docs/features/dashboards
+[Elixir]: https://posthog.com/docs/integrations/elixir-integration
+[Flutter]: https://posthog.com/docs/integrations/flutter-integration
+[full list of PostHog features]: https://posthog.com/features
+[funnels]: https://posthog.com/docs/features/funnels
+[Go]: https://posthog.com/docs/integrations/go-integration
+[graphs]: https://posthog.com/docs/features/trends
+[host it yourself]: https://posthog.com/docs/self-host/overview#deploy
+[iOS]: https://posthog.com/docs/integrations/ios-integration
+[JS]: https://posthog.com/docs/integrations/js-integration
+[Nim]: https://github.com/Yardanico/posthog-nim
+[Node]: https://posthog.com/docs/integrations/node-integration
+[paths]: https://posthog.com/docs/features/paths
+[PHP]: https://posthog.com/docs/integrations/php-integration
+[plugins]: https://posthog.com/docs/user-guides/plugins
+[PostHog Toolbar]: https://posthog.com/docs/features/toolbar
+[Python]: https://posthog.com/docs/integrations/python-integration
+[React Native]: https://posthog.com/docs/integrations/react-native-integration
+[retention]: https://posthog.com/docs/features/retention
+[Ruby]: https://posthog.com/docs/integrations/ruby-integration
+[watch videos]: https://posthog.com/docs/features/session-recording
 
 ## Event autocapture
 You don't have to spend weeks instrumenting every event on your front-end, point and click at elements from your browser and turn them into events which you and your team can analyze
