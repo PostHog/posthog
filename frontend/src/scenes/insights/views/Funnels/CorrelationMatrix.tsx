@@ -69,12 +69,12 @@ export function CorrelationMatrix(): JSX.Element {
         >
             <div className="correlation-table-wrapper">
                 {correlationsLoading ? (
-                    <div className="mt text-center">
+                    <div className="mt-4 text-center">
                         <Spinner size="lg" />
                     </div>
                 ) : funnelCorrelationDetails ? (
                     <>
-                        <p className="text-muted-alt mb">
+                        <p className="text-muted-alt mb-4">
                             The table below displays the correlation details for users who {action} <b>{displayName}</b>
                             .
                         </p>
@@ -179,7 +179,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 </tr>
                             </tbody>
                         </table>
-                        <div className="mt text-center">
+                        <div className="mt-4 text-center">
                             {capitalizeFirstLetter(funnelCorrelationDetails?.result_type || '')} <b>{displayName}</b>{' '}
                             has a{' '}
                             {funnelCorrelationDetails?.correlation_type === FunnelCorrelationType.Success ? (

@@ -68,12 +68,12 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
     return (
         <div>
             <div className="LemonModal">
-                <div className="border-all ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
+                <div className="rounded border ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
                     <Sharing {...(props as SharingModalProps)} closeModal={() => console.log('close')} visible={true} />
                 </div>
             </div>
 
-            <div className="flex justify-center mt">
+            <div className="flex justify-center mt-4">
                 <LemonButton onClick={() => setModalOpen(true)} type="primary">
                     Open as Modal
                 </LemonButton>

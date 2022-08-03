@@ -59,7 +59,7 @@ export function ExportedInsight({
                             {description && <div className="ExportedInsight__header-description">{description}</div>}
                         </div>
 
-                        {!whitelabel && <FriendlyLogo style={{ fontSize: '1rem' }} />}
+                        {!whitelabel && <FriendlyLogo />}
                     </div>
                 )}
                 {showWatermark && (
@@ -76,7 +76,7 @@ export function ExportedInsight({
                 >
                     <InsightViz insight={insight as any} style={{ top: 0, left: 0, position: 'relative' }} />
                     {showLegend ? (
-                        <div className="pa">
+                        <div className="p-4">
                             <InsightLegend horizontal readOnly />
                         </div>
                     ) : null}

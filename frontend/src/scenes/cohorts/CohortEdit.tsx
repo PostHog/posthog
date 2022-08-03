@@ -39,7 +39,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <PageHeader
                     title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
-                        <div className="flex-center">
+                        <div className="flex items-center">
                             {isNewCohort ? (
                                 <LemonButton
                                     data-attr="cancel-cohort"
@@ -79,7 +79,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     }
                 />
                 <Divider />
-                <Row gutter={[16, 24]} style={{ maxWidth: 640 }}>
+                <Row gutter={[16, 24]} style={{ maxWidth: 640 }} data-tooltip="cohorts-type">
                     <Col xs={24} sm={12}>
                         <Field name="name" label="Name" className="Cohort__Name">
                             <LemonInput data-attr="cohort-name" />
@@ -113,7 +113,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </Col>
                 </Row>
                 {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
-                    <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
+                    <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
                         <Col span={24}>
                             <Field name="description" label="Description" data-attr="cohort-description">
                                 <LemonTextArea />
@@ -122,12 +122,12 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </Row>
                 )}
                 {cohort.is_static ? (
-                    <Row gutter={24} className="mt ph-ignore-input">
+                    <Row gutter={24} className="mt-4 ph-ignore-input">
                         <Col span={24}>
                             <Field name="csv" label={isNewCohort ? 'Upload users' : 'Add users'} data-attr="cohort-csv">
                                 {({ onChange }) => (
                                     <>
-                                        <span className="mb">
+                                        <span className="mb-4">
                                             Upload a CSV file to add users to your cohort. The CSV file only requires a
                                             single column with the user’s distinct ID.
                                         </span>
@@ -171,7 +171,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 ) : (
                     <>
                         <Divider />
-                        <Row gutter={24} className="mt">
+                        <Row gutter={24} className="mt-4">
                             <Col span={24}>
                                 <>
                                     <Row align="middle" justify="space-between" wrap={false}>
@@ -184,7 +184,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 Continuously updated automatically.
                                             </span>
                                         </Row>
-                                        <Row align="middle" wrap={false} justify="space-between" className="pl">
+                                        <Row align="middle" wrap={false} justify="space-between" className="pl-4">
                                             <AndOrFilterSelect
                                                 value={cohort.filters.properties.type}
                                                 onChange={(value) => {
@@ -208,7 +208,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <div>
                             <h3 className="l3">Persons in this cohort</h3>
                             {cohort.is_calculating ? (
-                                <div className="cohort-recalculating flex-center">
+                                <div className="cohort-recalculating flex items-center">
                                     <Spinner size="sm" style={{ marginRight: 4 }} />
                                     We're recalculating who belongs to this cohort. This could take up to a couple of
                                     minutes.

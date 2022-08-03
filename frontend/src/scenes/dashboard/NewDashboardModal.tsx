@@ -23,7 +23,7 @@ export function NewDashboardModal(): JSX.Element {
             onCancel={hideNewDashboardModal}
             visible={newDashboardModalVisible}
             footer={
-                <div className="flex justify-end space-x-05 full-width">
+                <div className="flex justify-end space-x-2 w-full">
                     <LemonButton
                         form="new-dashboard-form"
                         type="secondary"

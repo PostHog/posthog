@@ -43,11 +43,11 @@
     }
 
     .LemonCheckbox:not(.LemonRow--disabled):hover & {
-        --box-color: var(--primary-hover);
+        --box-color: var(--primary-light);
     }
 
     .LemonCheckbox:not(.LemonRow--disabled):active & {
-        --box-color: var(--primary-active);
+        --box-color: var(--primary-dark);
     }
 
     svg {

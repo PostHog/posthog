@@ -9,7 +9,7 @@ export interface EditorFilterItemTitleProps {
 
 export function EditorFilterItemTitle({ label, tooltip }: EditorFilterItemTitleProps): JSX.Element {
     return (
-        <div className="mb-05 fw-500">
+        <div className="mb-2 font-medium">
             {label}
             {tooltip && (
                 <Tooltip title={tooltip}>

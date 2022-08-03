@@ -27,7 +27,7 @@ export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 backgroundColor: 'var(--bg-side)',
-                color: 'var(--text-muted)',
+                color: 'var(--muted)',
             }}
         >
             <LockOutlined style={{ marginRight: 6, color: 'var(--warning)' }} />

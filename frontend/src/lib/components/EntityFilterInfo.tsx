@@ -31,7 +31,7 @@ export function EntityFilterInfo({
     // No filter
     if (filter.type === EntityTypes.NEW_ENTITY || !title) {
         return (
-            <TextWrapper title="Select filter" style={{ color: 'var(--muted-alt)' }}>
+            <TextWrapper title="Select filter" className="text-muted-alt">
                 Select event
             </TextWrapper>
         )
@@ -42,7 +42,7 @@ export function EntityFilterInfo({
     // No custom name
     if (!filter?.custom_name) {
         return (
-            <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', ...style }}>
+            <span className="flex items-center" style={style}>
                 <TextWrapper ellipsis={!allowWrap} title={titleToDisplay}>
                     {titleToDisplay}
                 </TextWrapper>
@@ -54,12 +54,12 @@ export function EntityFilterInfo({
     const customTitle = getDisplayNameFromEntityFilter(filter, true)
 
     return (
-        <span style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', ...style }}>
+        <span className="flex items-center" style={style}>
             <TextWrapper ellipsis={!allowWrap} title={customTitle ?? undefined}>
                 {customTitle}
             </TextWrapper>
             {!showSingleName && (
-                <TextWrapper ellipsis={!allowWrap} type="secondary" style={{ marginLeft: 4 }} title={titleToDisplay}>
+                <TextWrapper ellipsis={!allowWrap} type="secondary" className="ml-1" title={titleToDisplay}>
                     ({titleToDisplay})
                 </TextWrapper>
             )}

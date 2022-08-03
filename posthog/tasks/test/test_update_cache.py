@@ -180,6 +180,22 @@ class TestUpdateCache(APIBaseTest):
 
             yield [i for i, _ in recent_teams]
 
+    def test_not_all_filters_affect_the_filters_hash(self) -> None:
+        insight_one = create_shared_insight(self.team, is_enabled=True, filters={"events": [{"id": "$pageview"}]},)
+        insight_two = create_shared_insight(
+            self.team,
+            is_enabled=True,
+            filters={"events": [{"id": "$pageview"}], "aggregation_axis_format": "percentage"},
+        )
+        insight_three = create_shared_insight(
+            self.team,
+            is_enabled=True,
+            filters={"events": [{"id": "$pageview"}], "aggregation_axis_format": "duration"},
+        )
+
+        assert insight_one.filters_hash == insight_two.filters_hash
+        assert insight_two.filters_hash == insight_three.filters_hash
+
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     def test_refresh_dashboard_cache(self, patch_update_cache_item: MagicMock, _: MagicMock) -> None:

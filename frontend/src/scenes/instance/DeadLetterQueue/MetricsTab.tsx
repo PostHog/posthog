@@ -25,7 +25,7 @@ export function MetricsTab(): JSX.Element {
         <div>
             <br />
 
-            <div className="mb float-right">
+            <div className="mb-4 float-right">
                 <LemonButton
                     icon={deadLetterQueueMetricsLoading ? <Spinner size="sm" /> : <IconRefresh />}
                     onClick={loadDeadLetterQueueMetrics}

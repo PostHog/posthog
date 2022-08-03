@@ -82,17 +82,3 @@
 .ant-dropdown {
     z-index: 700;
 }
-
-.dive-btn {
-    margin-right: 0.5rem;
-
-    &.dive-btn-dive {
-        border-color: var(--primary);
-        color: var(--primary);
-
-        &:hover {
-            border-color: var(--depr-darken-primary-30);
-            color: var(--depr-darken-primary-30);
-        }
-    }
-}

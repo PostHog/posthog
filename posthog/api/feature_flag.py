@@ -231,7 +231,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags = (
-            FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            FeatureFlag.objects.filter(team=self.team, deleted=False)
             .prefetch_related("experiment_set")
             .select_related("created_by")
             .order_by("-created_at")

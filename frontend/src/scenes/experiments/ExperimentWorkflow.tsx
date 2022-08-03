@@ -10,21 +10,21 @@ export function ExperimentWorkflow(): JSX.Element {
     return (
         <Card className="experiment-workflow" title={<span className="card-secondary">Experiment workflow</span>}>
             <Row>
-                <Col className="exp-workflow-step step-completed full-width">
+                <Col className="exp-workflow-step step-completed w-full">
                     <Row align="middle">
                         {true ? (
                             <IconCheckmark style={{ color: 'var(--primary)', fontSize: 24 }} />
                         ) : (
                             <IconRadioButtonUnchecked />
                         )}
-                        <b className="ml-05">Create experiment</b>
+                        <b className="ml-2">Create experiment</b>
                     </Row>
-                    <div className="ml-2">Set variants, select participants, and add secondary metrics</div>
+                    <div className="ml-8">Set variants, select participants, and add secondary metrics</div>
                 </Col>
             </Row>
             <Row>
                 <Col
-                    className={`full-width exp-workflow-step ${workflowValidateStepCompleted ? 'step-completed' : ''}`}
+                    className={`w-full exp-workflow-step ${workflowValidateStepCompleted ? 'step-completed' : ''}`}
                     onClick={() => setWorkflowValidateStepCompleted(!workflowValidateStepCompleted)}
                 >
                     <Row align="middle">
@@ -33,9 +33,9 @@ export function ExperimentWorkflow(): JSX.Element {
                         ) : (
                             <IconRadioButtonUnchecked />
                         )}
-                        <b className="ml-05">Validate experiment</b>
+                        <b className="ml-2">Validate experiment</b>
                     </Row>
-                    <div className="ml-2">
+                    <div className="ml-8">
                         Once you've written your code, it's a good idea to test that each variant behaves as you'd
                         expect.
                     </div>
@@ -43,7 +43,7 @@ export function ExperimentWorkflow(): JSX.Element {
             </Row>
             <Row>
                 <Col
-                    className={`full-width exp-workflow-step ${workflowLaunchStepCompleted ? 'step-completed' : ''}`}
+                    className={`w-full exp-workflow-step ${workflowLaunchStepCompleted ? 'step-completed' : ''}`}
                     onClick={() => setWorkflowLaunchStepCompleted(!workflowLaunchStepCompleted)}
                 >
                     <Row align="middle">
@@ -52,9 +52,9 @@ export function ExperimentWorkflow(): JSX.Element {
                         ) : (
                             <IconRadioButtonUnchecked />
                         )}
-                        <b className="ml-05">Launch experiment</b>
+                        <b className="ml-2">Launch experiment</b>
                     </Row>
-                    <div className="ml-2">
+                    <div className="ml-8">
                         Run your experiment, monitor results, and decide when to terminate your experiment.
                     </div>
                 </Col>

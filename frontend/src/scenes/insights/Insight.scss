@@ -1,4 +1,4 @@
-@import '../../styles/breakpoints';
+@import '../../styles/mixins';
 @import '../../styles/mixins';
 
 .insights-page {
@@ -68,12 +68,12 @@
         }
         // TODO: Remove deprecated style if we fully remove or actively support again
         .deprecated {
-            color: var(--text-muted);
+            color: var(--muted);
             .hotkey {
                 margin-bottom: 0;
-                background-color: var(--depr-rgba-border-0-1) !important;
+                background-color: var(--light) !important;
                 border-color: var(--border) !important;
-                color: var(--text-muted);
+                color: var(--muted);
             }
         }
         &.ant-tabs-tab-active {
@@ -90,7 +90,7 @@
         }
         .deprecated {
             .hotkey {
-                background-color: var(--depr-rgba-border-0-2) !important;
+                background-color: var(--light) !important;
             }
         }
     }
@@ -109,7 +109,7 @@
         &.insight-wrapper--editorpanels,
         &.insight-wrapper--singlecolumn {
             position: relative;
-            @media screen and (min-width: $xl) {
+            @include screen($xl) {
                 display: flex;
                 overflow: hidden;
 
@@ -134,33 +134,6 @@
 
             .ant-card-head-title {
                 padding: 0;
-
-                span.filter {
-                    font-size: 14px;
-                    display: flex;
-                    align-items: center;
-
-                    &:not(:last-child) {
-                        margin-right: 0.5rem;
-                    }
-
-                    span.head-title-item {
-                        margin-right: 0.5rem;
-                    }
-                }
-            }
-        }
-        .display-config-inner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-
-            .display-config-inner-row {
-                flex-wrap: wrap;
-                display: flex;
-                align-items: center;
-                margin: 0.5rem 0;
             }
         }
 
@@ -222,7 +195,7 @@
         background-color: transparent;
         border: 0;
         input::placeholder {
-            color: var(--text-default);
+            color: var(--default);
         }
     }
 

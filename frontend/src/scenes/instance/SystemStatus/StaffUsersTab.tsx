@@ -103,7 +103,7 @@ export function StaffUsersTab(): JSX.Element {
             <h3 className="l3" style={{ marginTop: 16 }}>
                 Staff Users
             </h3>
-            <div className="mb">
+            <div className="mb-4">
                 Users who have permissions to manage instance-wide settings. Staff user permissions are set at the{' '}
                 <b>instance-level and are independent of any organization or project permissions.</b>{' '}
                 <a href="https://posthog.com/docs/self-host/configure/instance-settings#staff-users" target="_blank">
@@ -113,17 +113,17 @@ export function StaffUsersTab(): JSX.Element {
             </div>
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>
-                <div className="flex gap-05 mb">
+                <div className="flex gap-2 mb-4">
                     <div style={{ flex: 1 }}>
                         <LemonSelectMultiple
                             placeholder="Add staff users here…"
                             loading={allUsersLoading}
                             value={staffUsersToBeAdded}
                             onChange={(newValues) => setStaffUsersToBeAdded(newValues)}
-                            filterOption={false}
+                            filterOption={true}
                             mode="multiple"
                             data-attr="subscribed-emails"
-                            options={usersLemonSelectOptions(nonStaffUsers)}
+                            options={usersLemonSelectOptions(nonStaffUsers, 'uuid')}
                         />
                     </div>
                     <LemonButton

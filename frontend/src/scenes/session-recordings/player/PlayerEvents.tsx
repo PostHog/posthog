@@ -118,6 +118,7 @@ export function PlayerEvents(): JSX.Element {
                     onClick={() => {
                         handleEventClick(event.playerPosition)
                     }}
+                    data-tooltip="recording-event-list"
                 >
                     <Col className="event-item-icon">
                         <div className="event-item-icon-wrapper">{renderIcon(event)}</div>

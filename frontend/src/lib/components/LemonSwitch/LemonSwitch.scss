@@ -36,10 +36,10 @@
     background-color: var(--border);
     transition: background-color 100ms ease;
     .LemonSwitch--checked & {
-        background-color: var(--depr-rgba-primary-0-25);
+        background-color: var(--primary-highlight);
     }
     .LemonSwitch--alt.LemonSwitch--checked & {
-        background-color: var(--depr-rgba-primary-alt-0-25);
+        background-color: var(--primary-alt-highlight);
     }
 }
 
