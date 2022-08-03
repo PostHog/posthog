@@ -160,7 +160,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
             <div className="flex items-center space-x-4 flex-wrap my-2">
                 {activeView === InsightType.TRENDS && (
                     <ConfigFilter>
-                        <span>Aggregation Axis format</span>
+                        <span>Units</span>
                         <LemonSelect
                             value={
                                 canFormatAxis(filters.display) ? filters.aggregation_axis_format || 'numeric' : 'N/A'
