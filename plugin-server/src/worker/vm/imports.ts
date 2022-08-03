@@ -9,13 +9,13 @@ import * as ethers from 'ethers'
 import * as faker from 'faker'
 import * as genericPool from 'generic-pool'
 import * as jsonwebtoken from 'jsonwebtoken'
-import fetch from 'node-fetch'
 import * as pg from 'pg'
 import snowflake from 'snowflake-sdk'
 import { PassThrough } from 'stream'
 import * as url from 'url'
 import * as zlib from 'zlib'
 
+import fetch from '../../utils/fetch'
 import { writeToFile } from './extensions/test-utils'
 
 export const imports = {
