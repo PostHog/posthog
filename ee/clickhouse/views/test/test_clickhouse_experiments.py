@@ -6,7 +6,7 @@ from ee.api.test.base import APILicensedTest
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.test.base import ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 
@@ -696,30 +696,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
 
-        _create_person(
-            distinct_ids=["person1"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
-        )
-        _create_person(
-            distinct_ids=["person2"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
-        )
-        _create_person(
-            distinct_ids=["person3"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
-        )
-        _create_person(
-            distinct_ids=["person_out_of_control"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
-        )
-        _create_person(
-            distinct_ids=["person_out_of_end_date"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
-        )
-        _create_person(
-            distinct_ids=["person_out_of_property"], team_id=self.team.pk, properties={},
-        )
-        _create_person(
-            distinct_ids=["person4"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
-        )
-        _create_person(
-            distinct_ids=["person5"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
-        )
         journeys_for(
             {
                 "person1": [
@@ -731,10 +707,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
-                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
-                ],
-                "person_out_of_property": [
                     {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
@@ -756,7 +728,6 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 ],
             },
             self.team,
-            create_people=False,
         )
 
         ff_key = "a-b-test"
@@ -775,7 +746,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
                     "properties": [
                         {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                        # properties NOT superceded by FF breakdown
+                        # properties superceded by FF breakdown
                     ],
                 },
             },
@@ -921,7 +892,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "filters": {
                     "insight": "funnels",
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        # properties superceded by FF breakdown
+                    ],
                 },
             },
         )
