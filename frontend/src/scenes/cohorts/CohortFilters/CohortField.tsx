@@ -53,7 +53,7 @@ export function CohortSelectorField({
     return (
         <LemonButtonWithPopup
             type="secondary"
-            className="CohortField"
+            status="stealth"
             sideIcon={undefined}
             data-attr={`cohort-selector-field-${fieldKey}`}
             popup={{
@@ -87,7 +87,9 @@ export function CohortSelectorField({
                 ),
             }}
         >
-            {currentOption?.label || <span className="text-muted">{placeholder}</span>}
+            <span className="font-medium">
+                {currentOption?.label || <span className="text-muted">{placeholder}</span>}
+            </span>
         </LemonButtonWithPopup>
     )
 }
@@ -116,6 +118,7 @@ export function CohortTaxonomicField({
         <LemonTaxonomicPopup
             className="CohortField"
             type="secondary"
+            status="stealth"
             groupType={groupType}
             loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}
@@ -125,6 +128,9 @@ export function CohortTaxonomicField({
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}
+            renderValue={(value) => (
+                <span className="font-medium">{value || <span className="text-muted">{placeholder}</span>}</span>
+            )}
         />
     )
 }

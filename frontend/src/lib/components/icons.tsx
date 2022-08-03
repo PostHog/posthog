@@ -19,6 +19,8 @@ export function IconWithCount({ count, children, showZero }: PropsWithChildren<I
 }
 
 interface SvgIconProps {
+    color?: string
+    fontSize?: string
     style?: CSSProperties
     className?: string
 }

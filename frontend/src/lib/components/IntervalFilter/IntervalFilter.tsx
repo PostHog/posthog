@@ -23,7 +23,7 @@ export function IntervalFilter({ disabled }: InvertalFilterProps): JSX.Element {
         <LemonSelect
             size={'small'}
             status="stealth"
-            outlined
+            type="secondary"
             disabled={disabled}
             value={interval || undefined}
             dropdownMatchSelectWidth={false}

@@ -43,9 +43,7 @@ export function RollingDateRangeFilter({
     const logicProps = { onChange, dateFrom, selected }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
-    const { counter, dateOption, isDateOptionsSelectorOpen, formattedDate } = useValues(
-        rollingDateRangeFilterLogic(logicProps)
-    )
+    const { counter, dateOption, formattedDate } = useValues(rollingDateRangeFilterLogic(logicProps))
 
     const onInputChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
         const newValue = event.target.value ? parseFloat(event.target.value) : undefined
@@ -95,7 +93,6 @@ export function RollingDateRangeFilter({
                     id="rolling-date-range-date-options-selector"
                     value={dateOption}
                     onChange={(newValue): void => setDateOption(newValue as string)}
-                    open={isDateOptionsSelectorOpen}
                     onClick={(e): void => {
                         e.stopPropagation()
                         toggleDateOptionsSelector()
@@ -103,11 +100,11 @@ export function RollingDateRangeFilter({
                     dropdownMatchSelectWidth={false}
                     options={dateOptions}
                     status="stealth"
+                    type="secondary"
                     popup={{
                         ...popup,
                         className: 'RollingDateRangeFilter__popup',
                     }}
-                    outlined
                     size="small"
                 />
             </LemonButton>

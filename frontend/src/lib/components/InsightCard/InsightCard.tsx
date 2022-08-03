@@ -391,7 +391,6 @@ function InsightMeta({
                                                             <LemonDivider />
                                                             {removeFromDashboard ? (
                                                                 <LemonButton
-                                                                    status="stealth"
                                                                     status="danger"
                                                                     onClick={removeFromDashboard}
                                                                     fullWidth
@@ -400,7 +399,6 @@ function InsightMeta({
                                                                 </LemonButton>
                                                             ) : (
                                                                 <LemonButton
-                                                                    status="stealth"
                                                                     status="danger"
                                                                     onClick={deleteWithUndo}
                                                                     fullWidth

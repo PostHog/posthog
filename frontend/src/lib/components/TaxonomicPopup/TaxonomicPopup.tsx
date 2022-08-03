@@ -146,7 +146,6 @@ export function LemonTaxonomicPopup({
                 onClick={() => {
                     setVisible(!visible)
                 }}
-                relaxedIconWidth
                 sideIcon={
                     <div className="side-buttons-row">
                         {isClearButtonShown && (

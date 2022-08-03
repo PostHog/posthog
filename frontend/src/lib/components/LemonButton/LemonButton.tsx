@@ -24,6 +24,7 @@ export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HT
 
     icon?: React.ReactElement | null
     sideIcon?: React.ReactElement | null
+    htmlType?: 'button' | 'submit' | 'reset'
     loading?: boolean
     /** Tooltip to display on hover. */
     tooltip?: any
@@ -57,6 +58,7 @@ function LemonButtonInternal(
         center,
         size,
         tooltip,
+        htmlType,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLButtonElement>
@@ -70,6 +72,7 @@ function LemonButtonInternal(
     }
     let workingButton = (
         <button
+            type={htmlType}
             ref={ref}
             className={clsx(
                 'LemonButton',
