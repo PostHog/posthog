@@ -118,6 +118,13 @@ class MatrixManager:
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO graphile_worker.jobs (task_identifier, payload, run_at, max_attempts, flags)
+                SELECT task_identifier, jsonb_set(payload::jsonb, '{eventPayload,team_id}', to_jsonb(%(target_team_id)s))::json, run_at, max_attempts, '{"team_id": %(target_team_id)s}'::jsonb
+                FROM graphile_worker.jobs WHERE (flags->'team_id')::int = %(master_team_id)s""",
+                {"target_team_id": target_team.pk, "master_team_id": cls.MASTER_TEAM_ID},
+            )
         copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
@@ -219,13 +226,14 @@ class MatrixManager:
                     "uuid": str(event_uuid),
                 }
             }
+            flags = {"team_id": team.pk}
             params.append(json.dumps(payload))
             params.append(timestamp_iso)
+            params.append(json.dumps(flags))
         with connection.cursor() as cursor:
             cursor.execute(
-                f"""
-                INSERT INTO graphile_worker.jobs (task_identifier, payload, run_at, max_attempts)
-                VALUES {", ".join(("('bufferJob', %s::json, %s::timestamptz, 1)" for _ in range(len(events))))}""",
+                f"""INSERT INTO graphile_worker.jobs (task_identifier, payload, run_at, max_attempts, flags)
+                VALUES {", ".join(("('bufferJob', %s::json, %s::timestamptz, 1, %s::jsonb)" for _ in range(len(events))))}""",
                 params,
             )
 
