@@ -75,7 +75,8 @@ class ClickhouseFunnelExperimentResult:
 
     def get_results(self):
         funnel_results = self.funnel.run()
-        control_variant, test_variants = self.get_variants(funnel_results)
+        filtered_results = [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants]
+        control_variant, test_variants = self.get_variants(filtered_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
 
@@ -86,7 +87,7 @@ class ClickhouseFunnelExperimentResult:
         significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
-            "insight": funnel_results,
+            "insight": filtered_results,
             "probability": mapping,
             "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             "filters": self.funnel._filter.to_dict(),

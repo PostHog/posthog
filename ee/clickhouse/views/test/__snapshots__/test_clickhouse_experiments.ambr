@@ -10,7 +10,6 @@
        AND event IN ['$pageleave', '$pageview']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
-       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -54,7 +53,7 @@
                      min(latest_1) over (PARTITION by aggregation_target,
                                                       prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['test'], ['control']], prop), prop, ['Other']) as prop
+                                        if(has([['test'], ['control'], ['']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -87,8 +86,7 @@
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-06 00:00:00')
-                         AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))) ) events
+                         AND timestamp <= toDateTime('2020-01-06 00:00:00') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
@@ -111,7 +109,6 @@
        AND event IN ['$pageleave', '$pageview']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
        AND timestamp <= toDateTime('2020-01-06 00:00:00')
-       AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -155,7 +152,7 @@
                      min(latest_1) over (PARTITION by aggregation_target,
                                                       prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['test_1'], ['test'], ['control'], ['test_2']], prop), prop, ['Other']) as prop
+                                        if(has([['test_1'], ['test'], ['control'], ['test_2'], ['']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
@@ -188,8 +185,7 @@
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-06 00:00:00')
-                         AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', ''))) ) events
+                         AND timestamp <= toDateTime('2020-01-06 00:00:00') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
