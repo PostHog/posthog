@@ -1,50 +1,69 @@
 import { urls } from 'scenes/urls'
 
+function applyFilter() {
+    cy.get('[data-attr=insight-filters-add-filter-group]').click()
+    cy.get('[data-attr=property-select-toggle-0]').click()
+    cy.get('[data-attr=taxonomic-filter-searchfield]').click()
+    cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
+    cy.get('[data-attr=prop-val]').click()
+    cy.get('[data-attr=prop-val-0]').click({ force: true })
+}
+
+function createANewInsight() {
+    cy.visit('/saved_insights/') // Should work with trailing slash just like without it
+    cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
+    cy.get('[data-attr-insight-type="TRENDS"').click()
+
+    applyFilter()
+
+    cy.get('[data-attr="insight-save-button"]').click()
+}
+
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
     beforeEach(() => {
         cy.visit(urls.insightNew())
     })
 
-    it('Create new insight and save copy', () => {
-        cy.visit('/saved_insights/') // Should work with trailing slash just like without it
-        cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
-        cy.get('[data-attr-insight-type="TRENDS"').click()
+    it('Saving an insight sets breadcrumbs', () => {
+        createANewInsight()
 
-        // apply filter
-        cy.get('[data-attr=insight-filters-add-filter-group]').click()
-        cy.get('[data-attr=property-select-toggle-0]').click()
-        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-        cy.get('[data-attr=prop-val]').click()
-        cy.get('[data-attr=prop-val-0]').click({ force: true })
-
-        // Save
-        cy.get('[data-attr="insight-save-button"]').click()
-        cy.get('[data-attr="insight-edit-button"]').click()
-
-        // Breadcrumbs work
         cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
         cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Insights')
         cy.get('[data-attr=breadcrumb-3]').should('not.have.text', '')
+    })
 
-        // Save and continue editing
-        cy.get('[data-attr="insight-save-dropdown"]').click()
-        cy.get('[data-attr="add-action-event-button"]').click()
-        cy.get('[data-attr="insight-save-dropdown"]').click()
-        cy.get('[data-attr="insight-save-and-continue"]').click()
-        cy.get('[data-attr="add-action-event-button"]').should('exist')
+    it('Create new insight and save copy', () => {
+        createANewInsight()
 
-        // Add another graph series, and save as new insight
-        cy.get('[data-attr="add-action-event-button"]').click()
+        cy.get('[data-attr="insight-edit-button"]').click()
+
         cy.get('[data-attr="insight-save-dropdown"]').click()
         cy.get('[data-attr="insight-save-as-new-insight"]').click()
-
-        cy.get('.ant-modal .ant-btn-primary').click()
+        cy.get('.ant-modal-content .ant-btn-primary').click()
         cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
-        // Check we're in edit mode
-        cy.get('[data-attr="insight-save-button"]').should('exist')
+    })
+
+    it.only('Create new insight and save and continue editing', () => {
+        cy.intercept('PATCH', /\/api\/projects\/\d+\/insights\/\d+\/?/).as('patchInsight')
+
+        createANewInsight()
+
+        cy.get('[data-attr="insight-edit-button"]').click()
+
+        cy.get('.page-title').then(($pageTitle) => {
+            const pageTitle = $pageTitle.text()
+
+            cy.get('[data-attr="add-action-event-button"]').click()
+            cy.get('[data-attr="prop-filter-events-0"]').click()
+            cy.get('[data-attr="insight-save-dropdown"]').click()
+            cy.get('[data-attr="insight-save-and-continue"]').click()
+            cy.wait('@patchInsight')
+            // still on the insight edit page
+            expect(pageTitle).to.eq($pageTitle.text())
+            cy.get('[data-attr="insight-save-button"]').should('exist')
+        })
     })
 
     describe('unsaved insights confirmation', () => {
