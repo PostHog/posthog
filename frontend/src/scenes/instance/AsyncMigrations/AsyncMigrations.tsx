@@ -225,8 +225,12 @@ export function AsyncMigrations(): JSX.Element {
             return <div>{asyncMigration.posthog_max_version}</div>
         },
     }
+    const posthogVersion = preflight?.posthog_version
+    function isFutureMigration(migration: AsyncMigration): boolean {
+        return !posthogVersion || posthogVersion < migration.posthog_min_version // TODO: needs to be semver comp
+    }
 
-    const availableMigrationsColumns: LemonTableColumns<AsyncMigration> = [
+    const actionableMigrationsColumns: LemonTableColumns<AsyncMigration> = [
         nameColumn,
         progressColumn,
         statusColumn,
@@ -236,17 +240,26 @@ export function AsyncMigrations(): JSX.Element {
         finishedAtColumn,
         ActionsColumn,
     ]
+    const actionableMigrations = asyncMigrations.filter(
+        (migration) => migration.status != AsyncMigrationStatus.CompletedSuccessfully && !isFutureMigration(migration)
+    )
     const futureMigrationsColumns: LemonTableColumns<AsyncMigration> = [
         nameColumn,
         statusColumn,
         minVersionColumn,
         maxVersionColumn,
     ]
+    const futureMigrations = asyncMigrations.filter(
+        (migration) => migration.status != AsyncMigrationStatus.CompletedSuccessfully && isFutureMigration(migration)
+    )
     const completedMigrationsColumns: LemonTableColumns<AsyncMigration> = [
         nameColumn,
         startedAtColumn,
         finishedAtColumn,
     ]
+    const completedMigrations = asyncMigrations.filter(
+        (migration) => migration.status == AsyncMigrationStatus.CompletedSuccessfully
+    )
     const rowExpansion = {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {
             return asyncMigration && <AsyncMigrationDetails asyncMigration={asyncMigration} />
@@ -299,8 +312,8 @@ export function AsyncMigrations(): JSX.Element {
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
-                                columns={availableMigrationsColumns}
-                                dataSource={asyncMigrations} // TODO: filter out migrations based on version & completed
+                                columns={actionableMigrationsColumns}
+                                dataSource={actionableMigrations}
                                 expandable={rowExpansion}
                             />
                             {activeAsyncMigrationModal ? (
@@ -320,15 +333,14 @@ export function AsyncMigrations(): JSX.Element {
                                 </LemonButton>
                             </div>
                             <div>
-                                These migrations are not available on your current PostHog version (
-                                {preflight?.posthog_version}).
+                                These migrations are not available on your current PostHog version ({posthogVersion}).
                             </div>
                             <Space />
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
                                 columns={futureMigrationsColumns}
-                                dataSource={asyncMigrations} // TODO: filter out migrations based on version & completed
+                                dataSource={futureMigrations}
                                 expandable={rowExpansion}
                             />
                         </>
@@ -349,7 +361,7 @@ export function AsyncMigrations(): JSX.Element {
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
                                 columns={completedMigrationsColumns}
-                                dataSource={asyncMigrations} // TODO: filter out migrations based on completed
+                                dataSource={completedMigrations}
                                 expandable={rowExpansion}
                             />
                         </>
