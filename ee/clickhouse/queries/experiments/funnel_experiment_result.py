@@ -58,7 +58,7 @@ class ClickhouseFunnelExperimentResult:
     ):
 
         breakdown_key = f"$feature/{feature_flag.key}"
-        variants = [variant["key"] for variant in feature_flag.variants]
+        self.variants = [variant["key"] for variant in feature_flag.variants]
 
         query_filter = filter.with_data(
             {
@@ -66,8 +66,9 @@ class ClickhouseFunnelExperimentResult:
                 "date_to": experiment_end_date,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
-                "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
-                # :TRICKY: We don't use properties set on filters, instead using experiment variant options
+                "properties": [],
+                # :TRICKY: We don't use properties set on filters, as these
+                # correspond to feature flag properties, not the funnel properties.
             }
         )
         self.funnel = funnel_class(query_filter, team)
