@@ -6,7 +6,7 @@ from ee.api.test.base import APILicensedTest
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 
@@ -695,6 +695,31 @@ class TestExperimentCRUD(APILicensedTest):
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
+
+        _create_person(
+            distinct_ids=["person1"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
+        )
+        _create_person(
+            distinct_ids=["person2"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
+        )
+        _create_person(
+            distinct_ids=["person3"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
+        )
+        _create_person(
+            distinct_ids=["person_out_of_control"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
+        )
+        _create_person(
+            distinct_ids=["person_out_of_end_date"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
+        )
+        _create_person(
+            distinct_ids=["person_out_of_property"], team_id=self.team.pk, properties={},
+        )
+        _create_person(
+            distinct_ids=["person4"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
+        )
+        _create_person(
+            distinct_ids=["person5"], team_id=self.team.pk, properties={"$geoip_country_name": "france"},
+        )
         journeys_for(
             {
                 "person1": [
@@ -706,6 +731,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
                 "person3": [
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
+                ],
+                "person_out_of_property": [
                     {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
@@ -727,6 +756,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 ],
             },
             self.team,
+            create_people=False,
         )
 
         ff_key = "a-b-test"
@@ -745,7 +775,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
                     "properties": [
                         {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                        # properties superceded by FF breakdown
+                        # properties NOT superceded by FF breakdown
                     ],
                 },
             },
@@ -786,12 +816,13 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         journeys_for(
             {
                 "person1_2": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"},},
+                    # one event having the property is sufficient, since first touch breakdown is the default
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {},},
                     {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_2"},},
                 ],
                 "person1_1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_1"},},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {},},
                 ],
                 "person2_1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
@@ -799,14 +830,14 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 ],
                 "person1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"},},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {},},
                 ],
                 "person2": [
                     {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {}},
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
                 # doesn't have feature set
@@ -827,6 +858,43 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 ],
                 "person6_1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
+                ],
+                # converters with unknown flag variant set
+                "person_unknown_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_1"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "unknown_1"},
+                    },
+                ],
+                "person_unknown_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_2"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "unknown_2"},
+                    },
+                ],
+                "person_unknown_3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_3"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "unknown_3"},
+                    },
                 ],
             },
             self.team,
@@ -853,10 +921,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "filters": {
                     "insight": "funnels",
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [
-                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                        # properties superceded by FF breakdown
-                    ],
+                    "properties": [],
                 },
             },
         )

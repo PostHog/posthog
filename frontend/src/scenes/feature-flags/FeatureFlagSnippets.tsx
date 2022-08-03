@@ -1,10 +1,23 @@
 import React from 'react'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
-import { IconOpenInNew } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
+
+export function NodeJSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.JavaScript} wrap>
+                {`const isMyFlagEnabledForUser = await client.isFeatureEnabled('${flagKey}', 'user distinct id')
+
+if (isMyFlagEnabledForUser) {
+    // Do something differently for this user
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
 
 export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
@@ -14,17 +27,46 @@ export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     // run your activation code here
 }`}
             </CodeSnippet>
+        </>
+    )
+}
 
-            <div className="mt-4">
-                Need more information?{' '}
-                <a
-                    target="_blank"
-                    rel="noopener"
-                    href={`https://posthog.com/docs/integrations/js-integration${UTM_TAGS}#feature-flags`}
-                >
-                    Check the docs <IconOpenInNew />
-                </a>
-            </div>
+export function PHPSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.PHP} wrap>
+                {`if (PostHog::isFeatureEnabled('${flagKey}', 'some distinct id')) {
+    // do something here
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function GolangSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Go} wrap>
+                {`isFlagEnabledForUser, err := client.IsFeatureEnabled('${flagKey}', 'user distinct id', false)
+
+if (isFlagEnabledForUser) {
+  // Do something differently for this user
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function RubySnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Ruby} wrap>
+                {`is_my_flag_enabled = posthog.is_feature_enabled('${flagKey}', 'user distinct id')
+
+if is_my_flag_enabled
+  # Do something differently for this user
+end`}
+            </CodeSnippet>
         </>
     )
 }
@@ -37,16 +79,6 @@ export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     runAwesomeFeature()
 `}
             </CodeSnippet>
-            <div className="mt-4">
-                Need more information?{' '}
-                <a
-                    target="_blank"
-                    rel="noopener"
-                    href={`https://posthog.com/docs/integrations/python-integration${UTM_TAGS}#feature-flags`}
-                >
-                    Check the docs <IconOpenInNew />
-                </a>
-            </div>
         </>
     )
 }
@@ -64,12 +96,6 @@ export function APISnippet(): JSX.Element {
 }'
                 `}
             </CodeSnippet>
-            <div className="mt-4">
-                Need more information?{' '}
-                <a target="_blank" rel="noopener" href={`https://posthog.com/docs/api/feature-flags${UTM_TAGS}`}>
-                    Check the docs <IconOpenInNew />
-                </a>
-            </div>
         </>
     )
 }

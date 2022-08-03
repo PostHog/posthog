@@ -6,6 +6,20 @@
     (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (has(['france'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$geoip_country_name'), '^"|"$', '')))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
@@ -83,6 +97,13 @@
                           WHERE team_id = 2
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       INNER JOIN
+                         (SELECT id
+                          FROM person
+                          WHERE team_id = 2
+                          GROUP BY id
+                          HAVING max(is_deleted) = 0
+                          AND (has(['france'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$geoip_country_name'), '^"|"$', '')))) person ON person.id = pdi.person_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
                          AND timestamp >= toDateTime('2020-01-01 00:00:00')

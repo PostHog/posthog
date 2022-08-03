@@ -758,6 +758,10 @@ body {
         line-height: 2;
     }
 
+    .ant-layout {
+        min-height: 100vh;
+    }
+
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {
