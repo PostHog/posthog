@@ -21,6 +21,8 @@ export enum AsyncMigrationStatus {
 
 export enum AsyncMigrationsTab {
     Management = 'management',
+    FutureMigrations = 'future',
+    CompletedMigrations = 'completed',
     Settings = 'settings',
 }
 
