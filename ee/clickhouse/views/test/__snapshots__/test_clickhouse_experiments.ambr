@@ -173,7 +173,7 @@
                      min(latest_1) over (PARTITION by aggregation_target,
                                                       prop
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
-                                        if(has([['test_1'], ['test'], ['control'], ['unknown_3'], ['unknown_2'], ['unknown_1'], ['test_2'], ['']], prop), prop, ['Other']) as prop
+                                        if(has([[''], ['test_1'], ['test'], ['control'], ['unknown_3'], ['unknown_2'], ['unknown_1'], ['test_2']], prop), prop, ['Other']) as prop
               FROM
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
