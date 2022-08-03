@@ -1,11 +1,13 @@
 import api from 'lib/api'
-import { kea } from 'kea'
+import { kea, path, connect, actions, events, listeners, selectors, reducers } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import type { asyncMigrationsLogicType } from './asyncMigrationsLogicType'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { InstanceSetting } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { loaders } from 'kea-loaders'
 export type TabName = 'overview' | 'internal_metrics'
 
 // keep in sync with MigrationStatus in posthog/models/async_migration.py
@@ -65,9 +67,12 @@ export interface AsyncMigrationModalProps {
     message: string
 }
 
-export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
-    path: ['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic'],
-    actions: {
+export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
+    path(['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic']),
+    connect({
+        values: [preflightLogic, ['preflight']],
+    }),
+    actions({
         triggerMigration: (migration: AsyncMigration) => ({ migration }),
         resumeMigration: (migration: AsyncMigration) => ({ migration }),
         rollbackMigration: (migration: AsyncMigration) => ({ migration }),
@@ -92,9 +97,9 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
             message,
         }),
         closeAsyncMigrationsModal: true,
-    },
+    }),
 
-    reducers: {
+    reducers({
         activeTab: [AsyncMigrationsTab.Management as AsyncMigrationsTab, { setActiveTab: (_, { tab }) => tab }],
         asyncMigrationErrors: [
             {} as Record<number, AsyncMigrationError[]>,
@@ -126,8 +131,8 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                 updateMigrationStatus: () => null,
             },
         ],
-    },
-    loaders: () => ({
+    }),
+    loaders(() => ({
         asyncMigrations: [
             [] as AsyncMigration[],
             {
@@ -151,9 +156,9 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                 },
             },
         ],
-    }),
+    })),
 
-    selectors: {
+    selectors({
         isAnyMigrationRunning: [
             (s) => [s.asyncMigrations],
             (asyncMigrations) =>
@@ -161,9 +166,60 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                     [AsyncMigrationStatus.Running, AsyncMigrationStatus.Starting].includes(migration.status)
                 ),
         ],
-    },
+        isFutureMigration: [
+            (s) => [s.preflight],
+            (preflight) =>
+                function isFutureMigration(migration: AsyncMigration): boolean {
+                    const posthogVersion = preflight?.posthog_version
+                    return !posthogVersion || posthogVersion < migration.posthog_min_version // TODO: needs to be semver comp
+                },
+        ],
+        actionableMigrations: [
+            (s) => [s.asyncMigrations, s.isFutureMigration],
+            (asyncMigrations, isFutureMigration) => {
+                return asyncMigrations.filter((migration) => {
+                    return (
+                        migration.status !== AsyncMigrationStatus.CompletedSuccessfully && !isFutureMigration(migration)
+                    )
+                })
+            },
+        ],
+        completedMigrations: [
+            (s) => [s.asyncMigrations],
+            (asyncMigrations) => {
+                return asyncMigrations.filter((migration) => {
+                    return migration.status === AsyncMigrationStatus.CompletedSuccessfully
+                })
+            },
+        ],
+        futureMigrations: [
+            (s) => [s.asyncMigrations, s.isFutureMigration],
+            (asyncMigrations, isFutureMigration) => {
+                return asyncMigrations.filter((migration) => {
+                    return (
+                        migration.status !== AsyncMigrationStatus.CompletedSuccessfully && isFutureMigration(migration)
+                    )
+                })
+            },
+        ],
+        migrationsForCurrentTab: [
+            (s) => [s.activeTab, s.asyncMigrations, s.actionableMigrations, s.completedMigrations, s.futureMigrations],
+            (activeTab, asyncMigrations, actionableMigrations, completedMigrations, futureMigrations) => {
+                if (activeTab === AsyncMigrationsTab.Management) {
+                    return actionableMigrations
+                } else if (activeTab === AsyncMigrationsTab.FutureMigrations) {
+                    return futureMigrations
+                } else if (activeTab === AsyncMigrationsTab.CompletedMigrations) {
+                    return completedMigrations
+                } else {
+                    // If no tab is set, show all migrations
+                    return asyncMigrations
+                }
+            },
+        ],
+    }),
 
-    listeners: ({ actions }) => ({
+    listeners(({ actions }) => ({
         triggerMigration: async ({ migration }) => {
             if (Object.keys(migration.parameter_definitions).length > 0) {
                 actions.openAsyncMigrationsModal(migration, 'trigger', 'Migration triggered successfully')
@@ -224,12 +280,12 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>({
                 actions.loadAsyncMigrationErrorsFailure(migrationId, error)
             }
         },
-    }),
+    })),
 
-    events: ({ actions }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadAsyncMigrations()
             actions.loadAsyncMigrationSettings()
         },
-    }),
-})
+    })),
+])

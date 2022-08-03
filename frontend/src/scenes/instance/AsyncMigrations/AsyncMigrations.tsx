@@ -15,7 +15,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { userLogic } from 'scenes/userLogic'
 import { SettingUpdateField } from './SettingUpdateField'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { More } from 'lib/components/LemonButton/More'
@@ -23,7 +23,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
 import { IconRefresh, IconReplay } from 'lib/components/icons'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const { TabPane } = Tabs
 
@@ -32,17 +31,22 @@ export const scene: SceneExport = {
     logic: asyncMigrationsLogic,
 }
 
+type AsyncMigrationColumnType = LemonTableColumn<AsyncMigration, keyof AsyncMigration | undefined>
+
 const STATUS_RELOAD_INTERVAL_MS = 3000
 
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
     const {
-        asyncMigrations,
         asyncMigrationsLoading,
         activeTab,
         asyncMigrationSettings,
         isAnyMigrationRunning,
         activeAsyncMigrationModal,
+        actionableMigrations,
+        futureMigrations,
+        completedMigrations,
+        migrationsForCurrentTab,
     } = useValues(asyncMigrationsLogic)
     const {
         triggerMigration,
@@ -54,7 +58,6 @@ export function AsyncMigrations(): JSX.Element {
         loadAsyncMigrationErrors,
         setActiveTab,
     } = useActions(asyncMigrationsLogic)
-    const { preflight } = useValues(preflightLogic)
 
     useEffect(() => {
         if (isAnyMigrationRunning) {
@@ -63,7 +66,7 @@ export function AsyncMigrations(): JSX.Element {
         }
     }, [isAnyMigrationRunning])
 
-    const nameColumn = {
+    const nameColumn: AsyncMigrationColumnType = {
         title: 'Migration',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const link =
@@ -80,7 +83,7 @@ export function AsyncMigrations(): JSX.Element {
             )
         },
     }
-    const progressColumn = {
+    const progressColumn: AsyncMigrationColumnType = {
         title: 'Progress',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const progress = asyncMigration.progress
@@ -91,7 +94,7 @@ export function AsyncMigrations(): JSX.Element {
             )
         },
     }
-    const statusColumn = {
+    const statusColumn: AsyncMigrationColumnType = {
         title: 'Status',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const status = asyncMigration.status
@@ -108,13 +111,13 @@ export function AsyncMigrations(): JSX.Element {
             return <LemonTag type={type}>{migrationStatusNumberToMessage[status]}</LemonTag>
         },
     }
-    const lastOpColumn = {
+    const lastOpColumn: AsyncMigrationColumnType = {
         title: 'Last operation index',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             return <div>{asyncMigration.current_operation_index}</div>
         },
     }
-    const queryIdColumn = {
+    const queryIdColumn: AsyncMigrationColumnType = {
         title: 'Last query ID',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             return (
@@ -124,21 +127,21 @@ export function AsyncMigrations(): JSX.Element {
             )
         },
     }
-    const startedAtColumn = {
+    const startedAtColumn: AsyncMigrationColumnType = {
         title: 'Started at',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const startedAt = asyncMigration.started_at
             return <div>{humanFriendlyDetailedTime(startedAt)}</div>
         },
     }
-    const finishedAtColumn = {
+    const finishedAtColumn: AsyncMigrationColumnType = {
         title: 'Finished at',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const finishedAt = asyncMigration.finished_at
             return <div>{humanFriendlyDetailedTime(finishedAt)}</div>
         },
     }
-    const ActionsColumn = {
+    const ActionsColumn: AsyncMigrationColumnType = {
         title: '',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             const status = asyncMigration.status
@@ -213,53 +216,35 @@ export function AsyncMigrations(): JSX.Element {
         },
     }
 
-    const minVersionColumn = {
+    const minVersionColumn: AsyncMigrationColumnType = {
         title: 'Min PostHog Version',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             return <div>{asyncMigration.posthog_min_version}</div>
         },
     }
-    const maxVersionColumn = {
+    const maxVersionColumn: AsyncMigrationColumnType = {
         title: 'Max PostHog Version',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             return <div>{asyncMigration.posthog_max_version}</div>
         },
     }
-    const posthogVersion = preflight?.posthog_version
-    function isFutureMigration(migration: AsyncMigration): boolean {
-        return !posthogVersion || posthogVersion < migration.posthog_min_version // TODO: needs to be semver comp
-    }
 
-    const actionableMigrationsColumns: LemonTableColumns<AsyncMigration> = [
-        nameColumn,
-        progressColumn,
-        statusColumn,
-        lastOpColumn,
-        queryIdColumn,
-        startedAtColumn,
-        finishedAtColumn,
-        ActionsColumn,
-    ]
-    const actionableMigrations = asyncMigrations.filter(
-        (migration) => migration.status != AsyncMigrationStatus.CompletedSuccessfully && !isFutureMigration(migration)
-    )
-    const futureMigrationsColumns: LemonTableColumns<AsyncMigration> = [
-        nameColumn,
-        statusColumn,
-        minVersionColumn,
-        maxVersionColumn,
-    ]
-    const futureMigrations = asyncMigrations.filter(
-        (migration) => migration.status != AsyncMigrationStatus.CompletedSuccessfully && isFutureMigration(migration)
-    )
-    const completedMigrationsColumns: LemonTableColumns<AsyncMigration> = [
-        nameColumn,
-        startedAtColumn,
-        finishedAtColumn,
-    ]
-    const completedMigrations = asyncMigrations.filter(
-        (migration) => migration.status == AsyncMigrationStatus.CompletedSuccessfully
-    )
+    const columnsForCurrentTab =
+        activeTab === AsyncMigrationsTab.CompletedMigrations
+            ? [nameColumn, startedAtColumn, finishedAtColumn]
+            : activeTab === AsyncMigrationsTab.FutureMigrations
+            ? [nameColumn, statusColumn, minVersionColumn, maxVersionColumn]
+            : [
+                  nameColumn,
+                  progressColumn,
+                  statusColumn,
+                  lastOpColumn,
+                  queryIdColumn,
+                  startedAtColumn,
+                  finishedAtColumn,
+                  ActionsColumn,
+              ]
+
     const rowExpansion = {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {
             return asyncMigration && <AsyncMigrationDetails asyncMigration={asyncMigration} />
@@ -290,13 +275,26 @@ export function AsyncMigrations(): JSX.Element {
                     />
 
                     <Tabs activeKey={activeTab} onChange={(t) => setActiveTab(t as AsyncMigrationsTab)}>
-                        <TabPane tab="Management" key={AsyncMigrationsTab.Management} />
-                        <TabPane tab="Future Migrations" key={AsyncMigrationsTab.FutureMigrations} />
-                        <TabPane tab="Completed Migrations" key={AsyncMigrationsTab.CompletedMigrations} />
+                        <TabPane
+                            tab={`Management (${actionableMigrations.length})`}
+                            key={AsyncMigrationsTab.Management}
+                        />
+                        <TabPane
+                            tab={`Future Migrations (${futureMigrations.length})`}
+                            key={AsyncMigrationsTab.FutureMigrations}
+                        />
+                        <TabPane
+                            tab={`Completed Migrations (${completedMigrations.length})`}
+                            key={AsyncMigrationsTab.CompletedMigrations}
+                        />
                         <TabPane tab="Settings" key={AsyncMigrationsTab.Settings} />
                     </Tabs>
 
-                    {activeTab === AsyncMigrationsTab.Management ? (
+                    {[
+                        AsyncMigrationsTab.Management,
+                        AsyncMigrationsTab.FutureMigrations,
+                        AsyncMigrationsTab.CompletedMigrations,
+                    ].includes(activeTab) ? (
                         <>
                             <div className="mb-4 float-right">
                                 <LemonButton
@@ -312,58 +310,13 @@ export function AsyncMigrations(): JSX.Element {
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
-                                columns={actionableMigrationsColumns}
-                                dataSource={actionableMigrations}
+                                columns={columnsForCurrentTab}
+                                dataSource={migrationsForCurrentTab}
                                 expandable={rowExpansion}
                             />
                             {activeAsyncMigrationModal ? (
                                 <AsyncMigrationParametersModal {...activeAsyncMigrationModal} />
                             ) : null}
-                        </>
-                    ) : activeTab === AsyncMigrationsTab.FutureMigrations ? (
-                        <>
-                            <div className="mb-4 float-right">
-                                <LemonButton
-                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconRefresh />}
-                                    onClick={loadAsyncMigrations}
-                                    type="secondary"
-                                    size="small"
-                                >
-                                    Refresh
-                                </LemonButton>
-                            </div>
-                            <div>
-                                These migrations are not available on your current PostHog version ({posthogVersion}).
-                            </div>
-                            <Space />
-                            <LemonTable
-                                pagination={{ pageSize: 10 }}
-                                loading={asyncMigrationsLoading}
-                                columns={futureMigrationsColumns}
-                                dataSource={futureMigrations}
-                                expandable={rowExpansion}
-                            />
-                        </>
-                    ) : activeTab === AsyncMigrationsTab.CompletedMigrations ? (
-                        <>
-                            <div className="mb-4 float-right">
-                                <LemonButton
-                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconRefresh />}
-                                    onClick={loadAsyncMigrations}
-                                    type="secondary"
-                                    size="small"
-                                >
-                                    Refresh
-                                </LemonButton>
-                            </div>
-                            <Space />
-                            <LemonTable
-                                pagination={{ pageSize: 10 }}
-                                loading={asyncMigrationsLoading}
-                                columns={completedMigrationsColumns}
-                                dataSource={completedMigrations}
-                                expandable={rowExpansion}
-                            />
                         </>
                     ) : activeTab === AsyncMigrationsTab.Settings ? (
                         <>
