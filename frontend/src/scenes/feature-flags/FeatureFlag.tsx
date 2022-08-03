@@ -1,17 +1,18 @@
 import React, { useState } from 'react'
 import { Group } from 'kea-forms'
-import { Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
+import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
+import { DeleteOutlined, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
+import { IconOpenInNew, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
-import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
@@ -234,40 +235,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 )}
                             </Field>
                         </Col>
-                        <Col span={12} style={{ paddingTop: 31 }}>
-                            <Collapse>
-                                <Collapse.Panel
-                                    header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
-                                            <IconJavascript style={{ marginRight: 6 }} /> Javascript integration
-                                            instructions
-                                        </div>
-                                    }
-                                    key="js"
-                                >
-                                    <JSSnippet flagKey={featureFlag.key || 'my-flag'} />
-                                </Collapse.Panel>
-                                <Collapse.Panel
-                                    header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
-                                            <IconPython style={{ marginRight: 6 }} /> Python integration instructions
-                                        </div>
-                                    }
-                                    key="python"
-                                >
-                                    <PythonSnippet flagKey={featureFlag.key || 'my-flag'} />
-                                </Collapse.Panel>
-                                <Collapse.Panel
-                                    header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
-                                            <ApiFilled style={{ marginRight: 6 }} /> API integration instructions
-                                        </div>
-                                    }
-                                    key="api"
-                                >
-                                    <APISnippet />
-                                </Collapse.Panel>
-                            </Collapse>
+                        <Col span={12}>
+                            <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                         </Col>
                     </Row>
 
