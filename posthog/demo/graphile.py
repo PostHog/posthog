@@ -26,6 +26,10 @@ class GraphileJob:
 
 
 def bulk_queue_graphile_jobs(jobs: Sequence[GraphileJob]):
+    """Bulk-insert jobs into the graphile_worker.jobs table.
+
+    This is a bit dirty and only intended for demo data, not production.
+    """
     values: List[str] = []
     params: List[Any] = []
     for job in jobs:
@@ -40,6 +44,10 @@ def bulk_queue_graphile_jobs(jobs: Sequence[GraphileJob]):
 
 
 def copy_graphile_jobs_between_teams(source_team_id: int, target_team_id: int):
+    """Copy all scheduled demo events between projects.
+
+    This is a bit dirty and only intended for demo data, not production.
+    """
     with connection.cursor() as cursor:
         cursor.execute(
             COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL, {"target_team_id": target_team_id, "source_team_id": source_team_id},
