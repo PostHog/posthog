@@ -300,15 +300,6 @@ export function summarizeInsightFilters(
     return summary
 }
 
-/*
-There are overlapping places in Insights where:
-
-* sometimes we are rendering a property which might have an existing format method
-* or we are rendering a numeric value
-
-This allows the caller to specify how to render the numeric value
-If the property formatter does not want to format it
- */
 export function formatAggregationValue(
     property: string | undefined,
     propertyValue: number,
@@ -325,10 +316,8 @@ export function formatAggregationValue(
         formattedValue = renderCount(propertyValue ?? 0)
     }
 
-    // This depends on `formatPropertyValueForDisplay`. Which can return an array.
-    // But since `propertyValue` is a number. `formatPropertyValueForDisplay` will only return a string
+    // Since `propertyValue` is a number. `formatPropertyValueForDisplay` will only return a string
     // To make typescript happy we handle the possible but impossible string array inside this function
-    // And only ever return string | null
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
