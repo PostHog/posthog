@@ -225,7 +225,7 @@
 // Widths / heights
 
 @each $kind in ('width', 'height') {
-    $char: str-slice($kind, 0, 1);
+    $char: str-slice($kind, 1, 1);
     .#{$char}-auto {
         #{$kind}: auto;
     }
@@ -233,7 +233,7 @@
         #{$kind}: 100%;
     }
     .#{$char}-screen {
-        #{$kind}: 100v#{$char};
+        #{$kind}: unquote('100v' + $char);
     }
     .#{$char}-min {
         #{$kind}: min-content;
@@ -246,17 +246,17 @@
     }
 
     .min-#{$char}-full {
-        #{$kind}: 100%;
+        min-#{$kind}: 100%;
     }
     .min-#{$char}-screen {
-        #{$kind}: 100v#{$char};
+        min-#{$kind}: unquote('100v' + $char);
     }
 
     .max-#{$char}-full {
-        #{$kind}: 100%;
+        min-#{$kind}: 100%;
     }
     .max-#{$char}-screen {
-        #{$kind}: 100v#{$char};
+        min-#{$kind}: unquote('100v' + $char);
     }
 }
 
