@@ -45,7 +45,7 @@ describe('Insights', () => {
         cy.get('[data-attr="insight-name"]').should('contain', 'Pageview count (copy)')
     })
 
-    it.only('Create new insight and save and continue editing', () => {
+    it('Create new insight and save and continue editing', () => {
         cy.intercept('PATCH', /\/api\/projects\/\d+\/insights\/\d+\/?/).as('patchInsight')
 
         createANewInsight()
