@@ -206,7 +206,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/property_definitions/?properties=plan,app_rating")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(len(response.json()["results"]), 2)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["plan", "app_rating"])
 
