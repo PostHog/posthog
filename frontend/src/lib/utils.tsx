@@ -624,6 +624,10 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
+export function truncate(str: string, maxLength: number): string {
+    return str.length > maxLength ? str.slice(0, maxLength - 1) + '...' : str
+}
+
 export function eventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties' | 'person'>,
     shortForm: boolean = false

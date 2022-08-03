@@ -6,11 +6,13 @@ import { urls } from 'scenes/urls'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import clsx from 'clsx'
 
 export interface PersonHeaderProps {
     person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
     withIcon?: boolean
     noLink?: boolean
+    noEllipsis?: boolean
 }
 
 export const asDisplay = (person: Partial<PersonType> | PersonActorType | null | undefined): string => {
@@ -54,7 +56,9 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
                     size="md"
                 />
             )}
-            <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
+            <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>
+                {asDisplay(props.person)}
+            </span>
         </div>
     )
 

@@ -97,15 +97,18 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 }))
             },
         ],
-        currentEventsTimeRange: [
+        currentEventStartIndex: [
             (selectors) => [selectors.listEvents, selectors.currentPlayerTime],
-            (events, currentPlayerTime) => {
+            (events, currentPlayerTime): number => {
+                return events.findIndex((e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0))
+            },
+        ],
+        currentEventsTimeRange: [
+            (selectors) => [selectors.currentEventStartIndex, selectors.listEvents, selectors.currentPlayerTime],
+            (startIndex, events, currentPlayerTime) => {
                 if (events.length < 1) {
                     return { start: 0, end: 0 }
                 }
-                const startIndex = events.findIndex(
-                    (e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0)
-                )
                 const end = Math.max(ceilMsToClosestSecond(currentPlayerTime ?? 0), 1000)
                 const start = floorMsToClosestSecond(
                     events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]

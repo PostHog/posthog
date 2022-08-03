@@ -1,15 +1,15 @@
+import './PlayerConsole.scss'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import './Console.scss'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { RecordingConsoleLog } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-export function Console(): JSX.Element | null {
+export function PlayerConsole(): JSX.Element | null {
     const { orderedConsoleLogs, areAllSnapshotsLoaded } = useValues(sessionRecordingLogic)
     const { reportRecordingConsoleFeedback } = useActions(eventUsageLogic)
     const { seek } = useActions(sessionRecordingPlayerLogic)
