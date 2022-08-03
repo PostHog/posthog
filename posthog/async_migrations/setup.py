@@ -108,7 +108,10 @@ def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinit
         if migration_name in test_migrations:
             return test_migrations[migration_name].Migration(migration_name)
 
-    return ALL_ASYNC_MIGRATIONS[migration_name]
+    try:
+        return ALL_ASYNC_MIGRATIONS[migration_name]
+    except:
+        raise LookupError(f"Async migration definition for {migration_name} not available")
 
 
 def get_async_migration_dependency(migration_name: str) -> Optional[str]:

@@ -72,8 +72,8 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             definition = get_async_migration_definition(async_migration.name)
             # Ignore typecasting logic for parameters
             return {key: param[:2] for key, param in definition.parameters.items()}
-        except Exception as e:
-            logger.error(f"Failed to get definition for {async_migration.name}, error {e}")
+        except LookupError as e:
+            logger.warn(f"Parameters for {async_migration.name} not available error: {e}")
         return {}
 
 
