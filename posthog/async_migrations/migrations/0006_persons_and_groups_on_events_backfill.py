@@ -62,7 +62,7 @@ class Migration(AsyncMigrationDefinition):
     depends_on = "0005_person_replacing_by_version"
 
     posthog_min_version = "1.39.0"
-    posthog_max_version = "1.39.99"
+    posthog_max_version = "1.40.99"
 
     parameters = {
         "PERSON_DICT_CACHE_SIZE": (5000000, "ClickHouse cache size (in rows) for persons data.", int),

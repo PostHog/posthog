@@ -19,6 +19,7 @@ from posthog.async_migrations.utils import (
     update_async_migration,
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -230,7 +231,9 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
-    return POSTHOG_VERSION in SimpleSpec(f">={posthog_min_version},<={posthog_max_version}")
+    return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or POSTHOG_VERSION in SimpleSpec(
+        f">={posthog_min_version},<={posthog_max_version}"
+    )
 
 
 def run_next_migration(candidate: str):
