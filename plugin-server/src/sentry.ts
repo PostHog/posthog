@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
 import * as Tracing from '@sentry/tracing'
 import { Span, SpanContext, TransactionContext } from '@sentry/types'
+import { timestampWithMs } from '@sentry/utils'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { PluginsServerConfig } from './types'
@@ -30,14 +31,24 @@ export function getSpan(): Tracing.Span | undefined {
     return asyncLocalStorage.getStore()
 }
 
-export function runInTransaction<T>(transactionContext: TransactionContext, callback: () => Promise<T>): Promise<T> {
+export function runInTransaction<T>(
+    transactionContext: TransactionContext,
+    callback: () => Promise<T>,
+    sampleRateByDuration?: (durationInSeconds: number) => number
+): Promise<T> {
     const transaction = Sentry.startTransaction(transactionContext)
     return asyncLocalStorage.run(transaction, async () => {
         try {
             const result = await callback()
             return result
         } finally {
-            transaction.finish()
+            // :TRICKY: Allow post-filtering some transactions by duration
+            const endTimestamp = timestampWithMs()
+            const duration = endTimestamp - transaction.startTimestamp
+            if (sampleRateByDuration) {
+                transaction.sampled = Math.random() < sampleRateByDuration(duration)
+            }
+            transaction.finish(endTimestamp)
         }
     })
 }

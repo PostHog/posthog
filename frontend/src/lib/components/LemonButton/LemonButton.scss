@@ -133,12 +133,15 @@
 
         &.LemonButton--status-stealth {
             font-weight: 400;
-
             color: var(--default);
 
             &:not(:disabled):hover,
             &.LemonButton--active {
                 background: var(--primary-highlight);
+            }
+
+            &.LemonButton--active {
+                font-weight: 500;
             }
 
             .LemonIcon,

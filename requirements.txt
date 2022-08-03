@@ -229,7 +229,7 @@ pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-posthoganalytics==1.4.9
+posthoganalytics==2.0.0
     # via -r requirements.in
 prometheus-client==0.14.1
     # via django-prometheus
@@ -323,7 +323,9 @@ social-auth-core==4.1.0
 sortedcontainers==2.4.0
     # via trio
 sqlparse==0.4.2
-    # via django
+    # via
+    #   -r requirements.in
+    #   django
 statshog==1.0.6
     # via -r requirements.in
 structlog==21.2.0

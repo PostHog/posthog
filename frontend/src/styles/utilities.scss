@@ -225,9 +225,7 @@
 // Widths / heights
 
 @each $kind in ('width', 'height') {
-    // We have to set this as a variable as SCSS doesn't like raw concatenatin
-    $hundredVertical: 100v;
-    $char: str-slice($kind, 0, 1);
+    $char: str-slice($kind, 1, 1);
     .#{$char}-auto {
         #{$kind}: auto;
     }
@@ -235,7 +233,7 @@
         #{$kind}: 100%;
     }
     .#{$char}-screen {
-        #{$kind}: #{$hundredVertical}#{$char};
+        #{$kind}: unquote('100v' + $char);
     }
     .#{$char}-min {
         #{$kind}: min-content;
@@ -248,18 +246,17 @@
     }
 
     .min-#{$char}-full {
-        #{$kind}: 100%;
+        min-#{$kind}: 100%;
     }
     .min-#{$char}-screen {
-        padding: #{$char};
-        #{$kind}: #{$hundredVertical}#{$char};
+        min-#{$kind}: unquote('100v' + $char);
     }
 
     .max-#{$char}-full {
-        #{$kind}: 100%;
+        min-#{$kind}: 100%;
     }
     .max-#{$char}-screen {
-        #{$kind}: #{$hundredVertical}#{$char};
+        min-#{$kind}: unquote('100v' + $char);
     }
 }
 

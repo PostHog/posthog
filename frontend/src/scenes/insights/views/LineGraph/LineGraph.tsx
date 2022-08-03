@@ -19,7 +19,7 @@ import {
 } from 'chart.js'
 import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
-import { areObjectValuesEmpty, compactNumber, lightenDarkenColor, mapRange } from '~/lib/utils'
+import { areObjectValuesEmpty, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
@@ -32,6 +32,7 @@ import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtil
 import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 
 //--Chart Style Options--//
 if (registerables) {
@@ -53,13 +54,13 @@ interface LineGraphProps {
     ['data-attr']: string
     insightNumericId?: number
     inSharedMode?: boolean
-    percentage?: boolean
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     timezone?: string | null
+    aggregationAxisFormat?: AggregationAxisFormat
 }
 
 const noop = (): void => {}
@@ -93,13 +94,13 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     insightNumericId,
     inSharedMode = false,
-    percentage = false,
     showPersonsModal = true,
     isCompare = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
     timezone,
+    aggregationAxisFormat = 'numeric',
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
@@ -358,7 +359,11 @@ export function LineGraph_({
                                         timezone={timezone}
                                         seriesData={seriesData}
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
-                                        renderCount={tooltipConfig?.renderCount}
+                                        renderCount={
+                                            tooltipConfig?.renderCount ||
+                                            ((value: number): string =>
+                                                formatAggregationAxisValue(aggregationAxisFormat, value))
+                                        }
                                         forceEntitiesAsColumns={isHorizontal}
                                         hideInspectActorsSection={!onClick || !showPersonsModal}
                                         groupTypeLabel={
@@ -519,7 +524,7 @@ export function LineGraph_({
                         precision: 0,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return compactNumber(Number(value))
+                            return formatAggregationAxisValue(aggregationAxisFormat, value)
                         },
                     },
                 },
@@ -541,20 +546,10 @@ export function LineGraph_({
                     display: true,
                     ticks: {
                         precision: 0,
-                        ...(percentage
-                            ? {
-                                  callback: function (value) {
-                                      const numVal = Number(value)
-                                      const fixedValue = numVal < 1 ? numVal.toFixed(2) : numVal.toFixed(0)
-                                      return `${fixedValue}%` // convert it to percentage
-                                  },
-                              }
-                            : {
-                                  ...tickOptions,
-                                  callback: (value) => {
-                                      return compactNumber(Number(value))
-                                  },
-                              }),
+                        ...tickOptions,
+                        callback: (value) => {
+                            return formatAggregationAxisValue(aggregationAxisFormat, value)
+                        },
                     },
                     grid: {
                         borderColor: colors.axisLine as string,
@@ -570,7 +565,7 @@ export function LineGraph_({
                         ...tickOptions,
                         precision: 0,
                         callback: (value) => {
-                            return compactNumber(Number(value))
+                            return formatAggregationAxisValue(aggregationAxisFormat, value)
                         },
                     },
                 },

@@ -117,6 +117,7 @@ $_lifecycle_dormant: #f86234;
     --recording-spacing: calc(2rem / 3);
     --recording-player-container-bg: #797973;
     --recording-buffer-bg: #faaf8c;
+    --recording-seekbar-red: #f54e00;
     --recording-hover-event: var(--primary-bg-hover);
     --recording-hover-event-mid: var(--primary-bg-active);
     --recording-hover-event-dark: var(--primary);
@@ -753,6 +754,10 @@ body {
         letter-spacing: 0.5px;
         margin-bottom: 0.25rem;
         line-height: 2;
+    }
+
+    .ant-layout {
+        min-height: 100vh;
     }
 
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`

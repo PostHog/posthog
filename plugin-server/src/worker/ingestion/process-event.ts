@@ -2,14 +2,12 @@ import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Event as EventProto, IEvent } from '../../config/idl/protos'
-import { KAFKA_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
+import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
     Hub,
     IngestionEvent,
     IngestionPersonData,
-    PostgresSessionRecordingEvent,
     PreIngestionEvent,
     SessionRecordingEvent,
     Team,
@@ -25,12 +23,6 @@ import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 
-export interface EventProcessingResult {
-    event: IEvent | SessionRecordingEvent | PostgresSessionRecordingEvent
-    eventId?: number
-    elements?: Element[]
-}
-
 export class EventsProcessor {
     pluginsServer: Hub
     db: DB
@@ -38,7 +30,6 @@ export class EventsProcessor {
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    clickhouseExternalSchemasDisabledTeams: Set<number>
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -47,9 +38,6 @@ export class EventsProcessor {
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
-        this.clickhouseExternalSchemasDisabledTeams = new Set(
-            pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS.split(',').filter(String).map(Number)
-        )
     }
 
     public async processEvent(
@@ -129,13 +117,6 @@ export class EventsProcessor {
             clearTimeout(timeout)
         }
         return result
-    }
-
-    public clickhouseExternalSchemasEnabled(teamId: number): boolean {
-        if (this.pluginsServer.CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS) {
-            return false
-        }
-        return !this.clickhouseExternalSchemasDisabledTeams.has(teamId)
     }
 
     private async capture(
@@ -228,7 +209,7 @@ export class EventsProcessor {
             }
         }
 
-        const eventPayload: IEvent = {
+        const eventPayload = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
@@ -239,23 +220,19 @@ export class EventsProcessor {
             created_at: castTimestampOrNow(null, timestampFormat),
         }
 
-        const useExternalSchemas = this.clickhouseExternalSchemasEnabled(teamId)
-        // proto ingestion is deprecated and we won't support new additions to the schema
-        const message = useExternalSchemas
-            ? (EventProto.encodeDelimited(EventProto.create(eventPayload)).finish() as Buffer)
-            : JSON.stringify({
-                  ...eventPayload,
-                  person_id: personInfo?.uuid,
-                  person_properties: eventPersonProperties,
-                  person_created_at: personInfo
-                      ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
-                      : null,
-                  ...groupsProperties,
-                  ...groupsCreatedAt,
-              })
+        const message = JSON.stringify({
+            ...eventPayload,
+            person_id: personInfo?.uuid,
+            person_properties: eventPersonProperties,
+            person_created_at: personInfo
+                ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
+                : null,
+            ...groupsProperties,
+            ...groupsCreatedAt,
+        })
 
         await this.kafkaProducer.queueMessage({
-            topic: useExternalSchemas ? KAFKA_EVENTS : this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
             messages: [
                 {
                     key: uuid,
