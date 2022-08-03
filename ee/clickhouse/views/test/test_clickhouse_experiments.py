@@ -746,7 +746,7 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
                     "properties": [
                         {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
-                        # properties NOT superceded by FF breakdown
+                        # properties superceded by FF breakdown
                     ],
                 },
             },
@@ -892,7 +892,10 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 "filters": {
                     "insight": "funnels",
                     "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
-                    "properties": [],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        # properties superceded by FF breakdown
+                    ],
                 },
             },
         )
