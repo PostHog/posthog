@@ -23,7 +23,7 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType>({
             {
                 loadEventDefinitions: async (initial?: boolean) => {
                     const url = initial
-                        ? `api/projects/${teamLogic.values.currentTeamId}/event_definitions/?limit=5000`
+                        ? `api/projects/${teamLogic.values.currentTeamId}/event_definitions/?limit=5000&event_type=event`
                         : values.eventStorage.next
                     if (!url) {
                         throw new Error('Incorrect call to eventDefinitionsModel.loadEventDefinitions')
