@@ -8,31 +8,24 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 
 export interface PersonHeaderProps {
-    person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
+    person?: Pick<PersonType, 'properties' | 'distinct_ids'> | null
     withIcon?: boolean
     noLink?: boolean
 }
 
-export const asDisplay = (person: Partial<PersonType> | PersonActorType | null | undefined): string => {
-    let displayId
-
+export function asDisplay(person: PersonType | PersonActorType | null | undefined): string {
     const team = teamLogic.findMounted()?.values?.currentTeam
     const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
     const customPropertyKey = personDisplayNameProperties.find((x) => person?.properties?.[x])
     const propertyIdentifier = customPropertyKey ? person?.properties?.[customPropertyKey] : undefined
 
-    const customIdentifier =
+    const customIdentifier: string =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-    if (!person?.distinct_ids?.length) {
-        displayId = null
-    } else {
-        const baseId = person.distinct_ids[0].replace(/\W/g, '')
-        displayId = baseId.slice(-5).toUpperCase()
-    }
+    const display: string | undefined = customIdentifier || person?.distinct_ids?.[0]
 
-    return customIdentifier ? customIdentifier : `User ${displayId}`
+    return display?.trim() || 'Unknown'
 }
 
 export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
@@ -40,21 +33,12 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const href = asLink(props.person)
+    const display = asDisplay(props.person)
 
     const content = (
         <div className="flex items-center">
-            {props.withIcon && (
-                <ProfilePicture
-                    name={
-                        props.person?.properties?.email ||
-                        props.person?.properties?.name ||
-                        props.person?.properties?.username ||
-                        (href ? 'U' : '?')
-                    }
-                    size="md"
-                />
-            )}
-            <span className="ph-no-capture text-ellipsis">{asDisplay(props.person)}</span>
+            {props.withIcon && <ProfilePicture name={display} size="md" />}
+            <span className="ph-no-capture text-ellipsis">{display}</span>
         </div>
     )
 

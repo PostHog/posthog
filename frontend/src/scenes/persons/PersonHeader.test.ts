@@ -112,7 +112,7 @@ describe('the person header', () => {
 
     displayTestCases.forEach((testCase) => {
         describe(testCase.describe, () => {
-            const person: Partial<PersonType> = {
+            const person: Pick<PersonType, 'distinct_ids' | 'properties'> = {
                 distinct_ids: testCase.distinctIds || [uuid()],
                 properties: testCase.props,
             }

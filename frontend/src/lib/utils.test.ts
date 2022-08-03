@@ -37,7 +37,15 @@ import {
     durationOperatorMap,
     isExternalLink,
 } from './utils'
-import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
+import {
+    ActionFilter,
+    ElementType,
+    EventType,
+    FilterLogicalOperator,
+    PropertyOperator,
+    PropertyType,
+    TimeUnitType,
+} from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -473,7 +481,7 @@ describe('eventToName()', () => {
         event: '',
         properties: {},
         person: {},
-    }
+    } as any as EventType
 
     it('handles page events as expected', () => {
         expect(eventToDescription({ ...baseEvent, event: '$pageview', properties: { $pathname: '/hello' } })).toEqual(
