@@ -117,7 +117,7 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader
                 title={
-                    <div className="flex-center">
+                    <div className="flex items-center">
                         Experiments
                         <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
                             BETA
@@ -134,7 +134,7 @@ export function Experiments(): JSX.Element {
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div className="mb">
+                    <div className="mb-4">
                         Check out our
                         <a
                             data-attr="experiment-help"

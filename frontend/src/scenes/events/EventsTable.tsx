@@ -403,7 +403,7 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 {(showEventFilter || showPropertyFilter) && (
-                    <div className="flex pt pb space-x border-top">
+                    <div className="flex py-4 space-x-4 border-t">
                         {showEventFilter && (
                             <LemonEventName
                                 value={eventFilter}
@@ -428,8 +428,8 @@ export function EventsTable({
                 {showAutoload || showCustomizeColumns || showExport ? (
                     <div
                         className={clsx(
-                            'space-between-items pt mb',
-                            (showEventFilter || showPropertyFilter) && 'border-top'
+                            'flex justify-between pt-4 mb-4',
+                            (showEventFilter || showPropertyFilter) && 'border-t'
                         )}
                     >
                         {showAutoload && (
@@ -442,7 +442,7 @@ export function EventsTable({
                                 onChange={toggleAutomaticLoad}
                             />
                         )}
-                        <div className="flex space-x-05">
+                        <div className="flex space-x-2">
                             {showCustomizeColumns && (
                                 <LemonTableConfig
                                     immutableColumns={['event', 'person']}

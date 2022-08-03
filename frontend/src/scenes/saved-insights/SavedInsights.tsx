@@ -37,8 +37,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
@@ -326,9 +324,6 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
-
     return (
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton />} />
@@ -341,10 +336,10 @@ export function SavedInsights(): JSX.Element {
                 <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
-                {showActivityLog ? <TabPane tab="History" key={SavedInsightsTabs.History} /> : null}
+                <TabPane tab="History" key={SavedInsightsTabs.History} />
             </Tabs>
 
-            {tab === SavedInsightsTabs.History && showActivityLog ? (
+            {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
             ) : (
                 <>
@@ -396,7 +391,7 @@ export function SavedInsights(): JSX.Element {
                                     ))}
                                 </Select>
                             </Col>
-                            <div className="flex-center gap-05">
+                            <div className="flex items-center gap-2">
                                 <span>Last modified:</span>
                                 <DateFilter
                                     defaultValue="All time"
@@ -448,11 +443,11 @@ export function SavedInsights(): JSX.Element {
                                 buttonStyle="solid"
                             >
                                 <Radio.Button value={LayoutView.List}>
-                                    <UnorderedListOutlined className="mr-05" />
+                                    <UnorderedListOutlined className="mr-2" />
                                     List
                                 </Radio.Button>
                                 <Radio.Button value={LayoutView.Card}>
-                                    <AppstoreFilled className="mr-05" />
+                                    <AppstoreFilled className="mr-2" />
                                     Cards
                                 </Radio.Button>
                             </Radio.Group>

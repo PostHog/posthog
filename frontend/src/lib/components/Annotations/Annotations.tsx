@@ -56,7 +56,6 @@ export function Annotations({
             top={topExtent}
             annotations={annotationsToMark}
             onCreate={onCreate(date)}
-            onCreateAnnotation={onCreate(date)}
             onDelete={(data: AnnotationType) => {
                 annotationsToMark.length === 1 && onClose?.()
                 if (data.scope !== AnnotationScope.Insight) {

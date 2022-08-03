@@ -145,7 +145,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 {id && (
                     <div className="input-set">
                         <div>
-                            <span className="text-muted mb-05">
+                            <span className="text-muted mb-2">
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>

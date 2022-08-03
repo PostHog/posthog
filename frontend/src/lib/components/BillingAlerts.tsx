@@ -1,7 +1,6 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { WarningOutlined, AlertOutlined, ToolFilled } from '@ant-design/icons'
-import { Button, Card } from 'antd'
+import { AlertOutlined, ToolFilled } from '@ant-design/icons'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { LinkButton } from './LinkButton'
 
@@ -15,29 +14,17 @@ export function BillingAlerts(): JSX.Element | null {
 
     return (
         <>
-            <div style={{ marginTop: '1.5rem' }} />
-            {alertToShow === BillingAlertType.SetupBilling && (
-                <Card>
-                    <div style={{ display: 'flex' }}>
-                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                            <WarningOutlined className="text-warning" style={{ paddingRight: 8 }} />
-                            <b>Action needed!&nbsp;</b>
-                            {billing?.plan?.custom_setup_billing_message ||
-                                'Please finish setting up your billing information.'}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <Button type="primary" href={billing?.subscription_url} icon={<ToolFilled />}>
-                                Set up now
-                            </Button>
-                        </div>
-                    </div>
-                </Card>
-            )}
-            {alertToShow === BillingAlertType.UsageNearLimit && (
-                <Card>
-                    <div style={{ display: 'flex' }}>
-                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                            <WarningOutlined className="text-warning" style={{ paddingRight: 16 }} />
+            <div className="p-6 mt-6 border rounded-lg flex items-center">
+                <div className="flex items-center grow gap-4">
+                    <AlertOutlined className="text-warning pr-4" />
+                    <div className="flex grow">
+                        {alertToShow === BillingAlertType.SetupBilling ? (
+                            <>
+                                <b>Action needed!&nbsp;</b>
+                                {billing?.plan?.custom_setup_billing_message ||
+                                    'Please finish setting up your billing information.'}
+                            </>
+                        ) : alertToShow === BillingAlertType.UsageNearLimit ? (
                             <div>
                                 <b>Warning!</b> Nearing the monthly limit of events or billing limit for your
                                 organization. You have already used{' '}
@@ -47,34 +34,27 @@ export function BillingAlerts(): JSX.Element | null {
                                 of your event allocation this month. To avoid losing data or access to it,{' '}
                                 <b>we recommend upgrading</b> your billing plan now.
                             </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
-                            <LinkButton type="primary" to="/organization/billing">
-                                <ToolFilled /> Manage billing
-                            </LinkButton>
-                        </div>
-                    </div>
-                </Card>
-            )}
-            {alertToShow === BillingAlertType.UsageLimitExceeded && (
-                <Card>
-                    <div style={{ display: 'flex' }}>
-                        <div style={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-                            <AlertOutlined className="text-warning" style={{ paddingRight: 16 }} />
-                            <div>
+                        ) : alertToShow === BillingAlertType.UsageLimitExceeded ? (
+                            <>
                                 <b>Alert!</b> The monthly limit of events or billing limit for your organization has
                                 been exceeded. To avoid losing data or access to it, <b>we recommend increasing</b> your
                                 billing limit.
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
-                            <LinkButton type="primary" to="/organization/billing">
-                                <ToolFilled /> Manage billing
-                            </LinkButton>
-                        </div>
+                            </>
+                        ) : undefined}
                     </div>
-                </Card>
-            )}
+
+                    <LinkButton
+                        type="primary"
+                        to={
+                            alertToShow === BillingAlertType.SetupBilling
+                                ? billing?.subscription_url
+                                : '/organization/billing'
+                        }
+                    >
+                        <ToolFilled /> {alertToShow === BillingAlertType.SetupBilling ? 'Set up now' : 'Manage billing'}
+                    </LinkButton>
+                </div>
+            </div>
         </>
     )
 }

@@ -66,8 +66,8 @@ export function InfiniteSelectResults({
     const openTab = activeTab || taxonomicGroups[0].type
     return (
         <>
-            <div className={'taxonomic-group-title'}>Categories</div>
-            <div className={'taxonomic-pills'}>
+            <div className="taxonomic-group-title">Categories</div>
+            <div className="taxonomic-pills">
                 {taxonomicGroupTypes.map((groupType) => {
                     return (
                         <CategoryPill

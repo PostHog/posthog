@@ -27,7 +27,7 @@
             }
 
             .table-title {
-                color: var(--text-muted-alt);
+                color: var(--muted-alt);
                 td {
                     border-top: none;
                 }
@@ -38,7 +38,7 @@
                 font-weight: bold;
                 background-color: var(--antd-table-background-dark);
                 text-transform: uppercase;
-                color: var(--text-muted);
+                color: var(--muted);
             }
 
             tbody {

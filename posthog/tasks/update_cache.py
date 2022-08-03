@@ -11,13 +11,11 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.db.models.expressions import F
 from django.db.models.query import QuerySet
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils import timezone
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
-from posthog.celery import update_cache_consumer_rate_limit, update_cache_item_task
+from posthog.celery import update_cache_item_task
 from posthog.client import sync_execute
 from posthog.constants import (
     INSIGHT_FUNNELS,
@@ -33,7 +31,7 @@ from posthog.logging.timing import timed
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
-from posthog.models.instance_setting import InstanceSetting, get_instance_setting
+from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -41,7 +39,6 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.redis import get_client
-from posthog.settings import CONSTANCE_DATABASE_PREFIX
 from posthog.types import FilterType
 from posthog.utils import generate_cache_key
 
@@ -81,6 +78,8 @@ def active_teams() -> List[int]:
             ORDER BY age;
         """
         )
+        if not teams_by_recency:
+            return []
         redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {team: score for team, score in teams_by_recency})
         redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
         all_teams = teams_by_recency
@@ -179,15 +178,6 @@ def gauge_cache_update_candidates(dashboard_tiles: QuerySet, shared_insights: Qu
     statsd.gauge("update_cache_queue_depth.shared_insights", shared_insights.count())
     statsd.gauge("update_cache_queue_depth.dashboards", dashboard_tiles.count())
     statsd.gauge("update_cache_queue_depth", dashboard_tiles.count() + shared_insights.count())
-
-
-@receiver(post_save, sender=InstanceSetting)
-def on_instance_setting_save(sender: Any, instance: Any, **kwargs: Any) -> None:
-    if instance.key.replace(CONSTANCE_DATABASE_PREFIX, "") != "UPDATE_CACHE_ITEM_TASK_RATE_LIMIT":
-        return
-
-    if instance.value is not None:
-        update_cache_consumer_rate_limit.s(instance.value).apply()
 
 
 @timed("update_cache_item_timer")

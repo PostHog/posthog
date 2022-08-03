@@ -99,7 +99,7 @@ export const getSlackChannelOptions = (
               labelComponent: (
                   <span className="flex items-center">
                       {x.is_private ? `🔒${x.name}` : `#${x.name}`}
-                      {x.is_ext_shared ? <IconSlackExternal className="ml-05" /> : null}
+                      {x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}
                   </span>
               ),
               label: `${x.id} #${x.name}`,

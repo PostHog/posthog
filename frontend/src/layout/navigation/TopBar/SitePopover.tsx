@@ -40,7 +40,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
         <div className="SitePopover__section">
-            {title && <h5 className="flex-center">{title}</h5>}
+            {title && <h5 className="flex items-center">{title}</h5>}
             {children}
         </div>
     )
@@ -65,7 +65,7 @@ function AccountInfo(): JSX.Element {
                     onClick={closeSitePopover}
                     data-attr="top-menu-item-me"
                     type="stealth"
-                    icon={<IconSettings style={{ fontSize: '1.4rem' }} />}
+                    icon={<IconSettings className="text-2xl" />}
                 />
             </Tooltip>
         </div>
@@ -256,11 +256,7 @@ function InstanceSettings(): JSX.Element | null {
 
     return (
         <Link to={urls.instanceSettings()}>
-            <LemonButton
-                icon={<IconCorporate style={{ color: 'var(--primary)' }} />}
-                onClick={closeSitePopover}
-                fullWidth
-            >
+            <LemonButton icon={<IconCorporate className="text-primary" />} onClick={closeSitePopover} fullWidth>
                 Instance settings
             </LemonButton>
         </Link>

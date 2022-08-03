@@ -212,7 +212,7 @@ export function ActionFilterRow({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-hover)' : '',
+                    borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-light)' : '',
                     borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
                 }}
             >

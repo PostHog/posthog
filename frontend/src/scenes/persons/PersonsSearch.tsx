@@ -38,7 +38,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                 style={{ width: '100%' }}
             />
             <LemonRow
-                className="ml-05"
+                className="ml-2"
                 type="stealth"
                 tooltip={
                     <>

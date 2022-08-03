@@ -90,7 +90,7 @@
         "kea-window-values": "^3.0.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
-        "posthog-js": "1.27.0",
+        "posthog-js": "1.28.0",
         "posthog-js-lite": "2.0.0-alpha5",
         "prop-types": "^15.7.2",
         "query-selector-shadow-dom": "^1.0.0",

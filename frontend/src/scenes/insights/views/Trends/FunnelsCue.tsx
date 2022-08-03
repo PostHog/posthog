@@ -23,7 +23,7 @@ export function FunnelsCue({ tooltipPosition }: { tooltipPosition?: number }): J
                 icon={<IconLightBulb style={{ color: 'var(--warning)', fontSize: '1.3em' }} />}
                 onClose={() => optOut(true)}
             >
-                <div className="flex-center">
+                <div className="flex items-center">
                     <div style={{ paddingRight: 16 }}>
                         Looks like you have multiple events. A funnel can help better visualize your user's progression
                         across each event.

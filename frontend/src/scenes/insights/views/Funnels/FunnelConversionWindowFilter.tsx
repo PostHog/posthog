@@ -44,7 +44,7 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
 
     return (
         <div
-            className={clsx('funnel-options-container text-muted', horizontal && 'flex-center')}
+            className={clsx('funnel-options-container text-muted', horizontal && 'flex items-center')}
             style={horizontal ? { flexDirection: 'row' } : undefined}
         >
             <span className="funnel-options-label">
@@ -64,7 +64,7 @@ export function FunnelConversionWindowFilter({ horizontal }: { horizontal?: bool
                 </Tooltip>
             </span>
             <Row className="funnel-options-inputs" style={horizontal ? { paddingLeft: 8 } : undefined}>
-                <span className="mr-05">
+                <span className="mr-2">
                     <InputNumber
                         min={intervalBounds[0]}
                         max={intervalBounds[1]}

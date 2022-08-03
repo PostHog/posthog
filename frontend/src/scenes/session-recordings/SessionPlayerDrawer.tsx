@@ -32,7 +32,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                         <ArrowLeftOutlined /> Back to {isPersonPage ? 'persons' : 'recordings'}
                     </Button>
                     <div
-                        className="text-muted cursor-pointer flex-center"
+                        className="text-muted cursor-pointer flex items-center"
                         style={{ fontSize: '1.5em', paddingRight: 8 }}
                         onClick={onClose}
                     >

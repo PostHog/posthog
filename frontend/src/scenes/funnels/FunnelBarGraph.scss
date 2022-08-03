@@ -119,11 +119,11 @@ $glyph_height: 22px;
                 }
 
                 &:disabled {
-                    color: var(--text-default);
+                    color: var(--default);
                     cursor: initial;
 
                     .anticon {
-                        color: var(--text-muted-alt);
+                        color: var(--muted-alt);
                     }
 
                     .funnel-inspect-label {

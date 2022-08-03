@@ -271,7 +271,7 @@ export function InsightsTable({
                 <Dropdown overlay={calcColumnMenu}>
                     <span className="cursor-pointer">
                         {CALC_COLUMN_LABELS[calcColumnState]}
-                        <DownOutlined className="ml-025" />
+                        <DownOutlined className="ml-1" />
                     </span>
                 </Dropdown>
             ) : (

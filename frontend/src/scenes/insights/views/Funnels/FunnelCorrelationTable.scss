@@ -31,7 +31,7 @@
             letter-spacing: 0.02em;
             text-transform: uppercase;
 
-            color: var(--text-default);
+            color: var(--default);
             margin-left: 1rem;
             margin-top: 0.5rem;
         }
@@ -63,7 +63,7 @@
     }
 
     .column-info {
-        color: var(--text-muted-alt);
+        color: var(--muted-alt);
         cursor: pointer;
         padding-left: 4px;
     }
@@ -86,7 +86,7 @@
             font-weight: bold;
             margin-bottom: 0;
             p {
-                color: var(--text-muted-alt);
+                color: var(--muted-alt);
             }
         }
     }

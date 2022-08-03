@@ -1,9 +1,9 @@
 .LemonInput {
-    color: var(--text-default);
+    color: var(--default);
     cursor: text;
 
     &:not(.LemonInput--focused):not(.LemonRow--disabled):hover {
-        border: 1px solid var(--primary-hover);
+        border: 1px solid var(--primary-light);
     }
 
     .LemonInput__input {
@@ -22,7 +22,7 @@
 
 .LemonRow__icon:first-child {
     .LemonInput & {
-        color: var(--text-muted);
+        color: var(--muted);
     }
     .LemonInput.LemonInput--with-input & {
         color: var(--primary);
@@ -30,7 +30,7 @@
 }
 
 .LemonInput--embedded {
-    color: var(--text-default);
+    color: var(--default);
     font-weight: 400;
     border: none !important;
 

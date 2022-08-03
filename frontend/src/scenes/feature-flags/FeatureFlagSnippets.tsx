@@ -15,7 +15,7 @@ export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 }`}
             </CodeSnippet>
 
-            <div className="mt">
+            <div className="mt-4">
                 Need more information?{' '}
                 <a
                     target="_blank"
@@ -37,7 +37,7 @@ export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     runAwesomeFeature()
 `}
             </CodeSnippet>
-            <div className="mt">
+            <div className="mt-4">
                 Need more information?{' '}
                 <a
                     target="_blank"
@@ -64,7 +64,7 @@ export function APISnippet(): JSX.Element {
 }'
                 `}
             </CodeSnippet>
-            <div className="mt">
+            <div className="mt-4">
                 Need more information?{' '}
                 <a target="_blank" rel="noopener" href={`https://posthog.com/docs/api/feature-flags${UTM_TAGS}`}>
                     Check the docs <IconOpenInNew />

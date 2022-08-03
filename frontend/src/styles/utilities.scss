@@ -1,0 +1,576 @@
+@import 'vars';
+@import 'mixins';
+
+/*
+    PLEASE READ BEFORE MODIFYING THIS FILE
+
+    We don't use Tailwind in PostHog but we do use a lot of helpful Utility classes to make straightforward CSS easy.
+    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible. 
+    As such, if something is missing here, please go to Tailwind's docs and copy their implementation rather than creating your own
+    custom naming conventions 🙌
+*/
+
+// TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
+@each $space in $spaces {
+    .space-y-#{$space} {
+        & > * + * {
+            margin-top: #{$space/4}rem;
+        }
+    }
+
+    .space-x-#{$space} {
+        & > * + * {
+            margin-left: #{$space/4}rem;
+        }
+    }
+
+    .gap-#{$space} {
+        gap: #{$space/4}rem;
+    }
+
+    .w-#{$space} {
+        width: #{$space/4}rem;
+    }
+
+    .h-#{$space} {
+        height: #{$space/4}rem;
+    }
+
+    .max-w-#{$space} {
+        max-width: #{$space/4}rem;
+    }
+    .max-h-#{$space} {
+        max-height: #{$space/4}rem;
+    }
+
+    .min-w-#{$space} {
+        min-width: #{$space/4}rem;
+    }
+    .min-h-#{$space} {
+        min-height: #{$space/4}rem;
+    }
+
+    .m-#{$space} {
+        margin: #{$space/4}rem;
+    }
+
+    .mx-#{$space} {
+        margin-left: #{$space/4}rem;
+        margin-right: #{$space/4}rem;
+    }
+
+    .my-#{$space} {
+        margin-top: #{$space/4}rem;
+        margin-bottom: #{$space/4}rem;
+    }
+
+    .px-#{$space} {
+        padding-left: #{$space/4}rem;
+        padding-right: #{$space/4}rem;
+    }
+
+    .py-#{$space} {
+        padding-top: #{$space/4}rem;
+        padding-bottom: #{$space/4}rem;
+    }
+
+    .p-#{$space} {
+        padding: #{$space/4}rem;
+    }
+
+    @each $side in $sides {
+        .m#{str-slice($side, 0, 1)}-#{$space} {
+            margin-#{$side}: #{$space/4}rem;
+        }
+
+        .p#{str-slice($side, 0, 1)}-#{$space} {
+            padding-#{$side}: #{$space/4}rem;
+        }
+    }
+}
+
+// Margins/padding
+@each $kind in ('margin', 'padding') {
+    $char: str-slice($kind, 0, 1);
+
+    .#{$char}-auto {
+        #{$kind}: auto;
+    }
+    .#{$char}x-auto {
+        #{$kind}-left: auto;
+        #{$kind}-right: auto;
+    }
+
+    .#{$char}y-auto {
+        #{$kind}-top: auto;
+        #{$kind}-bottom: auto;
+    }
+
+    @each $side in $sides {
+        .m#{str-slice($side, 0, 1)}-auto {
+            #{$kind}-#{$side}: auto;
+        }
+    }
+}
+
+// Border
+.border-0 {
+    border-width: 0px;
+}
+.border-2 {
+    border-width: 2px;
+}
+.border-4 {
+    border-width: 4px;
+}
+.border-8 {
+    border-width: 8px;
+}
+.border {
+    border-width: 1px;
+}
+.border-t-0 {
+    border-top-width: 0px;
+}
+.border-t-2 {
+    border-top-width: 2px;
+}
+.border-t-4 {
+    border-top-width: 4px;
+}
+.border-t-8 {
+    border-top-width: 8px;
+}
+.border-t {
+    border-top-width: 1px;
+}
+.border-r-0 {
+    border-right-width: 0px;
+}
+.border-r-2 {
+    border-right-width: 2px;
+}
+.border-r-4 {
+    border-right-width: 4px;
+}
+.border-r-8 {
+    border-right-width: 8px;
+}
+.border-r {
+    border-right-width: 1px;
+}
+.border-b-0 {
+    border-bottom-width: 0px;
+}
+.border-b-2 {
+    border-bottom-width: 2px;
+}
+.border-b-4 {
+    border-bottom-width: 4px;
+}
+.border-b-8 {
+    border-bottom-width: 8px;
+}
+.border-b {
+    border-bottom-width: 1px;
+}
+.border-l-0 {
+    border-left-width: 0px;
+}
+.border-l-2 {
+    border-left-width: 2px;
+}
+.border-l-4 {
+    border-left-width: 4px;
+}
+.border-l-8 {
+    border-left-width: 8px;
+}
+.border-l {
+    border-left-width: 1px;
+}
+
+.border-solid {
+    border-style: solid;
+}
+.border-dashed {
+    border-style: dashed;
+}
+.border-dotted {
+    border-style: dotted;
+}
+.border-double {
+    border-style: double;
+}
+.border-hidden {
+    border-style: hidden;
+}
+.border-none {
+    border-style: none;
+}
+
+@each $name, $hex in $colors {
+    .text-#{$name} {
+        color: $hex;
+    }
+    .bg-#{$name} {
+        background-color: $hex;
+    }
+
+    .border-#{$name} {
+        border-color: $hex;
+    }
+}
+
+// Widths / heights
+
+@each $kind in ('width', 'height') {
+    $char: str-slice($kind, 0, 1);
+    .#{$char}-auto {
+        #{$kind}: auto;
+    }
+    .#{$char}-full {
+        #{$kind}: 100%;
+    }
+    .#{$char}-screen {
+        #{$kind}: 100v#{$char};
+    }
+    .#{$char}-min {
+        #{$kind}: min-content;
+    }
+    .#{$char}-max {
+        #{$kind}: max-content;
+    }
+    .#{$char}-fit {
+        #{$kind}: fit-content;
+    }
+
+    .min-#{$char}-full {
+        #{$kind}: 100%;
+    }
+    .min-#{$char}-screen {
+        #{$kind}: 100v#{$char};
+    }
+
+    .max-#{$char}-full {
+        #{$kind}: 100%;
+    }
+    .max-#{$char}-screen {
+        #{$kind}: 100v#{$char};
+    }
+}
+
+// One-off utilities
+
+.text-right {
+    text-align: right;
+}
+
+.text-left {
+    text-align: left;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.uppercase {
+    text-transform: uppercase;
+}
+
+.float-right {
+    float: right;
+}
+
+.float-left {
+    float: left;
+}
+
+// Flex
+.flex {
+    display: flex;
+}
+
+.flex-1 {
+    flex: 1;
+}
+
+.flex-auto {
+    flex: auto;
+}
+
+.flex-col {
+    flex-direction: column;
+}
+
+.flex-row {
+    flex-direction: row;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.flex-nowrap {
+    flex-wrap: nowrap;
+}
+
+.shrink {
+    flex-shrink: 1;
+}
+
+.shrink-0 {
+    flex-shrink: 0;
+}
+
+.grow {
+    flex-grow: 1;
+}
+
+.grow-0 {
+    flex-grow: 0;
+}
+
+.justify-start {
+    justify-content: flex-start;
+}
+.justify-end {
+    justify-content: flex-end;
+}
+.justify-center {
+    justify-content: center;
+}
+.justify-between {
+    justify-content: space-between;
+}
+.justify-around {
+    justify-content: space-around;
+}
+.justify-evenly {
+    justify-content: space-evenly;
+}
+
+.items-start {
+    align-items: flex-start;
+}
+.items-end {
+    align-items: flex-end;
+}
+.items-center {
+    align-items: center;
+}
+.items-baseline {
+    align-items: baseline;
+}
+.items-stretch {
+    align-items: stretch;
+}
+
+.font-thin {
+    font-weight: 100;
+}
+.font-extralight {
+    font-weight: 200;
+}
+.font-light {
+    font-weight: 300;
+}
+.font-normal {
+    font-weight: 400;
+}
+.font-medium {
+    font-weight: 500;
+}
+.font-semibold {
+    font-weight: 600;
+}
+.font-bold {
+    font-weight: 700;
+}
+.font-extrabold {
+    font-weight: 800;
+}
+.font-black {
+    font-weight: 900;
+}
+
+.whitespace-normal {
+    white-space: normal;
+}
+.whitespace-nowrap {
+    white-space: nowrap;
+}
+.whitespace-pre {
+    white-space: pre;
+}
+.whitespace-pre-line {
+    white-space: pre-line;
+}
+.whitespace-pre-wrap {
+    white-space: pre-wrap;
+}
+
+.text-xxs {
+    font-size: 0.5rem; /* 8px */
+    line-height: 0.75rem; /* 12px */
+}
+.text-xs {
+    font-size: 0.75rem; /* 12px */
+    line-height: 1rem; /* 16px */
+}
+.text-sm {
+    font-size: 0.875rem; /* 14px */
+    line-height: 1.25rem; /* 20px */
+}
+.text-base {
+    font-size: 1rem; /* 16px */
+    line-height: 1.5rem; /* 24px */
+}
+.text-lg {
+    font-size: 1.125rem; /* 18px */
+    line-height: 1.75rem; /* 28px */
+}
+.text-xl {
+    font-size: 1.25rem; /* 20px */
+    line-height: 1.75rem; /* 28px */
+}
+.text-2xl {
+    font-size: 1.5rem; /* 24px */
+    line-height: 2rem; /* 32px */
+}
+.text-3xl {
+    font-size: 1.875rem; /* 30px */
+    line-height: 2.25rem; /* 36px */
+}
+.text-4xl {
+    font-size: 2.25rem; /* 36px */
+    line-height: 2.5rem; /* 40px */
+}
+.text-5xl {
+    font-size: 3rem; /* 48px */
+    line-height: 1;
+}
+.text-6xl {
+    font-size: 3.75rem; /* 60px */
+    line-height: 1;
+}
+.text-7xl {
+    font-size: 4.5rem; /* 72px */
+    line-height: 1;
+}
+.text-8xl {
+    font-size: 6rem; /* 96px */
+    line-height: 1;
+}
+.text-9xl {
+    font-size: 8rem; /* 128px */
+    line-height: 1;
+}
+
+.text-ellipsis {
+    @extend %mixin-text-ellipsis;
+}
+
+.rounded-none {
+    border-radius: 0px;
+}
+.rounded-sm {
+    border-radius: 0.125rem; /* 2px */
+}
+.rounded {
+    border-radius: 0.25rem; /* 4px */
+}
+.rounded-md {
+    border-radius: 0.375rem; /* 6px */
+}
+.rounded-lg {
+    border-radius: 0.5rem; /* 8px */
+}
+.rounded-xl {
+    border-radius: 0.75rem; /* 12px */
+}
+.rounded-2xl {
+    border-radius: 1rem; /* 16px */
+}
+.rounded-3xl {
+    border-radius: 1.5rem; /* 24px */
+}
+
+.overflow-auto {
+    overflow: auto;
+}
+.overflow-hidden {
+    overflow: hidden;
+}
+.overflow-clip {
+    overflow: clip;
+}
+.overflow-visible {
+    overflow: visible;
+}
+.overflow-scroll {
+    overflow: scroll;
+}
+.overflow-x-auto {
+    overflow-x: auto;
+}
+.overflow-y-auto {
+    overflow-y: auto;
+}
+.overflow-x-hidden {
+    overflow-x: hidden;
+}
+
+.font-sans {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+}
+.font-mono {
+    font-family: monospace;
+}
+
+.opacity-0 {
+    opacity: 0;
+}
+// .opacity-5 {
+//     opacity: 0.05;
+// }
+// .opacity-10 {
+//     opacity: 0.1;
+// }
+// .opacity-20 {
+//     opacity: 0.2;
+// }
+.opacity-25 {
+    opacity: 0.25;
+}
+// .opacity-30 {
+//     opacity: 0.3;
+// }
+// .opacity-40 {
+//     opacity: 0.4;
+// }
+.opacity-50 {
+    opacity: 0.5;
+}
+// .opacity-60 {
+//     opacity: 0.6;
+// }
+// .opacity-70 {
+//     opacity: 0.7;
+// }
+.opacity-75 {
+    opacity: 0.75;
+}
+// .opacity-80 {
+//     opacity: 0.8;
+// }
+// .opacity-90 {
+//     opacity: 0.9;
+// }
+// .opacity-95 {
+//     opacity: 0.95;
+// }
+.opacity-100 {
+    opacity: 1;
+}
