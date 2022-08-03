@@ -75,7 +75,7 @@ def start_async_migration(
     if migration_definition is None:
         try:
             migration_definition = get_async_migration_definition(migration_name)
-        except Exception:
+        except LookupError:
             process_error(
                 migration_instance,
                 f"Migration definition not available",
