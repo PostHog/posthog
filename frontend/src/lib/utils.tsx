@@ -501,10 +501,10 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     const m = Math.floor((d % 3600) / 60)
     const s = Math.round((d % 3600) % 60)
 
-    const dayDisplay = days > 0 ? days + ' d' : ''
-    const hDisplay = h > 0 ? h + ' h' : ''
-    const mDisplay = m > 0 ? m + ' m' : ''
-    const sDisplay = s > 0 ? s + ' s' : hDisplay || mDisplay ? '' : '0 s'
+    const dayDisplay = days > 0 ? days + 'd' : ''
+    const hDisplay = h > 0 ? h + 'h' : ''
+    const mDisplay = m > 0 ? m + 'm' : ''
+    const sDisplay = s > 0 ? s + 's' : hDisplay || mDisplay ? '' : '0s'
 
     let units: string[] = []
     if (days > 0) {
