@@ -300,6 +300,7 @@ export class PersonState {
         if (oldPerson && !newPerson) {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
+                this.personContainer.set(oldPerson)
                 this.updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {

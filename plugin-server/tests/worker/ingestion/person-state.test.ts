@@ -316,6 +316,50 @@ describe('PersonState.update()', () => {
         expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
+    it('adds distinct_id to user and updates property on $identify event', async () => {
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
+
+        await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+                $set: { b: 3 },
+            },
+        }).update()
+        await hub.db.kafkaProducer.flush()
+
+        const persons = await hub.db.fetchPersons()
+        expect(persons.length).toEqual(1)
+        expect(persons[0]).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { a: 1, b: 3 },
+                created_at: timestamp,
+                is_identified: true,
+                version: 1,
+            })
+        )
+        const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+        expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
+
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows())
+        expect(clickhousePersons.length).toEqual(1)
+        expect(clickhousePersons[0]).toEqual(
+            expect.objectContaining({
+                id: uuid.toString(),
+                properties: JSON.stringify({ a: 1, b: 3 }),
+                is_deleted: 0,
+                created_at: '2020-01-01 12:00:05.000',
+                version: 1,
+            })
+        )
+
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+    })
+
     it('adds new distinct_id and updates is_identified on $identify event', async () => {
         await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
 
