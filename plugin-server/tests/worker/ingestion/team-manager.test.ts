@@ -1,6 +1,5 @@
 import { DateTime, Settings } from 'luxon'
 
-import { defaultConfig } from '../../../src/config/config'
 import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
@@ -241,28 +240,6 @@ describe('TeamManager()', () => {
 
             expect(teamManager.eventLastSeenCache.length).toEqual(1)
             expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150405)
-        })
-
-        // TODO: #7422 temporary test
-        it('last_seen_at feature is experimental and completely disabled', async () => {
-            const [newHub, closeNewHub] = await createHub({
-                ...defaultConfig,
-                EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: false,
-            })
-            const newTeamManager = newHub.teamManager
-            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {})
-            jest.spyOn(newHub.db, 'postgresQuery')
-            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}) // Called twice to test both insert and update
-            expect(newHub.db.postgresQuery).toHaveBeenCalledTimes(0)
-            expect(newTeamManager.eventLastSeenCache.length).toBe(0)
-            const eventDefinitions = await newHub.db.fetchEventDefinitions()
-            for (const def of eventDefinitions) {
-                if (def.name === 'disabled-feature') {
-                    expect(def.last_seen_at).toBe(null)
-                }
-            }
-
-            await closeNewHub()
         })
 
         it('does not capture event', async () => {
