@@ -9,12 +9,18 @@ export class LazyPersonContainer {
     private hub: Hub
     private promise: Promise<Person | undefined> | null
 
-    constructor(teamId: number, distinctId: string, hub: Hub) {
+    constructor(teamId: number, distinctId: string, hub: Hub, person: Person | undefined = undefined) {
         this.teamId = teamId
         this.distinctId = distinctId
         this.hub = hub
-        this.promise = null
-        this.loaded = false
+
+        if (person) {
+            this.promise = Promise.resolve(person)
+            this.loaded = true
+        } else {
+            this.promise = null
+            this.loaded = false
+        }
     }
 
     async get(): Promise<Person | undefined> {
@@ -29,8 +35,7 @@ export class LazyPersonContainer {
         return this.promise
     }
 
-    set(person: Person): void {
-        this.promise = Promise.resolve(person)
-        this.loaded = true
+    with(person: Person): LazyPersonContainer {
+        return new LazyPersonContainer(this.teamId, this.distinctId, this.hub, person)
     }
 }

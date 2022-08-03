@@ -110,8 +110,7 @@ describe('hooks', () => {
         let personContainer: any
 
         beforeEach(() => {
-            personContainer = new LazyPersonContainer(2, 'my_id', {} as any)
-            personContainer.set(person)
+            personContainer = new LazyPersonContainer(2, 'my_id', {} as any, person)
 
             jest.spyOn(personContainer, 'get')
         })
@@ -135,7 +134,12 @@ describe('hooks', () => {
 
         test('person with email', async () => {
             const tokenUserName = ['person']
-            personContainer.set({ ...person, properties: { ...person.properties, email: 'wall-e@buynlarge.com' } })
+            personContainer = personContainer.with({
+                ...person,
+                properties: { ...person.properties, email: 'wall-e@buynlarge.com' },
+            })
+
+            jest.spyOn(personContainer, 'get')
 
             const [text, markdown] = await getValueOfToken(
                 action,
@@ -229,8 +233,7 @@ describe('hooks', () => {
         let personContainer: any
 
         beforeEach(() => {
-            personContainer = new LazyPersonContainer(2, 'my_id', {} as any)
-            personContainer.set(person)
+            personContainer = new LazyPersonContainer(2, 'my_id', {} as any, person)
 
             jest.spyOn(personContainer, 'get')
         })

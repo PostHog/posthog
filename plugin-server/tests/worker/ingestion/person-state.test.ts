@@ -46,10 +46,7 @@ describe('PersonState.update()', () => {
             properties: {},
             ...event,
         }
-        const personContainer = new LazyPersonContainer(2, event.distinct_id!, hub)
-        if (person) {
-            personContainer.set(person)
-        }
+        const personContainer = new LazyPersonContainer(2, event.distinct_id!, hub, person)
         return new PersonState(
             fullEvent as any,
             2,

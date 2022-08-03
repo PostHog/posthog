@@ -46,9 +46,9 @@ describe('LazyPersonContainer()', () => {
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })
 
-    it('does not load anything if .set followed by .get', async () => {
+    it('does not load anything if .with followed by .get', async () => {
         const person = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['my-id'])
-        personContainer.set(person)
+        personContainer = personContainer.with(person)
 
         const persons = await Promise.all([personContainer.get(), personContainer.get(), personContainer.get()])
 

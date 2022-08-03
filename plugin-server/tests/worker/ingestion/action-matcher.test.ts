@@ -110,9 +110,7 @@ describe('ActionMatcher', () => {
             version: 0,
             ...overrides,
         }
-        const personContainer = new LazyPersonContainer(2, 'my-id', hub)
-        personContainer.set(person)
-        return personContainer
+        return new LazyPersonContainer(2, 'my-id', hub, person)
     }
 
     describe('#match()', () => {

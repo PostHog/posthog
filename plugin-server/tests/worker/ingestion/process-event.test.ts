@@ -57,8 +57,7 @@ describe('EventsProcessor#createEvent()', () => {
     }
 
     beforeEach(() => {
-        personContainer = new LazyPersonContainer(2, 'my_id', hub)
-        personContainer.set({
+        personContainer = new LazyPersonContainer(2, 'my_id', hub, {
             uuid: personUuid,
             properties: { foo: 'bar' },
             team_id: 1,

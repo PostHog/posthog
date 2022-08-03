@@ -96,7 +96,7 @@ export class PersonState {
         if (!this.personContainer.loaded) {
             const person = await this.createPersonIfDistinctIdIsNew()
             if (person) {
-                this.personContainer.set(person)
+                this.personContainer = this.personContainer.with(person)
                 personCreated = true
             }
         }
@@ -109,7 +109,7 @@ export class PersonState {
         ) {
             const person = await this.updatePersonProperties()
             if (person) {
-                this.personContainer.set(person)
+                this.personContainer = this.personContainer.with(person)
             }
         }
         return this.personContainer
@@ -300,7 +300,7 @@ export class PersonState {
         if (oldPerson && !newPerson) {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
-                this.personContainer.set(oldPerson)
+                this.personContainer = this.personContainer.with(oldPerson)
                 this.updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
@@ -349,7 +349,7 @@ export class PersonState {
                     [distinctId, previousDistinctId]
                 )
                 // :KLUDGE: Avoid unneeded fetches in updateProperties()
-                this.personContainer.set(person)
+                this.personContainer = this.personContainer.with(person)
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -444,7 +444,7 @@ export class PersonState {
                 )
 
                 // :KLUDGE: Avoid unneeded fetches in updateProperties()
-                this.personContainer.set(person)
+                this.personContainer = this.personContainer.with(person)
 
                 // Merge the distinct IDs
                 await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
