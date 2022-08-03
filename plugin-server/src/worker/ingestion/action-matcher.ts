@@ -121,14 +121,7 @@ export class ActionMatcher {
             elements = rawElements ? extractElements(rawElements) : []
         }
         const teamActionsMatching: boolean[] = await Promise.all(
-            teamActions.map((action) => {
-                const timer = new Date()
-                const res = this.checkAction(event, elements, personContainer, action)
-                this.statsd?.timing('checkAction', timer, {
-                    teamId: String(event.teamId),
-                })
-                return res
-            })
+            teamActions.map((action) => this.checkAction(event, elements, personContainer, action))
         )
         const matches: Action[] = []
         for (let i = 0; i < teamActionsMatching.length; i++) {
