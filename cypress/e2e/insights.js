@@ -15,7 +15,6 @@ describe('Insights', () => {
         cy.get('[data-attr=insight-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr=expand-list-event_properties]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
