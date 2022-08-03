@@ -53,13 +53,13 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             <div style={{ flex: 1, minWidth: '0.5rem' }} />
                                             <LemonButton
                                                 icon={<IconCopy />}
-                                                type="alt"
+                                                status="primary-alt"
                                                 onClick={() => duplicateFilter(groupIndex)}
                                             />
                                             {cohort.filters.properties.values.length > 1 && (
                                                 <LemonButton
                                                     icon={<IconDelete />}
-                                                    type="alt"
+                                                    status="primary-alt"
                                                     onClick={() => removeFilter(groupIndex)}
                                                 />
                                             )}

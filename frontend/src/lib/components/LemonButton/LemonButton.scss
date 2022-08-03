@@ -1,137 +1,141 @@
 .LemonButton {
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    display: flex;
+    flex-direction: row;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: start;
+    min-height: 2.5rem;
+    padding: 0.25rem 1rem;
+    gap: 0.5rem;
+    background: none;
+    border-radius: var(--radius);
+    border: none;
+    font-size: 0.875rem;
+    text-align: left;
+    line-height: 1.25rem;
     font-weight: 500;
-    color: var(--primary);
     cursor: pointer;
 
-    &:not(:disabled):hover,
-    &.LemonButton--active {
-        background: var(--primary-highlight);
-    }
     &:disabled {
         opacity: var(--opacity-disabled);
         cursor: not-allowed;
     }
+
+    &.LemonButton--full-width {
+        width: 100%;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
+    &.LemonButton--small {
+        min-height: 2rem;
+        padding: 0.125rem 0.5rem;
+        gap: 0.25rem;
+
+        > .LemonIcon {
+            font-size: 1.25rem;
+        }
+    }
+
+    &.LemonButton--large {
+        min-height: 3.5rem;
+        padding: 0.5rem 1rem;
+        gap: 0.75rem;
+        font-size: 1rem;
+
+        > .LemonIcon {
+            font-size: 1.75rem;
+        }
+    }
+
+    &.LemonButton--icon-only {
+        min-height: 0;
+        height: auto;
+        width: auto;
+        padding: 0;
+    }
+
     .LemonIcon {
-        color: var(--primary);
+        font-size: 1.5rem;
+        flex-shrink: 0;
+        transition: color 200ms ease;
     }
-    &.LemonRow--status-danger {
-        color: var(--danger);
 
-        &:not(:disabled):hover,
-        &.LemonButton--active {
-            background: var(--danger-highlight);
+    @each $status in ('default', 'primary', 'success', 'warning', 'danger', 'primary-alt', 'muted', 'muted-alt') {
+        &.LemonButton--status-#{$status} {
+            color: var(--#{$status});
+
+            &:not(:disabled):hover,
+            &.LemonButton--active {
+                background: var(--#{$status}-highlight);
+            }
+            &:not(:disabled):active {
+                color: var(--#{$status}-dark);
+                .LemonIcon,
+                .spinner {
+                    color: var(--#{$status}-dark);
+                }
+            }
+
+            .LemonIcon,
+            .spinner {
+                color: var(--#{$status});
+            }
+
+            // Primary - blocked color style
+            &.LemonButton--primary {
+                color: var(--white);
+                background: var(--#{$status});
+
+                .LemonIcon,
+                .spinner {
+                    color: var(--white);
+                }
+                &:not(:disabled):hover,
+                &.LemonButton--active {
+                    background: var(--#{$status}-light);
+                }
+                &:not(:disabled):active {
+                    background: var(--#{$status}-dark);
+                }
+            }
+            // Secondary - outlined color style
+            &.LemonButton--secondary {
+                background: var(--bg-light);
+                border: 1px solid var(--border);
+
+                &:not(:disabled):hover,
+                &.LemonButton--active,
+                &:not(:disabled):active {
+                    background: var(--#{$status}-highlight);
+                    border-color: var(--#{$status});
+                }
+
+                &:not(:disabled):active {
+                    border-color: var(--#{$status}-dark);
+                }
+            }
+
+            // Stealth is a special case type that overrides all colors
+            &.LemonButton--stealth {
+                font-weight: 400;
+                color: var(--default);
+
+                > .LemonIcon,
+                .spinner {
+                    color: var(--muted-alt);
+                }
+                &:not(:disabled):hover,
+                &.LemonButton--active {
+                    background: var(--#{$status}-highlight);
+                }
+            }
+
+            &.LemonButton--outlined {
+                border: 1px solid var(--border);
+            }
         }
-    }
-    &.LemonRow--status-warning {
-        color: var(--warning);
-
-        &:not(:disabled):hover,
-        &.LemonButton--active {
-            background: var(--warning-highlight);
-        }
-    }
-    &.LemonRow--status-success {
-        color: var(--success);
-
-        &:not(:disabled):hover,
-        &.LemonButton--active {
-            background: var(--success-highlight);
-        }
-    }
-}
-
-.LemonButton--tertiary {
-    color: var(--muted-alt);
-    .LemonIcon {
-        color: var(--muted-alt);
-    }
-}
-
-.LemonButton--secondary {
-    border: 1px solid var(--border);
-    background: var(--bg-light);
-    &:not(:disabled):hover,
-    &.LemonButton--active,
-    &:not(:disabled):active {
-        background: var(--bg-light);
-        border-color: currentColor;
-    }
-    .LemonIcon {
-        color: var(--muted-alt);
-    }
-}
-
-.LemonButton--primary {
-    background: var(--primary);
-    color: #fff !important;
-    &:not(:disabled):hover,
-    &.LemonButton--active {
-        background: var(--primary-light);
-    }
-    &:not(:disabled):active {
-        background: var(--primary-dark);
-    }
-    &.LemonRow--status-danger {
-        background: var(--danger);
-        &:not(:disabled):hover,
-        &.LemonButton--active {
-            background: var(--danger-light);
-        }
-        &:not(:disabled):active {
-            background: var(--danger-dark);
-        }
-    }
-    &.LemonRow--status-warning {
-        background: var(--warning);
-        &:not(:disabled):hover,
-        &.LemonButton--active {
-            background: var(--warning-light);
-        }
-        &:not(:disabled):active {
-            background: var(--warning-dark);
-        }
-    }
-    &.LemonRow--status-success {
-        background: var(--success);
-        &:not(:disabled):hover,
-        &.LemonButton--active {
-            background: var(--success-light);
-        }
-        &:not(:disabled):active {
-            background: var(--success-dark);
-        }
-    }
-    .LemonIcon,
-    .spinner {
-        color: #fff !important;
-    }
-}
-
-.LemonButton--alt {
-    color: var(--primary-alt);
-    .LemonIcon {
-        color: var(--primary-alt);
-    }
-}
-
-.LemonButton--stealth {
-    color: var(--default);
-    font-weight: 400;
-    .LemonIcon {
-        color: var(--muted-alt);
-    }
-}
-
-.LemonButton--bordered {
-    border: 1px solid var(--border);
-}
-
-.LemonRow--outlined.LemonButton {
-    &:not(:disabled):hover,
-    &.LemonButton--active,
-    &:not(:disabled):active {
-        background: inherit;
-        border: 1px solid var(--primary);
     }
 }
 
@@ -139,9 +143,15 @@
     position: relative;
 }
 
+.LemonButtonWithSideAction--divider {
+    border-left: 1px solid var(--border);
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
 .LemonButtonWithSideAction--side-button {
     position: absolute;
     top: 50%;
-    right: 1.25rem;
-    transform: translate(50%, -50%);
+    right: 0.5rem;
+    transform: translateY(-50%);
 }

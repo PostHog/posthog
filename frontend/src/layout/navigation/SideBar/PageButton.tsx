@@ -8,7 +8,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import React from 'react'
 
-export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
+export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
@@ -28,15 +28,17 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             ? identifier === aliasedActiveScene
             : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
+    const buttonType = isActive ? 'tertiary' : 'stealth'
+
     return sideAction ? (
         <LemonButtonWithSideAction
             fullWidth
-            type={isActive ? 'default' : 'stealth'}
+            type={buttonType}
             active={isActive}
             onClick={hideSideBarMobile}
             sideAction={{
                 ...sideAction,
-                type: 'stealth',
+                type: buttonType,
                 'data-attr': sideAction.identifier ? `menu-item-${sideAction.identifier.toLowerCase()}` : undefined,
             }}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
@@ -47,7 +49,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
     ) : (
         <LemonButton
             fullWidth
-            type={isActive ? 'default' : 'stealth'}
+            type={buttonType}
             active={isActive}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             onClick={hideSideBarMobile}

@@ -12,8 +12,16 @@ import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-const statuses: LemonButtonProps['status'][] = ['default', 'danger', 'success', 'warning']
-const types: LemonButtonProps['type'][] = ['default', 'primary', 'secondary', 'tertiary', 'stealth', 'alt']
+const statuses: LemonButtonProps['status'][] = [
+    'default',
+    'primary',
+    'danger',
+    'success',
+    'warning',
+    'primary-alt',
+    'muted-alt',
+]
+const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary', 'stealth']
 
 export default {
     title: 'Lemon UI/Lemon Button',
@@ -38,7 +46,7 @@ Default.args = {}
 
 const StatusesTemplate: ComponentStory<typeof LemonButton> = ({ ...props }) => {
     return (
-        <div className="flex gap-2 border rounded-lg p-2">
+        <div className="flex gap-2 border rounded-lg p-2 flex-wrap">
             {statuses.map((status, j) => (
                 <LemonButton key={j} status={status} icon={<IconCalculate />} {...props}>
                     {!(props as any).noText ? capitalizeFirstLetter(status || 'default') : undefined}
@@ -76,7 +84,7 @@ export const IconOnly = StatusesTemplate.bind({})
 IconOnly.args = { noText: true } as any
 
 export const Sizes = (): JSX.Element => {
-    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large', 'tall']
+    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
 
     return (
         <div className="space-y-2">
@@ -106,28 +114,45 @@ export const FullWidth = (): JSX.Element => {
             <LemonButton type="primary" fullWidth>
                 Full Width
             </LemonButton>
-            <LemonButton type="secondary" fullWidth icon={<IconCalculate />}>
-                Full Width
-            </LemonButton>
+            <LemonButtonWithSideAction
+                type="secondary"
+                fullWidth
+                icon={<IconCalculate />}
+                sideAction={{
+                    icon: <IconPlus />,
+                    tooltip: 'Create new',
+                    onClick: () => alert('Side action!'),
+                }}
+            >
+                Full Width with side action
+            </LemonButtonWithSideAction>
         </div>
     )
 }
 
 export const WithSideAction = (): JSX.Element => {
     return (
-        <div className="flex items-center gap-2">
-            {statuses.map((status, i) => (
-                <LemonButtonWithSideAction
-                    key={i}
-                    sideAction={{
-                        icon: <IconPlus />,
-                        tooltip: 'Create new',
-                        onClick: () => alert('Side action!'),
-                    }}
-                    status={status}
-                >
-                    {capitalizeFirstLetter(status || 'Default')}
-                </LemonButtonWithSideAction>
+        <div className="space-y-2">
+            {types.map((type) => (
+                <>
+                    <h5>type={capitalizeFirstLetter(type || '')}</h5>
+                    <div className="flex items-center gap-2">
+                        {statuses.map((status, i) => (
+                            <LemonButtonWithSideAction
+                                key={i}
+                                type={type}
+                                sideAction={{
+                                    icon: <IconPlus />,
+                                    tooltip: 'Create new',
+                                    onClick: () => alert('Side action!'),
+                                }}
+                                status={status}
+                            >
+                                {capitalizeFirstLetter(status || 'Default')}
+                            </LemonButtonWithSideAction>
+                        ))}
+                    </div>
+                </>
             ))}
         </div>
     )
@@ -183,12 +208,6 @@ WithPopupToTheBottom.args = {
 export const WithTooltip = BasicTemplate.bind({})
 WithTooltip.args = {
     tooltip: 'The flux capacitor will be reloaded. This might take up to 14 hours.',
-}
-
-export const WithExtendedContent = BasicTemplate.bind({})
-WithExtendedContent.args = {
-    type: 'stealth',
-    extendedContent: "This is some extra info about this particular item. Hopefully it's helpful.",
 }
 
 export const More_ = MoreTemplate.bind({})

@@ -111,7 +111,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                 <LemonSelect
                                     onChange={(val) => onChange(val)}
                                     value={value}
-                                    bordered
+                                    outlined
                                     options={{
                                         DateTime: {
                                             label: 'DateTime',

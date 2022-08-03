@@ -230,7 +230,7 @@ export function ActionFilterRow({
         <IconWithCount count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
-                type="alt"
+                status="primary-alt"
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
                 onClick={() => {
@@ -245,7 +245,7 @@ export function ActionFilterRow({
     const renameRowButton = (
         <LemonButton
             icon={<IconEdit />}
-            type="alt"
+            status="primary-alt"
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
             onClick={() => {
@@ -258,7 +258,7 @@ export function ActionFilterRow({
     const duplicateRowButton = (
         <LemonButton
             icon={<IconCopy />}
-            type="alt"
+            status="primary-alt"
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
             onClick={() => {
@@ -270,7 +270,7 @@ export function ActionFilterRow({
     const deleteButton = (
         <LemonButton
             icon={<IconDelete />}
-            type="alt"
+            status="primary-alt"
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
             onClick={onClose}

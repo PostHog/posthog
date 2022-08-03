@@ -22,16 +22,17 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
     return (
         <LemonButton
             fullWidth
-            className="list-row"
             to={urls.insightView(insight.short_id)}
             onClick={() => {
                 reportInsightOpenedFromRecentInsightList()
             }}
         >
-            <InsightIcon insight={insight} />
-            <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                <p className="row-title link-text">{insight.name || insight.derived_name}</p>
-                <p>Last modified {dayjs(insight.last_modified_at).fromNow()}</p>
+            <div className="list-row">
+                <InsightIcon insight={insight} />
+                <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
+                    <p className="row-title link-text">{insight.name || insight.derived_name}</p>
+                    <p>Last modified {dayjs(insight.last_modified_at).fromNow()}</p>
+                </div>
             </div>
         </LemonButton>
     )

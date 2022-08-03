@@ -1,72 +1,96 @@
 import clsx from 'clsx'
 import React, { useContext, useState } from 'react'
 import { IconArrowDropDown, IconChevronRight } from '../icons'
-import { LemonRow, LemonRowProps, LemonRowPropsBase } from '../LemonRow'
-import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
+import { Spinner } from '../Spinner/Spinner'
+import { Tooltip } from '../Tooltip'
 import './LemonButton.scss'
 
 export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
-export interface LemonButtonPropsBase extends Omit<LemonRowPropsBase<'button'>, 'tag' | 'type' | 'ref' | 'status'> {
-    ref?: React.Ref<HTMLElement>
-    type?: 'default' | 'alt' | 'primary' | 'secondary' | 'tertiary' | 'stealth'
-    status?: 'default' | 'success' | 'warning' | 'danger'
-    htmlType?: LemonRowPropsBase<'button'>['type']
+export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'type'> {
+    children?: React.ReactNode
+    type?: 'primary' | 'secondary' | 'tertiary' | 'stealth'
+    status?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
     to?: string
+    /** External URL to link to. */
+    href?: string
     className?: string
     /** Whether the button should have a border */
-    bordered?: boolean
+    outlined?: boolean
+
+    icon?: React.ReactElement | null
+    sideIcon?: React.ReactElement | null
+    loading?: boolean
+    /** Tooltip to display on hover. */
+    tooltip?: any
+    /** Whether the row should take up the parent's full width. */
+    fullWidth?: boolean
+    size?: 'small' | 'medium' | 'large'
+    'data-attr'?: string
+    'data-tooltip'?: string
 }
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
-    sideIcon?: React.ReactElement | null
-    /** DEPRECATED: Use `LemonButtonWithPopup` instead. */
-    popup?: LemonButtonPopup
+    rightIcon?: React.ReactElement | null
 }
 
 /** Styled button. */
 function LemonButtonInternal(
     {
         children,
-        type = 'default',
-        htmlType = 'button',
         active = false,
         className,
-        popup,
         to,
         href,
         disabled,
-        bordered,
+        loading,
+        outlined,
+        type = 'tertiary',
+        status = 'primary',
+        icon,
+        sideIcon,
+        fullWidth,
+        size,
+        tooltip,
         ...buttonProps
     }: LemonButtonProps,
-    ref: React.Ref<HTMLElement>
+    ref: React.Ref<HTMLButtonElement>
 ): JSX.Element {
-    const rowProps: LemonRowProps<'button'> = {
-        tag: 'button',
-        className: clsx(
-            'LemonButton',
-            type !== 'default' && `LemonButton--${type}`,
-            active && 'LemonButton--active',
-            bordered && 'LemonButton--bordered',
-            className
-        ),
-        type: htmlType,
-        disabled: disabled || buttonProps.loading,
-        ...buttonProps,
-    }
-    if (popup && (children || !buttonProps.icon) && !rowProps.sideIcon) {
-        rowProps.sideIcon = <IconArrowDropDown />
+    // if (popup && (children2 || !buttonProps.icon) && !rowProps.sideIcon) {
+    //     rowProps.sideIcon = <IconArrowDropDown />
+    // }
+
+    if (loading) {
+        icon = <Spinner size="sm" />
     }
     let workingButton = (
-        <LemonRow {...rowProps} ref={ref}>
-            {children}
-        </LemonRow>
+        <button
+            ref={ref}
+            className={clsx(
+                'LemonButton',
+                `LemonButton--${type}`,
+                `LemonButton--status-${status}`,
+                !children && !!icon && `LemonButton--icon-only`,
+                size && `LemonButton--${size}`,
+                disabled && 'LemonButton--disabled',
+                active && 'LemonButton--active',
+                outlined && 'LemonButton--outlined',
+                fullWidth && 'LemonButton--full-width',
+                className
+            )}
+            disabled={disabled || loading}
+            {...buttonProps}
+        >
+            {icon}
+            {children ? <span className="flex items-center grow">{children}</span> : null}
+            {sideIcon}
+        </button>
     )
     if (to) {
         workingButton = (
@@ -82,9 +106,11 @@ function LemonButtonInternal(
             </a>
         )
     }
-    if (popup) {
-        workingButton = <Popup {...popup}>{workingButton}</Popup>
+
+    if (tooltip) {
+        workingButton = <Tooltip title={tooltip}>{workingButton}</Tooltip>
     }
+
     return workingButton
 }
 
@@ -92,8 +118,10 @@ export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'popup' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr'
->
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr'
+> & {
+    popup?: LemonButtonPopup
+}
 
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
@@ -115,16 +143,21 @@ export function LemonButtonWithSideAction({
     return (
         <div className="LemonButtonWithSideAction">
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
-            <LemonButton {...buttonProps} sideIcon={<div />}>
+            <LemonButton
+                {...buttonProps}
+                sideIcon={!buttonProps.fullWidth ? <span className="LemonButtonWithSideAction--divider" /> : undefined}
+            >
                 {children}
-                {!buttonProps.fullWidth && <LemonDivider vertical style={{ margin: '0 -0.5rem 0 0.75rem' }} />}
             </LemonButton>
-            <SideComponent
-                className="LemonButtonWithSideAction--side-button"
-                type={buttonProps.type}
-                popup={sidePopup as LemonButtonPopup}
-                {...sideActionRest}
-            />
+            <div className="LemonButtonWithSideAction--side-button">
+                <SideComponent
+                    // We don't want secondary style as it creates double borders
+                    type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
+                    status={buttonProps.status}
+                    popup={sidePopup as LemonButtonPopup}
+                    {...sideActionRest}
+                />
+            </div>
         </div>
     )
 }

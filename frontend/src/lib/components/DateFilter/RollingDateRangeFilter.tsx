@@ -55,11 +55,11 @@ export function RollingDateRangeFilter({
     return (
         <Tooltip title={makeLabel ? makeLabel(formattedDate) : undefined}>
             <LemonButton
-                className={clsx('RollingDateRangeFilter', {
-                    'RollingDateRangeFilter--selected': selected,
-                })}
+                className={clsx('RollingDateRangeFilter')}
                 data-attr="rolling-date-range-filter"
                 onClick={select}
+                type={'stealth'}
+                active={selected}
             >
                 <p className="RollingDateRangeFilter__label">In the last</p>
                 <div className="RollingDateRangeFilter__counter" onClick={(e): void => e.stopPropagation()}>

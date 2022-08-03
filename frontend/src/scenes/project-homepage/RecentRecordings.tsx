@@ -28,19 +28,20 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
     return (
         <LemonButton
             fullWidth
-            className="list-row"
             onClick={() => {
                 openSessionPlayer(recording.id, RecordingWatchedSource.ProjectHomepage)
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         >
-            <ProfilePicture name={asDisplay(recording.person)} />
-            <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                <p className="row-title">{asDisplay(recording.person)}</p>
-                <p>Recorded {dayjs(recording.start_time).fromNow()}</p>
+            <div className="list-row">
+                <ProfilePicture name={asDisplay(recording.person)} />
+                <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
+                    <p className="row-title">{asDisplay(recording.person)}</p>
+                    <p>Recorded {dayjs(recording.start_time).fromNow()}</p>
+                </div>
+                <span>{humanFriendlyDuration(recording.recording_duration)}</span>
+                <IconPlayCircle style={{ fontSize: '1.25rem', marginLeft: '0.5rem' }} />
             </div>
-            <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-            <IconPlayCircle style={{ fontSize: '1.25rem', marginLeft: '0.5rem' }} />
         </LemonButton>
     )
 }

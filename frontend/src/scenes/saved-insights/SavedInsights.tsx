@@ -131,9 +131,11 @@ function NewInsightButton(): JSX.Element {
                                         eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
                                     }}
                                     fullWidth
-                                    extendedContent={listedInsightTypeMetadata.description}
                                 >
-                                    <strong>{listedInsightTypeMetadata.name}</strong>
+                                    <div className="text-default flex flex-col text-sm py-1">
+                                        <strong>{listedInsightTypeMetadata.name}</strong>
+                                        <span className="text-xs">{listedInsightTypeMetadata.description}</span>
+                                    </div>
                                 </LemonButton>
                             )
                     ),

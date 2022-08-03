@@ -15,11 +15,6 @@
         background-color: var(--bg-mid);
     }
 
-    &.RollingDateRangeFilter--selected {
-        background: var(--primary-bg-hover);
-        color: var(--default);
-    }
-
     input::-webkit-outer-spin-button,
     input::-webkit-inner-spin-button {
         -webkit-appearance: none;

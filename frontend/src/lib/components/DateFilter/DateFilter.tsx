@@ -140,9 +140,9 @@ export function DateFilter({
             disabled={disabled}
             className={className}
             style={style}
-            bordered={true}
+            outlined
             size={'small'}
-            type={'stealth'}
+            type={'secondary'}
             popup={{
                 onClickOutside: close,
                 visible: isOpen || isDateRangeOpen,

@@ -98,8 +98,7 @@ function ExclusionRowSuffix({
             <div style={{ flex: 1 }} />
             <LemonButton
                 icon={<IconDelete />}
-                type="alt"
-                // size="small"
+                status="primary-alt" // size="small"
                 onClick={onClose}
                 data-attr="delete-prop-exclusion-filter"
                 title="Delete event exclusion series"
