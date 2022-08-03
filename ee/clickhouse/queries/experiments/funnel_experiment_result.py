@@ -58,7 +58,7 @@ class ClickhouseFunnelExperimentResult:
     ):
 
         breakdown_key = f"$feature/{feature_flag.key}"
-        variants = [variant["key"] for variant in feature_flag.variants]
+        self.variants = [variant["key"] for variant in feature_flag.variants]
 
         query_filter = filter.with_data(
             {
@@ -66,15 +66,14 @@ class ClickhouseFunnelExperimentResult:
                 "date_to": experiment_end_date,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
-                "properties": [{"key": breakdown_key, "value": variants, "operator": "exact", "type": "event"}],
-                # :TRICKY: We don't use properties set on filters, instead using experiment variant options
             }
         )
         self.funnel = funnel_class(query_filter, team)
 
     def get_results(self):
         funnel_results = self.funnel.run()
-        control_variant, test_variants = self.get_variants(funnel_results)
+        filtered_results = [result for result in funnel_results if result[0]["breakdown_value"][0] in self.variants]
+        control_variant, test_variants = self.get_variants(filtered_results)
 
         probabilities = self.calculate_results(control_variant, test_variants)
 
@@ -85,7 +84,7 @@ class ClickhouseFunnelExperimentResult:
         significance_code, loss = self.are_results_significant(control_variant, test_variants, probabilities)
 
         return {
-            "insight": funnel_results,
+            "insight": filtered_results,
             "probability": mapping,
             "significant": significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             "filters": self.funnel._filter.to_dict(),
