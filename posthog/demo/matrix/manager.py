@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core import exceptions
 
 from posthog.client import query_with_columns, sync_execute
-from posthog.graphile import GraphileJob, bulk_queue_graphile_jobs, copy_graphile_jobs_between_teams
+from posthog.demo.graphile import GraphileJob, bulk_queue_graphile_jobs, copy_graphile_jobs_between_teams
 from posthog.models import (
     Group,
     GroupTypeMapping,
