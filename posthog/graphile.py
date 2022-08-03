@@ -5,9 +5,9 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from django.db import connection
 
-BULK_INSERT_JOBS_SQL = (
-    "INSERT INTO graphile_worker.jobs (task_identifier, payload, run_at, max_attempts, flags) VALUES {values}"
-)
+BULK_INSERT_JOBS_SQL = """
+    INSERT INTO graphile_worker.jobs (task_identifier, payload, run_at, max_attempts, flags) VALUES {values}"""
+
 COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL = """
     INSERT INTO graphile_worker.jobs (task_identifier, payload, run_at, max_attempts, flags)
     SELECT

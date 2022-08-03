@@ -226,16 +226,8 @@ class HedgeboxMatrix(Matrix):
     new_signup_page_experiment_start: timezone.datetime
     new_signup_page_experiment_end: timezone.datetime
 
-    def __init__(
-        self,
-        seed: Optional[str] = None,
-        *,
-        now: timezone.datetime,
-        days_past: int = 120,
-        days_future: int = 30,
-        n_clusters: int,
-    ):
-        super().__init__(seed, now=now, days_past=days_past, days_future=days_future, n_clusters=n_clusters)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         # Start new signup page experiment roughly halfway through the simulation, end late into it
         self.new_signup_page_experiment_end = self.now - timezone.timedelta(days=2, hours=3, seconds=43)
         self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2

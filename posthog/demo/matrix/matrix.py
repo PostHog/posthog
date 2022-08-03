@@ -146,7 +146,7 @@ class Matrix(ABC):
         self,
         seed: Optional[str] = None,
         *,
-        now: timezone.datetime,
+        now: Optional[timezone.datetime] = None,
         days_past: int = 120,
         days_future: int = 30,
         n_clusters: int,
