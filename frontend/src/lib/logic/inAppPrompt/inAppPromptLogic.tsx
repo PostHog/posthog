@@ -325,6 +325,12 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                                 )
                             }
                             actions.updatePromptState(updatedState)
+                            inAppPromptEventCaptureLogic.actions.reportPromptShown(
+                                prompt.type,
+                                sequence.key,
+                                step,
+                                values.prompts.length
+                            )
                             actions.promptShownSuccessfully()
                         } catch (e) {
                             console.error(e)
