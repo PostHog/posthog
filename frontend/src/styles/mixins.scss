@@ -1,3 +1,5 @@
+@import 'vars';
+
 // Additional style configurations
 %mixin-base-bordered-card {
     border-radius: var(--radius);
@@ -30,4 +32,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: calc(100% - 8px);
+}
+
+@mixin screen($breakpoint) {
+    @media screen and (min-width: $breakpoint) {
+        @content;
+    }
 }

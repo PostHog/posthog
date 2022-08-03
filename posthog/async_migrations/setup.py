@@ -13,7 +13,7 @@ from posthog.version import VERSION
 
 def reload_migration_definitions():
     for name, module in all_migrations.items():
-        ALL_ASYNC_MIGRATIONS[name] = module.Migration()
+        ALL_ASYNC_MIGRATIONS[name] = module.Migration(name)
 
 
 ALL_ASYNC_MIGRATIONS: Dict[str, AsyncMigrationDefinition] = {}
@@ -47,14 +47,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
 
     first_migration = None
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
-
-        sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
-
-        sm.description = migration.description
-        sm.posthog_max_version = migration.posthog_max_version
-        sm.posthog_min_version = migration.posthog_min_version
-
-        sm.save()
+        setup_model(migration_name, migration)
 
         dependency = migration.depends_on
 
@@ -82,6 +75,20 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
+def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> Optional[AsyncMigration]:
+    if migration.is_hidden():
+        return None
+
+    sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
+
+    sm.description = migration.description
+    sm.posthog_max_version = migration.posthog_max_version
+    sm.posthog_min_version = migration.posthog_min_version
+
+    sm.save()
+    return sm
+
+
 def kickstart_migration_if_possible(migration_name: str, applied_migrations: set):
     """
     Find the last completed migration, look for a migration that depends on it, and try to run it
@@ -102,7 +109,7 @@ def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinit
     if TEST:
         test_migrations = import_submodules(ASYNC_MIGRATIONS_EXAMPLE_MODULE_PATH)
         if migration_name in test_migrations:
-            return test_migrations[migration_name].Migration()
+            return test_migrations[migration_name].Migration(migration_name)
 
     return ALL_ASYNC_MIGRATIONS[migration_name]
 

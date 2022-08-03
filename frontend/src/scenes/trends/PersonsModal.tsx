@@ -104,11 +104,7 @@ export function PersonsModal({
 
     const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
     const isDownloadCsvAvailable: boolean =
-        !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS] &&
-        !!featureFlags[FEATURE_FLAGS.PERSON_MODAL_EXPORTS] &&
-        InsightType.TRENDS &&
-        showModalActions &&
-        !!people?.action
+        !!featureFlags[FEATURE_FLAGS.PERSON_MODAL_EXPORTS] && InsightType.TRENDS && showModalActions && !!people?.action
     const isSaveAsCohortAvailable =
         (view === InsightType.TRENDS ||
             view === InsightType.STICKINESS ||
@@ -144,8 +140,7 @@ export function PersonsModal({
                                                         date_to: people.day,
                                                         breakdown_value: people.breakdown_value,
                                                     },
-                                                    filters,
-                                                    !!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]
+                                                    filters
                                                 ),
                                             },
                                         })
@@ -344,7 +339,7 @@ export function ActorRow({ actor }: ActorRowProps): JSX.Element {
                     explicitValue={actor.distinct_ids[0]}
                     iconStyle={{ color: 'var(--primary)' }}
                     iconPosition="end"
-                    className="text-small text-muted-alt"
+                    className="text-xs text-muted-alt"
                 >
                     {midEllipsis(actor.distinct_ids[0], 32)}
                 </CopyToClipboardInline>

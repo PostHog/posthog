@@ -58,7 +58,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                     return (
                         <>
                             <SeriesLetter
-                                className="mr-025"
+                                className="mr-1"
                                 hasBreakdown={false}
                                 seriesIndex={tooltipData?.[0]?.action?.order ?? 0}
                             />
@@ -81,6 +81,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             insightNumericId={insight.id}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
+            aggregationAxisFormat={insight.filters?.aggregation_axis_format}
             onClick={
                 !showPersonsModal || insight.filters?.formula
                     ? undefined

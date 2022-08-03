@@ -143,7 +143,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </div>
                 }
             >
-                <h1 className="fw-800">Invite others to {user?.organization?.name || 'PostHog'}</h1>
+                <h1 className="font-extrabold">Invite others to {user?.organization?.name || 'PostHog'}</h1>
                 {preflight?.email_service_available ? (
                     <p>
                         Invite others to your project to collaborate together in PostHog. An invite is specific to an
@@ -182,7 +182,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
 
                     {invites.map((invite: OrganizationInviteType) => {
                         return (
-                            <Row gutter={16} align="middle" className="mb mt" key={invite.id}>
+                            <Row gutter={16} align="middle" className="my-4" key={invite.id}>
                                 <Col xs={11}>
                                     <Input
                                         disabled
@@ -256,7 +256,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                         <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                     ))}
 
-                    <div className="mt mb">
+                    <div className="my-4">
                         {areInvitesCreatable && (
                             <LemonButton
                                 type="secondary"
@@ -272,8 +272,8 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </div>
                 </div>
                 {preflight?.email_service_available && (
-                    <div className="mb">
-                        <div className="mb-05">
+                    <div className="mb-4">
+                        <div className="mb-2">
                             <b>Message</b> (optional)
                         </div>
                         <LemonTextArea
@@ -284,7 +284,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     </div>
                 )}
                 <LemonDivider thick dashed />
-                <div className="mt">
+                <div className="mt-4">
                     {!preflight?.email_service_available ? (
                         <LemonButton style={{ padding: '1rem' }} fullWidth center type="primary" onClick={onClose}>
                             Done
@@ -293,7 +293,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                         <>
                             <LemonButton
                                 onClick={() => inviteTeamMembers()}
-                                className="mb-05"
+                                className="mb-2"
                                 type="primary"
                                 fullWidth
                                 center

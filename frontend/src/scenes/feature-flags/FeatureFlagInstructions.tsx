@@ -114,7 +114,7 @@ function FeatureFlagInstructionsHeader({
 
 function FeatureFlagInstructionsFooter({ documenrationLink }: { documenrationLink: string }): JSX.Element {
     return (
-        <div className="mt">
+        <div className="mt-4">
             Need more information?{' '}
             <a data-attr="feature-flag-doc-link" target="_blank" rel="noopener" href={documenrationLink}>
                 Check the docs <IconOpenInNew />

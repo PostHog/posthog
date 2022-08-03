@@ -15,7 +15,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
@@ -35,7 +35,6 @@ import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -86,7 +85,6 @@ export function ProjectSettings(): JSX.Element {
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
@@ -135,7 +133,7 @@ export function ProjectSettings(): JSX.Element {
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
                 <Divider />
-                <h2 id="project-variables" className="subtitle mb">
+                <h2 id="project-variables" className="subtitle mb-4">
                     Project Variables
                 </h2>
                 <h3 id="project-api-key" className="l3">
@@ -172,7 +170,7 @@ export function ProjectSettings(): JSX.Element {
                     Write-only means it can only create new events. It can't read events or any of your other data
                     stored with PostHog, so it's safe to use in public apps.
                 </p>
-                <h3 id="project-id" className="l3 mt">
+                <h3 id="project-id" className="l3 mt-4">
                     Project ID
                 </h3>
                 <p>
@@ -283,15 +281,13 @@ export function ProjectSettings(): JSX.Element {
                 </h2>
                 <WebhookIntegration />
                 <Divider />
-                {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
-                    <>
-                        <h2 className="subtitle" id="slack">
-                            Slack integration
-                        </h2>
-                        <SlackIntegration />
-                        <Divider />
-                    </>
-                )}
+                <>
+                    <h2 className="subtitle" id="slack">
+                        Slack integration
+                    </h2>
+                    <SlackIntegration />
+                    <Divider />
+                </>
                 <h2 className="subtitle" id="datacapture">
                     Data capture configuration
                 </h2>

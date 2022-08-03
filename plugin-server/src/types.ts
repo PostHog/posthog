@@ -104,6 +104,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
+    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -281,8 +282,6 @@ export interface Plugin {
     url?: string
     config_schema?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
-    /** @deprecated Replaced with source__index_ts */
-    source?: string
     /** Cached source for plugin.json from a joined PluginSourceFile query */
     source__plugin_json?: string
     /** Cached source for index.ts from a joined PluginSourceFile query */
@@ -315,7 +314,7 @@ export interface PluginConfig {
     enabled: boolean
     order: number
     config: Record<string, unknown>
-    error?: PluginError
+    has_error: boolean
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string

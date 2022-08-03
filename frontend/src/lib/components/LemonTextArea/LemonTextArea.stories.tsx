@@ -26,8 +26,8 @@ Basic.args = {}
 
 export const Icons = Template.bind({})
 Icons.args = {
-    icon: <IconMagnifier style={{ fontSize: 18, color: 'var(--text-muted)' }} />,
-    sideIcon: <LemonButton type="tertiary" icon={<IconArrowDropDown style={{ color: 'var(--text-muted)' }} />} />,
+    icon: <IconMagnifier style={{ fontSize: 18, color: 'var(--muted)' }} />,
+    sideIcon: <LemonButton type="tertiary" icon={<IconArrowDropDown style={{ color: 'var(--muted)' }} />} />,
 }
 
 export const Disabled = Template.bind({})

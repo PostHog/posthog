@@ -1,6 +1,7 @@
 import re
 from typing import TYPE_CHECKING, Any, List, Optional
 
+import posthoganalytics
 import pytz
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
@@ -196,12 +197,29 @@ class Team(UUIDClassicModel):
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:
+        # Two part gate to ensure we don't accidentally enable this for everyone prematurely.
+        # Nor should we start making excessive requests to the API to get results.
+        # Temporary, until we're convinced the library works well enough.
         enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
-        return str(self.pk) in enabled_teams or "all" in enabled_teams
+        if len(enabled_teams) > 0:
+            return str(self.pk) in enabled_teams or "all" in enabled_teams
+
+        # only when instance setting list is empty, use the feature flag
+        return posthoganalytics.feature_enabled(
+            "person-on-events-enabled",
+            str(self.uuid),
+            groups={"project": str(self.uuid)},
+            group_properties={"project": {"id": str(self.pk)}},
+        )
 
     @property
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
+        return str(self.pk) in enabled_teams or "all" in enabled_teams
+
+    @property
+    def geoip_property_overrides_enabled(self) -> bool:
+        enabled_teams = get_list(get_instance_setting("GEOIP_PROPERTY_OVERRIDES_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     def __str__(self):

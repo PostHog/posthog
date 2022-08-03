@@ -32,7 +32,7 @@ export function VerificationPanel(): JSX.Element {
                     <>
                         <div className="ingestion-listening-for-events">
                             <Spinner size="lg" />
-                            <h1 className="ingestion-title pt">Listening for events...</h1>
+                            <h1 className="ingestion-title pt-4">Listening for events...</h1>
                             <p className="prompt-text">
                                 Once you have integrated the snippet and sent an event, we will verify it was properly
                                 received and continue.
@@ -60,7 +60,7 @@ export function VerificationPanel(): JSX.Element {
                             You will now be able to explore PostHog and take advantage of all its features to understand
                             your users.
                         </p>
-                        <div className="mb">
+                        <div className="mb-4">
                             <LemonButton
                                 data-attr="wizard-complete-button"
                                 type="primary"

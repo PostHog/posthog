@@ -39,7 +39,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                             </button>
                         </div>
                     )}
-                    <div className="mb">
+                    <div className="mb-4">
                         <b>Match Group #{index + 1}</b>
                     </div>
                     {<TypeSwitcher step={step} sendStep={sendStep} />}
@@ -141,7 +141,7 @@ function Option(props: {
         })
 
     return (
-        <div className="mb">
+        <div className="mb-4">
             <label style={{ fontWeight: 'bold' }}>
                 {props.label} {props.extra_options}
             </label>
@@ -293,7 +293,7 @@ function TypeSwitcher({
                 }
             >
                 <Radio.Button value="$autocapture">Autocapture</Radio.Button>
-                <Radio.Button value="event">Event</Radio.Button>
+                <Radio.Button value="event">Custom event</Radio.Button>
                 <Radio.Button value="$pageview">Page view</Radio.Button>
             </Radio.Group>
         </div>

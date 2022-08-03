@@ -64,7 +64,7 @@ export function BreakdownTag({
                                 setUseHistogram(false)
                             }}
                             type={!useHistogram ? 'highlighted' : 'stealth'}
-                            className="mt-05"
+                            className="mt-2"
                             fullWidth
                         >
                             Do not bin numeric values

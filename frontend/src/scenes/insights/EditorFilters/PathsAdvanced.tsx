@@ -29,7 +29,7 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
 
     return (
         <div>
-            <div className="mb-05">
+            <div className="mb-2">
                 <b>Maximum number of paths</b>
                 <Tooltip title="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                     <InfoCircleOutlined className="info-indicator" style={{ marginRight: 4 }} />
@@ -51,7 +51,7 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                 onBlur={updateEdgeParameters}
                 onPressEnter={updateEdgeParameters}
             />
-            <div className="mb-05">
+            <div className="mb-2">
                 <b>Number of people on each path</b>
                 <Tooltip title="Determines the minimum and maximum number of persons in each path. Helps adjust the density of the visualization.">
                     <InfoCircleOutlined className="info-indicator" style={{ marginRight: 4 }} />
@@ -91,7 +91,7 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                     onPressEnter={updateEdgeParameters}
                 />
             </div>
-            <div className="mb-05">
+            <div className="mb-2">
                 <div style={{ display: 'flex' }}>
                     <b>
                         Path Cleaning Rules: (optional){' '}

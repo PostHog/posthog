@@ -51,7 +51,7 @@
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-06 00:00:00')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test'])
            GROUP BY day_start,

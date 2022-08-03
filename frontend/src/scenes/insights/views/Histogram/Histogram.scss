@@ -1,4 +1,4 @@
-@import '../../../../styles/breakpoints';
+@import '../../../../styles/mixins';
 
 .dashboard-wrapper {
     width: 95%;
@@ -43,11 +43,11 @@
         g#x-axis,
         g#y-axis {
             text {
-                font-size: 13px;
+                font-size: 11px;
                 fill: var(--funnel-axis-zero);
 
-                @media (max-width: $md) {
-                    font-size: 11px;
+                @include screen($md) {
+                    font-size: 13px;
                 }
             }
         }
@@ -56,7 +56,7 @@
             text.bar-label {
                 font-size: 14px;
                 font-weight: bold;
-                fill: var(--text-light);
+                fill: var(--light);
                 &.outside {
                     fill: var(--funnel-alt);
                 }

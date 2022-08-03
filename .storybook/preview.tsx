@@ -42,7 +42,15 @@ export const parameters = {
         showPanel: true,
         storySort: {
             method: 'alphabetical',
-            order: ['Lemon UI', ['Overview', 'Icons'], 'Components', 'Forms', ['Field'], 'Filters', 'Layout'],
+            order: [
+                'Lemon UI',
+                ['Overview', 'Utilities', 'Icons'],
+                'Components',
+                'Forms',
+                ['Field'],
+                'Filters',
+                'Layout',
+            ],
             includeName: true,
         },
     },

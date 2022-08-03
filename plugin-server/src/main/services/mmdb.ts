@@ -3,7 +3,6 @@ import { captureException } from '@sentry/minimal'
 import { DateTime } from 'luxon'
 import net from 'net'
 import { AddressInfo } from 'net'
-import fetch from 'node-fetch'
 import prettyBytes from 'pretty-bytes'
 import { serialize } from 'v8'
 import { brotliDecompress } from 'zlib'
@@ -17,6 +16,7 @@ import {
     MMDBRequestStatus,
 } from '../../config/mmdb-constants'
 import { Hub, PluginAttachmentDB } from '../../types'
+import fetch from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 import { ServerInstance } from '../pluginsServer'
@@ -61,6 +61,7 @@ async function decompressAndOpenMmdb(brotliContents: Buffer, filename: string): 
 async function fetchAndInsertFreshMmdb(hub: Hub): Promise<ReaderModel> {
     const { db } = hub
 
+    // TODO: use local GeoLite2 on container at share/GeoLite2-City.mmdb instead of downloading it each time
     status.info('⏳', 'Downloading GeoLite2 database from PostHog servers...')
     const response = await fetch(MMDB_ENDPOINT, { compress: false })
     const contentType = response.headers.get('content-type')

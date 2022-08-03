@@ -9,6 +9,8 @@ import { fetchIpLocationInternally } from '../../src/worker/mmdb'
 import { makePiscina } from '../../src/worker/piscina'
 import { resetTestDatabase } from '../helpers/sql'
 
+jest.mock('../../src/utils/status')
+
 const mmdbBrotliContents = readFileSync(join(__dirname, '..', 'assets', 'GeoLite2-City-Test.mmdb.br'))
 
 async function resetTestDatabaseWithMmdb(): Promise<void> {

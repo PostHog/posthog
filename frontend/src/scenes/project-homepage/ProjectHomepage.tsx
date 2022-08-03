@@ -33,17 +33,19 @@ export function ProjectHomepage(): JSX.Element {
     const headerButtons = (
         <div style={{ display: 'flex' }}>
             <LemonButton
+                data-tooltip="invite-members-button"
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
                 }}
-                className="mr-05"
+                className="mr-2"
                 type="secondary"
             >
                 Invite members
             </LemonButton>
             <LemonButton
                 data-attr="project-home-new-insight"
+                data-tooltip="project-button"
                 onClick={() => {
                     router.actions.push(urls.insightNew())
                 }}
@@ -79,29 +81,27 @@ export function ProjectHomepage(): JSX.Element {
             </div>
             {currentTeam?.primary_dashboard ? (
                 <div>
-                    <div>
-                        <Row className="homepage-dashboard-header">
-                            <div className="dashboard-title-container">
-                                {!dashboard && <Skeleton active paragraph={false} />}
-                                {dashboard?.name && (
-                                    <>
-                                        <IconCottage className="mr-05 text-warning" style={{ fontSize: '1.5rem' }} />
-                                        <Typography.Title className="dashboard-name" level={4}>
-                                            {dashboard?.name}
-                                        </Typography.Title>
-                                    </>
-                                )}
-                            </div>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="project-home-new-insight"
-                                onClick={showPrimaryDashboardModal}
-                            >
-                                Change dashboard
-                            </LemonButton>
-                        </Row>
-                        <LemonDivider large />
-                    </div>
+                    <Row className="homepage-dashboard-header">
+                        <div className="dashboard-title-container">
+                            {!dashboard && <Skeleton active paragraph={false} />}
+                            {dashboard?.name && (
+                                <>
+                                    <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
+                                    <Typography.Title className="dashboard-name" level={4}>
+                                        {dashboard?.name}
+                                    </Typography.Title>
+                                </>
+                            )}
+                        </div>
+                        <LemonButton
+                            type="secondary"
+                            data-attr="project-home-new-insight"
+                            onClick={showPrimaryDashboardModal}
+                        >
+                            Change dashboard
+                        </LemonButton>
+                    </Row>
+                    <LemonDivider large />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}
@@ -109,9 +109,9 @@ export function ProjectHomepage(): JSX.Element {
                 </div>
             ) : (
                 <div className="empty-state-container">
-                    <IconCottage className="mb-05 text-warning" style={{ fontSize: '2rem' }} />
+                    <IconCottage className="mb-2 text-warning" style={{ fontSize: '2rem' }} />
                     <h1>There isn’t a default dashboard set for this project</h1>
-                    <p className="mb">
+                    <p className="mb-4">
                         Default dashboards are shown to everyone in the project. When you set a default, it’ll show up
                         here.
                     </p>

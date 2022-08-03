@@ -63,6 +63,7 @@ interface EventsTable {
     showActionsButton?: boolean
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
+    'data-tooltip'?: string
 }
 
 export function EventsTable({
@@ -84,6 +85,7 @@ export function EventsTable({
     showActionsButton = true,
     showPersonColumn = true,
     linkPropertiesToFilters = true,
+    'data-tooltip': dataTooltip,
 }: EventsTable): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -100,7 +102,6 @@ export function EventsTable({
         isLoadingNext,
         eventFilter,
         automaticLoadEnabled,
-        exportUrl,
         highlightEvents,
         months,
     } = useValues(logic)
@@ -402,7 +403,7 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 {(showEventFilter || showPropertyFilter) && (
-                    <div className="flex pt pb space-x border-top">
+                    <div className="flex py-4 space-x-4 border-t">
                         {showEventFilter && (
                             <LemonEventName
                                 value={eventFilter}
@@ -427,27 +428,28 @@ export function EventsTable({
                 {showAutoload || showCustomizeColumns || showExport ? (
                     <div
                         className={clsx(
-                            'space-between-items pt mb',
-                            (showEventFilter || showPropertyFilter) && 'border-top'
+                            'flex justify-between pt-4 mb-4',
+                            (showEventFilter || showPropertyFilter) && 'border-t'
                         )}
                     >
                         {showAutoload && (
                             <LemonSwitch
                                 type="primary"
+                                data-tooltip="live-events-refresh-toggle"
                                 id="autoload-switch"
                                 label="Automatically load new events"
                                 checked={automaticLoadEnabled}
                                 onChange={toggleAutomaticLoad}
                             />
                         )}
-                        <div className="flex space-x-05">
+                        <div className="flex space-x-2">
                             {showCustomizeColumns && (
                                 <LemonTableConfig
                                     immutableColumns={['event', 'person']}
                                     defaultColumns={defaultColumns.map((e) => e.key || '')}
                                 />
                             )}
-                            {showExport && exportUrl && (
+                            {showExport && (
                                 <Popconfirm
                                     placement="topRight"
                                     title={
@@ -474,6 +476,7 @@ export function EventsTable({
                 ) : null}
                 <EventBufferNotice additionalInfo=" – this helps ensure accuracy of insights grouped by unique users" />
                 <LemonTable
+                    data-tooltip={dataTooltip}
                     dataSource={eventsFormatted}
                     loading={isLoading}
                     columns={columns}

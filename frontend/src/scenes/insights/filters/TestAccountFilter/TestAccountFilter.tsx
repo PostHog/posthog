@@ -29,14 +29,14 @@ export function TestAccountFilter({
             id="test-account-filter"
             type="primary"
             label={
-                <div className="flex-center">
+                <div className="flex items-center">
                     <span>Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconSettings />}
                         to="/project/settings#internal-users-filtering"
                         type="stealth"
                         size="small"
-                        className="ml-025"
+                        className="ml-1"
                     />
                 </div>
             }

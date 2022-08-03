@@ -1,4 +1,4 @@
-@import '../../styles/breakpoints';
+@import '../../styles/mixins';
 @import './authenticationShared';
 
 .invite-signup {
@@ -12,9 +12,9 @@
         text-align: center;
         max-width: 400px;
         padding: 0 1rem;
-        color: var(--text-light);
+        color: var(--light);
         h1 {
-            color: var(--text-light);
+            color: var(--light);
         }
     }
 
@@ -61,33 +61,24 @@
                 display: inline-block;
                 .whoami {
                     cursor: default !important;
-                    border: 1px var(--text-light) dashed;
+                    border: 1px var(--light) dashed;
                     border-radius: var(--radius);
                     background-color: rgba(white, 0.3);
                     padding: 4px;
                 }
                 .whoami,
                 span {
-                    color: var(--text-light) !important;
+                    color: var(--light) !important;
                 }
             }
         }
     }
 
     a.plain-link {
-        color: var(--text-light);
+        color: var(--light);
         font-weight: bold;
-        &:after {
-            content: ' | ';
-            &:hover {
-                color: var(--text-light);
-            }
-        }
-        &:last-of-type:after {
-            content: '';
-        }
         &:hover {
-            color: var(--depr-darken-text-light-20);
+            color: var(--primary-light);
         }
     }
 
@@ -107,7 +98,7 @@
 
             .showcase-content {
                 z-index: var(--z-city-background-content);
-                color: var(--text-light);
+                color: var(--light);
                 height: calc(100% - 100px);
                 width: 100%;
                 display: flex;
@@ -131,7 +122,7 @@
                 }
 
                 h3 {
-                    color: var(--text-light);
+                    color: var(--light);
                 }
 
                 .mobile-continue {
@@ -185,7 +176,7 @@
                     text-align: left;
                     margin-right: 0;
                     padding: 0 1rem;
-                    color: var(--text-muted);
+                    color: var(--muted);
                     b {
                         font-weight: normal;
                     }
@@ -212,7 +203,7 @@
 
         span:last-of-type {
             font-size: 12px;
-            color: var(--text-muted);
+            color: var(--muted);
         }
     }
 }

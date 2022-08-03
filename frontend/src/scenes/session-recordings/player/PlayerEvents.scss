@@ -1,16 +1,16 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
 .player-events-container {
     display: flex;
     flex-direction: column;
     background-color: var(--bg-light);
-    height: 100%;
+    height: 100vh;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: var(--recording-spacing);
 
-    @media (max-width: $md) {
-        height: 100vh;
+    @include screen($md) {
+        height: 100%;
     }
 
     .event-list {
@@ -157,11 +157,11 @@
                 min-width: 0;
 
                 &.out-of-band-event {
-                    color: var(--text-muted);
+                    color: var(--muted);
                 }
 
                 .out-of-band-event-tooltip {
-                    color: var(--text-default);
+                    color: var(--default);
                 }
 
                 .event-item-content-top-row {

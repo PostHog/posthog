@@ -303,7 +303,7 @@ export function Paths(): JSX.Element {
                                                 {pathItemCard.sourceLinks.length > 0 && (
                                                     <Menu.Item
                                                         disabled
-                                                        className="pathcard-dropdown-info-option text-small"
+                                                        className="pathcard-dropdown-info-option text-xs"
                                                         style={{
                                                             borderBottom: `${
                                                                 dropOffValue > 0 || pathItemCard.targetLinks.length > 0
@@ -312,13 +312,13 @@ export function Paths(): JSX.Element {
                                                             }`,
                                                         }}
                                                     >
-                                                        <span className="text-small">
+                                                        <span className="text-xs">
                                                             <span style={{ paddingRight: 8 }}>
                                                                 <IconPathsCompletedArrow />
                                                             </span>{' '}
                                                             Continuing
                                                         </span>{' '}
-                                                        <span className="primary text-small">
+                                                        <span className="text-primary text-xs">
                                                             <ValueInspectorButton
                                                                 style={{ paddingRight: 0, fontSize: 12 }}
                                                                 onClick={() => openPersonsModal(pathItemCard.name)}
@@ -342,12 +342,12 @@ export function Paths(): JSX.Element {
                                                 {dropOffValue > 0 && (
                                                     <Menu.Item
                                                         disabled
-                                                        className="pathcard-dropdown-info-option text-small"
+                                                        className="pathcard-dropdown-info-option text-xs"
                                                         style={{
                                                             borderBottom: '1px solid var(--border)',
                                                         }}
                                                     >
-                                                        <span className="text-small" style={{ display: 'flex' }}>
+                                                        <span className="text-xs" style={{ display: 'flex' }}>
                                                             <span
                                                                 style={{
                                                                     paddingRight: 8,
@@ -359,7 +359,7 @@ export function Paths(): JSX.Element {
                                                             </span>{' '}
                                                             Dropping off
                                                         </span>{' '}
-                                                        <span className="primary">
+                                                        <span className="text-primary">
                                                             <ValueInspectorButton
                                                                 style={{ paddingRight: 0, fontSize: 12 }}
                                                                 onClick={() =>
@@ -372,7 +372,7 @@ export function Paths(): JSX.Element {
                                                             >
                                                                 {dropOffValue}{' '}
                                                                 <span
-                                                                    className="text-muted-alt text-small"
+                                                                    className="text-muted-alt text-xs"
                                                                     style={{ paddingLeft: 4 }}
                                                                 >
                                                                     (
@@ -400,7 +400,7 @@ export function Paths(): JSX.Element {
                                                             style={{ color: 'var(--muted)', fontSize: 16 }}
                                                         />
                                                         <span
-                                                            className="text-small"
+                                                            className="text-xs"
                                                             style={{
                                                                 wordWrap: 'break-word',
                                                                 whiteSpace: 'normal',
@@ -460,7 +460,7 @@ export function Paths(): JSX.Element {
                                             <Row style={{ alignSelf: 'center' }}>
                                                 <span
                                                     onClick={() => openPersonsModal(undefined, pathItemCard.name)}
-                                                    className="primary text-small"
+                                                    className="text-primary text-xs"
                                                     style={{ alignSelf: 'center', paddingRight: 4, fontWeight: 500 }}
                                                 >
                                                     {continuingValue + dropOffValue}

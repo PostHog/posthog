@@ -33,8 +33,8 @@ export interface ToastContentProps {
 
 export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
     return (
-        <div className="flex-center" data-attr={`${type}-toast`}>
-            <span style={{ flexGrow: 1 }}>{message}</span>
+        <div className="flex items-center" data-attr={`${type}-toast`}>
+            <span className="grow">{message}</span>
             {button && (
                 <LemonButton
                     onClick={() => {

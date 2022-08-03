@@ -14,7 +14,7 @@ export function KafkaInspectorTab(): JSX.Element {
             <h3 className="l3" style={{ marginTop: 16 }}>
                 Kafka Inspector
             </h3>
-            <div className="mb">Debug Kafka messages using the inspector tool.</div>
+            <div className="mb-4">Debug Kafka messages using the inspector tool.</div>
             <Divider style={{ margin: 0, marginBottom: 16 }} />
             <section>
                 <div style={{ display: 'flex', marginBottom: '0.75rem' }}>

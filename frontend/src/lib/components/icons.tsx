@@ -406,9 +406,9 @@ export function IconOffline({ style }: { style?: CSSProperties }): JSX.Element {
 }
 
 /** Material Design Settings icon. */
-export function IconSettings({ style }: { style?: CSSProperties }): JSX.Element {
+export function IconSettings(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
-        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style={style}>
+        <svg fill="none" width="1em" height="1em" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" {...props}>
             <path
                 d="m19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.09-.16-.26-.25-.44-.25-.06 0-.12.01-.17.03l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65c-.03-.24-.24-.42-.49-.42h-4.00004c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.06-.02-.12-.03-.18-.03-.17 0-.34.09-.43.25l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.09.16.26.25.44.25.06 0 .12-.01.17-.03l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4.00004c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.06.02.12.03.18.03.17 0 .34-.09.43-.25l2-3.46c.12-.22.07-.49-.12-.64zm-1.98-1.71c.04.31.05.52.05.73s-.02.43-.05.73l-.14 1.13.89.7 1.08.84-.7 1.21-1.27-.51-1.04-.42-.9.68c-.43.32-.84.56-1.25.73l-1.06.43-.16 1.13-.2 1.35h-1.4l-.19-1.35-.16-1.13-1.06004-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7-1.06.43-1.27.51-.7-1.21 1.08-.84.89-.7-.14-1.13c-.03-.31-.05-.54-.05-.74s.02-.43.05-.73l.14-1.13-.89-.7-1.08-.84.7-1.21 1.27.51 1.04.42.9-.68c.43-.32.84-.56 1.25-.73l1.06004-.43.16-1.13.2-1.35h1.39l.19 1.35.16 1.13 1.06.43c.43.18.83.41 1.23.71l.91.7 1.06-.43 1.27-.51.7 1.21-1.07.85-.89.7zm-5.45-3.27c-2.21004 0-4.00004 1.79-4.00004 4s1.79 4 4.00004 4c2.21 0 4-1.79 4-4s-1.79-4-4-4zm0 6c-1.1 0-2.00004-.9-2.00004-2s.90004-2 2.00004-2 2 .9 2 2-.9 2-2 2z"
                 fill="currentColor"
@@ -1285,21 +1285,30 @@ export function IconHeatmap(props: React.SVGProps<SVGSVGElement>): JSX.Element {
     )
 }
 
-export interface UnverifiedEventStackProps extends React.SVGProps<SVGSVGElement> {
-    width?: string
-    height?: string
-}
-
-export function UnverifiedEventStack({
-    width = '20',
-    height = '20',
-    ...props
-}: UnverifiedEventStackProps): JSX.Element {
+export function UnverifiedEvent({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
             width={width}
             height={height}
-            viewBox="0 0 20 20"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            {...props}
+        >
+            <path
+                d="M4.8 17.4H19.2V15.6H4.8V17.4ZM6.6 21H17.4V19.2H6.6V21ZM19.2 13.8H4.8C3.81 13.8 3 12.99 3 12V4.8C3 3.81 3.81 3 4.8 3H19.2C20.19 3 21 3.81 21 4.8V12C21 12.99 20.19 13.8 19.2 13.8ZM19.2 4.8H4.8V12H19.2V4.8Z"
+                fill="#747EA2"
+            />
+        </svg>
+    )
+}
+
+export function VerifiedEvent({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg
+            width={width}
+            height={height}
+            viewBox="0 0 24 24"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
             {...props}
@@ -1307,19 +1316,23 @@ export function UnverifiedEventStack({
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
-                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998Z"
+                d="M14 3H4.8C3.81 3 3 3.81 3 4.8V12C3 12.99 3.81 13.8 4.8 13.8H19.2C20.19 13.8 21 12.99 21 12V10H19.2V12H4.8V4.8H14V3ZM19.2 17.4H4.8V15.6H19.2V17.4ZM17.4 21H6.6V19.2H17.4V21Z"
+                fill="#747EA2"
+            />
+            <path
+                d="M17.7289 6.04489L16.0628 4.37164L15 5.44166L17.7289 8.17774L23 2.89228L21.9372 1.82227L17.7289 6.04489Z"
                 fill="currentColor"
             />
         </svg>
     )
 }
 
-export function VerifiedEventStack({ width = 26, height = 26, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function ActionEvent({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
     return (
         <svg
             width={width}
             height={height}
-            viewBox="0 0 26 26"
+            viewBox="0 0 24 24"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
             {...props}
@@ -1327,31 +1340,12 @@ export function VerifiedEventStack({ width = 26, height = 26, ...props }: React.
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
-                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998Z"
-                fill="currentColor"
+                d="M14 3H4.8C3.81 3 3 3.81 3 4.8V12C3 12.99 3.81 13.8 4.8 13.8H19.2C20.19 13.8 21 12.99 21 12V11H19.2V12H4.8V4.8H14V3ZM19.2 17.4H4.8V15.6H19.2V17.4ZM17.4 21H6.6V19.2H17.4V21Z"
+                fill="#747EA2"
             />
+            <path d="M19 8L20.37 7.37L21 6L21.63 7.37L23 8L21.63 8.63L21 10L20.37 8.63L19 8Z" fill="#747EA2" />
             <path
-                d="M18.7289 21.0449L17.0628 19.3716L16 20.4417L18.7289 23.1777L24 17.8923L22.9372 16.8223L18.7289 21.0449Z"
-                fill="currentColor"
-            />
-        </svg>
-    )
-}
-
-export function ActionStack({ width = 20, height = 20, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
-    return (
-        <svg
-            width={width}
-            height={height}
-            viewBox="0 0 20 20"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            {...props}
-        >
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M0 4H2V18H16V20H2C0.9 20 0 19.1 0 18V4ZM6 0H18C19.1 0 20 0.9 20 2V14C20 15.1 19.1 16 18 16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0ZM6 14H18V2H6V14ZM10.6851 10.3414L10.1453 11.9998H8.49756L11.0082 4.72705H12.9897L15.4968 11.9998H13.8491L13.3093 10.3414H10.6851ZM11.9706 6.38898L11.0757 9.14111H12.9223L12.0274 6.38898H11.9706Z"
+                d="M18.94 3.94L18 6L17.06 3.94L15 3L17.06 2.06L18 0L18.94 2.06L21 3L18.94 3.94Z"
                 fill="currentColor"
             />
         </svg>
@@ -1413,26 +1407,6 @@ export function VerifiedPropertyIcon({
                 clipRule="evenodd"
                 d="M0 6H2V4H0V6ZM0 10H2V8H0V10ZM0 2H2V0H0V2ZM4 6H11H18V4H4V6ZM4 8H11V10H4V8ZM4 0V2H18V0H4ZM14.0628 11.5494L15.7289 13.2226L19.9372 9L21 10.07L15.7289 15.3555L13 12.6194L14.0628 11.5494Z"
                 fill="#77B96C"
-            />
-        </svg>
-    )
-}
-
-export function EventStackGearIcon({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
-    return (
-        <svg
-            width={width}
-            height={height}
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            {...props}
-        >
-            <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M0 4H2V18H13V20H2C0.9 20 0 19.1 0 18V4ZM20 2V13H18V2H6V14H13V16H6C4.9 16 4 15.1 4 14V2C4 0.9 4.9 0 6 0H18C19.1 0 20 0.9 20 2ZM14.5857 11.9998H9.3584V4.72705H14.5999V6.31796H11.3328V7.56796H14.33V9.15887H11.3328V10.4089H14.5857V11.9998ZM23.66 17.37L22.52 18.37C22.6 18.87 22.6 19.13 22.52 19.64L23.66 20.64L22.66 22.37L21.21 21.88C20.89 22.15 20.53 22.36 20.13 22.51L19.83 24H17.83L17.53 22.49C17.13 22.34 16.77 22.13 16.45 21.86L15 22.35L14 20.62L15.14 19.62C15.06 19.12 15.06 18.86 15.14 18.36L14 17.36L15 15.63L16.45 16.12C16.77 15.85 17.13 15.64 17.53 15.49L17.83 14H19.83L20.13 15.5C20.53 15.65 20.89 15.86 21.21 16.13L22.66 15.64L23.66 17.37ZM16.8301 19C16.8301 20.1 17.7301 21 18.8301 21C19.9301 21 20.8301 20.1 20.8301 19C20.8301 17.9 19.9301 17 18.8301 17C17.7301 17 16.8301 17.9 16.8301 19Z"
-                fill="currentColor"
             />
         </svg>
     )
@@ -1636,6 +1610,17 @@ export function IconLink(props: React.SVGProps<SVGSVGElement>): JSX.Element {
             <path
                 d="M7.90326 16.7536C6.93594 15.7863 6.93594 14.2137 7.90326 13.2464L10.166 10.9836L9.0912 9.90883L6.82846 12.1716C5.26717 13.7329 5.26717 16.2671 6.82846 17.8284C8.38975 19.3897 10.924 19.3897 12.4853 17.8284L14.7481 15.5657L13.6733 14.4909L11.4105 16.7536C10.4432 17.7209 8.87058 17.7209 7.90326 16.7536ZM10.7883 15L15.3137 10.4745L14.1824 9.34315L9.65688 13.8686L10.7883 15ZM12.4853 6.51472L10.2226 8.77746L11.2974 9.85226L13.5601 7.58952C14.5274 6.6222 16.1 6.6222 17.0674 7.58952C18.0347 8.55684 18.0347 10.1294 17.0674 11.0968L14.8046 13.3595L15.8794 14.4343L18.1422 12.1716C19.7035 10.6103 19.7035 8.07601 18.1422 6.51472C16.5809 4.95343 14.0466 4.95343 12.4853 6.51472Z"
                 fill="#1D4AFF"
+            />
+        </svg>
+    )
+}
+
+export function IconMessages(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+            <path
+                d="M13 2V9H3.17L2 10.17V2H13ZM14 0H1C0.45 0 0 0.45 0 1V15L4 11H14C14.55 11 15 10.55 15 10V1C15 0.45 14.55 0 14 0ZM19 4H17V13H4V15C4 15.55 4.45 16 5 16H16L20 20V5C20 4.45 19.55 4 19 4Z"
+                fill="currentColor"
             />
         </svg>
     )

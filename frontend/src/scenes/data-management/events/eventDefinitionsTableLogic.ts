@@ -1,5 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { ActionType, AnyPropertyFilter, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
+import {
+    ActionType,
+    AnyPropertyFilter,
+    CombinedEvent,
+    CombinedEventType,
+    EventDefinition,
+    PropertyDefinition,
+} from '~/types'
 import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
@@ -25,12 +32,14 @@ export interface PropertyDefinitionsPaginatedResponse extends PaginatedResponse<
 export interface Filters {
     event: string
     properties: AnyPropertyFilter[]
+    event_type: CombinedEventType
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
     return {
         event: '',
         properties: [],
+        event_type: CombinedEventType.All,
         ...filter,
     }
 }
@@ -61,11 +70,13 @@ function normalizeEventDefinitionEndpointUrl({
     searchParams = {},
     full = false,
     shouldSimplifyActions = false,
+    eventTypeFilter = CombinedEventType.All,
 }: {
     url?: string | null | undefined
     searchParams?: Record<string, any>
     full?: boolean
     shouldSimplifyActions?: boolean
+    eventTypeFilter?: CombinedEventType
 }): string | null {
     if (!full && !url) {
         return null
@@ -74,7 +85,9 @@ function normalizeEventDefinitionEndpointUrl({
         ...(url
             ? {
                   ...combineUrl(url).searchParams,
-                  ...(shouldSimplifyActions ? { include_actions: true } : {}),
+                  ...(shouldSimplifyActions
+                      ? { event_type: eventTypeFilter }
+                      : { event_type: CombinedEventType.Event }),
               }
             : {}),
         ...searchParams,
@@ -135,6 +148,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     let url = normalizeEventDefinitionEndpointUrl({
                         url: _url,
                         shouldSimplifyActions: values.shouldSimplifyActions,
+                        eventTypeFilter: values.filters.event_type,
                     })
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
@@ -144,9 +158,11 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         url = api.eventDefinitions.determineListEndpoint({
                             ...(values.shouldSimplifyActions
                                 ? {
-                                      include_actions: true,
+                                      event_type: values.filters.event_type,
                                   }
-                                : {}),
+                                : {
+                                      event_type: CombinedEventType.Event,
+                                  }),
                         })
                     }
                     await breakpoint(200)
@@ -161,10 +177,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             previous: normalizeEventDefinitionEndpointUrl({
                                 url: response.previous,
                                 shouldSimplifyActions: values.shouldSimplifyActions,
+                                eventTypeFilter: values.filters.event_type,
                             }),
                             next: normalizeEventDefinitionEndpointUrl({
                                 url: response.next,
                                 shouldSimplifyActions: values.shouldSimplifyActions,
+                                eventTypeFilter: values.filters.event_type,
                             }),
                             current: url,
                             page:
@@ -297,6 +315,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     searchParams: { search: values.filters.event },
                     full: true,
                     shouldSimplifyActions: values.shouldSimplifyActions,
+                    eventTypeFilter: values.filters.event_type,
                 })
             )
         },

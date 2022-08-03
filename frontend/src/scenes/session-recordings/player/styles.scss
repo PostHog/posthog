@@ -1,9 +1,10 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
 .session-drawer-body {
-    height: calc(100vh - 40px);
-    @media (max-width: $md) {
-        height: unset;
+    height: unset;
+
+    @include screen($md) {
+        height: calc(100vh - 40px);
     }
 }
 
@@ -17,14 +18,13 @@
         display: flex;
         flex-wrap: wrap;
         flex-direction: row;
-        flex: 1;
         background-color: var(--bg-light);
-        height: calc(100% - 40px - 2 * var(--recording-spacing));
+        // Subtract controller and top navbar heights + padding
+        height: calc(100vh - 2 * 40px - 2 * var(--recording-spacing));
 
-        @media (max-width: $md) {
-            flex: unset;
-            // Subtract controller and top navbar heights + padding
-            height: calc(100vh - 2 * 40px - 2 * var(--recording-spacing));
+        @include screen($md) {
+            flex: 1;
+            height: calc(100% - 40px - 2 * var(--recording-spacing));
         }
 
         .player-container {
@@ -33,9 +33,10 @@
             min-width: 1px;
             position: relative;
             padding: var(--recording-spacing) var(--recording-spacing) 0 var(--recording-spacing);
+            width: 100%;
 
-            @media (max-width: $md) {
-                width: 100%;
+            @include screen($md) {
+                width: auto;
             }
         }
 
