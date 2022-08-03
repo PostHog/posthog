@@ -103,7 +103,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                         autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     />
                 </div>
-                <LemonButton onClick={newUrl} outlined={true} icon={<IconPlus />} data-attr="toolbar-add-url">
+                <LemonButton onClick={newUrl} type="secondary" icon={<IconPlus />} data-attr="toolbar-add-url">
                     Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>
             </div>
@@ -152,7 +152,6 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                 <LemonButton
                                                     onClick={() => addUrl(keyedAppURL.url)}
                                                     icon={<IconPlus />}
-                                                    outlined={false}
                                                     data-attr="toolbar-apply-suggestion"
                                                 >
                                                     Apply suggestion

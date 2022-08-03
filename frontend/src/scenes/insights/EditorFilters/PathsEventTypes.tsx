@@ -55,7 +55,7 @@ export function PathsEventTypes({ insightProps }: EditorFilterProps): JSX.Elemen
         <LemonButtonWithPopup
             status="stealth"
             fullWidth
-            outlined
+            type="secondary"
             popup={{
                 sameWidth: true,
                 closeOnClickInside: false,

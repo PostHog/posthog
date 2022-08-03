@@ -75,10 +75,8 @@ export function NewDashboardModal(): JSX.Element {
                             },
                         }}
                         status="stealth"
-                        outlined
-                        style={{
-                            width: '100%',
-                        }}
+                        type="secondary"
+                        fullWidth
                         data-attr="copy-from-template"
                     />
                 </Field>
@@ -91,10 +89,8 @@ export function NewDashboardModal(): JSX.Element {
                                 options={DASHBOARD_RESTRICTION_OPTIONS}
                                 loading={isNewDashboardSubmitting}
                                 status="stealth"
-                                outlined
-                                style={{
-                                    width: '100%',
-                                }}
+                                type="secondary"
+                                fullWidth
                             />
                         </PayGateMini>
                     )}

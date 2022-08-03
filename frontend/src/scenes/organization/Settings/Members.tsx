@@ -94,7 +94,6 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                         <>
                             <LemonDivider />
                             <LemonButton
-                                status="stealth"
                                 status="danger"
                                 data-attr="delete-org-membership"
                                 onClick={() => {

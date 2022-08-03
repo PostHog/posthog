@@ -212,7 +212,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         deleteDashboard({ id: dashboard.id, redirect: true })
                                                     }
                                                     status="danger"
-                                                    status="stealth"
                                                     fullWidth
                                                 >
                                                     Delete dashboard

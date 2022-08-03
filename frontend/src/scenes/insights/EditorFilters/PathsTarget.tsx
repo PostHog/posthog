@@ -137,9 +137,8 @@ export function PathsTarget({
         >
             <LocalButton
                 data-attr={'new-prop-filter-' + positionOptions.index}
-                type={positionOptions.funnelFilterLink ? 'secondary' : 'stealth'}
+                status={positionOptions.funnelFilterLink ? 'primary' : 'stealth'}
                 fullWidth
-                outlined
                 className="paths-endpoint-field"
                 style={{
                     textAlign: 'left',

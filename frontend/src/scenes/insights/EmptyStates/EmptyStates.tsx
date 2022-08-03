@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconOpenInNew, IconTrendUp } from 'lib/components/icons'
+import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/components/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -170,16 +171,16 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
                 {actionable && (
-                    <div className="mt-4 text-center">
-                        <Button
+                    <div className="mt-4 flex justify-center">
+                        <LemonButton
                             size="large"
+                            type="secondary"
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button-empty-state"
-                            icon={<PlusCircleOutlined />}
-                            className="add-action-event-button"
+                            icon={<IconPlus />}
                         >
                             Add funnel step
-                        </Button>
+                        </LemonButton>
                     </div>
                 )}
                 <div className="mt-4">
@@ -188,8 +189,7 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
                         rel="noopener"
-                        className="flex items-center"
-                        style={{ justifyContent: 'center' }}
+                        className="flex items-center justify-center"
                     >
                         Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />

@@ -185,7 +185,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             )}
 
                                             <LemonButton
-                                                status="stealth"
                                                 status="danger"
                                                 onClick={() =>
                                                     deleteWithUndo({

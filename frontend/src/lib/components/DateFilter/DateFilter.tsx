@@ -8,7 +8,7 @@ import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
 import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
-import { CalendarOutlined } from '@ant-design/icons'
+import { IconCalendar } from '../icons'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -153,7 +153,7 @@ export function DateFilter({
                 additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
                 getPopupContainer,
             }}
-            icon={<CalendarOutlined />}
+            icon={<IconCalendar />}
         >
             {value}
         </LemonButtonWithPopup>

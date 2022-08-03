@@ -1493,3 +1493,14 @@ export function IconMessages(props: SvgIconProps): JSX.Element {
         </SvgIcon>
     )
 }
+
+export function IconCalendar(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                d="M19.2 3.8H18.3V2H16.5V3.8H7.5V2H5.7V3.8H4.8C3.81 3.8 3 4.61 3 5.6V20C3 20.99 3.81 21.8 4.8 21.8H19.2C20.19 21.8 21 20.99 21 20V5.6C21 4.61 20.19 3.8 19.2 3.8ZM19.2 20H4.8V10.1H19.2V20ZM19.2 8.3H4.8V5.6H19.2V8.3Z"
+                fill="#747EA2"
+            />
+        </SvgIcon>
+    )
+}

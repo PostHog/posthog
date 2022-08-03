@@ -55,7 +55,6 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
             {!!advancedOptionsUsedCount && (
                 <div className="mt-4">
                     <LemonButton
-                        status="stealth"
                         status="danger"
                         onClick={() => {
                             setStepReference(FunnelStepReference.total)

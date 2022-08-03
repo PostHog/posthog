@@ -151,7 +151,7 @@ export function LemonButtonWithSideAction({
                     <span
                         className={clsx(
                             'LemonButtonWithSideAction__spacer',
-                            buttonProps.fullWidth && "'LemonButtonWithSideAction__spacer--divider'"
+                            !buttonProps.fullWidth && 'LemonButtonWithSideAction__spacer--divider'
                         )}
                     />
                 }

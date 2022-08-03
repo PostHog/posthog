@@ -35,6 +35,10 @@
             border-radius: var(--radius);
             border: 1px solid var(--border);
 
+            svg {
+                font-size: 20px;
+            }
+
             .Preflight__check-summary {
                 display: flex;
                 padding: 12px;

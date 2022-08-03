@@ -100,7 +100,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             propertiesTaxonomicGroupTypes,
             hideDeleteBtn,
             renderRow,
-            buttonType = 'default',
+            buttonType = 'tertiary',
             readOnly = false,
             bordered = false,
         },

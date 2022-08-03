@@ -173,7 +173,6 @@ export function Dashboards(): JSX.Element {
                                 </LemonRow>
                                 <LemonDivider />
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
                                     status="danger"

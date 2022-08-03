@@ -71,7 +71,7 @@ export const FilterRow = React.memo(function FilterRow({
                         (orFiltering ? (
                             <LemonButton
                                 icon={<IconDelete />}
-                                status="danger"
+                                status="primary-alt"
                                 onClick={() => onRemove(index)}
                                 size="small"
                             />

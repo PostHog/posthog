@@ -15,7 +15,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
     }, [])
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', width: 'min(100%, 24rem)' }}>
+        <div className="flex items-center" style={{ width: 'min(100%, 24rem)' }}>
             <Input.Search
                 data-attr="persons-search"
                 placeholder="Search for persons"
@@ -39,7 +39,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
             />
             <LemonRow
                 className="ml-2"
-                status="stealth"
+                type="stealth"
                 tooltip={
                     <>
                         Search by email or Distinct ID. Email will match partially, for example: "@gmail.com". Distinct
