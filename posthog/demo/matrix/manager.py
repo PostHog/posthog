@@ -191,6 +191,7 @@ class MatrixManager:
 
     @staticmethod
     def _save_past_sim_events(team: Team, events: List[SimEvent]):
+        """Past events are saved into ClickHouse right away (via Kafka of course)."""
         from posthog.models.event.util import create_event
 
         for event in events:
@@ -206,6 +207,7 @@ class MatrixManager:
 
     @staticmethod
     def _save_future_sim_events(team: Team, events: List[SimEvent]):
+        """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
         graphile_jobs: List[GraphileJob] = []
         for event in events:
             event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
