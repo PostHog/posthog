@@ -25,14 +25,11 @@
     font-weight: var(--font-medium);
     white-space: pre;
     user-select: none;
+    gap: 0.5rem;
 
     &--current {
         color: var(--default);
         cursor: default;
-    }
-
-    > :first-child {
-        margin-right: 0.5rem;
     }
 
     &--actionable {

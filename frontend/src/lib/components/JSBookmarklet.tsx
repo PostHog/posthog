@@ -3,7 +3,6 @@ import { TeamBasicType } from '~/types'
 import { useActions } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IconBookmarkBorder } from './icons'
-import { Row } from 'antd'
 
 export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
     const initCall = `posthog.init('${team?.api_token}',{api_host:'${location.origin}', loaded: () => alert('Posthog is now tracking events!')})`
@@ -15,16 +14,13 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
 
     return (
         <>
-            <a href={href} className="full-width" onDragStart={reportBookmarkletDragged}>
-                <Row
-                    className="text-primary-alt"
-                    justify="center"
-                    align="middle"
-                    style={{ borderRadius: 4, background: '#F6F8FF', padding: '16px 0px' }}
-                >
-                    <IconBookmarkBorder style={{ marginRight: 12 }} />
-                    <p style={{ marginBottom: 0, fontSize: 16, fontWeight: 700 }}>PostHog Bookmarklet</p>
-                </Row>
+            <a
+                href={href}
+                className="w-full text-primary-alt bg-primary-alt-highlight rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
+                onDragStart={reportBookmarkletDragged}
+            >
+                <IconBookmarkBorder />
+                <span className="text-base">PostHog Bookmarklet</span>
             </a>
             <p className="text-center text-muted font-medium mt-2">
                 Drag to your bookmarks. Do not click on this link. The bookmarklet only works for the current browser

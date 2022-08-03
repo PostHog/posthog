@@ -88,10 +88,11 @@ def get_breakdown_prop_values(
 
         groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
 
-    if filter.breakdown_type == "session" or entity.math_property == "$session_duration":
-        session_query, sessions_join_params = SessionQuery(filter=filter, team=team).get_query()
+    session_query = SessionQuery(filter=filter, team=team)
+    if session_query.is_used:
+        session_query_clause, sessions_join_params = session_query.get_query()
         sessions_join_clause = f"""
-                INNER JOIN ({session_query}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
+                INNER JOIN ({session_query_clause}) AS {SessionQuery.SESSION_TABLE_ALIAS} ON {SessionQuery.SESSION_TABLE_ALIAS}.$session_id = e.$session_id
         """
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk,

@@ -24,7 +24,7 @@ export function ExpandIcon({
     const iconPrefix = `${prefixCls}-row-expand-icon`
     return (
         <div
-            style={{ display: 'flex', alignItems: 'center' }}
+            className="flex items-center"
             onClick={(e) => {
                 onExpand(record, e)
                 e.stopPropagation()

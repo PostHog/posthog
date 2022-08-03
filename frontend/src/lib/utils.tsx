@@ -180,22 +180,6 @@ export function Loading(props: Record<string, any>): JSX.Element {
     )
 }
 
-export function TableRowLoading({
-    colSpan = 1,
-    asOverlay = false,
-}: {
-    colSpan: number
-    asOverlay: boolean
-}): JSX.Element {
-    return (
-        <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
-            <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
-                <Spinner />
-            </td>
-        </tr>
-    )
-}
-
 export function deleteWithUndo({
     undo = false,
     ...props

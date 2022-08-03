@@ -43,6 +43,13 @@
         max-height: #{$space/4}rem;
     }
 
+    .min-w-#{$space} {
+        min-width: #{$space/4}rem;
+    }
+    .min-h-#{$space} {
+        min-height: #{$space/4}rem;
+    }
+
     .m-#{$space} {
         margin: #{$space/4}rem;
     }
@@ -218,7 +225,7 @@
 // Widths / heights
 
 @each $kind in ('width', 'height') {
-    $char: str-slice($kind, 0, 1);
+    $char: str-slice($kind, 1, 1);
     .#{$char}-auto {
         #{$kind}: auto;
     }
@@ -226,7 +233,7 @@
         #{$kind}: 100%;
     }
     .#{$char}-screen {
-        #{$kind}: 100v$char;
+        #{$kind}: unquote('100v' + $char);
     }
     .#{$char}-min {
         #{$kind}: min-content;
@@ -236,6 +243,20 @@
     }
     .#{$char}-fit {
         #{$kind}: fit-content;
+    }
+
+    .min-#{$char}-full {
+        min-#{$kind}: 100%;
+    }
+    .min-#{$char}-screen {
+        min-#{$kind}: unquote('100v' + $char);
+    }
+
+    .max-#{$char}-full {
+        min-#{$kind}: 100%;
+    }
+    .max-#{$char}-screen {
+        min-#{$kind}: unquote('100v' + $char);
     }
 }
 
@@ -291,7 +312,7 @@
 }
 
 .flex-nowrap {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .shrink {
@@ -506,4 +527,50 @@
 }
 .font-mono {
     font-family: monospace;
+}
+
+.opacity-0 {
+    opacity: 0;
+}
+// .opacity-5 {
+//     opacity: 0.05;
+// }
+// .opacity-10 {
+//     opacity: 0.1;
+// }
+// .opacity-20 {
+//     opacity: 0.2;
+// }
+.opacity-25 {
+    opacity: 0.25;
+}
+// .opacity-30 {
+//     opacity: 0.3;
+// }
+// .opacity-40 {
+//     opacity: 0.4;
+// }
+.opacity-50 {
+    opacity: 0.5;
+}
+// .opacity-60 {
+//     opacity: 0.6;
+// }
+// .opacity-70 {
+//     opacity: 0.7;
+// }
+.opacity-75 {
+    opacity: 0.75;
+}
+// .opacity-80 {
+//     opacity: 0.8;
+// }
+// .opacity-90 {
+//     opacity: 0.9;
+// }
+// .opacity-95 {
+//     opacity: 0.95;
+// }
+.opacity-100 {
+    opacity: 1;
 }

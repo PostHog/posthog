@@ -33,7 +33,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 type === ExportType.Scene ? (
                     <div className="SharedDashboard-header">
                         <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
-                            <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                            <FriendlyLogo className="text-lg" />
                         </a>
                         <div className="SharedDashboard-header-title">
                             <h1 className="mb-2" data-attr="dashboard-item-title">
@@ -44,13 +44,8 @@ export function Exporter(props: ExportedData): JSX.Element {
                         <span className="SharedDashboard-header-team">{team?.name}</span>
                     </div>
                 ) : type === ExportType.Embed ? (
-                    <a
-                        href="https://posthog.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ display: 'block', marginBottom: '-2.5rem' }}
-                    >
-                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                    <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
+                        <FriendlyLogo className="text-lg" />
                     </a>
                 ) : type === ExportType.Image ? (
                     <>
@@ -74,7 +69,7 @@ export function Exporter(props: ExportedData): JSX.Element {
 
             {!whitelabel && dashboard && (
                 <div className="text-center pb-4">
-                    {type === ExportType.Image ? <FriendlyLogo style={{ fontSize: '1.125rem' }} /> : null}
+                    {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
                     <div>
                         Made with{' '}
                         <a

@@ -4034,8 +4034,7 @@ def trend_test_factory(trends):
                     )
 
         @snapshot_clickhouse_queries
-        @patch("posthoganalytics.feature_enabled", return_value=True)
-        def test_timezones_hourly(self, patch_fe):
+        def test_timezones_hourly(self):
             self.team.timezone = "US/Pacific"
             self.team.save()
             _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
@@ -4124,8 +4123,7 @@ def trend_test_factory(trends):
                 self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
 
         @snapshot_clickhouse_queries
-        @patch("posthoganalytics.feature_enabled", return_value=True)
-        def test_timezones(self, patch_feature_enabled):
+        def test_timezones(self):
             self.team.timezone = "US/Pacific"
             self.team.save()
             _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
@@ -4311,8 +4309,7 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["data"], [1.0])
 
         @snapshot_clickhouse_queries
-        @patch("posthoganalytics.feature_enabled", return_value=True)
-        def test_timezone_weekly(self, patch_feature_enabled):
+        def test_timezone_weekly(self):
             self.team.timezone = "US/Pacific"
             self.team.save()
             _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
