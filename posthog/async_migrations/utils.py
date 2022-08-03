@@ -250,6 +250,10 @@ def force_stop_migration(
     this call and the time the process is killed
     2. Our Celery tasks are not essential for the functioning of PostHog, meaning losing a task is not the end of the world
     """
+    # Shortcut if we are still in starting state
+    if migration_instance.status == MigrationStatus.Starting:
+        if halt_starting_migration(migration_instance):
+            return
 
     app.control.revoke(migration_instance.celery_task_id, terminate=True)
     process_error(migration_instance, error, rollback=rollback)
@@ -292,7 +296,7 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             run_next_migration(next_migration)
 
 
-def async_migration_from_starting_to_running_atomic(migration_instance: AsyncMigration) -> bool:
+def mark_async_migration_as_running(migration_instance: AsyncMigration) -> bool:
     # update to running iff the state was Starting (ui triggered) or NotStarted (api triggered)
     with transaction.atomic():
         instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
@@ -308,7 +312,7 @@ def async_migration_from_starting_to_running_atomic(migration_instance: AsyncMig
     return True
 
 
-def async_migration_from_starting_to_rolled_back_atomic(migration_instance: AsyncMigration) -> bool:
+def halt_starting_migration(migration_instance: AsyncMigration) -> bool:
     # update to RolledBack (which blocks starting a migration) iff the state was Starting
     with transaction.atomic():
         instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
