@@ -132,7 +132,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                         Invite team members
                         <LemonButton
                             icon={<IconClose />}
-                            type="stealth"
+                            status="stealth"
                             size="small"
                             disabled={loading}
                             onClick={() => {

@@ -89,7 +89,7 @@ function OverViewTab(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => {
                                         copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
@@ -98,12 +98,12 @@ function OverViewTab(): JSX.Element {
                                     Copy key
                                 </LemonButton>
                                 {featureFlag.id && (
-                                    <LemonButton type="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                    <LemonButton status="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
                                         Edit
                                     </LemonButton>
                                 )}
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.insightNew({
                                         events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
                                         breakdown_type: 'event',
@@ -117,7 +117,7 @@ function OverViewTab(): JSX.Element {
                                 <LemonDivider />
                                 {featureFlag.id && (
                                     <LemonButton
-                                        type="stealth"
+                                        status="stealth"
                                         style={{ color: 'var(--danger)' }}
                                         onClick={() => {
                                             deleteWithUndo({

@@ -238,9 +238,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             <Collapse>
                                 <Collapse.Panel
                                     header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
-                                            <IconJavascript style={{ marginRight: 6 }} /> Javascript integration
-                                            instructions
+                                        <div className="flex font-bold items-center">
+                                            <IconJavascript className="text-base text-default mr-2" /> Javascript
+                                            integration instructions
                                         </div>
                                     }
                                     key="js"

@@ -147,11 +147,11 @@ export function ActionsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.action(action.id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={
                                         combineUrl(
                                             urls.insightNew({
@@ -175,7 +175,7 @@ export function ActionsTable(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() =>
                                         deleteWithUndo({

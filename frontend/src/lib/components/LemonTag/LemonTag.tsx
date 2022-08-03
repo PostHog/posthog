@@ -32,14 +32,14 @@ export function LemonTag({
             {popup?.overlay && (
                 <LemonButtonWithPopup
                     popup={popup}
-                    type="stealth"
+                    status="stealth"
                     size="small"
                     className="LemonTag__right-button"
                     icon={<IconEllipsis />}
                 />
             )}
             {closable && (
-                <LemonButton onClick={onClose} type="stealth" size="small" className="LemonTag__right-button">
+                <LemonButton onClick={onClose} status="stealth" size="small" className="LemonTag__right-button">
                     <IconClose />
                 </LemonButton>
             )}

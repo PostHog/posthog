@@ -14,7 +14,7 @@ export function LemonModal({ className, footer = null, width = 480, ...modalProp
             {...modalProps}
             footer={footer}
             width={width}
-            closeIcon={<LemonButton icon={<IconClose />} type="stealth" />}
+            closeIcon={<LemonButton icon={<IconClose />} status="stealth" />}
             className={clsx('LemonModal', className)}
         />
     )

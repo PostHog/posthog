@@ -240,7 +240,7 @@ function Pages(): JSX.Element {
                                         {appUrls.map((appUrl, index) => (
                                             <LemonButton
                                                 className="LaunchToolbarButton"
-                                                type="stealth"
+                                                status="stealth"
                                                 fullWidth
                                                 key={index}
                                                 onClick={() => setIsToolbarLaunchShown(false)}
@@ -257,7 +257,7 @@ function Pages(): JSX.Element {
                                             </LemonButton>
                                         ))}
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             data-attr="sidebar-launch-toolbar-add-new-url"
                                             fullWidth
                                             to={`${urls.toolbarLaunch()}?addNew=true`}

@@ -102,7 +102,7 @@ export function DateFilter({
                                 close()
                             }}
                             active={isActive}
-                            type={'stealth'}
+                            status="stealth"
                             fullWidth
                         >
                             {key}
@@ -125,7 +125,7 @@ export function DateFilter({
                 />
             )}
             <LemonDivider />
-            <LemonButton onClick={openDateRange} active={isFixedDateRange} type={'stealth'} fullWidth>
+            <LemonButton onClick={openDateRange} active={isFixedDateRange} status="stealth" fullWidth>
                 {'Custom fixed time period'}
             </LemonButton>
         </div>
@@ -140,9 +140,9 @@ export function DateFilter({
             disabled={disabled}
             className={className}
             style={style}
-            outlined
             size={'small'}
             type={'secondary'}
+            status="stealth"
             popup={{
                 onClickOutside: close,
                 visible: isOpen || isDateRangeOpen,

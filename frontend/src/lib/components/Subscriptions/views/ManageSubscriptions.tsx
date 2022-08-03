@@ -19,7 +19,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
     return (
         <LemonButtonWithSideAction
             type="secondary"
-            outlined
+            status="stealth"
             onClick={() => onClick()}
             data-attr="subscription-list-item"
             fullWidth
@@ -33,7 +33,6 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                                 <LemonButton
                                     onClick={() => onDelete()}
                                     data-attr="subscription-list-item-delete"
-                                    type="stealth"
                                     status="danger"
                                     fullWidth
                                 >
@@ -47,7 +46,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
         >
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
-                    <div>{subscription.title}</div>
+                    <div className="text-primary font-medium">{subscription.title}</div>
                     <div className="text-sm text-default">{capitalizeFirstLetter(subscription.summary)}</div>
                 </div>
                 {subscription.target_type === 'email' ? (

@@ -156,7 +156,7 @@ export function Licenses(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() => setShowConfirmCancel(license)}
                                     fullWidth

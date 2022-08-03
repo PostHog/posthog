@@ -39,7 +39,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
             />
             <LemonRow
                 className="ml-2"
-                type="stealth"
+                status="stealth"
                 tooltip={
                     <>
                         Search by email or Distinct ID. Email will match partially, for example: "@gmail.com". Distinct

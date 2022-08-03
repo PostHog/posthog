@@ -118,7 +118,7 @@ function NewInsightButton(): JSX.Element {
                             listedInsightTypeMetadata.inMenu && (
                                 <LemonButton
                                     key={listedInsightType}
-                                    type="stealth"
+                                    status="stealth"
                                     icon={
                                         listedInsightTypeMetadata.icon && (
                                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
@@ -279,15 +279,15 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -295,7 +295,7 @@ export function SavedInsights(): JSX.Element {
                                     Rename
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-duplicate`}
                                     fullWidth
@@ -304,7 +304,7 @@ export function SavedInsights(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() =>
                                         deleteWithUndo({

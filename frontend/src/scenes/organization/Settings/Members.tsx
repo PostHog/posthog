@@ -54,7 +54,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                     ) : (
                         allowedLevels.map((listLevel) => (
                             <LemonButton
-                                type="stealth"
+                                status="stealth"
                                 fullWidth
                                 key={`${member.user.uuid}-level-${listLevel}`}
                                 onClick={(event) => {
@@ -94,7 +94,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                         <>
                             <LemonDivider />
                             <LemonButton
-                                type="stealth"
+                                status="stealth"
                                 status="danger"
                                 data-attr="delete-org-membership"
                                 onClick={() => {

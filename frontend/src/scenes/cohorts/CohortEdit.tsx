@@ -101,9 +101,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                             onChange={(cohortType) => {
                                                 onChange(cohortType === CohortTypeEnum.Static)
                                             }}
-                                            type="stealth"
-                                            outlined
-                                            style={{ width: '100%' }}
+                                            type="secondary"
+                                            status="stealth"
+                                            fullWidth
                                             data-attr="cohort-type"
                                         />
                                     </div>

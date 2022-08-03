@@ -132,14 +132,14 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                     overlay={
                                         <>
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
                                             >
                                                 Duplicate
                                             </LemonButton>
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() =>
                                                     setInsightMetadata({
                                                         favorited: !insight.favorited,
@@ -152,7 +152,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             <LemonDivider />
 
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() =>
                                                     insight.short_id
                                                         ? push(urls.insightSharing(insight.short_id))
@@ -185,7 +185,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             )}
 
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 status="danger"
                                                 onClick={() =>
                                                     deleteWithUndo({

@@ -58,7 +58,7 @@ export function RollingDateRangeFilter({
                 className={clsx('RollingDateRangeFilter')}
                 data-attr="rolling-date-range-filter"
                 onClick={select}
-                type={'stealth'}
+                status="stealth"
                 active={selected}
             >
                 <p className="RollingDateRangeFilter__label">In the last</p>
@@ -66,7 +66,7 @@ export function RollingDateRangeFilter({
                     <LemonButton
                         onClick={decreaseCounter}
                         title={`Decrease rolling date range`}
-                        type={'stealth'}
+                        status="stealth"
                         size="small"
                     >
                         -
@@ -83,7 +83,7 @@ export function RollingDateRangeFilter({
                     <LemonButton
                         onClick={increaseCounter}
                         title={`Increase rolling date range`}
-                        type={'stealth'}
+                        status="stealth"
                         size="small"
                     >
                         +
@@ -102,7 +102,7 @@ export function RollingDateRangeFilter({
                     }}
                     dropdownMatchSelectWidth={false}
                     options={dateOptions}
-                    type="stealth"
+                    status="stealth"
                     popup={{
                         ...popup,
                         className: 'RollingDateRangeFilter__popup',

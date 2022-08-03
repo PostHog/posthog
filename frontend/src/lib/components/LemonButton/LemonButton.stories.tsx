@@ -13,15 +13,15 @@ import { LemonDivider } from '../LemonDivider'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 const statuses: LemonButtonProps['status'][] = [
-    'default',
     'primary',
     'danger',
     'success',
     'warning',
     'primary-alt',
     'muted-alt',
+    'stealth',
 ]
-const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary', 'stealth']
+const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 export default {
     title: 'Lemon UI/Lemon Button',
@@ -114,6 +114,11 @@ export const FullWidth = (): JSX.Element => {
             <LemonButton type="primary" fullWidth>
                 Full Width
             </LemonButton>
+
+            <LemonButton type="primary" fullWidth center icon={<IconPlus />}>
+                Full Width centered with icon
+            </LemonButton>
+
             <LemonButtonWithSideAction
                 type="secondary"
                 fullWidth
@@ -163,16 +168,16 @@ WithPopupToTheRight.args = {
     popup: {
         overlay: (
             <>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Kakapo
                 </LemonButton>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Kangaroo
                 </LemonButton>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Kingfisher
                 </LemonButton>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Koala
                 </LemonButton>
             </>
@@ -186,16 +191,16 @@ WithPopupToTheBottom.args = {
     popup: {
         overlay: (
             <>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Kakapo
                 </LemonButton>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Kangaroo
                 </LemonButton>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Kingfisher
                 </LemonButton>
-                <LemonButton type="stealth" fullWidth>
+                <LemonButton status="stealth" fullWidth>
                     Koala
                 </LemonButton>
             </>
@@ -214,14 +219,14 @@ export const More_ = MoreTemplate.bind({})
 More_.args = {
     overlay: (
         <>
-            <LemonButton type="stealth" fullWidth>
+            <LemonButton status="stealth" fullWidth>
                 View
             </LemonButton>
-            <LemonButton type="stealth" fullWidth>
+            <LemonButton status="stealth" fullWidth>
                 Edit
             </LemonButton>
             <LemonDivider />
-            <LemonButton type="stealth" status="danger" fullWidth>
+            <LemonButton status="danger" fullWidth>
                 Delete
             </LemonButton>
         </>

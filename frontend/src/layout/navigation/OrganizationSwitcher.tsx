@@ -30,7 +30,7 @@ export function OtherOrganizationButton({ organization }: { organization: Organi
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark name={organization.name} />}
             className="SitePopover__organization"
-            type="stealth"
+            status="stealth"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >

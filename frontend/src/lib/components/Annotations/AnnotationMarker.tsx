@@ -242,7 +242,7 @@ export function AnnotationMarker({
                     {label}
                     {focused && (
                         <LemonButton
-                            type="stealth"
+                            status="stealth"
                             icon={<IconClose />}
                             onClick={() => {
                                 setFocused(false)

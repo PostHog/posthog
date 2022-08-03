@@ -27,7 +27,7 @@ export function InsightTypeSelector({ value }: EditorFilterProps): JSX.Element {
                     setActiveView(v)
                 }
             }}
-            type="stealth"
+            status="stealth"
             outlined
             fullWidth
             data-attr="insight-type"

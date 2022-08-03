@@ -140,13 +140,13 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                 setChartFilter(value as ChartDisplayType | FunnelVizType)
                 onChange?.(value as ChartDisplayType | FunnelVizType)
             }}
-            outlined
             dropdownPlacement={'bottom-end'}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
-            type={'stealth'}
+            status="stealth"
+            type="secondary"
             size={'small'}
         />
     )

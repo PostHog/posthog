@@ -43,7 +43,7 @@ export function BreakdownTag({
                             onClick={() => {
                                 setUseHistogram(true)
                             }}
-                            type={'stealth'}
+                            status="stealth"
                             active={useHistogram}
                             fullWidth
                         >
@@ -64,7 +64,7 @@ export function BreakdownTag({
                             onClick={() => {
                                 setUseHistogram(false)
                             }}
-                            type={'stealth'}
+                            status="stealth"
                             active={!useHistogram}
                             className="mt-2"
                             fullWidth

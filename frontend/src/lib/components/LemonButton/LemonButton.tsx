@@ -12,8 +12,8 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
 }
 export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'type'> {
     children?: React.ReactNode
-    type?: 'primary' | 'secondary' | 'tertiary' | 'stealth'
-    status?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt'
+    type?: 'primary' | 'secondary' | 'tertiary'
+    status?: 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -21,8 +21,6 @@ export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HT
     /** External URL to link to. */
     href?: string
     className?: string
-    /** Whether the button should have a border */
-    outlined?: boolean
 
     icon?: React.ReactElement | null
     sideIcon?: React.ReactElement | null
@@ -31,6 +29,7 @@ export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HT
     tooltip?: any
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
+    center?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
     'data-tooltip'?: string
@@ -50,12 +49,12 @@ function LemonButtonInternal(
         href,
         disabled,
         loading,
-        outlined,
         type = 'tertiary',
         status = 'primary',
         icon,
         sideIcon,
         fullWidth,
+        center,
         size,
         tooltip,
         ...buttonProps
@@ -80,15 +79,15 @@ function LemonButtonInternal(
                 size && `LemonButton--${size}`,
                 disabled && 'LemonButton--disabled',
                 active && 'LemonButton--active',
-                outlined && 'LemonButton--outlined',
                 fullWidth && 'LemonButton--full-width',
+                center && 'LemonButton--centered',
                 className
             )}
             disabled={disabled || loading}
             {...buttonProps}
         >
             {icon}
-            {children ? <span className="flex items-center grow">{children}</span> : null}
+            {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
             {sideIcon}
         </button>
     )
@@ -145,7 +144,14 @@ export function LemonButtonWithSideAction({
             {/* Bogus `sideIcon` div prevents overflow under the side button. */}
             <LemonButton
                 {...buttonProps}
-                sideIcon={!buttonProps.fullWidth ? <span className="LemonButtonWithSideAction--divider" /> : undefined}
+                sideIcon={
+                    <span
+                        className={clsx(
+                            'LemonButtonWithSideAction__spacer',
+                            buttonProps.fullWidth && "'LemonButtonWithSideAction__spacer--divider'"
+                        )}
+                    />
+                }
             >
                 {children}
             </LemonButton>

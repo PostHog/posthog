@@ -28,6 +28,17 @@
         padding-right: 0.5rem;
     }
 
+    .LemonButton__content {
+        flex-grow: 1;
+    }
+
+    &.LemonButton--centered {
+        justify-content: center;
+        .LemonButton__content {
+            flex-grow: initial;
+        }
+    }
+
     &.LemonButton--small {
         min-height: 2rem;
         padding: 0.125rem 0.5rem;
@@ -62,7 +73,9 @@
         transition: color 200ms ease;
     }
 
-    @each $status in ('default', 'primary', 'success', 'warning', 'danger', 'primary-alt', 'muted', 'muted-alt') {
+    @each $status
+        in ('default', 'primary', 'success', 'warning', 'danger', 'primary-alt', 'muted', 'muted-alt', 'stealth')
+    {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status});
 
@@ -116,24 +129,38 @@
                     border-color: var(--#{$status}-dark);
                 }
             }
+        }
 
-            // Stealth is a special case type that overrides all colors
-            &.LemonButton--stealth {
-                font-weight: 400;
-                color: var(--default);
+        &.LemonButton--status-stealth {
+            font-weight: 400;
 
-                > .LemonIcon,
-                .spinner {
-                    color: var(--muted-alt);
-                }
-                &:not(:disabled):hover,
-                &.LemonButton--active {
-                    background: var(--#{$status}-highlight);
-                }
+            color: var(--default);
+
+            &:not(:disabled):hover,
+            &.LemonButton--active {
+                background: var(--primary-highlight);
             }
 
-            &.LemonButton--outlined {
+            .LemonIcon,
+            .spinner {
+                color: var(--muted-alt);
+            }
+
+            // Secondary - outlined color style
+            &.LemonButton--secondary {
+                background: var(--bg-light);
                 border: 1px solid var(--border);
+
+                &:not(:disabled):hover,
+                &.LemonButton--active,
+                &:not(:disabled):active {
+                    background: var(--primary-highlight);
+                    border-color: var(--primary);
+                }
+
+                &:not(:disabled):active {
+                    border-color: var(--primary-dark);
+                }
             }
         }
     }
@@ -143,10 +170,13 @@
     position: relative;
 }
 
-.LemonButtonWithSideAction--divider {
-    border-left: 1px solid var(--border);
+.LemonButtonWithSideAction__spacer {
     width: 1.25rem;
     height: 1.25rem;
+
+    &.LemonButtonWithSideAction__spacer--divider {
+        border-left: 1px solid var(--border);
+    }
 }
 
 .LemonButtonWithSideAction--side-button {

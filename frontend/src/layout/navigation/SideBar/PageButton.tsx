@@ -28,17 +28,16 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             ? identifier === aliasedActiveScene
             : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
-    const buttonType = isActive ? 'tertiary' : 'stealth'
+    const buttonStatus = isActive ? 'primary' : 'stealth'
 
     return sideAction ? (
         <LemonButtonWithSideAction
             fullWidth
-            type={buttonType}
+            status={buttonStatus}
             active={isActive}
             onClick={hideSideBarMobile}
             sideAction={{
                 ...sideAction,
-                type: buttonType,
                 'data-attr': sideAction.identifier ? `menu-item-${sideAction.identifier.toLowerCase()}` : undefined,
             }}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
@@ -49,7 +48,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
     ) : (
         <LemonButton
             fullWidth
-            type={buttonType}
+            status={buttonStatus}
             active={isActive}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             onClick={hideSideBarMobile}

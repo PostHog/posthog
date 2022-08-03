@@ -96,11 +96,11 @@ export function Cohorts(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.cohort(cohort.id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.cohort(cohort.id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={
                                         combineUrl(urls.sessionRecordings(), {
                                             filters: {
@@ -120,7 +120,7 @@ export function Cohorts(): JSX.Element {
                                     View session recordings
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
                                     fullWidth
@@ -129,7 +129,7 @@ export function Cohorts(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() => deleteCohort(cohort)}
                                     fullWidth

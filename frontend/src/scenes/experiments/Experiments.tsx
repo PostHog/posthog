@@ -88,7 +88,7 @@ export function Experiments(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.experiment(`${experiment.id}`)}
                                     size="small"
                                     fullWidth
@@ -97,7 +97,7 @@ export function Experiments(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() => deleteExperiment(experiment.id as number)}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}

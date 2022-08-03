@@ -225,7 +225,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => setConfigureSAMLModalId(id)}
                                     fullWidth
                                     disabled={!isSAMLAvailable}
@@ -234,7 +234,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                     Configure SAML
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     style={{ color: 'var(--danger)' }}
                                     onClick={() =>
                                         Modal.confirm({

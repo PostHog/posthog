@@ -74,7 +74,7 @@ export function NewDashboardModal(): JSX.Element {
                                 'data-attr': 'dashboard-select-default-app',
                             },
                         }}
-                        type="stealth"
+                        status="stealth"
                         outlined
                         style={{
                             width: '100%',
@@ -90,7 +90,7 @@ export function NewDashboardModal(): JSX.Element {
                                 onChange={onChange}
                                 options={DASHBOARD_RESTRICTION_OPTIONS}
                                 loading={isNewDashboardSubmitting}
-                                type="stealth"
+                                status="stealth"
                                 outlined
                                 style={{
                                     width: '100%',

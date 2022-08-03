@@ -72,7 +72,7 @@ export function CohortSelectorField({
                                             onClick={() => {
                                                 onChange({ [fieldKey]: _value })
                                             }}
-                                            type={'stealth'}
+                                            status="stealth"
                                             active={_value == value}
                                             fullWidth
                                             data-attr={`cohort-${groupKey}-${_value}-type`}

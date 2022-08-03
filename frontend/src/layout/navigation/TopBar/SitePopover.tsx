@@ -64,7 +64,7 @@ function AccountInfo(): JSX.Element {
                     to={urls.mySettings()}
                     onClick={closeSitePopover}
                     data-attr="top-menu-item-me"
-                    type="stealth"
+                    status="stealth"
                     icon={<IconSettings className="text-2xl" />}
                 />
             </Tooltip>
@@ -87,7 +87,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                         to={urls.organizationSettings()}
                         onClick={closeSitePopover}
                         data-attr="top-menu-item-org-settings"
-                        type="stealth"
+                        status="stealth"
                         icon={<IconSettings />}
                     />
                 </Tooltip>
@@ -98,7 +98,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 
 export function InviteMembersButton({
     center = false,
-    type = 'default',
+    type = 'tertiary',
 }: {
     center?: boolean
     type?: LemonButtonPropsBase['type']
@@ -267,7 +267,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} type="stealth" fullWidth data-attr="top-menu-item-logout">
+        <LemonButton onClick={logout} icon={<IconLogout />} status="stealth" fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )

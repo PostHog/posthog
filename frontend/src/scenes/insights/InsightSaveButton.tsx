@@ -36,7 +36,7 @@ export function InsightSaveButton({
                                 <LemonButton
                                     onClick={() => saveInsight(false)}
                                     data-attr="insight-save-and-continue"
-                                    type="stealth"
+                                    status="stealth"
                                     fullWidth
                                 >
                                     {addingToDashboard ? 'Save, add to dashboard' : 'Save'} & continue editing
@@ -46,7 +46,7 @@ export function InsightSaveButton({
                                 <LemonButton
                                     onClick={saveAs}
                                     data-attr="insight-save-as-new-insight"
-                                    type="stealth"
+                                    status="stealth"
                                     fullWidth
                                 >
                                     Save as…

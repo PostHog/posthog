@@ -132,7 +132,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                             DashboardEventSource.MoreDropdown
                                                         )
                                                     }
-                                                    type="stealth"
+                                                    status="stealth"
                                                     fullWidth
                                                 >
                                                     Edit layout (E)
@@ -145,7 +145,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         DashboardEventSource.MoreDropdown
                                                     )
                                                 }
-                                                type="stealth"
+                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Go full screen (F)
@@ -159,7 +159,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        type="stealth"
+                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Unpin dashboard
@@ -172,7 +172,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        type="stealth"
+                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Pin dashboard
@@ -181,7 +181,7 @@ export function DashboardHeader(): JSX.Element | null {
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton
                                                 fullWidth
-                                                type="stealth"
+                                                status="stealth"
                                                 items={[
                                                     {
                                                         export_format: ExporterFormat.PNG,
@@ -201,7 +201,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         show: true,
                                                     })
                                                 }
-                                                type="stealth"
+                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Duplicate dashboard
@@ -212,7 +212,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         deleteDashboard({ id: dashboard.id, redirect: true })
                                                     }
                                                     status="danger"
-                                                    type="stealth"
+                                                    status="stealth"
                                                     fullWidth
                                                 >
                                                     Delete dashboard

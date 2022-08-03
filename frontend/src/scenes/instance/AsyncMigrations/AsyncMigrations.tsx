@@ -157,14 +157,14 @@ export function AsyncMigrations(): JSX.Element {
                                 overlay={
                                     <>
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             onClick={() => forceStopMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Stop and rollback
                                         </LemonButton>
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             onClick={() => forceStopMigrationWithoutRollback(asyncMigration)}
                                             fullWidth
                                         >
@@ -180,14 +180,14 @@ export function AsyncMigrations(): JSX.Element {
                                 overlay={
                                     <>
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             onClick={() => resumeMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Resume
                                         </LemonButton>
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             onClick={() => rollbackMigration(asyncMigration)}
                                             fullWidth
                                         >
@@ -199,7 +199,7 @@ export function AsyncMigrations(): JSX.Element {
                         ) : status === AsyncMigrationStatus.RolledBack ? (
                             <Tooltip title="Restart">
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     icon={<IconReplay />}
                                     onClick={() => triggerMigration(asyncMigration)}
                                     fullWidth

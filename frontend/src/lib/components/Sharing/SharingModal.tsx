@@ -109,7 +109,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                     <div className="rounded border">
                                         <LemonButton
                                             fullWidth
-                                            type="stealth"
+                                            status="stealth"
                                             sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                             onClick={togglePreview}
                                         >

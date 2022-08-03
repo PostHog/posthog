@@ -88,7 +88,7 @@ export function HelpButton({
                     <a href={`https://posthog.com/questions${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                         <LemonButton
                             icon={<IconQuestionAnswer />}
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             onClick={() => {
                                 reportHelpButtonUsed(HelpType.Slack)
@@ -101,7 +101,7 @@ export function HelpButton({
                     <a href="https://github.com/PostHog/posthog/issues/new/choose" rel="noopener" target="_blank">
                         <LemonButton
                             icon={<IconGithub />}
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             onClick={() => {
                                 reportHelpButtonUsed(HelpType.GitHub)
@@ -114,7 +114,7 @@ export function HelpButton({
                     <a href="mailto:hey@posthog.com" target="_blank">
                         <LemonButton
                             icon={<IconMail />}
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             onClick={() => {
                                 reportHelpButtonUsed(HelpType.Email)
@@ -128,7 +128,7 @@ export function HelpButton({
                         <a href={`https://posthog.com/docs${HELP_UTM_TAGS}`} rel="noopener" target="_blank">
                             <LemonButton
                                 icon={<IconArticle />}
-                                type="stealth"
+                                status="stealth"
                                 fullWidth
                                 onClick={() => {
                                     reportHelpButtonUsed(HelpType.Docs)
@@ -142,7 +142,7 @@ export function HelpButton({
                     {validSequences.length > 0 && (
                         <LemonButton
                             icon={<IconMessages />}
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             onClick={() => {
                                 if (isPromptVisible) {

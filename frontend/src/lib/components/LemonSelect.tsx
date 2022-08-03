@@ -111,7 +111,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                                             setLocalValue(key)
                                         }
                                     }}
-                                    type="stealth"
+                                    status="stealth"
                                     /* Intentionally == instead of === because JS treats object number keys as strings, */
                                     /* messing comparisons up a bit */
                                     active={key == localValue}

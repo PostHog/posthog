@@ -34,7 +34,7 @@ export function TestAccountFilter({
                     <LemonButton
                         icon={<IconSettings />}
                         to="/project/settings#internal-users-filtering"
-                        type="stealth"
+                        status="stealth"
                         size="small"
                         className="ml-1"
                     />

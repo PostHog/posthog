@@ -364,7 +364,7 @@ export function EventsTable({
                                 <>
                                     {currentTeam && (
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             onClick={() =>
                                                 createActionFromEvent(
                                                     currentTeam.id,
@@ -381,7 +381,7 @@ export function EventsTable({
                                     )}
                                     {insightParams && (
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             to={urls.insightNew(insightParams)}
                                             fullWidth
                                             data-attr="events-table-usage"

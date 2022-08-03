@@ -19,7 +19,7 @@ export function More({
             data-attr="more-button"
             data-tooltip={dataTooltip}
             icon={<IconEllipsis />}
-            type="stealth"
+            status="stealth"
             popup={{
                 placement,
                 actionable: true,

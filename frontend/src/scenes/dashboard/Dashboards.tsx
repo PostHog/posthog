@@ -126,7 +126,7 @@ export function Dashboards(): JSX.Element {
                         overlay={
                             <div style={{ maxWidth: 250 }}>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
                                         dashboardLogic({ id }).mount()
@@ -140,7 +140,7 @@ export function Dashboards(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
                                         dashboardLogic({ id }).mount()
@@ -153,7 +153,11 @@ export function Dashboards(): JSX.Element {
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => duplicateDashboard({ id, name })}
+                                    fullWidth
+                                >
                                     Duplicate
                                 </LemonButton>
                                 <LemonDivider />
@@ -169,7 +173,7 @@ export function Dashboards(): JSX.Element {
                                 </LemonRow>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
                                     status="danger"

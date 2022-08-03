@@ -56,7 +56,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                         }
                         options={DASHBOARD_RESTRICTION_OPTIONS}
                         loading={dashboardLoading}
-                        type="stealth"
+                        status="stealth"
                         outlined
                         fullWidth
                         disabled={!canRestrictDashboard}
@@ -149,7 +149,7 @@ function CollaboratorRow({
                         <LemonButton
                             icon={<IconCancel />}
                             onClick={() => deleteCollaborator(user.uuid)}
-                            type="stealth"
+                            status="stealth"
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
                             disabled={!wasInvited}
                             status="danger"

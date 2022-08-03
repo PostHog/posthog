@@ -19,7 +19,7 @@ export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
     return (
         <LemonButtonWithPopup
-            type="stealth"
+            status="stealth"
             data-attr="export-button"
             {...buttonProps}
             popup={{
@@ -36,7 +36,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 <LemonButton
                                     key={i}
                                     fullWidth
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => triggerExport(triggerExportProps)}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                 >
