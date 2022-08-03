@@ -13,7 +13,7 @@ import { SessionRecordingTab } from '~/types'
 
 const { TabPane } = Tabs
 
-export function PlayerSidebarV2(): JSX.Element {
+export function PlayerInspectorV2(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { tab } = useValues(sessionRecordingLogic)
     const { setTab } = useActions(sessionRecordingLogic)
@@ -61,7 +61,7 @@ export function PlayerSidebarV2(): JSX.Element {
     )
 }
 
-export function PlayerSidebarV3(): JSX.Element {
+export function PlayerInspectorV3(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { tab } = useValues(sessionRecordingLogic)
     const sessionConsoleEnabled = !!featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]

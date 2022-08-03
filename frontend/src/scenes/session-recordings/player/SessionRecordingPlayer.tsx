@@ -6,7 +6,7 @@ import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerControllerV2, PlayerControllerV3 } from 'scenes/session-recordings/player/PlayerController'
 import { Col, Row } from 'antd'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerSidebarV2, PlayerSidebarV3 } from 'scenes/session-recordings/player/PlayerSidebar'
+import { PlayerInspectorV2, PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
 
 export function useFrameRef(): React.MutableRefObject<HTMLDivElement | null> {
     const { setRootFrame } = useActions(sessionRecordingPlayerLogic)
@@ -31,12 +31,12 @@ export function SessionRecordingPlayerV2(): JSX.Element {
                 <div className="player-container ph-no-capture">
                     <PlayerFrame ref={frame} />
                 </div>
-                {!isSmallScreen && <PlayerSidebarV2 />}
+                {!isSmallScreen && <PlayerInspectorV2 />}
             </Row>
             <Row className="player-controller" align="middle">
                 <PlayerControllerV2 />
             </Row>
-            {isSmallScreen && <PlayerSidebarV2 />}
+            {isSmallScreen && <PlayerInspectorV2 />}
         </Col>
     )
 }
@@ -56,7 +56,7 @@ export function SessionRecordingPlayerV3(): JSX.Element {
                 <PlayerControllerV3 />
             </Row>
             <LemonDivider style={{ margin: 0 }} />
-            <PlayerSidebarV3 />
+            <PlayerInspectorV3 />
         </Col>
     )
 }

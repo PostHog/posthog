@@ -7,7 +7,7 @@ import { useValues } from 'kea'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { percentage, shortenUrl } from 'lib/utils'
+import { percentage, truncate } from 'lib/utils'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -140,13 +140,10 @@ export function PlayerMetaV3(): JSX.Element {
                                 <>
                                     {'· '}
                                     <a href={currentUrl} target="_blank">
-                                        {shortenUrl(currentUrl)}
+                                        {truncate(currentUrl, 32)}
                                     </a>
                                     <span className="window-url-copy-icon">
-                                        <CopyToClipboardInline
-                                            description="current window url"
-                                            explicitValue={currentUrl}
-                                        />
+                                        <CopyToClipboardInline description="current url" explicitValue={currentUrl} />
                                     </span>
                                 </>
                             )}
@@ -158,12 +155,10 @@ export function PlayerMetaV3(): JSX.Element {
                         <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
                     ) : (
                         <span>
-                            {resolution ? (
+                            {resolution && (
                                 <>
                                     Resolution: {resolution.width} x {resolution.height} ({percentage(scale, 1, true)})
                                 </>
-                            ) : (
-                                <>Resolution: ...</>
                             )}
                         </span>
                     )}

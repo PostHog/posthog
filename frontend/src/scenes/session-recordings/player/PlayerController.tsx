@@ -8,7 +8,7 @@ import { Row, Select, Switch } from 'antd'
 import { SessionPlayerState, SessionRecordingTab } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
-import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Timestamp'
+import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconSettings, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
@@ -24,13 +24,13 @@ export function PlayerControllerV2(): JSX.Element {
                     <IconPause
                         onClick={togglePlayPause}
                         className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={{ marginRight: '0.5rem' }}
+                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
                     />
                 ) : (
                     <IconPlay
                         onClick={togglePlayPause}
                         className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                        style={{ marginRight: '0.5rem' }}
+                        style={isSmallScreen ? {} : { marginRight: '0.5rem' }}
                     />
                 )}
             </span>
@@ -92,6 +92,7 @@ export function PlayerControllerV3(): JSX.Element {
                         icon={<UnverifiedEvent />}
                         type={tab === SessionRecordingTab.EVENTS ? 'highlighted' : 'alt'}
                         onClick={() => setTab(SessionRecordingTab.EVENTS)}
+                        style={{ marginRight: '0.5rem' }}
                     >
                         Events
                     </LemonButton>
@@ -108,19 +109,24 @@ export function PlayerControllerV3(): JSX.Element {
                 </Row>
                 <Row wrap={false} style={{ margin: '0 1rem' }}>
                     <SeekBack />
-                    {currentPlayerState === SessionPlayerState.PLAY ? (
-                        <IconPause
-                            onClick={togglePlayPause}
-                            className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                            style={{ margin: '0 1.25rem' }}
-                        />
-                    ) : (
-                        <IconPlay
-                            onClick={togglePlayPause}
-                            className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                            style={{ margin: '0 1.25rem' }}
-                        />
-                    )}
+                    <LemonButton
+                        type="alt"
+                        icon={
+                            [SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
+                                <IconPause
+                                    onClick={togglePlayPause}
+                                    className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
+                                    style={{ margin: '0 1.25rem' }}
+                                />
+                            ) : (
+                                <IconPlay
+                                    onClick={togglePlayPause}
+                                    className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
+                                />
+                            )
+                        }
+                        style={{ margin: '0 1.25rem' }}
+                    />
                     <SeekForward />
                 </Row>
                 <Row wrap={false} style={{ width: '50%' }} justify="end" align="middle">

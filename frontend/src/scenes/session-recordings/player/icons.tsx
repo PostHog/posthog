@@ -3,6 +3,7 @@
 import React, { CSSProperties } from 'react'
 import { RedoOutlined, UndoOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
+import { LemonButton } from 'lib/components/LemonButton'
 
 interface IconProps {
     onClick?: () => void
@@ -35,7 +36,7 @@ export function IconSeekBack({
         <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
             <>
                 <span className="seek-seconds">{time}</span>
-                <UndoOutlined className="seek-icon" rotate={90} />
+                <LemonButton type="alt" icon={<UndoOutlined className="seek-icon" rotate={90} />} />
             </>
         </BaseIcon>
     )
@@ -52,7 +53,7 @@ export function IconSeekForward({
         <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
             <>
                 <span className="seek-seconds">{time}</span>
-                <RedoOutlined className="seek-icon" rotate={270} />
+                <LemonButton type="alt" icon={<RedoOutlined className="seek-icon" rotate={270} />} />
             </>
         </BaseIcon>
     )

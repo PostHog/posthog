@@ -36,7 +36,6 @@ import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { combineUrl } from 'kea-router'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -625,12 +624,8 @@ export function isEmail(string: string): boolean {
     return !!string.match?.(regexp)
 }
 
-export function shortenUrl(fullUrl: string): string {
-    if (!fullUrl) {
-        return ''
-    }
-    const parsedUrl = combineUrl(fullUrl)
-    return `${parsedUrl.pathname}${!!parsedUrl.hash || !!parsedUrl.search ? '...' : ''}`
+export function truncate(str: string, maxLength: number): string {
+    return str.length > maxLength ? str.slice(0, maxLength - 1) + '...' : str
 }
 
 export function eventToDescription(

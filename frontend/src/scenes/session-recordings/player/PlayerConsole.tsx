@@ -26,9 +26,9 @@ export function PlayerConsole(): JSX.Element | null {
             >
                 <div className="trace-string">
                     {log.parsedTraceURL ? (
-                        `<a className="text-muted" href={log.parsedTraceURL} target="_blank">
+                        <a className="text-muted" href={log.parsedTraceURL} target="_blank">
                             {log.parsedTraceString}
-                        </a>`
+                        </a>
                     ) : (
                         <span className="text-muted">{log.parsedTraceString}</span>
                     )}
