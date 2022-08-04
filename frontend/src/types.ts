@@ -1995,3 +1995,8 @@ export interface ExportedAssetType {
     has_content: boolean
     filename: string
 }
+
+export enum ConsoleFeedbackOptionValue {
+    Yes = 'yes',
+    No = 'no',
+}

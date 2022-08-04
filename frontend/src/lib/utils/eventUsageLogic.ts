@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     FilterLogicalOperator,
     PropertyFilterValue,
+    ConsoleFeedbackOptionValue,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -366,7 +367,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingConsoleFeedback: (logCount: number, response: string, question: string) => ({
+        reportRecordingConsoleFeedback: (logCount: number, response: ConsoleFeedbackOptionValue, question: string) => ({
             logCount,
             response,
             question,
