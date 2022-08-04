@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { Input } from 'antd'
 import { useValues, useActions } from 'kea'
 import { personsLogic } from './personsLogic'
-import { LemonRow } from 'lib/components/LemonRow'
 import { IconInfo } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
     const { loadPersons, setListFilters } = useActions(personsLogic)
@@ -15,7 +15,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
     }, [])
 
     return (
-        <div className="flex items-center" style={{ width: 'min(100%, 24rem)' }}>
+        <div className="flex items-center gap-2" style={{ width: 'min(100%, 24rem)' }}>
             <Input.Search
                 data-attr="persons-search"
                 placeholder="Search for persons"
@@ -37,17 +37,16 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                 }}
                 style={{ width: '100%' }}
             />
-            <LemonRow
-                className="ml-2"
-                type="stealth"
-                tooltip={
+            <Tooltip
+                title={
                     <>
                         Search by email or Distinct ID. Email will match partially, for example: "@gmail.com". Distinct
                         ID needs to match exactly.
                     </>
                 }
-                icon={<IconInfo />}
-            />
+            >
+                <IconInfo className="text-2xl text-muted-alt" />
+            </Tooltip>
         </div>
     )
 }

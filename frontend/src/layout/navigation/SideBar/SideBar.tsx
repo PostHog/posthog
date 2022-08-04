@@ -126,18 +126,6 @@ function Pages(): JSX.Element {
                                                         for them to show up here
                                                     </span>
                                                 </div>
-                                                <LemonRow icon={<IconPin />} fullWidth>
-                                                    <span>
-                                                        <Link
-                                                            onClick={() => setArePinnedDashboardsShown(false)}
-                                                            to={urls.dashboards()}
-                                                        >
-                                                            Pin some dashboards
-                                                        </Link>
-                                                        <br />
-                                                        for them to show up here
-                                                    </span>
-                                                </LemonRow>
                                             </>
                                         )}
                                     </div>

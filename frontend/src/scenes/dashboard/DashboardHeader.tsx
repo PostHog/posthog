@@ -114,13 +114,13 @@ export function DashboardHeader(): JSX.Element | null {
                                         <>
                                             {dashboard.created_by && (
                                                 <>
-                                                    <LemonRow fullWidth style={{ color: 'var(--muted-alt)' }}>
+                                                    <div className="flex p-2 text-muted-alt">
                                                         Created by{' '}
                                                         {dashboard.created_by.first_name ||
                                                             dashboard.created_by.email ||
                                                             '-'}{' '}
                                                         on {humanFriendlyDetailedTime(dashboard.created_at)}
-                                                    </LemonRow>
+                                                    </div>
                                                     <LemonDivider />
                                                 </>
                                             )}

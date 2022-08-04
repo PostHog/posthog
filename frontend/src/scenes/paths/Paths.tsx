@@ -356,12 +356,14 @@ export function Paths(): JSX.Element {
                                                         <ClockCircleOutlined
                                                             style={{ color: 'var(--muted)', fontSize: 16 }}
                                                         />
-                                                        <span>Average time from previous step</span>
-                                                        <span className="whitespace-nowrap shrink-0">
-                                                            {humanFriendlyDuration(
-                                                                pathItemCard.targetLinks[0].average_conversion_time /
-                                                                    1000
-                                                            )}
+                                                        <span>
+                                                            Average time from previous step{' '}
+                                                            <b>
+                                                                {humanFriendlyDuration(
+                                                                    pathItemCard.targetLinks[0]
+                                                                        .average_conversion_time / 1000
+                                                                )}
+                                                            </b>
                                                         </span>
                                                     </div>
                                                 )}

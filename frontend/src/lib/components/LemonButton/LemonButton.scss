@@ -114,7 +114,13 @@
                 }
                 &:not(:disabled):hover,
                 &.LemonButton--active {
+                    color: var(--white);
                     background: var(--#{$status}-light);
+
+                    .LemonIcon,
+                    .spinner {
+                        color: var(--white);
+                    }
                 }
                 &:not(:disabled):active {
                     background: var(--#{$status}-dark);

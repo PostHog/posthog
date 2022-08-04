@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonRow } from 'lib/components/LemonRow'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -29,7 +28,6 @@ export function OtherOrganizationButton({ organization }: { organization: Organi
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark name={organization.name} />}
-            className="SitePopover__organization"
             status="stealth"
             title={`Switch to organization ${organization.name}`}
             fullWidth
@@ -78,12 +76,15 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
             <h5>Organizations</h5>
             <LemonDivider />
             {currentOrganization && (
-                <LemonRow status="highlighted" fullWidth icon={<Lettermark name={currentOrganization.name} />}>
-                    <div className="SitePopover__main-info SitePopover__organization">
-                        <strong>{currentOrganization.name}</strong>
-                        <AccessLevelIndicator organization={currentOrganization} />
-                    </div>
-                </LemonRow>
+                <LemonButton
+                    icon={<Lettermark name={currentOrganization.name} />}
+                    status="stealth"
+                    title={`Switch to organization ${currentOrganization.name}`}
+                    fullWidth
+                >
+                    <strong>{currentOrganization.name}</strong>
+                    <AccessLevelIndicator organization={currentOrganization} />
+                </LemonButton>
             )}
             {otherOrganizations.map((otherOrganization) => (
                 <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />

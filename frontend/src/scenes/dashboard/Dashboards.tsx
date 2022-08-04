@@ -161,12 +161,8 @@ export function Dashboards(): JSX.Element {
                                     Duplicate
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonRow
-                                    icon={<IconCottage style={{ color: 'var(--warning)' }} />}
-                                    fullWidth
-                                    status="muted"
-                                >
-                                    <span>
+                                <LemonRow icon={<IconCottage className="text-warning" />} fullWidth status="warning">
+                                    <span className="text-muted">
                                         Change the default dashboard on the{' '}
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
                                     </span>
