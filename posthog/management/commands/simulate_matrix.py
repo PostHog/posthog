@@ -81,8 +81,8 @@ class Command(BaseCommand):
                             print(
                                 f"        {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "
-                                f"between {cast(SimEvent,person.first_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
-                                f"and {cast(SimEvent,person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
+                                f"between {cast(SimEvent, person.first_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
+                                f"and {cast(SimEvent, person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
                                 flush=False,
                             )
         print(

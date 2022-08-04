@@ -45,7 +45,8 @@ class SimEvent:
     timestamp: timezone.datetime
 
     def __str__(self) -> str:
-        display = f"{self.timestamp} - {self.event} # {self.properties['$distinct_id']}"
+        separator = "-" if self.timestamp < timezone.now() else "+"  # Future events are denoted by a '+'
+        display = f"{self.timestamp} {separator} {self.event} # {self.properties['$distinct_id']}"
         if current_url := self.properties.get("$current_url"):
             display += f" @ {current_url}"
         return display
