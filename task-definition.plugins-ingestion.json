@@ -69,10 +69,6 @@
                     "value": "2,2635"
                 },
                 {
-                    "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED",
-                    "value": "True"
-                },
-                {
                     "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
                     "value": "1"
                 },
