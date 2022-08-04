@@ -489,7 +489,7 @@ def _annotate_tagged_query(query, args):
         tags["team_id"] = args["team_id"]
     # Annotate the query with information on the request/task
     if _request_information is not None:
-        user_id = f" user_id:{_request_information['user_id']}" if _request_information["user_id"] else ""
+        user_id = f" user_id:{_request_information['user_id']}" if _request_information.get("user_id") else ""
         query = f"/*{user_id} {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
 
     return query, tags

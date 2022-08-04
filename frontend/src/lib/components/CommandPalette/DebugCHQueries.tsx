@@ -20,7 +20,9 @@ function nthChar(string: string, character: string, n: number): number {
     while (count < n && (i = string.indexOf(character, i) + 1)) {
         count++
     }
-    if (count == n) {return i - 1}
+    if (count == n) {
+        return i - 1
+    }
     return -1
 }
 
