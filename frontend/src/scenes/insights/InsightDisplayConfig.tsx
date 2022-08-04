@@ -19,7 +19,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { aggregationAxisFormatSelectOptions, axisLabel, canFormatAxis } from 'scenes/insights/aggregationAxisFormat'
+import { aggregationAxisFormatSelectOptions, axisLabel } from 'scenes/insights/aggregationAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -167,7 +167,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                             bordered
                             dropdownPlacement={'bottom-end'}
                             dropdownMatchSelectWidth={false}
-                            disabled={!canFormatAxis(filters.display)}
                             data-attr="chart-aggregation-axis-format"
                             options={aggregationAxisFormatSelectOptions}
                             type={'stealth'}
