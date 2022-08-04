@@ -316,7 +316,7 @@ describe('PersonState.update()', () => {
     it('adds distinct_id to user and updates property on $identify event', async () => {
         await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
 
-        await personState({
+        const personContainer = await personState({
             event: '$identify',
             distinct_id: 'new-user',
             properties: {
@@ -326,9 +326,8 @@ describe('PersonState.update()', () => {
         }).update()
         await hub.db.kafkaProducer.flush()
 
-        const persons = await hub.db.fetchPersons()
-        expect(persons.length).toEqual(1)
-        expect(persons[0]).toEqual(
+        const person = await personContainer.get()
+        expect(person).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: uuid.toString(),
@@ -338,7 +337,8 @@ describe('PersonState.update()', () => {
                 version: 1,
             })
         )
-        const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+
+        const distinctIds = await hub.db.fetchDistinctIdValues(person!)
         expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
 
         const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows())

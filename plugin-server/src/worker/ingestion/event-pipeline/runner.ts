@@ -77,8 +77,14 @@ export class EventPipelineRunner {
     async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
         const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
+        // We fetch person and check for existence for metrics for buffer efficiency
+        const didPersonExistAtStart = !!(await personContainer.get())
+
         const result = await this.runPipeline('pluginsProcessEventStep', event, personContainer)
-        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested')
+
+        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested', {
+            didPersonExistAtStart: String(!!didPersonExistAtStart),
+        })
         return result
     }
 
