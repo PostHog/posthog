@@ -304,21 +304,25 @@ def update_filters_hash(cache_key: str, dashboard: Optional[Dashboard], insight:
         dashboard_tiles = DashboardTile.objects.filter(insight=insight, dashboard=dashboard,).exclude(
             filters_hash=cache_key
         )
-        matching_tiles_with_no_hash = dashboard_tiles.filter(filters_hash=None).count()
-        statsd.incr("update_cache_queue.set_missing_filters_hash", matching_tiles_with_no_hash)
-        dashboard_tiles.update(filters_hash=cache_key)
-    if should_update_insight_filters_hash:
-        insight.filters_hash = cache_key
-        insight.save()
-    if should_update_insight_filters_hash or should_update_dashboard_tile_filters_hash:
+
+        count_of_updated_tiles = dashboard_tiles.update(filters_hash=cache_key)
         statsd.incr(
-            "update_cache_item_set_new_cache_key",
+            "update_cache_item_set_new_cache_key_on_tile",
+            count=count_of_updated_tiles,
             tags={
                 "team": insight.team.id,
                 "cache_key": cache_key,
                 "insight_id": insight.id,
-                "dashboard_id": None if not dashboard else dashboard.id,
+                "dashboard_id": dashboard.id,
             },
+        )
+    if should_update_insight_filters_hash:
+        insight.filters_hash = cache_key
+        insight.save()
+
+        statsd.incr(
+            "update_cache_item_set_new_cache_key_on_shared_insight",
+            tags={"team": insight.team.id, "cache_key": cache_key, "insight_id": insight.id, "dashboard_id": None,},
         )
 
 
