@@ -1,5 +1,10 @@
 import { CohortType, Entity, EntityFilter, FilterLogicalOperator, FilterType, InsightType, PathType } from '~/types'
-import { extractObjectDiffKeys, getDisplayNameFromEntityFilter, summarizeInsightFilters } from 'scenes/insights/utils'
+import {
+    extractObjectDiffKeys,
+    formatAggregationValue,
+    getDisplayNameFromEntityFilter,
+    summarizeInsightFilters,
+} from 'scenes/insights/utils'
 import { BASE_MATH_DEFINITIONS, MathDefinition, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 
@@ -484,5 +489,14 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual('User lifecycle based on Rageclick')
+    })
+})
+
+describe('formatAggregationValue', () => {
+    it('safely handles null', () => {
+        const fakeRenderCount = (x: number): string => String(x)
+        const noOpFormatProperty = jest.fn((_, y) => y)
+        const actual = formatAggregationValue('some name', null, fakeRenderCount, noOpFormatProperty)
+        expect(actual).toEqual('0')
     })
 })
