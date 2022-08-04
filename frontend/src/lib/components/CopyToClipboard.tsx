@@ -51,6 +51,7 @@ export function CopyToClipboardInline({
             <LemonButton
                 size="small"
                 icon={<IconCopy />}
+                noPadding
                 className="copy-icon"
                 onClick={!selectable ? undefined : copy}
                 style={{

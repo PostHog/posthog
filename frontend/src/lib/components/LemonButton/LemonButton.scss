@@ -67,7 +67,12 @@
         padding-right: 0.5rem;
     }
 
-    &.LemonButton--icon-only {
+    &.LemonButton--no-content {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
+    &.LemonButton--noPadding {
         min-height: 0;
         height: auto;
         width: auto;

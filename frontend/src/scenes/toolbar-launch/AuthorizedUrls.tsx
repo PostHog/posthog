@@ -147,7 +147,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                         >
                                             {keyedAppURL.url}
                                         </Typography.Text>
-                                        <div className="Actions flex space-x-4 shrink-0">
+                                        <div className="Actions flex space-x-2 shrink-0">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
                                                     onClick={() => addUrl(keyedAppURL.url)}

@@ -31,6 +31,8 @@ export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HT
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
+    /** Special case value for buttons such as compact icon-only buttons */
+    noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
     'data-tooltip'?: string
@@ -59,6 +61,7 @@ function LemonButtonInternal(
         size,
         tooltip,
         htmlType,
+        noPadding,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLButtonElement>
@@ -78,12 +81,13 @@ function LemonButtonInternal(
                 'LemonButton',
                 `LemonButton--${type}`,
                 `LemonButton--status-${status}`,
-                !children && !!icon && `LemonButton--icon-only`,
+                noPadding && `LemonButton--noPadding`,
                 size && `LemonButton--${size}`,
                 disabled && 'LemonButton--disabled',
                 active && 'LemonButton--active',
                 fullWidth && 'LemonButton--full-width',
                 center && 'LemonButton--centered',
+                !children && 'LemonButton--no-content',
                 !!icon && `LemonButton--hasIcon`,
                 !!sideIcon && `LemonButton--hasSideIcon`,
                 className
@@ -166,6 +170,7 @@ export function LemonButtonWithSideAction({
                     type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
                     status={buttonProps.status}
                     popup={sidePopup as LemonButtonPopup}
+                    noPadding
                     {...sideActionRest}
                 />
             </div>

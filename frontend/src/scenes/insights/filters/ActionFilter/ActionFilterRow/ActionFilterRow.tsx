@@ -233,6 +233,7 @@ export function ActionFilterRow({
                 status="primary-alt"
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
+                noPadding
                 onClick={() => {
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
@@ -248,6 +249,7 @@ export function ActionFilterRow({
             status="primary-alt"
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
+            noPadding
             onClick={() => {
                 selectFilter(filter)
                 onRenameClick()
@@ -261,6 +263,7 @@ export function ActionFilterRow({
             status="primary-alt"
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
+            noPadding
             onClick={() => {
                 duplicateFilter(filter)
             }}
@@ -273,6 +276,7 @@ export function ActionFilterRow({
             status="primary-alt"
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
+            noPadding
             onClick={onClose}
         />
     )

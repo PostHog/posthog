@@ -80,8 +80,8 @@ const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
     return <More {...props} />
 }
 
-export const IconOnly = StatusesTemplate.bind({})
-IconOnly.args = { noText: true } as any
+export const NoPadding = StatusesTemplate.bind({})
+NoPadding.args = { noText: true, noPadding: true } as any
 
 export const TextOnly = StatusesTemplate.bind({})
 TextOnly.args = { icon: undefined, type: 'secondary' } as any
