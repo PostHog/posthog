@@ -7,7 +7,8 @@ from django.test import TestCase
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.queries.paths.paths_event_query import PathEventQuery
+from ee.clickhouse.queries.paths import ClickhousePaths as Paths
+from ee.clickhouse.queries.paths import ClickhousePathsActors as PathsActors
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -18,7 +19,7 @@ from posthog.models.filters import Filter, PathFilter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.session_recording_event.util import create_session_recording_event
-from posthog.queries.paths import Paths, PathsActors
+from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.test.test_paths import paths_test_factory
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries, test_with_materialized_columns
 

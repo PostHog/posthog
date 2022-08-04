@@ -1,6 +1,5 @@
 import json
 import unittest
-from datetime import datetime
 from typing import Dict, List, Optional
 from unittest import mock
 
@@ -12,6 +11,7 @@ from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.person import PersonDistinctId
+from posthog.models.person.util import create_person
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -465,16 +465,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get("/api/person/").json()
 
-        self.assertEqual(response["results"][0]["name"], "distinct_id1")
-        self.assertEqual(response["results"][1]["name"], "distinct_id2")
+        self.assertEqual(response["results"][0]["name"], "distinct_id2")
+        self.assertEqual(response["results"][1]["name"], "distinct_id1")
 
         self.assertEqual(
             response["results"][0]["distinct_ids"],
-            ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
+            ["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
         )
         self.assertEqual(
             response["results"][1]["distinct_ids"],
-            ["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"],
+            ["distinct_id1", "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c"],
         )
 
     def test_person_cohorts(self) -> None:
@@ -599,22 +599,30 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
     def test_pagination_limit(self):
         created_ids = []
-        for index in range(0, 20):
+
+        for index in range(0, 19):
             created_ids.append(str(index + 100))
-            _create_person(
+            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
                 team=self.team, distinct_ids=[str(index + 100)], properties={"$browser": "whatever", "$os": "Windows"},
             )
 
-        with freeze_time(datetime(2022, 1, 1, 0, 0)):
-            flush_persons_and_events()
+        # Very occasionally, a person might be deleted in postgres but not in Clickhouse due to network issues or whatever
+        # In this case Clickhouse will return a user that then doesn't get returned by postgres.
+        # We would return an empty "next" url.
+        # Now we just return 9 people instead
+        create_person(team_id=self.team.pk, version=0)
+
         returned_ids = []
-        response = self.client.get("/api/person/?limit=10").json()
-        self.assertEqual(len(response["results"]), 10)
+        with self.assertNumQueries(6):
+            response = self.client.get("/api/person/?limit=10").json()
+        self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response = self.client.get(response["next"]).json()
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
+        self.assertEqual(len(response["results"]), 10)
 
-        self.assertCountEqual(returned_ids, created_ids, returned_ids)
+        created_ids.reverse()  # ids are returned in desc order
+        self.assertEqual(returned_ids, created_ids, returned_ids)
 
     def _get_person_activity(self, person_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK):
         if person_id:
