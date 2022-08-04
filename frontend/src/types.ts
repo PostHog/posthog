@@ -427,8 +427,7 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
-export interface RecordingConsoleLog {
-    playerPosition: PlayerPosition | null
+export interface RecordingConsoleLog extends RecordingTimeMixinType {
     parsedPayload: string
     parsedTraceURL?: string
     parsedTraceString?: string
@@ -703,9 +702,13 @@ export interface EventType {
     event: string
 }
 
-export interface RecordingEventType extends EventType {
-    playerTime: number
-    playerPosition: PlayerPosition
+export interface RecordingTimeMixinType {
+    playerTime: number | null
+    playerPosition: PlayerPosition | null
+    colonTimestamp?: string
+}
+
+export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
     isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }

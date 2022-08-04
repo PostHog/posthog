@@ -86,12 +86,12 @@ function EventDescription({ description }: { description: string }): JSX.Element
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
     const {
-        localFilters,
         listEvents,
-        currentEventsBoxSizeAndPosition,
+        localFilters,
+        currentBoxSizeAndPosition,
         showPositionFinder,
         isRowIndexRendered,
-        isEventCurrent,
+        isCurrent,
         isDirectionUp,
         renderedRows,
     } = useValues(eventsListLogic)
@@ -111,16 +111,16 @@ export function PlayerEvents(): JSX.Element {
         function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
-            const isCurrent = isEventCurrent(index)
+            const isEventCurrent = isCurrent(index)
 
             return (
                 <Row
                     key={key}
-                    className={clsx('event-list-item', { 'current-event': isCurrent })}
+                    className={clsx('event-list-item', { 'current-event': isEventCurrent })}
                     align="top"
                     style={{ ...style, zIndex: listEvents.length - index }}
                     onClick={() => {
-                        handleEventClick(event.playerPosition)
+                        event.playerPosition && handleEventClick(event.playerPosition)
                     }}
                     data-tooltip="recording-event-list"
                 >
@@ -175,8 +175,8 @@ export function PlayerEvents(): JSX.Element {
             listEvents.length,
             renderedRows.startIndex,
             renderedRows.stopIndex,
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
+            currentBoxSizeAndPosition.top,
+            currentBoxSizeAndPosition.height,
         ]
     )
 
@@ -189,20 +189,15 @@ export function PlayerEvents(): JSX.Element {
                         key="highlight-box"
                         className="current-events-highlight-box"
                         style={{
-                            height: currentEventsBoxSizeAndPosition.height,
-                            transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
+                            height: currentBoxSizeAndPosition.height,
+                            transform: `translateY(${currentBoxSizeAndPosition.top}px)`,
                         }}
                     />
                 )
             }
             return children
         },
-        [
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
-            sessionEventsDataLoading,
-            listEvents.length,
-        ]
+        [currentBoxSizeAndPosition.top, currentBoxSizeAndPosition.height, sessionEventsDataLoading, listEvents.length]
     )
 
     return (
