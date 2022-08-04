@@ -140,10 +140,8 @@ export function PathsTarget({
                 status={positionOptions.funnelFilterLink ? 'primary' : 'stealth'}
                 fullWidth
                 className="paths-endpoint-field"
-                style={{
-                    textAlign: 'left',
-                    backgroundColor: overrideInputs ? 'var(--border-light)' : 'white',
-                }}
+                type="secondary"
+                active={overrideInputs}
                 disabled={positionOptions.disabled}
                 onClick={
                     positionOptions.funnelFilterLink
@@ -158,7 +156,7 @@ export function PathsTarget({
                         : () => {}
                 }
                 sideAction={{
-                    icon: <IconClose style={{ fontSize: '1rem' }} />,
+                    icon: <IconClose />,
                     type: 'tertiary',
 
                     onClick: (e) => {

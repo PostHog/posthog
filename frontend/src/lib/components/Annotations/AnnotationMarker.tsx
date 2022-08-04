@@ -133,11 +133,9 @@ export function AnnotationMarker({
             <LemonTextArea maxLength={300} rows={4} value={textInput} onChange={(e) => setTextInput(e)} autoFocus />
             <LemonCheckbox
                 checked={applyAll}
-                onChange={(e) => {
-                    setApplyAll(e.target.checked)
-                }}
+                onChange={(e) => setApplyAll(e.target.checked)}
                 label="Create for all charts"
-                rowProps={{ fullWidth: true }}
+                fullWidth
             />
             <div className="flex justify-end gap-2">
                 <LemonButton

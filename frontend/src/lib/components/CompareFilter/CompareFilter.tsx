@@ -16,17 +16,12 @@ export function CompareFilter(): JSX.Element | null {
 
     return (
         <LemonCheckbox
-            onChange={(e) => {
-                setCompare(e.target.checked)
-            }}
+            onChange={(e) => setCompare(e.target.checked)}
             checked={compare}
-            style={{ marginLeft: 8, marginRight: 6 }}
             disabled={disabled}
             label={'Compare to previous time period'}
             bordered
-            rowProps={{
-                size: 'small',
-            }}
+            size="small"
         />
     )
 }

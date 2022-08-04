@@ -232,26 +232,29 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     </Field>
                 </div>
                 <div>
-                    <div style={{ marginTop: '2rem' }}>
-                        <h2 className="subtitle">Match groups</h2>
+                    <div className="my-2">
+                        <h2 className="subtitle">Webhooks</h2>
                         <Field name="post_to_slack">
                             {({ value, onChange }) => (
-                                <LemonCheckbox
-                                    id="webhook-checkbox"
-                                    checked={!!value}
-                                    onChange={(e) => onChange(e.target.checked)}
-                                    rowProps={{ fullWidth: true }}
-                                    disabled={!slackEnabled}
-                                    label={
-                                        <>
-                                            Post to webhook when this{' '}
-                                            {shouldSimplifyActions ? 'calculated event' : 'action'} is triggered.
-                                            <Link to="/project/settings#webhook" style={{ marginLeft: 4 }}>
-                                                {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
-                                            </Link>
-                                        </>
-                                    }
-                                />
+                                <>
+                                    <p>
+                                        <Link to="/project/settings#webhook">
+                                            {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                                        </Link>
+                                    </p>
+                                    <LemonCheckbox
+                                        id="webhook-checkbox"
+                                        checked={!!value}
+                                        onChange={(e) => onChange(e.target.checked)}
+                                        disabled={!slackEnabled}
+                                        label={
+                                            <>
+                                                Post to webhook when this{' '}
+                                                {shouldSimplifyActions ? 'calculated event' : 'action'} is triggered.
+                                            </>
+                                        }
+                                    />
+                                </>
                             )}
                         </Field>
                         {action.post_to_slack && (
@@ -259,7 +262,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <Field name="slack_message_format">
                                     {({ value, onChange }) => (
                                         <>
-                                            <div>Message format (optional)</div>
+                                            <div className="mt-2">Message format (optional)</div>
                                             <LemonInput
                                                 placeholder="Default: [action.name] triggered by [person]"
                                                 value={value}
