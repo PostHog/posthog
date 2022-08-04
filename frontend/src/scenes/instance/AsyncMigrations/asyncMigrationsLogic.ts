@@ -8,6 +8,7 @@ import { InstanceSetting } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { loaders } from 'kea-loaders'
+import { isVersionLT } from 'lib/utils'
 export type TabName = 'overview' | 'internal_metrics'
 
 // keep in sync with MigrationStatus in posthog/models/async_migration.py
@@ -171,7 +172,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
             (preflight) =>
                 function isFutureMigration(migration: AsyncMigration): boolean {
                     const posthogVersion = preflight?.posthog_version
-                    return !posthogVersion || posthogVersion < migration.posthog_min_version // TODO: needs to be semver comp
+                    return !posthogVersion || isVersionLT(posthogVersion, migration.posthog_min_version)
                 },
         ],
         actionableMigrations: [

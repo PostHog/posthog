@@ -12,6 +12,7 @@ import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { isVersionLT } from 'lib/utils'
 
 export type WarningType = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates' | null
 
@@ -152,7 +153,7 @@ export const navigationLogic = kea<navigationLogicType>({
                     !latestVersionLoading &&
                     !preflight?.cloud &&
                     latestVersion &&
-                    latestVersion !== preflight?.posthog_version
+                    isVersionLT(preflight?.posthog_version || '0.0.0', latestVersion)
                 )
             },
         ],
