@@ -6,6 +6,7 @@ import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconApps,
     IconBarChart,
+    IconCoffee,
     IconCohort,
     IconComment,
     IconExperiment,
@@ -35,7 +36,6 @@ import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
@@ -156,7 +156,7 @@ function Pages(): JSX.Element {
                     )}
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
-                            icon={<CoffeeOutlined />}
+                            icon={<IconCoffee />}
                             identifier={Scene.WebPerformance}
                             to={urls.webPerformance()}
                         />

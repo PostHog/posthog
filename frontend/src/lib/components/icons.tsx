@@ -32,6 +32,8 @@ const SvgIcon: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }
         height="1em"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
+        focusable="false"
+        aria-hidden="true"
         {...props}
     />
 )
@@ -1546,6 +1548,14 @@ export function IconCalendar(props: SvgIconProps): JSX.Element {
                 d="M19.2 3.8H18.3V2H16.5V3.8H7.5V2H5.7V3.8H4.8C3.81 3.8 3 4.61 3 5.6V20C3 20.99 3.81 21.8 4.8 21.8H19.2C20.19 21.8 21 20.99 21 20V5.6C21 4.61 20.19 3.8 19.2 3.8ZM19.2 20H4.8V10.1H19.2V20ZM19.2 8.3H4.8V5.6H19.2V8.3Z"
                 fill="currentColor"
             />
+        </SvgIcon>
+    )
+}
+
+export function IconCoffee(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 1024 1024" fill="currentColor" {...props}>
+            <path d="M275 281c19.9 0 36-16.1 36-36V36c0-19.9-16.1-36-36-36s-36 16.1-36 36v209c0 19.9 16.1 36 36 36zm613 144H768c0-39.8-32.2-72-72-72H200c-39.8 0-72 32.2-72 72v248c0 3.4.2 6.7.7 9.9-.5 7-.7 14-.7 21.1 0 176.7 143.3 320 320 320 160.1 0 292.7-117.5 316.3-271H888c39.8 0 72-32.2 72-72V497c0-39.8-32.2-72-72-72zM696 681h-1.1c.7 7.6 1.1 15.2 1.1 23 0 137-111 248-248 248S200 841 200 704c0-7.8.4-15.4 1.1-23H200V425h496v256zm192-8H776V497h112v176zM613 281c19.9 0 36-16.1 36-36V36c0-19.9-16.1-36-36-36s-36 16.1-36 36v209c0 19.9 16.1 36 36 36zm-170 0c19.9 0 36-16.1 36-36V36c0-19.9-16.1-36-36-36s-36 16.1-36 36v209c0 19.9 16.1 36 36 36z" />
         </SvgIcon>
     )
 }
