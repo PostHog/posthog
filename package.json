@@ -170,6 +170,7 @@
         "eslint-config-prettier": "^8.3.0",
         "eslint-plugin-cypress": "^2.11.2",
         "eslint-plugin-eslint-comments": "^3.2.0",
+        "eslint-plugin-no-only-tests": "^3.0.0",
         "eslint-plugin-prettier": "^3.1.4",
         "eslint-plugin-react": "^7.20.3",
         "eslint-plugin-storybook": "^0.5.7",
