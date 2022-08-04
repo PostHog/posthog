@@ -19,7 +19,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { aggregationAxisFormatSelectOptions, axisLabel, canFormatAxis } from 'scenes/insights/aggregationAxisFormat'
+import { aggregationAxisFormatSelectOptions, axisLabel } from 'scenes/insights/aggregationAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -154,32 +154,33 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                 )}
             </div>
             <div className="flex items-center space-x-4 flex-wrap my-2">
-                {activeView === InsightType.TRENDS && (
-                    <ConfigFilter>
-                        <span>{axisLabel(filters.display)}</span>
-                        <LemonSelect
-                            value={filters.aggregation_axis_format || 'numeric'}
-                            onChange={(value) => {
-                                if (value) {
-                                    setFilters({ ...filters, aggregation_axis_format: value })
-                                }
-                            }}
-                            bordered
-                            dropdownPlacement={'bottom-end'}
-                            dropdownMatchSelectWidth={false}
-                            disabled={!canFormatAxis(filters.display)}
-                            data-attr="chart-aggregation-axis-format"
-                            options={aggregationAxisFormatSelectOptions}
-                            type={'stealth'}
-                            size={'small'}
-                        />
-                    </ConfigFilter>
-                )}
                 {showChartFilter(activeView) && (
-                    <ConfigFilter>
-                        <span>Chart type</span>
-                        <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
-                    </ConfigFilter>
+                    <>
+                        {activeView === InsightType.TRENDS && (
+                            <ConfigFilter>
+                                <span>{axisLabel(filters.display)}</span>
+                                <LemonSelect
+                                    value={filters.aggregation_axis_format || 'numeric'}
+                                    onChange={(value) => {
+                                        if (value) {
+                                            setFilters({ ...filters, aggregation_axis_format: value })
+                                        }
+                                    }}
+                                    bordered
+                                    dropdownPlacement={'bottom-end'}
+                                    dropdownMatchSelectWidth={false}
+                                    data-attr="chart-aggregation-axis-format"
+                                    options={aggregationAxisFormatSelectOptions}
+                                    type={'stealth'}
+                                    size={'small'}
+                                />
+                            </ConfigFilter>
+                        )}
+                        <ConfigFilter>
+                            <span>Chart type</span>
+                            <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
+                        </ConfigFilter>
+                    </>
                 )}
 
                 {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (

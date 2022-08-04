@@ -43,21 +43,6 @@ export const formatAggregationAxisValue = (
     }
 }
 
-export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): boolean => {
-    return (
-        !!chartDisplayType &&
-        [
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.ActionsLineGraphCumulative,
-            ChartDisplayType.ActionsBar,
-            ChartDisplayType.ActionsBarValue,
-            ChartDisplayType.ActionsTable,
-            ChartDisplayType.WorldMap,
-            ChartDisplayType.ActionsPie,
-        ].includes(chartDisplayType)
-    )
-}
-
 export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
     switch (chartDisplayType) {
         case ChartDisplayType.ActionsLineGraph:
