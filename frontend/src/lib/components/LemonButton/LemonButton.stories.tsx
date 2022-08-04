@@ -83,6 +83,9 @@ const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
 export const IconOnly = StatusesTemplate.bind({})
 IconOnly.args = { noText: true } as any
 
+export const TextOnly = StatusesTemplate.bind({})
+TextOnly.args = { icon: undefined, type: 'secondary' } as any
+
 export const Sizes = (): JSX.Element => {
     const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
 

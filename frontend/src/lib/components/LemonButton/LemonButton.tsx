@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import React, { useContext, useState } from 'react'
 import { IconArrowDropDown, IconChevronRight } from '../icons'
+import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import { Spinner } from '../Spinner/Spinner'
@@ -37,7 +38,7 @@ export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HT
 }
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
-    rightIcon?: React.ReactElement | null
+    sideIcon?: React.ReactElement | null
 }
 
 /** Styled button. */
@@ -84,6 +85,8 @@ function LemonButtonInternal(
                 active && 'LemonButton--active',
                 fullWidth && 'LemonButton--full-width',
                 center && 'LemonButton--centered',
+                !!icon && `LemonButton--hasIcon`,
+                !!sideIcon && `LemonButton--hasSideIcon`,
                 className
             )}
             disabled={disabled || loading}
