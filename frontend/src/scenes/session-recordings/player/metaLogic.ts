@@ -3,9 +3,10 @@ import type { metaLogicType } from './metaLogicType'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { PersonType } from '~/types'
+import { PersonType, RecordingEventType } from '~/types'
 import { findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
+import { eventsListLogic } from 'scenes/session-recordings/player/eventsListLogic'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
     if (keys.some((k) => !person?.properties?.[k])) {
@@ -14,14 +15,23 @@ const getPersonProperties = (person: Partial<PersonType>, keys: string[]): strin
     return keys.map((k) => person?.properties?.[k]).join(', ')
 }
 
+const getEventProperties = (event: RecordingEventType, keys: string[]): string | null => {
+    if (keys.some((k) => !event?.properties?.[k])) {
+        return null
+    }
+    return keys.map((k) => event?.properties?.[k]).join(', ')
+}
+
 export const metaLogic = kea<metaLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'metaLogic'],
     connect: () => ({
         values: [
             sessionRecordingLogic,
-            ['sessionPlayerData'],
+            ['sessionPlayerData', 'eventsToShow'],
             sessionRecordingPlayerLogic,
             ['currentPlayerPosition', 'scale'],
+            eventsListLogic,
+            ['currentEventStartIndex'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
     }),
@@ -33,7 +43,7 @@ export const metaLogic = kea<metaLogicType>({
             },
         ],
     },
-    selectors: {
+    selectors: ({ cache }) => ({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData],
             (playerData): PersonType | null => {
@@ -85,5 +95,24 @@ export const metaLogic = kea<metaLogicType>({
                 return sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
             },
         ],
-    },
+        currentWindowIndex: [
+            (selectors) => [selectors.sessionPlayerData, selectors.currentPlayerPosition],
+            (sessionPlayerData, currentPlayerPosition) => {
+                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId).findIndex(
+                    (windowId) => windowId === currentPlayerPosition?.windowId ?? -1
+                )
+            },
+        ],
+        currentUrl: [
+            (selectors) => [selectors.eventsToShow, selectors.currentEventStartIndex],
+            (events, startIndex) => {
+                if (startIndex === -1 || !events?.length) {
+                    return ''
+                }
+                const nextUrl = getEventProperties(events[startIndex], ['$current_url']) ?? ''
+                cache.previousUrl = nextUrl || cache.previousUrl
+                return cache.previousUrl
+            },
+        ],
+    }),
 })

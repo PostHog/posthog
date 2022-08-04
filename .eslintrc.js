@@ -30,8 +30,9 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint'],
+    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests'],
     rules: {
+        'no-only-tests/no-only-tests': 'error',
         'react/prop-types': [0],
         'react/no-unescaped-entities': [0],
         'react/jsx-no-target-blank': [0],

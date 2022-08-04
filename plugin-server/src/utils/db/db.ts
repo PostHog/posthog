@@ -711,7 +711,7 @@ export class DB {
                 queryOptions.join(' OR ')
             ),
             args,
-            'fetchGroupProperties'
+            'getGroupProperties'
         )
 
         // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
@@ -760,7 +760,7 @@ export class DB {
                 queryOptions.join(' OR ')
             ),
             args,
-            'fetchGroupProperties'
+            'getGroupsCreatedAt'
         )
 
         const res: Record<string, string> = {}
@@ -885,10 +885,16 @@ export class DB {
         options: { forUpdate?: boolean } = {}
     ): Promise<Person | undefined> {
         let queryString = `SELECT
-                posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
-                posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
-                posthog_person.uuid, posthog_person.version, posthog_persondistinctid.team_id AS persondistinctid__team_id,
-                posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.version,
+                posthog_person.is_identified
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
             WHERE
@@ -901,10 +907,15 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        const selectResult: QueryResult = await this.postgresQuery(queryString, values, 'fetchPerson', client)
+        const selectResult: QueryResult = await this.postgresQuery<RawPerson>(
+            queryString,
+            values,
+            'fetchPerson',
+            client
+        )
 
         if (selectResult.rows.length > 0) {
-            const rawPerson: RawPerson = selectResult.rows[0]
+            const rawPerson = selectResult.rows[0]
             return {
                 ...rawPerson,
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),

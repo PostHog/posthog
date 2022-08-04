@@ -6,7 +6,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ChartDisplayType, IntervalType, TrendResult } from '~/types'
-import { average, median, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { average, median, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
@@ -26,7 +26,8 @@ import { IconEdit } from 'lib/components/icons'
 import { countryCodeToName } from '../WorldMap'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -252,9 +253,12 @@ export function InsightsTable({
                     />
                 ),
                 render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return item.action?.math_property
-                        ? formatPropertyValueForDisplay(item.action.math_property, item.data[index])
-                        : humanFriendlyNumber(item.data[index] ?? NaN)
+                    return formatAggregationValue(
+                        item.action?.math_property,
+                        item.data[index],
+                        (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                        formatPropertyValueForDisplay
+                    )
                 },
                 key: `data-${index}`,
                 sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
@@ -278,7 +282,7 @@ export function InsightsTable({
                 CALC_COLUMN_LABELS.total
             ),
             render: function RenderCalc(_: any, item: IndexedTrendResult) {
-                let value
+                let value: number | undefined = undefined
                 if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
                     value = item.count || item.aggregated_value
                 } else if (calcColumnState === 'average') {
@@ -286,9 +290,15 @@ export function InsightsTable({
                 } else if (calcColumnState === 'median') {
                     value = median(item.data)
                 }
-                return item.action?.math_property
-                    ? formatPropertyValueForDisplay(item.action?.math_property, value)
-                    : (value ?? 'Unknown').toLocaleString()
+
+                return value !== undefined
+                    ? formatAggregationValue(
+                          item.action?.math_property,
+                          value,
+                          (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                          formatPropertyValueForDisplay
+                      )
+                    : 'Unknown'
             },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',

@@ -11,6 +11,7 @@ import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
+import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
@@ -45,7 +46,7 @@ export class PersonState {
     timestamp: DateTime
     newUuid: string
 
-    person: Person | undefined
+    personContainer: LazyPersonContainer
 
     private db: DB
     private statsd: StatsD | undefined
@@ -60,7 +61,7 @@ export class PersonState {
         db: DB,
         statsd: StatsD | undefined,
         personManager: PersonManager,
-        person: Person | undefined = undefined,
+        personContainer: LazyPersonContainer,
         uuid: UUIDT | undefined = undefined
     ) {
         this.event = event
@@ -74,26 +75,30 @@ export class PersonState {
         this.statsd = statsd
         this.personManager = personManager
 
-        // Used to avoid unneeded person fetches.
-        // :KLUDGE: May change through `handleIdentifyOrAlias` flow on merges/create person
-        this.person = person
+        // Used to avoid unneeded person fetches and to respond with updated person details
+        // :KLUDGE: May change through these flows.
+        this.personContainer = personContainer
 
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
     }
 
-    async update(): Promise<Person | undefined> {
+    async update(): Promise<LazyPersonContainer> {
         await this.handleIdentifyOrAlias()
-        return await this.updateProperties()
+        await this.updateProperties()
+        return this.personContainer
     }
 
-    async updateProperties(): Promise<Person | undefined> {
-        let result: Person | undefined = this.person
+    async updateProperties(): Promise<LazyPersonContainer> {
         let personCreated = false
-        if (!result) {
-            result = await this.createPersonIfDistinctIdIsNew()
-            personCreated = !!result
+        // :TRICKY: Short-circuit if person container already has loaded person and it exists
+        if (!this.personContainer.loaded) {
+            const person = await this.createPersonIfDistinctIdIsNew()
+            if (person) {
+                this.personContainer = this.personContainer.with(person)
+                personCreated = true
+            }
         }
         if (
             !personCreated &&
@@ -102,9 +107,12 @@ export class PersonState {
                 this.eventProperties['$unset'] ||
                 this.updateIsIdentified)
         ) {
-            result = await this.updatePersonProperties()
+            const person = await this.updatePersonProperties()
+            if (person) {
+                this.personContainer = this.personContainer.with(person)
+            }
         }
-        return result
+        return this.personContainer
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
@@ -178,7 +186,7 @@ export class PersonState {
 
     private async updatePersonProperties(): Promise<Person> {
         // Note: In majority of cases person has been found already here!
-        const personFound = this.person || (await this.db.fetchPerson(this.teamId, this.distinctId))
+        const personFound = await this.personContainer.get()
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
             throw new Error(
@@ -287,12 +295,12 @@ export class PersonState {
 
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         // :TRICKY: Reduce needless lookups for person
-        this.person = this.person || (await this.db.fetchPerson(teamId, distinctId))
-        const newPerson = this.person
+        const newPerson = await this.personContainer.get()
 
         if (oldPerson && !newPerson) {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
+                this.personContainer = this.personContainer.with(oldPerson)
                 this.updateIsIdentified = shouldIdentifyPerson
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
@@ -341,7 +349,7 @@ export class PersonState {
                     [distinctId, previousDistinctId]
                 )
                 // :KLUDGE: Avoid unneeded fetches in updateProperties()
-                this.person = person
+                this.personContainer = this.personContainer.with(person)
             } catch {
                 // Catch race condition where in between getting and creating,
                 // another request already created this person
@@ -436,7 +444,7 @@ export class PersonState {
                 )
 
                 // :KLUDGE: Avoid unneeded fetches in updateProperties()
-                this.person = person
+                this.personContainer = this.personContainer.with(person)
 
                 // Merge the distinct IDs
                 await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
@@ -492,12 +500,12 @@ export class PersonState {
 }
 
 // Helper functions to ease mocking in tests
-export function updatePersonState(...params: ConstructorParameters<typeof PersonState>): Promise<Person | undefined> {
+export function updatePersonState(...params: ConstructorParameters<typeof PersonState>): Promise<LazyPersonContainer> {
     return new PersonState(...params).update()
 }
 
 export function updatePropertiesPersonState(
     ...params: ConstructorParameters<typeof PersonState>
-): Promise<Person | undefined> {
+): Promise<LazyPersonContainer> {
     return new PersonState(...params).updateProperties()
 }

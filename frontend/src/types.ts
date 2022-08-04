@@ -469,6 +469,11 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
+export enum SessionRecordingTab {
+    EVENTS = 'events',
+    CONSOLE = 'console',
+}
+
 export enum SessionPlayerState {
     BUFFER = 'buffer',
     PLAY = 'play',

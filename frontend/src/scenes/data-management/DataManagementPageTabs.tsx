@@ -95,7 +95,7 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                         }
                         data-attr="data-management-event-properties-tab"
                     >
-                        Properties
+                        Event Properties
                     </TitleWithIcon>
                 }
                 key={DataManagementTab.EventPropertyDefinitions}

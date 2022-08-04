@@ -123,6 +123,7 @@ describe('inAppPromptLogic', () => {
                 'runFirstValidSequence',
                 'closePrompts',
                 logic.actionCreators.runSequence(config.sequences[1] as PromptSequence, 0),
+                inAppPromptEventCaptureLogic.actionCreators.reportPromptShown('tooltip', config.sequences[1].key, 0, 1),
                 'promptShownSuccessfully',
             ])
             .toMatchValues({
@@ -154,6 +155,12 @@ describe('inAppPromptLogic', () => {
                     'runFirstValidSequence',
                     'closePrompts',
                     logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 1),
+                    inAppPromptEventCaptureLogic.actionCreators.reportPromptShown(
+                        'tooltip',
+                        config.sequences[0].key,
+                        1,
+                        3
+                    ),
                     'promptShownSuccessfully',
                 ])
                 .toMatchValues({
@@ -191,6 +198,12 @@ describe('inAppPromptLogic', () => {
                         3
                     ),
                     logic.actionCreators.updatePromptState({ step: 2, completed: true }),
+                    inAppPromptEventCaptureLogic.actionCreators.reportPromptShown(
+                        'tooltip',
+                        config.sequences[0].key,
+                        2,
+                        3
+                    ),
                     'promptShownSuccessfully',
                 ])
                 .toMatchValues({

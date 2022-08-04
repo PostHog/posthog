@@ -7,11 +7,13 @@ import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { midEllipsis } from 'lib/utils'
+import clsx from 'clsx'
 
 export interface PersonHeaderProps {
     person?: Pick<PersonType, 'properties' | 'distinct_ids'> | null
     withIcon?: boolean
     noLink?: boolean
+    noEllipsis?: boolean
 }
 
 export function asDisplay(person: PersonType | PersonActorType | null | undefined): string {
@@ -42,7 +44,7 @@ export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const content = (
         <div className="flex items-center">
             {props.withIcon && <ProfilePicture name={display} size="md" />}
-            <span className="ph-no-capture text-ellipsis">{display}</span>
+            <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>{display}</span>
         </div>
     )
 

@@ -107,10 +107,10 @@ def update_cached_items() -> Tuple[int, int]:
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
         .exclude(insight__filters={})
-        .exclude(Q(insight__refreshing=True) | Q(refreshing=True))
-        .exclude(Q(insight__refresh_attempt__gt=2) | Q(refresh_attempt__gt=2))
+        .exclude(refreshing=True)
+        .exclude(refresh_attempt__gt=2)
         .select_related("insight", "dashboard")
-        .order_by(F("last_refresh").asc(nulls_first=True), F("insight__last_refresh").asc(nulls_first=True))
+        .order_by(F("last_refresh").asc(nulls_first=True), F("refresh_attempt").asc())
     )
 
     for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:

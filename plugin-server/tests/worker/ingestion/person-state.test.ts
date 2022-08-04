@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { Hub, Person } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
+import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { insertRow, resetTestDatabase } from '../../helpers/sql'
@@ -45,6 +46,7 @@ describe('PersonState.update()', () => {
             properties: {},
             ...event,
         }
+        const personContainer = new LazyPersonContainer(2, event.distinct_id!, hub, person)
         return new PersonState(
             fullEvent as any,
             2,
@@ -53,7 +55,7 @@ describe('PersonState.update()', () => {
             hub.db,
             hub.statsd,
             hub.personManager,
-            person,
+            personContainer,
             uuid
         )
     }
@@ -64,9 +66,12 @@ describe('PersonState.update()', () => {
     }
 
     it('creates person if they are new', async () => {
-        const createdPerson = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+        const personContainer = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
 
-        expect(createdPerson).toEqual(
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+
+        expect(await personContainer.get()).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: uuid.toString(),
@@ -86,12 +91,10 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
-        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
     })
 
     it('creates person with properties', async () => {
-        const createdPerson = await personState({
+        const personContainer = await personState({
             event: '$pageview',
             distinct_id: 'new-user',
             properties: {
@@ -100,7 +103,10 @@ describe('PersonState.update()', () => {
             },
         }).update()
 
-        expect(createdPerson).toEqual(
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+
+        expect(await personContainer.get()).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: uuid.toString(),
@@ -120,14 +126,12 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
-        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
     })
 
     it('updates person properties if needed', async () => {
         await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
 
-        const updatedPerson = await personState({
+        const personContainer = await personState({
             event: '$pageview',
             distinct_id: 'new-user',
             properties: {
@@ -136,7 +140,10 @@ describe('PersonState.update()', () => {
             },
         }).update()
 
-        expect(updatedPerson).toEqual(
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+        expect(await personContainer.get()).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: uuid.toString(),
@@ -156,8 +163,6 @@ describe('PersonState.update()', () => {
                 version: 1,
             })
         )
-        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })
 
     it('updating with cached person data skips checking if person is new', async () => {
@@ -165,7 +170,7 @@ describe('PersonState.update()', () => {
             'new-user',
         ])
 
-        const updatedPerson = await personState(
+        const personContainer = await personState(
             {
                 event: '$pageview',
                 distinct_id: 'new-user',
@@ -177,7 +182,10 @@ describe('PersonState.update()', () => {
             person
         ).update()
 
-        expect(updatedPerson).toEqual(
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
+
+        expect(await personContainer.get()).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: uuid.toString(),
@@ -186,8 +194,6 @@ describe('PersonState.update()', () => {
                 version: 1,
             })
         )
-        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
 
         const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
         expect(clickhouseRows.length).toEqual(1)
@@ -196,7 +202,7 @@ describe('PersonState.update()', () => {
     it('does not update person if not needed', async () => {
         await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
 
-        const updatedPerson = await personState({
+        const personContainer = await personState({
             event: '$pageview',
             distinct_id: 'new-user',
             properties: {
@@ -205,7 +211,9 @@ describe('PersonState.update()', () => {
             },
         }).update()
 
-        expect(updatedPerson).toEqual(
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+        expect(await personContainer.get()).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: uuid.toString(),
@@ -215,15 +223,13 @@ describe('PersonState.update()', () => {
             })
         )
 
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
-
         const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
         expect(clickhouseRows.length).toEqual(1)
     })
 
     // This is a regression test
     it('creates person on $identify event', async () => {
-        const createdPerson = await personState({
+        const personContainer = await personState({
             event: '$identify',
             distinct_id: 'new-user',
             properties: {
@@ -232,7 +238,10 @@ describe('PersonState.update()', () => {
             },
         }).update()
 
-        expect(createdPerson).toEqual(
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+
+        expect(await personContainer.get()).toEqual(
             expect.objectContaining({
                 id: expect.any(Number),
                 uuid: uuid.toString(),
@@ -251,8 +260,6 @@ describe('PersonState.update()', () => {
                 version: 0,
             })
         )
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
-        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
     })
 
     it('merges people on $identify event', async () => {
@@ -300,6 +307,50 @@ describe('PersonState.update()', () => {
                     version: 100,
                 }),
             ])
+        )
+
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+    })
+
+    it('adds distinct_id to user and updates property on $identify event', async () => {
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
+
+        const personContainer = await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+                $set: { b: 3 },
+            },
+        }).update()
+        await hub.db.kafkaProducer.flush()
+
+        const person = await personContainer.get()
+        expect(person).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { a: 1, b: 3 },
+                created_at: timestamp,
+                is_identified: true,
+                version: 1,
+            })
+        )
+
+        const distinctIds = await hub.db.fetchDistinctIdValues(person!)
+        expect(distinctIds).toEqual(expect.arrayContaining(['new-user', 'old-user']))
+
+        const clickhousePersons = await delayUntilEventIngested(() => fetchPersonsRows())
+        expect(clickhousePersons.length).toEqual(1)
+        expect(clickhousePersons[0]).toEqual(
+            expect.objectContaining({
+                id: uuid.toString(),
+                properties: JSON.stringify({ a: 1, b: 3 }),
+                is_deleted: 0,
+                created_at: '2020-01-01 12:00:05.000',
+                version: 1,
+            })
         )
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)

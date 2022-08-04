@@ -1107,10 +1107,15 @@ class TestCacheTeamRecency(APIBaseTest):
         mock_redis_get_client.return_value.zrange.return_value = recent_teams
         mock_redis_get_client.return_value.zadd.return_value = MagicMock
 
+    @patch("posthog.tasks.update_cache.sync_execute")
     @patch("posthog.tasks.update_cache.get_client")
-    def test_queries_clickhouse_if_no_recent_teams(self, mock_redis_get_client: MagicMock) -> None:
+    def test_queries_clickhouse_if_no_recent_teams(
+        self, mock_redis_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
         recent_teams: List[Tuple[bytes, float]] = []
         self._mock_redis_team_recency(mock_redis_get_client, recent_teams)
+
+        mock_sync_execute.return_value = [("1", "results")]
 
         update_cached_items()
 
