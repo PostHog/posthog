@@ -31,11 +31,11 @@ class MatrixManager:
     MASTER_TEAM = Team(id=MASTER_TEAM_ID)
 
     matrix: Matrix
-    pre_save: bool
+    use_pre_save: bool
 
-    def __init__(self, matrix: Matrix, *, pre_save: bool):
+    def __init__(self, matrix: Matrix, *, use_pre_save: bool):
         self.matrix = matrix
-        self.pre_save = pre_save
+        self.use_pre_save = use_pre_save
 
     def ensure_account_and_save(
         self,
@@ -78,11 +78,11 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
-        if not self.pre_save or not self._is_demo_data_pre_saved():
+        if not self.use_pre_save or not self._is_demo_data_pre_saved():
             if self.matrix.simulation_complete is None:
                 self.matrix.simulate()
-            self._save_analytics_data(self.MASTER_TEAM if self.pre_save else team)
-        if self.pre_save:
+            self._save_analytics_data(self.MASTER_TEAM if self.use_pre_save else team)
+        if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
         self._sync_postgres_with_clickhouse_data(team)
         self.matrix.set_project_up(team, user)

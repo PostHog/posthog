@@ -130,6 +130,7 @@ class SimPerson(ABC):
         return self.future_events[-1] if self.future_events else (self.past_events[-1] if self.past_events else None)
 
     def simulate(self):
+        """Synchronously simulate this person's behavior for the whole duration of the simulation."""
         if hasattr(self, "simulation_time"):
             raise Exception(f"Person {self} already has been simulated")
         self._simulation_time = self.cluster.start
@@ -146,18 +147,27 @@ class SimPerson(ABC):
         self._super_properties = {}
         self._distinct_ids.append(self._active_client.anonymous_distinct_id)
         while self._simulation_time <= self.cluster.end:
+            self._apply_due_effects()
             self._simulate_session()
             if self._end_pageview is not None:
                 self._end_pageview()  # type: ignore
                 self._end_pageview = None
 
     def schedule_effect(self, timestamp: timezone.datetime, effect: Effect):
+        """Schedule an effect to apply at a given time.
+
+        An effect is a function that runs on the person, so it can change the person's state."""
         self.scheduled_effects.append((timestamp, effect))
 
     @abstractmethod
     def _simulate_session(self):
         """Simulation of a single session based on current agent state."""
-        if self.scheduled_effects and self.scheduled_effects[0][0] <= self._simulation_time:
+        raise NotImplementedError()
+
+    def _apply_due_effects(self):
+        while True:
+            if not self.scheduled_effects or self.scheduled_effects[0][0] > self._simulation_time:
+                break
             _, effect = self.scheduled_effects.popleft()
             effect(self)
 

@@ -84,7 +84,6 @@ class HedgeboxPerson(SimPerson):
         self.need += delta
 
     def _simulate_session(self):
-        super()._simulate_session()
         # Make sure the time makes sense
         self._simulation_time += timezone.timedelta(
             seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * (36_000 if self.plan is not None else 172_800)

@@ -90,9 +90,9 @@ class SignupSerializer(serializers.Serializer):
         organization_name = validated_data["organization_name"]
         matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=50,)
         with transaction.atomic():
-            self._organization, self._team, self._user = MatrixManager(matrix, pre_save=True).ensure_account_and_save(
-                email, first_name, organization_name
-            )
+            self._organization, self._team, self._user = MatrixManager(
+                matrix, use_pre_save=False
+            ).ensure_account_and_save(email, first_name, organization_name)
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",

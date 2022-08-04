@@ -94,7 +94,7 @@ class Command(BaseCommand):
             print(f"Saving data as {email}…")
             with transaction.atomic():
                 try:
-                    MatrixManager(matrix, pre_save=False).ensure_account_and_save(
+                    MatrixManager(matrix, use_pre_save=False).ensure_account_and_save(
                         email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
                     )
                 except (exceptions.ValidationError, exceptions.PermissionDenied) as e:
