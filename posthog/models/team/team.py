@@ -210,6 +210,7 @@ class Team(UUIDClassicModel):
             str(self.uuid),
             groups={"project": str(self.uuid)},
             group_properties={"project": {"id": str(self.pk)}},
+            only_evaluate_locally=True,
         )
 
     @property
