@@ -293,29 +293,40 @@ def update_filters_hash(cache_key: str, dashboard: Optional[Dashboard], insight:
     #    --> so set the dashboard tile and the insight's filters hash"""
 
     should_update_insight_filters_hash = False
-    should_update_dashboard_tile_filters_hash = False
+
     if not dashboard and insight.filters_hash and insight.filters_hash != cache_key:
+        logger.info(
+            "update_cache_shared_insight_incorrect_filters_hash",
+            current_cache_key=insight.filters_hash,
+            correct_cache_key=cache_key,
+        )
         should_update_insight_filters_hash = True
     if dashboard:
-        should_update_dashboard_tile_filters_hash = True
-        if not dashboard.filters or dashboard.filters == insight.filters:
-            should_update_insight_filters_hash = True
-    if should_update_dashboard_tile_filters_hash:
         dashboard_tiles = DashboardTile.objects.filter(insight=insight, dashboard=dashboard,).exclude(
             filters_hash=cache_key
         )
 
         count_of_updated_tiles = dashboard_tiles.update(filters_hash=cache_key)
-        statsd.incr(
-            "update_cache_item_set_new_cache_key_on_tile",
-            count=count_of_updated_tiles,
-            tags={
-                "team": insight.team.id,
-                "cache_key": cache_key,
-                "insight_id": insight.id,
-                "dashboard_id": dashboard.id,
-            },
-        )
+        if count_of_updated_tiles:
+            logger.info(
+                "update_cache_dashboard_tile_incorrect_filters_hash",
+                current_cache_keys=[dt.filters_hash for dt in dashboard_tiles],
+                correct_cache_key=cache_key,
+            )
+
+            if not dashboard.filters or dashboard.filters == insight.filters:
+                should_update_insight_filters_hash = True
+
+            statsd.incr(
+                "update_cache_item_set_new_cache_key_on_tile",
+                count=count_of_updated_tiles,
+                tags={
+                    "team": insight.team.id,
+                    "cache_key": cache_key,
+                    "insight_id": insight.id,
+                    "dashboard_id": dashboard.id,
+                },
+            )
     if should_update_insight_filters_hash:
         insight.filters_hash = cache_key
         insight.save()
