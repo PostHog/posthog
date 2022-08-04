@@ -720,7 +720,7 @@ describe('DB', () => {
             expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
         })
 
-        describe.only('getGroupDataCache() and updateGroupDataCache()', () => {
+        describe('getGroupDataCache() and updateGroupDataCache()', () => {
             it('returns null values by default', async () => {
                 const data = await db.getGroupDataCache(2, { index: 0, key: 'abc' })
                 expect(data).toEqual({
@@ -750,7 +750,7 @@ describe('DB', () => {
             })
         })
 
-        describe.only('fetchGroupDataAndUpdateCache()', () => {
+        describe('fetchGroupDataAndUpdateCache()', () => {
             const identifiers = [
                 { index: 0, key: 'abc' },
                 { index: 2, key: 'efg' },
@@ -807,7 +807,7 @@ describe('DB', () => {
             })
         })
 
-        describe.only('fetchGroupColumnsValues()', () => {
+        describe('fetchGroupColumnsValues()', () => {
             const identifiers = [
                 { index: 0, key: 'abc' },
                 { index: 2, key: 'efg' },
