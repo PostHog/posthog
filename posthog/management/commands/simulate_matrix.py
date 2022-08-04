@@ -54,11 +54,12 @@ class Command(BaseCommand):
         future_event_count = 0
         for cluster in matrix.clusters:
             print(
-                f"Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}."
+                f"Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}.",
+                flush=False,
             )
             for y, person_row in enumerate(cluster.people_matrix):
                 for x, person in enumerate(person_row):
-                    print(f"    Person {x, y}: {person}")
+                    print(f"    Person {x, y}: {person}", flush=False)
                     total_event_count += len(person.past_events) + len(person.future_events)
                     future_event_count += len(person.future_events)
                     if person.all_events:
@@ -68,20 +69,21 @@ class Command(BaseCommand):
                         for event in person.all_events:
                             if session_id := event.properties.get("$session_id"):
                                 if active_session_id != session_id:
-                                    print(f"        Session {session_id}:")
+                                    print(f"        Session {session_id}:", flush=False)
                                 active_session_id = session_id
-                            print(f"            {event}")
+                            print(f"            {event}", flush=False)
                     else:
                         event_count = len(person.past_events) + len(person.future_events)
                         if not event_count:
-                            print("        No events")
+                            print("        No events", flush=False)
                         else:
                             session_count = len(set(event.properties.get("$session_id") for event in person.all_events))
                             print(
                                 f"        {event_count} event{'' if event_count == 1 else 's'} "
                                 f"across {session_count} session{'' if session_count == 1 else 's'} "
                                 f"between {cast(SimEvent,person.first_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')} "
-                                f"and {cast(SimEvent,person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                                f"and {cast(SimEvent,person.last_event).timestamp.strftime('%Y-%m-%d %H:%M:%S')}",
+                                flush=False,
                             )
         print(
             f"All in all, in {duration * 1000:.2f} ms "
