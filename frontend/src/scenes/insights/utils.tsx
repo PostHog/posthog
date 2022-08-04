@@ -306,6 +306,10 @@ export function formatAggregationValue(
     renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
     formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
 ): ReactNode {
+    if (propertyValue === null) {
+        return '-'
+    }
+
     let formattedValue: ReactNode
     if (property && formatPropertyValueForDisplay) {
         formattedValue = formatPropertyValueForDisplay(property, propertyValue)

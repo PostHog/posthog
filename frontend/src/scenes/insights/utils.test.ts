@@ -497,6 +497,6 @@ describe('formatAggregationValue', () => {
         const fakeRenderCount = (x: number): string => String(x)
         const noOpFormatProperty = jest.fn((_, y) => y)
         const actual = formatAggregationValue('some name', null, fakeRenderCount, noOpFormatProperty)
-        expect(actual).toEqual('0')
+        expect(actual).toEqual('-')
     })
 })
