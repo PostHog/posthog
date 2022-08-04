@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import React, { useContext, useState } from 'react'
 import { IconArrowDropDown, IconChevronRight } from '../icons'
-import { LemonDivider } from '../LemonDivider'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import { Spinner } from '../Spinner/Spinner'

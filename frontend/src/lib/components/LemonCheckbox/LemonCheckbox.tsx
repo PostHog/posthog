@@ -13,6 +13,8 @@ export interface LemonCheckboxProps {
     fullWidth?: boolean
     size?: 'small' | 'medium'
     bordered?: boolean
+    /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
+    color?: string
 }
 
 export interface BoxCSSProperties extends React.CSSProperties {
@@ -36,6 +38,7 @@ export function LemonCheckbox({
     className,
     fullWidth,
     bordered,
+    color,
     size,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
@@ -82,7 +85,7 @@ export function LemonCheckbox({
                 id={id}
                 disabled={disabled}
             />
-            <label htmlFor={id}>
+            <label htmlFor={id} style={color ? ({ '--box-color': color } as BoxCSSProperties) : {}}>
                 <svg
                     className='className="LemonCheckbox__box"'
                     fill="none"

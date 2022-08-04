@@ -9,7 +9,6 @@ import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import {
     roundedRect,
     pageUrl,
@@ -27,7 +26,6 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PersonsModal } from 'scenes/trends/PersonsModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import clsx from 'clsx'
 import { LemonButton } from '@posthog/lemon-ui'
 
 const DEFAULT_PATHS_ID = 'default_paths'
