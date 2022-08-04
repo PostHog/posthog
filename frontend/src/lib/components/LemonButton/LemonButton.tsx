@@ -185,6 +185,7 @@ export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
 export function LemonButtonWithPopup({
     popup: { onClickOutside, onClickInside, closeOnClickInside = true, className: popupClassName, ...popupProps },
     onClick,
+    className,
     ...buttonProps
 }: LemonButtonWithPopupProps): JSX.Element {
     const parentPopupId = useContext(PopupContext)
@@ -217,6 +218,7 @@ export function LemonButtonWithPopup({
             {...popupProps}
         >
             <LemonButton
+                className={clsx('LemonButtonWithPopup', className)}
                 onClick={(e) => {
                     setPopupVisible((state) => !state)
                     onClick?.(e)

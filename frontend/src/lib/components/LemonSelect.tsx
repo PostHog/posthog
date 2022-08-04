@@ -136,9 +136,11 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 {...buttonProps}
             >
-                {(localValue && (allOptions[localValue]?.label || localValue)) || (
-                    <span className="text-muted">{placeholder}</span>
-                )}
+                <span>
+                    {(localValue && (allOptions[localValue]?.label || localValue)) || (
+                        <span className="text-muted">{placeholder}</span>
+                    )}
+                </span>
             </LemonButtonWithPopup>
             {isClearButtonShown && (
                 <LemonButton

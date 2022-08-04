@@ -155,6 +155,12 @@
 
             &.LemonButton--active {
                 font-weight: 500;
+
+                // These buttons keep their font-weight when actve
+                &.LemonButtonWithSideAction,
+                &.LemonButtonWithPopup {
+                    font-weight: 400;
+                }
             }
 
             .LemonIcon,
