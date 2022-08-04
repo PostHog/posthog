@@ -192,4 +192,26 @@ describe('Event Pipeline integration test', () => {
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
     })
+
+    describe('$snapshot event', () => {
+        it('processing never loads person data', async () => {
+            jest.spyOn(hub.db, 'fetchPerson')
+
+            const event: PluginEvent = {
+                event: '$snapshot',
+                properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
+                timestamp: new Date().toISOString(),
+                now: new Date().toISOString(),
+                team_id: 2,
+                distinct_id: 'abc',
+                ip: null,
+                site_url: 'https://example.com',
+                uuid: new UUIDT().toString(),
+            }
+
+            await ingestEvent(event)
+
+            expect(hub.db.fetchPerson).not.toHaveBeenCalled()
+        })
+    })
 })
