@@ -1,6 +1,6 @@
 # name: TestPerson.test_filter_person_email
   '
-  /* request:api_person_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:319 request:_api_person_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -26,7 +26,7 @@
 ---
 # name: TestPerson.test_person_property_values
   '
-  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:326 request:_api_person_values_ */
   SELECT value,
          count(value)
   FROM
@@ -45,7 +45,7 @@
 ---
 # name: TestPerson.test_person_property_values.1
   '
-  /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:326 request:_api_person_values_ */
   SELECT value,
          count(value)
   FROM

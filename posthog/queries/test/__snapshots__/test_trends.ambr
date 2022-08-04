@@ -659,7 +659,7 @@
 ---
 # name: TestFOSSTrends.test_timezones_hourly.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:692 request:_api_projects_695_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
