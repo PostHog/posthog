@@ -555,28 +555,20 @@ export class DB {
         }
     }
 
-    private async updateGroupCreatedAtIsoCache(
-        teamId: number,
-        groupTypeIndex: number,
-        groupKey: string,
-        createdAtIso: string
-    ): Promise<void> {
-        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(
-                this.getGroupCreatedAtCacheKey(teamId, groupTypeIndex, groupKey),
-                createdAtIso,
-                this.PERSONS_AND_GROUPS_CACHE_TTL
-            )
-        }
-    }
-
     private async updateGroupCreatedAtCache(
         teamId: number,
         groupTypeIndex: number,
         groupKey: string,
         createdAt: DateTime
     ): Promise<void> {
-        await this.updateGroupCreatedAtIsoCache(teamId, groupTypeIndex, groupKey, createdAt.toISO())
+        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
+            const createdAtIso = createdAt.toISO()
+            await this.redisSet(
+                this.getGroupCreatedAtCacheKey(teamId, groupTypeIndex, groupKey),
+                createdAtIso,
+                this.PERSONS_AND_GROUPS_CACHE_TTL
+            )
+        }
     }
 
     private async updateGroupPropertiesCache(
