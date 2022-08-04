@@ -162,13 +162,11 @@ export function percentage(
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
-    return division
-        .toLocaleString('en-US', {
-            style: 'percent',
-            maximumFractionDigits,
-            minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
-        })
-        .replace(',', ' ') // Use space as thousands separator as it's more international
+    return division.toLocaleString('en-US', {
+        style: 'percent',
+        maximumFractionDigits,
+        minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+    })
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
