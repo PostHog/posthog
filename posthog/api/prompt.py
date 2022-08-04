@@ -34,12 +34,14 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             )
             local_states.append(parsed_state)
 
+        team_id = 2  # we are testing prompts created by us, on PostHog Cloud
+
         my_prompts: Dict[str, Any] = {"sequences": [], "state": {}}
         states_to_update: List[PromptSequenceState] = []
         states_to_create: List[PromptSequenceState] = []
 
         person_id = (
-            PersonDistinctId.objects.filter(distinct_id=request.user.distinct_id, team_id=self.team_id)
+            PersonDistinctId.objects.filter(distinct_id=request.user.distinct_id, team_id=team_id)
             .values_list("person_id", flat=True)
             .first()
         )
@@ -47,7 +49,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         if not person_id:
             raise exceptions.NotFound()
 
-        saved_states = PromptSequenceState.objects.filter(team=self.team, person_id=person_id)
+        saved_states = PromptSequenceState.objects.filter(team_id=team_id, person_id=person_id)
         all_sequences = get_active_prompt_sequences()
 
         new_states: List[Dict] = []
@@ -70,7 +72,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                     state = local_state
                 elif saved_state is None:
                     state = local_state
-                    new_state = PromptSequenceState(team=self.team, person_id=person_id, **local_state)
+                    new_state = PromptSequenceState(team_id=team_id, person_id=person_id, **local_state)
                     states_to_create.append(new_state)
 
             if not state and saved_state:
