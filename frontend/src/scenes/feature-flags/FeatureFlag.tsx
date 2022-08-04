@@ -520,7 +520,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             showConditionBadge
-                                            useLemonButton
                                         />
                                     </div>
 

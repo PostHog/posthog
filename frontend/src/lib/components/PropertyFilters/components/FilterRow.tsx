@@ -25,7 +25,6 @@ interface FilterRowProps {
     label: string
     onRemove: (index: number) => void
     orFiltering?: boolean
-    useLemonButton?: boolean // To be removed once lemon is completely released
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -40,7 +39,6 @@ export const FilterRow = React.memo(function FilterRow({
     label,
     onRemove,
     orFiltering,
-    useLemonButton = false,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -108,7 +106,7 @@ export const FilterRow = React.memo(function FilterRow({
                         >
                             {`${item['alias']}::${item['regex']}`}
                         </PropertyFilterButton>
-                    ) : useLemonButton ? (
+                    ) : (
                         <LemonButton
                             onClick={() => setOpen(!open)}
                             className="new-prop-filter"
@@ -119,23 +117,6 @@ export const FilterRow = React.memo(function FilterRow({
                         >
                             {label}
                         </LemonButton>
-                    ) : (
-                        <Button
-                            onClick={() => setOpen(!open)}
-                            className="new-prop-filter"
-                            data-attr={'new-prop-filter-' + pageKey}
-                            style={{
-                                color: 'var(--primary)',
-                                border: 'none',
-                                boxShadow: 'none',
-                                paddingLeft: 0,
-                                background: 'none',
-                            }}
-                            icon={<PlusCircleOutlined />}
-                            type="default"
-                        >
-                            {label}
-                        </Button>
                     )}
                 </Popup>
             )}

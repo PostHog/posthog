@@ -381,7 +381,6 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
-                        useLemonButton
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]

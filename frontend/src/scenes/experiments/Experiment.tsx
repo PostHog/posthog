@@ -436,7 +436,6 @@ export function Experiment(): JSX.Element {
                                                                 properties: anyProperties.filter(isValidPropertyFilter),
                                                             })
                                                         }}
-                                                        useLemonButton
                                                         taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                     />
                                                 </div>
