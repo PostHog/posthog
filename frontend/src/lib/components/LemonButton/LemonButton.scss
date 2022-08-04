@@ -29,7 +29,8 @@
     }
 
     .LemonButton__content {
-        flex-grow: 1;
+        flex: 1;
+        overflow: hidden;
     }
 
     &.LemonButton--centered {
@@ -96,17 +97,17 @@
         in ('default', 'primary', 'success', 'warning', 'danger', 'primary-alt', 'muted', 'muted-alt', 'stealth')
     {
         &.LemonButton--status-#{$status} {
-            color: var(--#{$status});
+            color: var(--#{$status}, var(--primary));
 
             &:not(:disabled):hover,
             &.LemonButton--active {
-                background: var(--#{$status}-highlight);
+                background: var(--#{$status}-highlight, var(--primary-highlight));
             }
             &:not(:disabled):active {
-                color: var(--#{$status}-dark);
+                color: var(--#{$status}-dark, var(--primary-dark));
                 .LemonIcon,
                 .spinner {
-                    color: var(--#{$status}-dark);
+                    color: var(--#{$status}-dark, var(--primary-dark));
                 }
             }
 
@@ -127,7 +128,7 @@
                 &:not(:disabled):hover,
                 &.LemonButton--active {
                     color: var(--white);
-                    background: var(--#{$status}-light);
+                    background: var(--#{$status}-light, var(--#{$status}));
 
                     .LemonIcon,
                     .spinner {
@@ -135,7 +136,7 @@
                     }
                 }
                 &:not(:disabled):active {
-                    background: var(--#{$status}-dark);
+                    background: var(--#{$status}-dark, var(--#{$status}));
                 }
             }
             // Secondary - outlined color style
@@ -146,12 +147,12 @@
                 &:not(:disabled):hover,
                 &.LemonButton--active,
                 &:not(:disabled):active {
-                    background: var(--#{$status}-highlight);
+                    background: var(--#{$status}-highlight, var(--primary-highlight));
                     border-color: var(--#{$status});
                 }
 
                 &:not(:disabled):active {
-                    border-color: var(--#{$status}-dark);
+                    border-color: var(--#{$status}-dark, var(--status));
                 }
             }
         }
