@@ -120,25 +120,6 @@ export function IconInfinity(props: SvgIconProps): JSX.Element {
     )
 }
 
-export function IconPathsCompletedArrow(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon width="16" height="8" viewBox="0 0 16 8" {...props}>
-            <path d="M16 4L12 0V3H0V5H12V8L16 4Z" fill="currentColor" />
-        </SvgIcon>
-    )
-}
-
-export function IconPathsDropoffArrow(props: SvgIconProps): JSX.Element {
-    return (
-        <SvgIcon width="18" height="18" viewBox="0 0 18 18" {...props}>
-            <path
-                d="M14.6569 14.6568V8.99993L12.5356 11.1212L4.05031 2.63597L2.6361 4.05018L11.1214 12.5355L9.00006 14.6568H14.6569Z"
-                fill="currentColor"
-            />
-        </SvgIcon>
-    )
-}
-
 export function IconTrendUp(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 81 60" fill="none" {...props}>
@@ -1368,7 +1349,7 @@ export function IconPlayCircle(props: SvgIconProps): JSX.Element {
 
 export function IconBookmarkBorder(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="15" height="18" viewBox="0 0 15 18" {...props}>
+        <SvgIcon viewBox="-4 -3 24 24" {...props}>
             <path
                 d="M12.5 0H2.5C1.4 0 0.5 0.9 0.5 2V18L7.5 15L14.5 18V2C14.5 0.9 13.6 0 12.5 0ZM12.5 15L7.5 12.82L2.5 15V2H12.5V15Z"
                 fill="currentColor"
@@ -1499,7 +1480,7 @@ export function IconCalendar(props: SvgIconProps): JSX.Element {
         <SvgIcon viewBox="0 0 24 24" {...props}>
             <path
                 d="M19.2 3.8H18.3V2H16.5V3.8H7.5V2H5.7V3.8H4.8C3.81 3.8 3 4.61 3 5.6V20C3 20.99 3.81 21.8 4.8 21.8H19.2C20.19 21.8 21 20.99 21 20V5.6C21 4.61 20.19 3.8 19.2 3.8ZM19.2 20H4.8V10.1H19.2V20ZM19.2 8.3H4.8V5.6H19.2V8.3Z"
-                fill="#747EA2"
+                fill="currentColor"
             />
         </SvgIcon>
     )

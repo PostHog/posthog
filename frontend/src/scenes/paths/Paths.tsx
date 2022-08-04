@@ -5,7 +5,7 @@ import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
-import { IconPathsCompletedArrow, IconPathsDropoffArrow } from 'lib/components/icons'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
 import { ClockCircleOutlined } from '@ant-design/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
@@ -27,6 +27,8 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PersonsModal } from 'scenes/trends/PersonsModal'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import clsx from 'clsx'
+import { LemonButton } from '@posthog/lemon-ui'
 
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
@@ -301,33 +303,17 @@ export function Paths(): JSX.Element {
                                                 }}
                                             >
                                                 {pathItemCard.sourceLinks.length > 0 && (
-                                                    <Menu.Item
-                                                        disabled
-                                                        className="pathcard-dropdown-info-option text-xs"
-                                                        style={{
-                                                            borderBottom: `${
-                                                                dropOffValue > 0 || pathItemCard.targetLinks.length > 0
-                                                                    ? '1px solid var(--border)'
-                                                                    : ''
-                                                            }`,
-                                                        }}
-                                                    >
-                                                        <span className="text-xs">
-                                                            <span style={{ paddingRight: 8 }}>
-                                                                <IconPathsCompletedArrow />
-                                                            </span>{' '}
-                                                            Continuing
-                                                        </span>{' '}
-                                                        <span className="text-primary text-xs">
-                                                            <ValueInspectorButton
-                                                                style={{ paddingRight: 0, fontSize: 12 }}
-                                                                onClick={() => openPersonsModal(pathItemCard.name)}
-                                                            >
+                                                    <div className="text-xs flex items-center p-2 gap-2">
+                                                        <IconTrendingFlat className="text-xl shrink-0 text-success" />
+                                                        <span>Continuing</span>
+
+                                                        <LemonButton
+                                                            size="small"
+                                                            onClick={() => openPersonsModal(pathItemCard.name)}
+                                                        >
+                                                            <span className="text-xs">
                                                                 {continuingValue}
-                                                                <span
-                                                                    className="text-muted-alt"
-                                                                    style={{ paddingLeft: 4 }}
-                                                                >
+                                                                <span className="text-muted-alt ml-2">
                                                                     (
                                                                     {(
                                                                         (continuingValue / pathItemCard.value) *
@@ -335,46 +321,27 @@ export function Paths(): JSX.Element {
                                                                     ).toFixed(1)}
                                                                     %)
                                                                 </span>
-                                                            </ValueInspectorButton>
-                                                        </span>
-                                                    </Menu.Item>
+                                                            </span>
+                                                        </LemonButton>
+                                                    </div>
                                                 )}
                                                 {dropOffValue > 0 && (
-                                                    <Menu.Item
-                                                        disabled
-                                                        className="pathcard-dropdown-info-option text-xs"
-                                                        style={{
-                                                            borderBottom: '1px solid var(--border)',
-                                                        }}
-                                                    >
-                                                        <span className="text-xs" style={{ display: 'flex' }}>
-                                                            <span
-                                                                style={{
-                                                                    paddingRight: 8,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                }}
-                                                            >
-                                                                <IconPathsDropoffArrow />
-                                                            </span>{' '}
-                                                            Dropping off
-                                                        </span>{' '}
-                                                        <span className="text-primary">
-                                                            <ValueInspectorButton
-                                                                style={{ paddingRight: 0, fontSize: 12 }}
-                                                                onClick={() =>
-                                                                    openPersonsModal(
-                                                                        undefined,
-                                                                        undefined,
-                                                                        pathItemCard.name
-                                                                    )
-                                                                }
-                                                            >
-                                                                {dropOffValue}{' '}
-                                                                <span
-                                                                    className="text-muted-alt text-xs"
-                                                                    style={{ paddingLeft: 4 }}
-                                                                >
+                                                    <div className="text-xs flex items-center p-2 gap-2 border-t">
+                                                        <IconTrendingFlatDown className="text-xl shrink-0 text-danger" />
+                                                        <span>Dropping off</span>
+                                                        <LemonButton
+                                                            size="small"
+                                                            onClick={() =>
+                                                                openPersonsModal(
+                                                                    undefined,
+                                                                    undefined,
+                                                                    pathItemCard.name
+                                                                )
+                                                            }
+                                                        >
+                                                            <span className="text-xs">
+                                                                {dropOffValue}
+                                                                <span className="text-muted-alt text-xs ml-2">
                                                                     (
                                                                     {(
                                                                         (dropOffValue / pathItemCard.value) *
@@ -382,37 +349,23 @@ export function Paths(): JSX.Element {
                                                                     ).toFixed(1)}
                                                                     %)
                                                                 </span>
-                                                            </ValueInspectorButton>
-                                                        </span>
-                                                    </Menu.Item>
+                                                            </span>
+                                                        </LemonButton>
+                                                    </div>
                                                 )}
                                                 {pathItemCard.targetLinks.length > 0 && (
-                                                    <Menu.Item
-                                                        disabled
-                                                        className="pathcard-dropdown-info-option"
-                                                        style={{
-                                                            padding: '5px 8px',
-                                                            fontWeight: 500,
-                                                            fontSize: 12,
-                                                        }}
-                                                    >
+                                                    <div className="text-xs flex items-center p-2 gap-2 border-t">
                                                         <ClockCircleOutlined
                                                             style={{ color: 'var(--muted)', fontSize: 16 }}
                                                         />
-                                                        <span
-                                                            className="text-xs"
-                                                            style={{
-                                                                wordWrap: 'break-word',
-                                                                whiteSpace: 'normal',
-                                                                paddingLeft: 8,
-                                                            }}
-                                                        >
-                                                            Average time from previous step{' '}
+                                                        <span>Average time from previous step</span>
+                                                        <span className="whitespace-nowrap shrink-0">
+                                                            {humanFriendlyDuration(
+                                                                pathItemCard.targetLinks[0].average_conversion_time /
+                                                                    1000
+                                                            )}
                                                         </span>
-                                                        {humanFriendlyDuration(
-                                                            pathItemCard.targetLinks[0].average_conversion_time / 1000
-                                                        )}
-                                                    </Menu.Item>
+                                                    </div>
                                                 )}
                                             </Menu>
                                         }
