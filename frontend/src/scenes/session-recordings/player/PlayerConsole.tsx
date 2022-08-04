@@ -15,8 +15,6 @@ export function PlayerConsole(): JSX.Element | null {
     const { sessionPlayerDataLoading } = useValues(sessionRecordingLogic)
     const { seek } = useActions(sessionRecordingPlayerLogic)
 
-    console.log('Console logs', consoleLogs)
-
     const renderLogLine = (log: RecordingConsoleLog, index: number): JSX.Element => {
         return (
             <div
