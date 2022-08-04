@@ -23,7 +23,10 @@ export const aggregationAxisFormatSelectOptions: Record<AggregationAxisFormat, L
     },
 }
 
-export const formatAggregationAxisValue = (axisFormat: AggregationAxisFormat, value: number | string): string => {
+export const formatAggregationAxisValue = (
+    axisFormat: AggregationAxisFormat | undefined,
+    value: number | string
+): string => {
     value = Number(value)
     switch (axisFormat) {
         case 'duration':
@@ -49,6 +52,7 @@ export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): b
             ChartDisplayType.ActionsBar,
             ChartDisplayType.ActionsBarValue,
             ChartDisplayType.ActionsTable,
+            ChartDisplayType.ActionsPie,
         ].includes(chartDisplayType)
     )
 }
