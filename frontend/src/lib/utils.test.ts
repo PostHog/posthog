@@ -355,24 +355,24 @@ describe('humanFriendlyDuration()', () => {
         expect(humanFriendlyDuration(45.2)).toEqual('45s')
     })
     it('returns correct value for 60 < t < 120', () => {
-        expect(humanFriendlyDuration(90)).toEqual('1m 30s')
+        expect(humanFriendlyDuration(90)).toEqual('1m 30s')
     })
     it('returns correct value for t > 120', () => {
         expect(humanFriendlyDuration(360)).toEqual('6m')
     })
     it('returns correct value for t >= 3600', () => {
         expect(humanFriendlyDuration(3600)).toEqual('1h')
-        expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
-        expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
-        expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-        expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
+        expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
+        expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
+        expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
+        expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
     })
     it('returns correct value for t >= 86400', () => {
         expect(humanFriendlyDuration(86400)).toEqual('1d')
         expect(humanFriendlyDuration(86400.12)).toEqual('1d')
     })
     it('truncates to specified # of units', () => {
-        expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
+        expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
         expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
         expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
     })

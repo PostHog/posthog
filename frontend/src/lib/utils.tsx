@@ -162,13 +162,11 @@ export function percentage(
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
-    return division
-        .toLocaleString('en-US', {
-            style: 'percent',
-            maximumFractionDigits,
-            minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
-        })
-        .replace(',', ' ') // Use space as thousands separator as it's more international
+    return division.toLocaleString('en-US', {
+        style: 'percent',
+        maximumFractionDigits,
+        minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+    })
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -512,7 +510,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits).join(' ')
+    return units.slice(0, maxUnits).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
