@@ -1,6 +1,5 @@
 import './ActionsPie.scss'
 import React, { useState, useEffect } from 'react'
-import { humanFriendlyNumber } from 'lib/utils'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues, useActions } from 'kea'
@@ -8,6 +7,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
 import { personsModalLogic } from '../personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -99,11 +99,11 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                 </div>
                 <h1>
                     <span className="label">Total: </span>
-                    {humanFriendlyNumber(total)}
+                    {formatAggregationAxisValue(insight.filters?.aggregation_axis_format, total)}
                 </h1>
             </div>
         ) : (
-            <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
+            <p className="text-center mt-16">We couldn't find any matching actions.</p>
         )
     ) : null
 }

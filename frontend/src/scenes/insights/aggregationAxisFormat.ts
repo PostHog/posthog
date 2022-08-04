@@ -53,6 +53,7 @@ export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): b
             ChartDisplayType.ActionsBarValue,
             ChartDisplayType.ActionsTable,
             ChartDisplayType.WorldMap,
+            ChartDisplayType.ActionsPie,
         ].includes(chartDisplayType)
     )
 }
