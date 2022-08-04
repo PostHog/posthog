@@ -4,9 +4,7 @@ from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.models import User
-from posthog.models.person.person import Person
-from posthog.models.prompt import PromptSequenceState, experiment_config
-from posthog.models.team.team import Team
+from posthog.models.prompt import UserPromptSequenceState, experiment_config
 from posthog.test.base import APIBaseTest
 
 
@@ -19,18 +17,13 @@ class TestPrompt(APIBaseTest):
 
     @freeze_time("2022-08-25T22:09:14.252Z")
     def test_my_prompts(self):
-        team_id = 2  # for this experiment, we hardcode prompts that match the PostHog Cloud team
-        Team.objects.create(id=2, organization=self.organization, name="PostHog Cloud")
         distinct_id_user = User.objects.create_and_join(self.organization, "distinct_id_user@posthog.com", None)
         distinct_id_user.distinct_id = "distinct_id"
         distinct_id_user.save()
         self.client.force_login(distinct_id_user)
-        person = Person.objects.create(
-            team_id=team_id, is_user=distinct_id_user, distinct_ids=[distinct_id_user.distinct_id]
-        )
 
         # receive only the one sequence which doesn't have prerequisites
-        response = self.client.patch(f"/api/projects/{self.team.id}/prompts/my_prompts", {}, format="json",)
+        response = self.client.patch(f"/api/prompts/my_prompts", {}, format="json",)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
         self.assertEqual(len(json_response["sequences"]), 1)
@@ -46,7 +39,7 @@ class TestPrompt(APIBaseTest):
                 "dismissed": False,
             }
         }
-        response = self.client.patch(f"/api/projects/{self.team.id}/prompts/my_prompts", local_state, format="json",)
+        response = self.client.patch(f"/api/prompts/my_prompts", local_state, format="json",)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
         # we now also receive the other sequences
@@ -54,7 +47,7 @@ class TestPrompt(APIBaseTest):
         self.assertEqual(json_response["state"]["start-flow"]["step"], 0)
         self.assertEqual(json_response["state"]["start-flow"]["completed"], True)
 
-        saved_states = list(PromptSequenceState.objects.filter(team_id=team_id, person_id=person.id))
+        saved_states = list(UserPromptSequenceState.objects.filter(user=distinct_id_user))
         self.assertEqual(len(saved_states), 1)
         first_saved_state = list(saved_states)[0]
         self.assertEqual(first_saved_state.step, 0)
@@ -70,7 +63,7 @@ class TestPrompt(APIBaseTest):
                 "dismissed": False,
             }
         }
-        response = self.client.patch(f"/api/projects/{self.team.id}/prompts/my_prompts", local_state, format="json",)
+        response = self.client.patch(f"/api/prompts/my_prompts", local_state, format="json",)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
         self.assertEqual(json_response["state"]["start-flow"]["step"], 0)

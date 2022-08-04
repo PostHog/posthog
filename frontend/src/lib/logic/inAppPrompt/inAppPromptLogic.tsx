@@ -11,7 +11,6 @@ import {
 import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import api from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
 import { now } from 'lib/dayjs'
 import wcmatch from 'wildcard-match'
 import {
@@ -275,10 +274,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         syncState: async ({ options }, breakpoint) => {
             await breakpoint(100)
             try {
-                const updatedState = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/prompts/my_prompts`,
-                    values.userState
-                )
+                const updatedState = await api.update(`api/prompts/my_prompts`, values.userState)
                 if (updatedState) {
                     if (JSON.stringify(values.userState) !== JSON.stringify(updatedState['state'])) {
                         actions.setUserState(updatedState['state'], false)

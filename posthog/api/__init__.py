@@ -47,6 +47,7 @@ router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be dele
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
+router.register(r"prompts", prompt.PromptSequenceStateViewSet, "user_prompts")  # User prompts
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)
@@ -58,7 +59,6 @@ project_plugins_configs_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
-projects_router.register(r"prompts", prompt.PromptSequenceStateViewSet, "project_prompts", ["team_id"])
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )

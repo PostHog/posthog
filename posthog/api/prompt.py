@@ -6,13 +6,12 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models.person.person import PersonDistinctId
-from posthog.models.prompt import PromptSequenceState, get_active_prompt_sequences
+from posthog.models.prompt import UserPromptSequenceState, get_active_prompt_sequences
 
 
 class PromptSequenceStateSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
-        model = PromptSequenceState
+        model = UserPromptSequenceState
         fields = ["key", "last_updated_at", "step", "completed", "dismissed"]
 
 
@@ -34,29 +33,18 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             )
             local_states.append(parsed_state)
 
-        team_id = 2  # we are testing prompts created by us, on PostHog Cloud
-
         my_prompts: Dict[str, Any] = {"sequences": [], "state": {}}
-        states_to_update: List[PromptSequenceState] = []
-        states_to_create: List[PromptSequenceState] = []
+        states_to_update: List[UserPromptSequenceState] = []
+        states_to_create: List[UserPromptSequenceState] = []
 
-        person_id = (
-            PersonDistinctId.objects.filter(distinct_id=request.user.distinct_id, team_id=team_id)
-            .values_list("person_id", flat=True)
-            .first()
-        )
-
-        if not person_id:
-            raise exceptions.NotFound()
-
-        saved_states = PromptSequenceState.objects.filter(team_id=team_id, person_id=person_id)
+        saved_states = UserPromptSequenceState.objects.filter(user=request.user)
         all_sequences = get_active_prompt_sequences()
 
         new_states: List[Dict] = []
 
         for sequence in all_sequences:
             local_state = next((s for s in local_states if sequence["key"] == s["key"]), None)
-            saved_state: Optional[PromptSequenceState] = next(
+            saved_state: Optional[UserPromptSequenceState] = next(
                 (s for s in saved_states if sequence["key"] == s.key), None
             )
 
@@ -72,7 +60,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                     state = local_state
                 elif saved_state is None:
                     state = local_state
-                    new_state = PromptSequenceState(team_id=team_id, person_id=person_id, **local_state)
+                    new_state = UserPromptSequenceState(user=request.user, **local_state)
                     states_to_create.append(new_state)
 
             if not state and saved_state:
@@ -96,9 +84,9 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         my_prompts["sequences"] = sequences
 
         if states_to_create:
-            PromptSequenceState.objects.bulk_create(states_to_create)
+            UserPromptSequenceState.objects.bulk_create(states_to_create)
         if states_to_update:
-            PromptSequenceState.objects.bulk_update(
+            UserPromptSequenceState.objects.bulk_update(
                 states_to_update, ["last_updated_at", "step", "completed", "dismissed"]
             )
 

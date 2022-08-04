@@ -4,14 +4,11 @@ from django.db import models
 from django.utils import timezone
 
 
-class PromptSequenceState(models.Model):
+class UserPromptSequenceState(models.Model):
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["team", "person", "key"], name="unique sequence key for person for team")
-        ]
+        constraints = [models.UniqueConstraint(fields=["user", "key"], name="unique sequence key for user")]
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
-    person: models.ForeignKey = models.ForeignKey("Person", on_delete=models.CASCADE)
+    user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     key: models.CharField = models.CharField(max_length=400)
 
     last_updated_at: models.DateTimeField = models.DateTimeField(default=timezone.now)

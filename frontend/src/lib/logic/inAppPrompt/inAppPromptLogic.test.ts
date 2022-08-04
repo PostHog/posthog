@@ -81,7 +81,7 @@ describe('inAppPromptLogic', () => {
         jest.spyOn(api, 'update')
         useMocks({
             patch: {
-                '/api/projects/:team/prompts/my_prompts/': config,
+                '/api/prompts/my_prompts/': config,
             },
         })
         localStorage.clear()
