@@ -57,9 +57,9 @@ export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): strin
         case ChartDisplayType.ActionsLineGraph:
         case ChartDisplayType.ActionsLineGraphCumulative:
         case ChartDisplayType.ActionsBar:
-            return 'Y-Axis Unit'
+            return 'Y-axis unit'
         case ChartDisplayType.ActionsBarValue:
-            return 'X-Axis Unit'
+            return 'X-axis unit'
         case ChartDisplayType.ActionsTable:
         case ChartDisplayType.ActionsPie:
         case ChartDisplayType.WorldMap:
