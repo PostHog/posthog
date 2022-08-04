@@ -129,7 +129,7 @@ export function AnnotationMarker({
     const _onClose = dynamic ? closePopup : () => setTextAreaVisible(false)
 
     const editorSection = (
-        <>
+        <div className="space-y-2">
             <LemonTextArea maxLength={300} rows={4} value={textInput} onChange={(e) => setTextInput(e)} autoFocus />
             <LemonCheckbox
                 checked={applyAll}
@@ -160,7 +160,7 @@ export function AnnotationMarker({
                     Add
                 </LemonButton>
             </div>
-        </>
+        </div>
     )
 
     return (
