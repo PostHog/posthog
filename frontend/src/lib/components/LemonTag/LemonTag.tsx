@@ -39,7 +39,7 @@ export function LemonTag({
                 />
             )}
             {closable && (
-                <LemonButton onClick={onClose} status="stealth" size="small" className="LemonTag__right-button">
+                <LemonButton onClick={onClose} status="primary" size="small" className="LemonTag__right-button">
                     <IconClose />
                 </LemonButton>
             )}

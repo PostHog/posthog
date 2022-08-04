@@ -39,10 +39,19 @@
         }
     }
 
+    &.LemonButton--no-content {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
     &.LemonButton--small {
         min-height: 2rem;
         padding: 0.125rem 0.5rem;
         gap: 0.25rem;
+
+        &.LemonButton--no-content {
+            padding: 0.125rem;
+        }
 
         > .LemonIcon {
             font-size: 1.25rem;
@@ -55,6 +64,10 @@
         gap: 0.75rem;
         font-size: 1rem;
 
+        &.LemonButton--no-content {
+            padding: 0.5rem;
+        }
+
         > .LemonIcon {
             font-size: 1.75rem;
         }
@@ -66,12 +79,6 @@
     &.LemonButton--hasSideIcon {
         padding-right: 0.5rem;
     }
-
-    &.LemonButton--no-content {
-        padding-left: 0.5rem;
-        padding-right: 0.5rem;
-    }
-
     &.LemonButton--noPadding {
         min-height: 0;
         height: auto;

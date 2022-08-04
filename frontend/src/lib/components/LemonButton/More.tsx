@@ -25,6 +25,7 @@ export function More({
                 actionable: true,
                 overlay,
             }}
+            size="small"
             disabled={!overlay}
             style={style}
         />
