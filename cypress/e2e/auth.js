@@ -7,7 +7,7 @@ describe('Auth', () => {
         cy.get('[data-attr=top-menu-toggle]').click()
     })
 
-    it.only('Logout', () => {
+    it('Logout', () => {
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.location('pathname').should('eq', '/login')
     })
