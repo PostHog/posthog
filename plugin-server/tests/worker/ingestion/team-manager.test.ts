@@ -13,6 +13,7 @@ import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestio
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
+jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/posthog', () => ({
     posthog: {
         identify: jest.fn(),

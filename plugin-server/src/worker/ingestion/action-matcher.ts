@@ -25,6 +25,7 @@ import { extractElements } from '../../utils/db/elements-chain'
 import { stringToBoolean } from '../../utils/env-utils'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
+import { LazyPersonContainer } from './lazy-person-container'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
 const propertyOperatorToRequiredValueType: Partial<Record<PropertyOperator, string[]>> = {
@@ -108,7 +109,11 @@ export class ActionMatcher {
     }
 
     /** Get all actions matched to the event. */
-    public async match(event: IngestionEvent, person?: IngestionPersonData, elements?: Element[]): Promise<Action[]> {
+    public async match(
+        event: IngestionEvent,
+        personContainer: LazyPersonContainer,
+        elements?: Element[]
+    ): Promise<Action[]> {
         const matchingStart = new Date()
         const teamActions: Action[] = Object.values(this.actionManager.getTeamActions(event.teamId))
         if (!elements) {
@@ -118,7 +123,7 @@ export class ActionMatcher {
         const teamActionsMatching: boolean[] = await Promise.all(
             teamActions.map((action) => {
                 const timer = new Date()
-                const res = this.checkAction(event, elements, person, action)
+                const res = this.checkAction(event, elements, personContainer, action)
                 this.statsd?.timing('checkAction', timer, {
                     teamId: String(event.teamId),
                 })
@@ -145,18 +150,18 @@ export class ActionMatcher {
     public async checkAction(
         event: IngestionEvent,
         elements: Element[] | undefined,
-        person: IngestionPersonData | undefined,
+        personContainer: LazyPersonContainer,
         action: Action
     ): Promise<boolean> {
         for (const step of action.steps) {
             try {
-                if (await this.checkStep(event, elements, person, step)) {
+                if (await this.checkStep(event, elements, personContainer, step)) {
                     return true
                 }
             } catch (error) {
                 captureException(error, {
                     tags: { team_id: action.team_id },
-                    extra: { event, elements, person, action, step },
+                    extra: { event, elements, action, step },
                 })
             }
         }
@@ -172,7 +177,7 @@ export class ActionMatcher {
     private async checkStep(
         event: IngestionEvent,
         elements: Element[] | undefined,
-        person: IngestionPersonData | undefined,
+        personContainer: LazyPersonContainer,
         step: ActionStep
     ): Promise<boolean> {
         if (!elements) {
@@ -182,7 +187,7 @@ export class ActionMatcher {
             this.checkStepElement(elements, step) &&
             this.checkStepUrl(event, step) &&
             this.checkStepEvent(event, step) &&
-            (await this.checkStepFilters(event, elements, person, step))
+            (await this.checkStepFilters(event, elements, personContainer, step))
         )
     }
 
@@ -283,14 +288,14 @@ export class ActionMatcher {
     private async checkStepFilters(
         event: IngestionEvent,
         elements: Element[],
-        person: IngestionPersonData | undefined,
+        personContainer: LazyPersonContainer,
         step: ActionStep
     ): Promise<boolean> {
         // CHECK CONDITIONS, OTHERWISE SKIPPED, OTHERWISE SKIPPED
         if (step.properties && step.properties.length) {
             // EVERY FILTER MUST BE A MATCH
             for (const filter of step.properties) {
-                if (!(await this.checkEventAgainstFilter(event, elements, person, filter))) {
+                if (!(await this.checkEventAgainstFilter(event, elements, personContainer, filter))) {
                     return false
                 }
             }
@@ -304,18 +309,20 @@ export class ActionMatcher {
     private async checkEventAgainstFilter(
         event: IngestionEvent,
         elements: Element[],
-        person: IngestionPersonData | undefined,
+        personContainer: LazyPersonContainer,
         filter: PropertyFilter
     ): Promise<boolean> {
         switch (filter.type) {
             case 'event':
                 return this.checkEventAgainstEventFilter(event, filter)
             case 'person':
+                const person = await personContainer.get()
                 return this.checkEventAgainstPersonFilter(person, filter)
             case 'element':
                 return this.checkEventAgainstElementFilter(elements, filter)
             case 'cohort':
-                return await this.checkEventAgainstCohortFilter(person, filter)
+                const cohortPerson = await personContainer.get()
+                return await this.checkEventAgainstCohortFilter(cohortPerson, filter)
             default:
                 return false
         }

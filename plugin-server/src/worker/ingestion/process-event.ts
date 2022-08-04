@@ -20,6 +20,7 @@ import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../uti
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
+import { LazyPersonContainer } from './lazy-person-container'
 import { upsertGroup } from './properties-updater'
 import { TeamManager } from './team-manager'
 
@@ -46,8 +47,7 @@ export class EventsProcessor {
         data: PluginEvent,
         teamId: number,
         timestamp: DateTime,
-        eventUuid: string,
-        person: IngestionPersonData | undefined = undefined
+        eventUuid: string
     ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             throw new Error(`Not a valid UUID: "${eventUuid}"`)
@@ -96,16 +96,7 @@ export class EventsProcessor {
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
-                    result = await this.capture(
-                        eventUuid,
-                        ip,
-                        team,
-                        data['event'],
-                        distinctId,
-                        properties,
-                        timestamp,
-                        person
-                    )
+                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
@@ -126,8 +117,7 @@ export class EventsProcessor {
         event: string,
         distinctId: string,
         properties: Properties,
-        timestamp: DateTime,
-        person: IngestionPersonData | undefined
+        timestamp: DateTime
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
         const elements: Record<string, any>[] | undefined = properties['$elements']
@@ -158,7 +148,6 @@ export class EventsProcessor {
             timestamp,
             elementsList,
             teamId: team.id,
-            person,
         }
     }
 
@@ -173,7 +162,10 @@ export class EventsProcessor {
         return res
     }
 
-    async createEvent(preIngestionEvent: PreIngestionEvent): Promise<IngestionEvent> {
+    async createEvent(
+        preIngestionEvent: PreIngestionEvent,
+        personContainer: LazyPersonContainer
+    ): Promise<IngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -194,10 +186,15 @@ export class EventsProcessor {
         const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
-        let personInfo = preIngestionEvent.person
+        let personInfo: IngestionPersonData | undefined = await personContainer.get()
 
         if (personInfo) {
-            eventPersonProperties = JSON.stringify(personInfo.properties)
+            eventPersonProperties = JSON.stringify({
+                ...personInfo.properties,
+                // For consistency, we'd like events to contain the properties that they set, even if those were changed
+                // before the event is ingested.
+                ...(properties.$set || {}),
+            })
         } else {
             personInfo = await this.db.getPersonData(teamId, distinctId)
             if (personInfo) {
@@ -241,7 +238,7 @@ export class EventsProcessor {
             ],
         })
 
-        return { ...preIngestionEvent, person: personInfo }
+        return preIngestionEvent
     }
 
     private async createSessionRecordingEvent(
