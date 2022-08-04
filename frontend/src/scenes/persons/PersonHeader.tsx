@@ -6,35 +6,32 @@ import { urls } from 'scenes/urls'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { midEllipsis } from 'lib/utils'
 import clsx from 'clsx'
 
 export interface PersonHeaderProps {
-    person?: Partial<Pick<PersonType, 'properties' | 'distinct_ids'>> | null
+    person?: Pick<PersonType, 'properties' | 'distinct_ids'> | null
     withIcon?: boolean
     noLink?: boolean
     noEllipsis?: boolean
 }
 
-export const asDisplay = (person: Partial<PersonType> | PersonActorType | null | undefined): string => {
-    let displayId
-
+export function asDisplay(person: PersonType | PersonActorType | null | undefined): string {
+    if (!person) {
+        return 'Unknown'
+    }
     const team = teamLogic.findMounted()?.values?.currentTeam
     const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 
-    const customPropertyKey = personDisplayNameProperties.find((x) => person?.properties?.[x])
-    const propertyIdentifier = customPropertyKey ? person?.properties?.[customPropertyKey] : undefined
+    const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
+    const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
-    const customIdentifier =
+    const customIdentifier: string =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-    if (!person?.distinct_ids?.length) {
-        displayId = null
-    } else {
-        const baseId = person.distinct_ids[0].replace(/\W/g, '')
-        displayId = baseId.slice(-5).toUpperCase()
-    }
+    const display: string | undefined = (customIdentifier || person.distinct_ids?.[0])?.trim()
 
-    return customIdentifier ? customIdentifier : `User ${displayId}`
+    return display ? midEllipsis(display, 40) : 'Person without ID'
 }
 
 export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
@@ -42,23 +39,12 @@ export const asLink = (person: Partial<PersonType> | null | undefined): string |
 
 export function PersonHeader(props: PersonHeaderProps): JSX.Element {
     const href = asLink(props.person)
+    const display = asDisplay(props.person)
 
     const content = (
         <div className="flex items-center">
-            {props.withIcon && (
-                <ProfilePicture
-                    name={
-                        props.person?.properties?.email ||
-                        props.person?.properties?.name ||
-                        props.person?.properties?.username ||
-                        (href ? 'U' : '?')
-                    }
-                    size="md"
-                />
-            )}
-            <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>
-                {asDisplay(props.person)}
-            </span>
+            {props.withIcon && <ProfilePicture name={display} size="md" />}
+            <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>{display}</span>
         </div>
     )
 

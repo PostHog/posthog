@@ -699,7 +699,7 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     colonTimestamp?: string // Used in session recording events list
-    person?: Partial<PersonType> | null
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
 }
 

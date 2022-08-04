@@ -80,7 +80,7 @@ describe('the person header', () => {
             props: {
                 email: null,
             },
-            personDisplay: 'User A9D1C',
+            personDisplay: '03b16e4c0b14ef-00000…c680-17878af3ba9d1c',
 
             describe: 'when person is identified',
             testName: 'if there are no person properties it shows identified people by hash',
@@ -91,7 +91,7 @@ describe('the person header', () => {
             props: {
                 email: null,
             },
-            personDisplay: 'User ABCDE',
+            personDisplay: '03b16e4c0b14ef-00000…c680-17878af3babcde',
 
             describe: 'when person is unidentified',
             testName: 'if there are no person properties it shows people by hash',
@@ -112,7 +112,7 @@ describe('the person header', () => {
 
     displayTestCases.forEach((testCase) => {
         describe(testCase.describe, () => {
-            const person: Partial<PersonType> = {
+            const person: Pick<PersonType, 'distinct_ids' | 'properties'> = {
                 distinct_ids: testCase.distinctIds || [uuid()],
                 properties: testCase.props,
             }
