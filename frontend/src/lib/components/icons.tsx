@@ -1472,7 +1472,7 @@ export function IconWebhook(props: SvgIconProps): JSX.Element {
 
 export function IconSlack(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="16" height="16" viewBox="0 0 2447.6 2452.5" {...props}>
+        <SvgIcon viewBox="0 0 2447.6 2452.5" {...props}>
             <g clipRule="evenodd" fillRule="evenodd">
                 <path
                     d="m897.4 0c-135.3.1-244.8 109.9-244.7 245.2-.1 135.3 109.5 245.1 244.8 245.2h244.8v-245.1c.1-135.3-109.5-245.1-244.9-245.3.1 0 .1 0 0 0m0 654h-652.6c-135.3.1-244.9 109.9-244.8 245.2-.2 135.3 109.4 245.1 244.7 245.3h652.7c135.3-.1 244.9-109.9 244.8-245.2.1-135.4-109.5-245.2-244.8-245.3z"

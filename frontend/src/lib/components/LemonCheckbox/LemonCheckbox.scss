@@ -42,8 +42,11 @@
         color: var(--muted);
     }
 
-    &.LemonCheckbox--full-width label {
+    &.LemonCheckbox--full-width {
         width: 100%;
+        label {
+            width: 100%;
+        }
     }
 
     &.LemonCheckbox--indeterminate label {
