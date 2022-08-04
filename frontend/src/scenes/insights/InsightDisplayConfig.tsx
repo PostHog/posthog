@@ -178,7 +178,7 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         )}
                         <ConfigFilter>
                             <span>Chart type</span>
-                            <ChartFilter filters={filters} disabled={filters.insight === InsightType.LIFECYCLE} />
+                            <ChartFilter filters={filters} />
                         </ConfigFilter>
                     </>
                 )}
