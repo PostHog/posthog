@@ -118,6 +118,9 @@ describe('PersonState.update()', () => {
             })
         )
         expect(person).toEqual(racePerson)
+
+        const clickhouseRows = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhouseRows.length).toEqual(1)
     })
 
     it('creates person with properties', async () => {
