@@ -896,9 +896,9 @@ export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIcon
     )
 }
 
-export function PageviewIcon(props: SvgIconProps): JSX.Element {
+export function IconPageview(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="18" height="18" viewBox="0 0 18 18" {...props}>
+        <SvgIcon viewBox="0 0 18 18" {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -909,9 +909,9 @@ export function PageviewIcon(props: SvgIconProps): JSX.Element {
     )
 }
 
-export function AutocaptureIcon(props: SvgIconProps): JSX.Element {
+export function IconAutocapture(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="18" height="18" viewBox="0 0 18 18" {...props}>
+        <SvgIcon viewBox="0 0 18 18" {...props}>
             <path
                 d="M14.5 6L13.56 3.94L11.5 3L13.56 2.06L14.5 0L15.44 2.06L17.5 3L15.44 3.94L14.5 6Z"
                 fill="currentColor"
@@ -929,9 +929,9 @@ export function AutocaptureIcon(props: SvgIconProps): JSX.Element {
     )
 }
 
-export function PageleaveIcon(props: SvgIconProps): JSX.Element {
+export function IconPageleave(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="18" height="18" viewBox="0 0 18 18" {...props}>
+        <SvgIcon viewBox="0 0 18 18" {...props}>
             <path
                 d="M7.09 12.59L8.5 14L13.5 9L8.5 4L7.09 5.41L9.67 8H0V10H9.67L7.09 12.59ZM16 0H2C0.89 0 0 0.9 0 2V6H2V2H16V16H2V12H0V16C0 17.1 0.89 18 2 18H16C17.1 18 18 17.1 18 16V2C18 0.9 17.1 0 16 0Z"
                 fill="currentColor"
@@ -940,9 +940,9 @@ export function PageleaveIcon(props: SvgIconProps): JSX.Element {
     )
 }
 
-export function ActionIcon(props: SvgIconProps): JSX.Element {
+export function IconAction(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="1em" height="1em" viewBox="0 0 20 20" {...props}>
+        <SvgIcon viewBox="0 0 20 20" {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -953,9 +953,9 @@ export function ActionIcon(props: SvgIconProps): JSX.Element {
     )
 }
 
-export function EventIcon(props: SvgIconProps): JSX.Element {
+export function IconEvent(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="1em" height="1em" viewBox="0 0 20 10" {...props}>
+        <SvgIcon viewBox="0 0 20 10" {...props}>
             <path
                 d="M7.4 10.6L2.8 6L7.4 1.4L6 0L0 6L6 12L7.4 10.6ZM12.6 10.6L17.2 6L12.6 1.4L14 0L20 6L14 12L12.6 10.6Z"
                 fill="currentColor"
@@ -967,7 +967,7 @@ export function EventIcon(props: SvgIconProps): JSX.Element {
 /** Material Design light bulb icon. */
 export function IconLightBulb(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+        <SvgIcon viewBox="0 0 24 24" {...props}>
             <path
                 d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"
                 fill="currentColor"
@@ -1466,7 +1466,7 @@ export function IconLink(props: SvgIconProps): JSX.Element {
 
 export function IconMessages(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon viewBox="0 0 24 24" {...props}>
+        <SvgIcon viewBox="-2 -2 24 24" {...props}>
             <path
                 d="M13 2V9H3.17L2 10.17V2H13ZM14 0H1C0.45 0 0 0.45 0 1V15L4 11H14C14.55 11 15 10.55 15 10V1C15 0.45 14.55 0 14 0ZM19 4H17V13H4V15C4 15.55 4.45 16 5 16H16L20 20V5C20 4.45 19.55 4 19 4Z"
                 fill="currentColor"

@@ -23,7 +23,7 @@ import {
     OVERSCANNED_ROW_COUNT,
     DEFAULT_ROW_HEIGHT,
 } from 'scenes/session-recordings/player/eventsListLogic'
-import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
+import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -46,17 +46,17 @@ function overscanIndicesGetter({
 
 const renderIcon = (event: RecordingEventType): JSX.Element => {
     if (event.event === '$pageview') {
-        return <PageviewIcon />
+        return <IconPageview />
     }
     if (event.event === '$pageleave') {
-        return <PageleaveIcon />
+        return <IconPageleave />
     }
     if (event.event === '$autocapture') {
-        return <AutocaptureIcon />
+        return <IconAutocapture />
     }
-    return <EventIcon />
+    return <IconEvent />
     // TODO: Have api/events return `event_type` parameter to help distinguish btwn custom events, events, and actions
-    // return <ActionIcon />
+    // return <IconAction />
 }
 
 function noRowsRenderer(): JSX.Element {

@@ -2,9 +2,9 @@ import React from 'react'
 import { ActionType, CombinedEvent, EventDefinition, PropertyDefinition } from '~/types'
 import {
     ActionEvent,
-    AutocaptureIcon,
-    PageleaveIcon,
-    PageviewIcon,
+    IconAutocapture,
+    IconPageleave,
+    IconPageview,
     PropertyIcon,
     UnverifiedEvent,
     VerifiedEvent,
@@ -51,21 +51,21 @@ export function getEventDefinitionIcon(definition: CombinedEvent): JSX.Element {
     if (definition.name === '$pageview') {
         return (
             <Tooltip title="PostHog event">
-                <PageviewIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+                <IconPageview className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$pageleave') {
         return (
             <Tooltip title="PostHog event">
-                <PageleaveIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+                <IconPageleave className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     if (definition.name === '$autocapture') {
         return (
             <Tooltip title="PostHog event">
-                <AutocaptureIcon className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
+                <IconAutocapture className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-verified" />
             </Tooltip>
         )
     }
