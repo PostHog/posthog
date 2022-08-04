@@ -19,11 +19,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import {
-    isAggregationAxisFormat,
-    aggregationAxisFormatSelectOptions,
-    canFormatAxis,
-} from 'scenes/insights/aggregationAxisFormat'
+import { aggregationAxisFormatSelectOptions, axisLabel, canFormatAxis } from 'scenes/insights/aggregationAxisFormat'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -160,13 +156,11 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
             <div className="flex items-center space-x-4 flex-wrap my-2">
                 {activeView === InsightType.TRENDS && (
                     <ConfigFilter>
-                        <span>Units</span>
+                        <span>{axisLabel(filters.display)}</span>
                         <LemonSelect
-                            value={
-                                canFormatAxis(filters.display) ? filters.aggregation_axis_format || 'numeric' : 'N/A'
-                            }
+                            value={filters.aggregation_axis_format || 'numeric'}
                             onChange={(value) => {
-                                if (isAggregationAxisFormat(value)) {
+                                if (value) {
                                     setFilters({ ...filters, aggregation_axis_format: value })
                                 }
                             }}

@@ -18,6 +18,7 @@ import { shortTimeZone } from 'lib/utils'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useValues } from 'kea'
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatAggregationValue } from 'scenes/insights/utils'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -47,16 +48,11 @@ function renderDatumToTableCell(
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
     renderCount: (value: number) => React.ReactNode
 ): ReactNode {
-    let innerValue = datumMathProperty
-        ? formatPropertyValueForDisplay(datumMathProperty, datumValue)
-        : renderCount(datumValue ?? 0)
-
-    if (datumMathProperty && innerValue === datumValue.toString()) {
-        // formatPropertyValueForDisplay didn't change the value...
-        innerValue = renderCount(datumValue ?? 0)
-    }
-
-    return <div className="series-data-cell">{innerValue}</div>
+    return (
+        <div className="series-data-cell">
+            {formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)}
+        </div>
+    )
 }
 
 export function InsightTooltip({

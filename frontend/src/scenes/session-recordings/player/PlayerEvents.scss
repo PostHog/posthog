@@ -1,17 +1,17 @@
 @import '../../../styles/mixins';
 
-.player-events-container {
+.player-events-container-v2 {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.player-events-container-v2,
+.player-events-container-v3 {
     display: flex;
     flex-direction: column;
     background-color: var(--bg-light);
-    height: 100vh;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    height: inherit;
     padding: var(--recording-spacing);
-
-    @include screen($md) {
-        height: 100%;
-    }
 
     .event-list {
         flex: 1;

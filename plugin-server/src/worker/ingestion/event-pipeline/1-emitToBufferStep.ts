@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, IngestionPersonData, JobName, TeamId } from '../../../types'
+import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function emitToBufferStep(
@@ -13,12 +14,13 @@ export async function emitToBufferStep(
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
+    const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
+
     if (event.event === '$snapshot') {
-        return runner.nextStep('processPersonsStep', event, undefined)
+        return runner.nextStep('processPersonsStep', event, personContainer)
     }
 
-    const person = await runner.hub.db.fetchPerson(event.team_id, event.distinct_id)
-
+    const person = await personContainer.get()
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
         await runner.hub.jobQueueManager.enqueue(JobName.BUFFER_JOB, {
@@ -28,7 +30,7 @@ export async function emitToBufferStep(
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null
     } else {
-        return runner.nextStep('pluginsProcessEventStep', event, person)
+        return runner.nextStep('pluginsProcessEventStep', event, personContainer)
     }
 }
 

@@ -928,7 +928,6 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
-    person?: IngestionPersonData | undefined
 }
 
 export type IngestionEvent = PreIngestionEvent

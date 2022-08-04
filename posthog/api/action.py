@@ -60,6 +60,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
+    is_action = serializers.BooleanField(read_only=True, default=True)
 
     class Meta:
         model = Action
@@ -77,6 +78,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "is_calculating",
             "last_calculated_at",
             "team_id",
+            "is_action",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
 

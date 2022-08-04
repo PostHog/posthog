@@ -7,6 +7,7 @@ import {
     emitToBufferStep,
     shouldSendEventToBuffer,
 } from '../../../../src/worker/ingestion/event-pipeline/1-emitToBufferStep'
+import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
 
@@ -70,7 +71,7 @@ describe('emitToBufferStep()', () => {
     it('calls `pluginsProcessEventStep` next if not buffering', async () => {
         const response = await emitToBufferStep(runner, pluginEvent, () => false)
 
-        expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, existingPerson])
+        expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
     })
@@ -80,7 +81,7 @@ describe('emitToBufferStep()', () => {
 
         const response = await emitToBufferStep(runner, event, () => true)
 
-        expect(response).toEqual(['processPersonsStep', event, undefined])
+        expect(response).toEqual(['processPersonsStep', event, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).not.toHaveBeenCalled()
         expect(runner.hub.jobQueueManager.enqueue).not.toHaveBeenCalled()
     })

@@ -194,7 +194,7 @@ export function LemonButtonWithPopup({
         if (!buttonProps.icon) {
             buttonProps.icon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
         }
-    } else if (!buttonProps.sideIcon) {
+    } else if (buttonProps.sideIcon === undefined) {
         buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
     }
 

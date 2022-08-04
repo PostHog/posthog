@@ -66,6 +66,9 @@ class ClickhouseFunnelExperimentResult:
                 "date_to": experiment_end_date,
                 "breakdown": breakdown_key,
                 "breakdown_type": "event",
+                "properties": [],
+                # :TRICKY: We don't use properties set on filters, as these
+                # correspond to feature flag properties, not the funnel properties.
             }
         )
         self.funnel = funnel_class(query_filter, team)

@@ -12,7 +12,7 @@ import {
     PathType,
     StepOrderValue,
 } from '~/types'
-import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, objectsEqual } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter, ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
@@ -28,6 +28,7 @@ import { apiValueToMathType, MathDefinition } from 'scenes/trends/mathsLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightLogic } from './insightLogic'
 import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import React, { ReactNode } from 'react'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -297,6 +298,27 @@ export function summarizeInsightFilters(
             }
     }
     return summary
+}
+
+export function formatAggregationValue(
+    property: string | undefined,
+    propertyValue: number,
+    renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
+    formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
+): ReactNode {
+    let formattedValue =
+        property && formatPropertyValueForDisplay
+            ? formatPropertyValueForDisplay(property, propertyValue)
+            : renderCount(propertyValue ?? 0)
+
+    if (property && formattedValue === propertyValue.toString()) {
+        // formatPropertyValueForDisplay didn't change the value...
+        formattedValue = renderCount(propertyValue ?? 0)
+    }
+
+    // Since `propertyValue` is a number. `formatPropertyValueForDisplay` will only return a string
+    // To make typescript happy we handle the possible but impossible string array inside this function
+    return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
 export function formatBreakdownLabel(

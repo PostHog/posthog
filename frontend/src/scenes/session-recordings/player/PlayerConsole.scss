@@ -2,6 +2,8 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 .console-log {
@@ -51,8 +53,6 @@
 }
 
 .console-feedback-container {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-top: 1px solid var(--border);
     padding: 1rem;
-    margin-top: 1rem;
 }
