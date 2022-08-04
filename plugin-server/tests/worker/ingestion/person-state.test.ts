@@ -93,6 +93,33 @@ describe('PersonState.update()', () => {
         )
     })
 
+    it('handles person being created in a race condition', async () => {
+        const state = personState({ event: '$pageview', distinct_id: 'new-user' })
+        await state.personContainer.get() // Pre-load person, with it returning undefined (e.g. as by buffer step)
+
+        // Create person separately
+        const racePersonContainer = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+        const racePerson = await racePersonContainer.get()
+
+        // Run person-state update. This will _not_ create the person as it was created in the last step, but should
+        // still return the correct result
+        const personContainer = await state.update()
+
+        expect(personContainer.loaded).toEqual(false)
+
+        const person = await personContainer.get()
+        expect(person).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: {},
+                created_at: timestamp,
+                version: 0,
+            })
+        )
+        expect(person).toEqual(racePerson)
+    })
+
     it('creates person with properties', async () => {
         const personContainer = await personState({
             event: '$pageview',
