@@ -60,10 +60,8 @@ export function VerifyDomainModal(): JSX.Element {
                         <li>Press verify below.</li>
                     </ol>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <LemonButton onClick={() => setVerifyModal(null)} style={{ marginRight: 8 }}>
-                        Verify later
-                    </LemonButton>
+                <div className="flex justif-end gap-2">
+                    <LemonButton onClick={() => setVerifyModal(null)}>Verify later</LemonButton>
                     <LemonButton type="primary" disabled={updatingDomainLoading} onClick={verifyDomain}>
                         Verify
                     </LemonButton>

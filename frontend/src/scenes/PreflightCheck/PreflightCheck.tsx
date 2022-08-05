@@ -185,10 +185,9 @@ export function PreflightCheck(): JSX.Element {
                                     data-attr="preflight-refresh"
                                     onClick={() => revalidatePreflight()}
                                     disabled={preflightLoading || !preflight}
-                                    style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
                                     icon={<IconRefresh />}
                                 >
-                                    <span style={{ paddingLeft: 8 }}>Validate requirements</span>
+                                    Validate requirements
                                 </LemonButton>
                             </div>
                             <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />

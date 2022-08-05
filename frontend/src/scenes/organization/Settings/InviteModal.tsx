@@ -5,7 +5,7 @@ import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from './inviteLogic'
-import { IconClose, IconDelete, IconOpenInNew, IconPlus } from 'lib/components/icons'
+import { IconDelete, IconOpenInNew, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonModal } from 'lib/components/LemonModal'
@@ -124,22 +124,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     onClose()
                 }}
                 destroyOnClose
-                closable={false}
-                title={
-                    <div className="invite-modal-header">
-                        Invite team members
-                        <LemonButton
-                            icon={<IconClose />}
-                            status="stealth"
-                            size="small"
-                            disabled={loading}
-                            onClick={() => {
-                                resetInviteRows()
-                                onClose()
-                            }}
-                        />
-                    </div>
-                }
+                title={<div className="invite-modal-header">Invite team members</div>}
             >
                 <h1 className="font-extrabold">Invite others to {user?.organization?.name || 'PostHog'}</h1>
                 {preflight?.email_service_available ? (

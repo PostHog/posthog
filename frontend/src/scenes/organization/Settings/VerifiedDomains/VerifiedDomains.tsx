@@ -234,8 +234,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                     Configure SAML
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() =>
                                         Modal.confirm({
                                             title: `Remove ${domain}?`,
