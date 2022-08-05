@@ -230,7 +230,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     </Field>
                 </div>
                 <div className="my-8">
-                    <h2 className="subtitle">Webhooks</h2>
                     <Field name="post_to_slack">
                         {({ value, onChange }) => (
                             <>
