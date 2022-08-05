@@ -46,7 +46,11 @@ export function ProfilePicture({
             />
         )
     } else {
-        pictureComponent = <Lettermark name={title} index={index} rounded />
+        pictureComponent = (
+            <span className={pictureClass}>
+                <Lettermark name={name || email} index={index} rounded />
+            </span>
+        )
     }
     return !showName ? (
         pictureComponent
