@@ -82,7 +82,7 @@ export function createPluginConfigVM(
                     const message = `Script execution timed out after promise waited for ${timeout} second${
                         timeout === 1 ? '' : 's'
                     }`
-                    reject(new TimeoutError(message, `${name}`))
+                    reject(new TimeoutError(message, `${name}`, pluginConfig))
                 }, timeout * 1000)
             ),
         ])
