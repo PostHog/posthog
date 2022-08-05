@@ -22,6 +22,7 @@ export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     placeholder?: React.ReactNode
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
+    style?: React.CSSProperties
 }
 
 /** Like TaxonomicPopup, but convenient when you know you will only use string values */
