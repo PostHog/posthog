@@ -38,4 +38,8 @@ export class LazyPersonContainer {
     with(person: Person): LazyPersonContainer {
         return new LazyPersonContainer(this.teamId, this.distinctId, this.hub, person)
     }
+
+    reset(): LazyPersonContainer {
+        return new LazyPersonContainer(this.teamId, this.distinctId, this.hub)
+    }
 }
