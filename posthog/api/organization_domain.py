@@ -80,6 +80,7 @@ class OrganizationDomainViewset(StructuredViewSetMixin, ModelViewSet):
         OrganizationAdminWritePermissions,
     ]
     queryset = OrganizationDomain.objects.all()
+    throttle_scope = "general_api"
 
     def get_queryset(self):
         return self.filter_queryset_by_parents_lookups(super().get_queryset()).order_by("domain")

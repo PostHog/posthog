@@ -234,6 +234,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         TeamMemberAccessPermission,
         CanEditDashboard,
     ]
+    throttle_scope = "general_api"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

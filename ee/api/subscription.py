@@ -99,6 +99,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 class SubscriptionViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
+    throttle_scope = "general_api"
 
     authentication_classes = [
         PersonalAPIKeyAuthentication,

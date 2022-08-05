@@ -399,6 +399,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
+    throttle_scope = "general_api"
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness

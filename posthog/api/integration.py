@@ -61,6 +61,7 @@ class IntegrationViewSet(
         BasicAuthentication,
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_scope = "general_api"
 
     @action(methods=["GET"], detail=True, url_path="channels")
     def content(self, request: Request, *args: Any, **kwargs: Any) -> Response:

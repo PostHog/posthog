@@ -86,6 +86,7 @@ class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mix
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = DeadLetterQueueMetricsSerializer
     lookup_field = "key"
+    throttle_scope = "general_api"
 
     def get_queryset(self):
         output = []

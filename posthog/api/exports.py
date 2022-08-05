@@ -121,6 +121,7 @@ class ExportedAssetViewSet(
         BasicAuthentication,
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_scope = "general_api"
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint
     @action(methods=["GET"], detail=True)

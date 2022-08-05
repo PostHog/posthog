@@ -110,6 +110,7 @@ class InstanceSettingsViewset(
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = InstanceSettingsSerializer
     lookup_field = "key"
+    throttle_scope = "general_api"
 
     def get_queryset(self):
         output = []

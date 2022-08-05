@@ -54,6 +54,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     serializer_class = ClickhouseEventSerializer
     pagination_class = LimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_scope = "general_api"
 
     # Return at most this number of events in CSV export
     CSV_EXPORT_DEFAULT_LIMIT = 3_500

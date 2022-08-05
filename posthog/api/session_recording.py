@@ -48,6 +48,7 @@ class SessionRecordingSerializer(serializers.Serializer):
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    throttle_scope = "general_api"
 
     def _get_session_recording_list(self, filter):
         return SessionRecordingList(filter=filter, team=self.team).run()

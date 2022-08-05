@@ -139,6 +139,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     queryset = Organization.objects.none()
     lookup_field = "id"
     ordering = "-created_by"
+    throttle_scope = "general_api"
 
     def get_permissions(self):
         if self.request.method == "POST":

@@ -62,6 +62,7 @@ class PropertyDefinitionViewSet(
     filter_backends = [TermSearchFilterBackend]
     ordering = "name"
     search_fields = ["name"]
+    throttle_scope = "general_api"
 
     def get_queryset(self):
         use_entreprise_taxonomy = self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)  # type: ignore

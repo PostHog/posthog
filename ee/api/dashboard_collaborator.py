@@ -88,6 +88,7 @@ class DashboardCollaboratorViewSet(
     serializer_class = DashboardCollaboratorSerializer
     filter_rewrite_rules = {"team_id": "dashboard__team_id"}
     include_in_docs = False
+    throttle_scope = "general_api"
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()

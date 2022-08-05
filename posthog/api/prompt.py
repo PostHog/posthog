@@ -22,6 +22,7 @@ class PromptSequenceStateViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     """
 
     serializer_class = PromptSequenceStateSerializer
+    throttle_scope = "general_api"
 
     @action(methods=["PATCH"], detail=False)
     def my_prompts(self, request: request.Request, **kwargs):

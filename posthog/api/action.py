@@ -157,6 +157,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
 
 
 class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    throttle_scope = "general_api"
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Action.objects.all()
     serializer_class = ActionSerializer

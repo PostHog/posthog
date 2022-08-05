@@ -190,6 +190,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
     ]
+    throttle_scope = "general_api"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
