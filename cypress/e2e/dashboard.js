@@ -4,7 +4,7 @@ function createDashboardFromTemplate(dashboardName) {
     cy.get('[data-attr=copy-from-template]').click()
     cy.get('[data-attr=dashboard-select-default-app]').click()
 
-    cy.get('button').contains('Create').click()
+    cy.get('[data-attr=dashboard-submit-and-go]').click()
 
     cy.contains(dashboardName).should('exist')
 }

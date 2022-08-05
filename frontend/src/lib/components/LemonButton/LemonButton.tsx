@@ -64,7 +64,7 @@ function LemonButtonInternal(
         center,
         size,
         tooltip,
-        htmlType,
+        htmlType = 'button',
         noPadding,
         ...buttonProps
     }: LemonButtonProps,

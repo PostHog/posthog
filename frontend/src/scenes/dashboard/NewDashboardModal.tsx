@@ -36,7 +36,7 @@ export function NewDashboardModal(): JSX.Element {
                     <LemonButton
                         form="new-dashboard-form"
                         type="secondary"
-                        data-attr="dashboard-submit"
+                        data-attr="dashboard-submit-and-go"
                         loading={isNewDashboardSubmitting}
                         disabled={isNewDashboardSubmitting}
                         onClick={createAndGoToDashboard}
