@@ -7,7 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
-import { ConsoleFeedbackOptionValue } from '~/types'
+import { YesOrNoResponse } from '~/types'
 
 describe('consoleLogsListLogic', () => {
     let logic: ReturnType<typeof consoleLogsListLogic.build>
@@ -37,10 +37,10 @@ describe('consoleLogsListLogic', () => {
                 feedbackSubmitted: false,
             })
             await expectLogic(logic, () => {
-                logic.actions.submitFeedback(ConsoleFeedbackOptionValue.Yes)
+                logic.actions.submitFeedback(YesOrNoResponse.Yes)
             })
                 .toDispatchActions([
-                    logic.actionCreators.submitFeedback(ConsoleFeedbackOptionValue.Yes),
+                    logic.actionCreators.submitFeedback(YesOrNoResponse.Yes),
                     eventUsageLogic.actionTypes.reportRecordingConsoleFeedback,
                 ])
                 .toMatchValues({

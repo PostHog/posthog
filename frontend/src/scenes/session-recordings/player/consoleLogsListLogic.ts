@@ -3,7 +3,7 @@ import type { consoleLogsListLogicType } from './consoleLogsListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import {
-    ConsoleFeedbackOptionValue,
+    YesOrNoResponse,
     RecordingConsoleLog,
     RecordingSegment,
     RecordingTimeMixinType,
@@ -19,12 +19,12 @@ import { colonDelimitedDuration } from 'lib/utils'
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export const FEEDBACK_OPTIONS = {
-    [ConsoleFeedbackOptionValue.Yes]: {
-        value: ConsoleFeedbackOptionValue.Yes,
+    [YesOrNoResponse.Yes]: {
+        value: YesOrNoResponse.Yes,
         label: '👍 Yes!',
     },
-    [ConsoleFeedbackOptionValue.No]: {
-        value: ConsoleFeedbackOptionValue.No,
+    [YesOrNoResponse.No]: {
+        value: YesOrNoResponse.No,
         label: '👎 Not really',
     },
 }
@@ -80,7 +80,7 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
         values: [sessionRecordingLogic, ['sessionPlayerData']],
     })),
     actions({
-        submitFeedback: (feedback: ConsoleFeedbackOptionValue) => ({ feedback }),
+        submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),
     }),
     reducers({
         feedbackSubmitted: [

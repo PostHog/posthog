@@ -1999,7 +1999,7 @@ export interface ExportedAssetType {
     filename: string
 }
 
-export enum ConsoleFeedbackOptionValue {
+export enum YesOrNoResponse {
     Yes = 'yes',
     No = 'no',
 }
