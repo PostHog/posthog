@@ -107,6 +107,21 @@ Disabled.args = { disabled: true }
 export const Loading = StatusesTemplate.bind({})
 Loading.args = { loading: true }
 
+export const Active = (): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <p>
+                Sometimes you may need to keep the LemonButton in it's active state e.g. the hover state. This can be
+                done by setting the <code>active</code> property
+            </p>
+            <div className="flex items-center gap-2">
+                <LemonButton>I am not active</LemonButton>
+                <LemonButton active>I am active</LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export const WithSideIcon = StatusesTemplate.bind({})
 WithSideIcon.args = { sideIcon: <IconInfo /> }
 
