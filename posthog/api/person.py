@@ -162,7 +162,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
-    throttle_scope = "general_api"
 
     def get_queryset(self):
         queryset = super().get_queryset()

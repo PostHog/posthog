@@ -56,7 +56,6 @@ class LicenseViewSet(
 ):
     queryset = License.objects.all()
     serializer_class = LicenseSerializer
-    throttle_scope = "general_api"
 
     def get_queryset(self) -> QuerySet:
         if getattr(settings, "MULTI_TENANCY", False):

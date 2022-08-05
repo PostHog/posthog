@@ -11,7 +11,5 @@ class DebugCHQueries(mixins.ListModelMixin, viewsets.GenericViewSet):
     Show recent queries for this user
     """
 
-    throttle_scope = "general_api"
-
     def list(self, request):
         return Response(json.loads(get_safe_cache("save_query_{}".format(request.user.pk)) or "[]"))

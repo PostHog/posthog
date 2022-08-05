@@ -42,7 +42,6 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ]
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     include_in_docs = False
-    throttle_scope = "general_api"
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:

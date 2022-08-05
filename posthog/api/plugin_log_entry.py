@@ -25,7 +25,6 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         PluginOwnershipPermission,
         TeamMemberAccessPermission,
     ]
-    throttle_scope = "general_api"
 
     def get_queryset(self):
         limit_raw = self.request.GET.get("limit")

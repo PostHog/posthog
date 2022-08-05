@@ -75,7 +75,6 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = AsyncMigrationSerializer
     include_in_docs = False
-    throttle_scope = "general_api"
 
     @action(methods=["POST"], detail=True)
     def trigger(self, request, **kwargs):

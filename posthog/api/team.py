@@ -160,7 +160,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     ordering = "-created_by"
     organization: Optional[Organization] = None
     include_in_docs = True
-    throttle_scope = "general_api"
 
     def get_queryset(self):
         # This is actually what ensures that a user cannot read/update a project for which they don't have permission

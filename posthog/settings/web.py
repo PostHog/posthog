@@ -212,14 +212,13 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_THROTTLE_CLASSES": ["posthog.rate_limit.PassThroughScopedRateLimit",],
-    "DEFAULT_THROTTLE_RATES": {
-        "general_api": "2/hour",
-        "recordings": "1/minute",
-        "events": "1/minute",
-        "insights": "1/minute",
-        "persons": "1/minute",
-    },
+    # These rate limits are applied to all Django views.
+    # Note: Ingestion + decide endpoints do not use Django views, so no rate limits are applied
+    "DEFAULT_THROTTLE_CLASSES": [
+        "posthog.rate_limit.PassThroughBurstRateThrottle",
+        "posthog.rate_limit.PassThroughSustainedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {"burst": "120/minute", "sustained": "1000/hour",},
 }
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore

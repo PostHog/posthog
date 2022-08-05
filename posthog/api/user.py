@@ -186,7 +186,6 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     ]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
-    throttle_scope = "general_api"
 
     def get_object(self) -> Any:
         lookup_value = self.kwargs[self.lookup_field]

@@ -77,7 +77,6 @@ class OrganizationMemberViewSet(
         .filter(user__is_active=True,)
     )
     lookup_field = "user__uuid"
-    throttle_scope = "general_api"
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())

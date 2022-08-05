@@ -399,7 +399,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     include_in_docs = True
-    throttle_scope = "general_api"
 
     retention_query_class = Retention
     stickiness_query_class = Stickiness
@@ -706,14 +705,14 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
     # /projects/:id/insights/:short_id/viewed
     # Creates or updates an InsightViewed object for the user/insight combo
     # ******************************************
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, throttle_classes=[])
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
             team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
         )
         return Response(status=status.HTTP_201_CREATED)
 
-    @action(methods=["GET"], url_path="activity", detail=False)
+    @action(methods=["GET"], url_path="activity", detail=False, throttle_classes=[])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
@@ -721,7 +720,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         activity_page = load_activity(scope="Insight", team_id=self.team_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, throttle_classes=[])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

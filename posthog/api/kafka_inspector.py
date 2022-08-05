@@ -39,7 +39,6 @@ class KafkaMessageSerializer(serializers.Serializer):
 
 class KafkaInspectorViewSet(viewsets.ViewSet):
     permission_classes = [IsStaffUser]
-    throttle_scope = "general_api"
 
     @action(methods=["POST"], detail=False)
     def fetch_message(self, request):

@@ -184,7 +184,6 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_scope = "general_api"
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()

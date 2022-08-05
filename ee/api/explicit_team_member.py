@@ -103,7 +103,6 @@ class ExplicitTeamMemberViewSet(
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
     include_in_docs = False
-    throttle_scope = "general_api"
 
     def get_serializer_context(self) -> Dict[str, Any]:
         serializer_context = super().get_serializer_context()

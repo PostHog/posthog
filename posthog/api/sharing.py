@@ -65,7 +65,6 @@ class SharingConfigurationViewSet(
     queryset = SharingConfiguration.objects.select_related("dashboard", "insight")
     serializer_class = SharingConfigurationSerializer
     include_in_docs = False
-    throttle_scope = "general_api"
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()

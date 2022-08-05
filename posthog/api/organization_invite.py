@@ -79,7 +79,6 @@ class OrganizationInviteViewSet(
     queryset = OrganizationInvite.objects.all()
     lookup_field = "id"
     ordering = "-created_at"
-    throttle_scope = "general_api"
 
     def get_queryset(self):
         return (

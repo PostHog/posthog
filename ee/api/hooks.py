@@ -37,7 +37,6 @@ class HookViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     ordering = "-created_at"
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     serializer_class = HookSerializer
-    throttle_scope = "general_api"
 
     def perform_create(self, serializer):
         user = cast(User, self.request.user)

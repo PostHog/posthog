@@ -66,7 +66,6 @@ class EventDefinitionViewSet(
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
     search_fields = ["name"]
-    throttle_scope = "general_api"
 
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
