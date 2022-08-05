@@ -25,7 +25,6 @@ class Migration(migrations.Migration):
                 ("user", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL)),
             ],
         ),
-        migrations.DeleteModel(name="PromptSequenceState",),
         migrations.AddConstraint(
             model_name="userpromptsequencestate",
             constraint=models.UniqueConstraint(fields=("user", "key"), name="unique sequence key for user"),
