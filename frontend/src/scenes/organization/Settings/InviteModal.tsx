@@ -1,4 +1,4 @@
-import { Alert, Col, Input, Row, Modal } from 'antd'
+import { Alert, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import './InviteModal.scss'
@@ -83,6 +83,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                 ) : (
                     <LemonInput
                         placeholder={name}
+                        className="flex-1"
                         onChange={(v) => {
                             updateInviteAtIndex({ first_name: v }, index)
                         }}
@@ -178,22 +179,16 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                     {invites.map((invite: OrganizationInviteType) => {
                         return (
                             <div className="flex gap-2 items-start" key={invite.id}>
-                                <div className="flex-1 border rounded p-2"> {invite.target_email} </div>
-                                <div className="flex-1 flex">
+                                <div className="flex-1 border">
+                                    <div className="rounded p-2">{invite.target_email} </div>
+                                </div>
+                                <div className="flex-1 flex gap-2">
                                     {invite.is_expired ? (
                                         <b>Expired! Delete and recreate</b>
                                     ) : (
                                         <>
                                             {preflight?.email_service_available ? (
-                                                <Input
-                                                    disabled
-                                                    style={{
-                                                        backgroundColor: 'white',
-                                                        color: 'black',
-                                                        padding: 16,
-                                                    }}
-                                                    defaultValue={invite.first_name}
-                                                />
+                                                <div className="flex-1 border rounded p-2"> {invite.first_name} </div>
                                             ) : (
                                                 <div>
                                                     <CopyToClipboardInline
