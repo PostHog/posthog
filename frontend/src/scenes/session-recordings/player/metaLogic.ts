@@ -46,15 +46,17 @@ export const metaLogic = kea<metaLogicType>({
     selectors: ({ cache }) => ({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData],
-            (playerData): Partial<PersonType> => {
-                return playerData?.person ?? {}
+            (playerData): PersonType | null => {
+                return playerData?.person ?? null
             },
         ],
         description: [
             (selectors) => [selectors.sessionPerson],
             (person) => {
-                const location = getPersonProperties(person, ['$geoip_city_name', '$geoip_country_code'])
-                const device = getPersonProperties(person, ['$browser', '$os'])
+                const location = person
+                    ? getPersonProperties(person, ['$geoip_city_name', '$geoip_country_code'])
+                    : null
+                const device = person ? getPersonProperties(person, ['$browser', '$os']) : null
                 return [device, location].filter((s) => s).join(' · ')
             },
         ],

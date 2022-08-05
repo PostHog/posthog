@@ -91,15 +91,7 @@ export class PersonState {
     }
 
     async updateProperties(): Promise<LazyPersonContainer> {
-        let personCreated = false
-        // :TRICKY: Short-circuit if person container already has loaded person and it exists
-        if (!this.personContainer.loaded) {
-            const person = await this.createPersonIfDistinctIdIsNew()
-            if (person) {
-                this.personContainer = this.personContainer.with(person)
-                personCreated = true
-            }
-        }
+        const personCreated = await this.createPersonIfDistinctIdIsNew()
         if (
             !personCreated &&
             (this.eventProperties['$set'] ||
@@ -115,14 +107,25 @@ export class PersonState {
         return this.personContainer
     }
 
-    private async createPersonIfDistinctIdIsNew(): Promise<Person | undefined> {
+    private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
+        console.log('createPersonIfDistinctIdIsNew called', {
+            teamId: this.teamId,
+            distinctId: this.distinctId,
+            loaded: this.personContainer.loaded,
+            eventUuid: this.event.uuid,
+        })
+        // :TRICKY: Short-circuit if person container already has loaded person and it exists
+        if (this.personContainer.loaded) {
+            return false
+        }
+
         const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
             const properties = this.eventProperties['$set'] || {}
             const propertiesOnce = this.eventProperties['$set_once'] || {}
             // Catch race condition where in between getting and creating, another request already created this user
             try {
-                return await this.createPerson(
+                const person = await this.createPerson(
                     this.timestamp,
                     properties || {},
                     propertiesOnce || {},
@@ -133,6 +136,9 @@ export class PersonState {
                     this.newUuid,
                     [this.distinctId]
                 )
+                // :TRICKY: Avoid subsequent queries re-fetching person
+                this.personContainer = this.personContainer.with(person)
+                return true
             } catch (error) {
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
                     Sentry.captureException(error, {
@@ -145,8 +151,19 @@ export class PersonState {
                     })
                 }
             }
+        } else {
+            // Person was likely created in-between start-of-processing and now, so ensure that subsequent queries
+            // to fetch person still return the right `person`
+            console.log('createPersonIfDistinctIdIsNew - calling reset', {
+                teamId: this.teamId,
+                distinctId: this.distinctId,
+                loaded: this.personContainer.loaded,
+                isNewPerson,
+                eventUuid: this.event.uuid,
+            })
+            this.personContainer = this.personContainer.reset()
         }
-        return undefined
+        return false
     }
 
     private async createPerson(
@@ -189,6 +206,12 @@ export class PersonState {
         const personFound = await this.personContainer.get()
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
+            console.log('Person lookup for update failed', {
+                teamId: this.teamId,
+                distinctId: this.distinctId,
+                loaded: this.personContainer.loaded,
+                eventUuid: this.event.uuid,
+            })
             throw new Error(
                 `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )

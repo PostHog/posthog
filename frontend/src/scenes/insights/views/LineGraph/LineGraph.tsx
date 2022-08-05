@@ -607,7 +607,10 @@ export function LineGraph_({
                                 // @ts-expect-error - _metasets is not officially exposed
                                 const total: number = context.chart._metasets[context.datasetIndex].total
                                 const percentageLabel: number = parseFloat(((currentValue / total) * 100).toFixed(1))
-                                return `${label}: ${currentValue} (${percentageLabel}%)`
+                                return `${label}: ${formatAggregationAxisValue(
+                                    aggregationAxisFormat,
+                                    currentValue
+                                )} (${percentageLabel}%)`
                             },
                         },
                     },

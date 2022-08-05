@@ -182,8 +182,7 @@ export class EventsProcessor {
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsProperties = await this.db.getPropertiesForGroups(teamId, groupIdentifiers)
-        const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIdentifiers)
+        const groupsColumns = await this.db.fetchGroupColumnsValues(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
         let personInfo: IngestionPersonData | undefined = await personContainer.get()
@@ -224,8 +223,7 @@ export class EventsProcessor {
             person_created_at: personInfo
                 ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
                 : null,
-            ...groupsProperties,
-            ...groupsCreatedAt,
+            ...groupsColumns,
         })
 
         await this.kafkaProducer.queueMessage({
