@@ -234,11 +234,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     <Field name="post_to_slack">
                         {({ value, onChange }) => (
                             <>
-                                <p>
-                                    <Link to="/project/settings#webhook">
-                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
-                                    </Link>
-                                </p>
                                 <LemonCheckbox
                                     id="webhook-checkbox"
                                     checked={!!value}
@@ -251,6 +246,11 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         </>
                                     }
                                 />
+                                <p className="pl-7">
+                                    <Link to="/project/settings#webhook">
+                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                                    </Link>
+                                </p>
                             </>
                         )}
                     </Field>
