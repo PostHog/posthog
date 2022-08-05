@@ -151,7 +151,7 @@ export function AddToDashboardModal({
                     </AutoSizer>
                 </div>
             </section>
-            <footer className="flex justify-between">
+            <footer className="flex justify-between mt-4">
                 <LemonButton type="secondary" size="small" onClick={addNewDashboard} disabled={!canEditInsight}>
                     Add to a new dashboard
                 </LemonButton>

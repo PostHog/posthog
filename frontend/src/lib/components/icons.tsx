@@ -870,7 +870,6 @@ function InsightIcon({
     children,
     ...props
 }: InsightIconProps): JSX.Element {
-    console.log(children, props)
     return (
         <SvgIcon viewBox="0 0 32 32" {...props}>
             {!noBackground ? <rect width="100%" height="100%" rx="4" fill={background} /> : null}

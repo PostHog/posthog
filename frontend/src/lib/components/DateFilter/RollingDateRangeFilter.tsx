@@ -61,14 +61,13 @@ export function RollingDateRangeFilter({
             >
                 <p className="RollingDateRangeFilter__label">In the last</p>
                 <div className="RollingDateRangeFilter__counter" onClick={(e): void => e.stopPropagation()}>
-                    <LemonButton
+                    <span
+                        className="RollingDateRangeFilter__counter__step"
                         onClick={decreaseCounter}
                         title={`Decrease rolling date range`}
-                        status="stealth"
-                        size="small"
                     >
                         -
-                    </LemonButton>
+                    </span>
                     <Input
                         data-attr="rolling-date-range-input"
                         type="number"
@@ -78,14 +77,13 @@ export function RollingDateRangeFilter({
                         onChange={onInputChange}
                         bordered={false}
                     />
-                    <LemonButton
+                    <span
+                        className="RollingDateRangeFilter__counter__step"
                         onClick={increaseCounter}
                         title={`Increase rolling date range`}
-                        status="stealth"
-                        size="small"
                     >
                         +
-                    </LemonButton>
+                    </span>
                 </div>
                 <LemonSelect
                     className="RollingDateRangeFilter__select"
