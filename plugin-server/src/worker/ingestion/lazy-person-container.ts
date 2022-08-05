@@ -24,7 +24,7 @@ export class LazyPersonContainer {
     }
 
     async get(): Promise<Person | undefined> {
-        console.log('container.reset called', {
+        console.trace('container.get called', {
             teamId: this.teamId,
             distinctId: this.distinctId,
             loaded: this.loaded,
@@ -41,20 +41,10 @@ export class LazyPersonContainer {
     }
 
     with(person: Person): LazyPersonContainer {
-        console.log('container.with called', {
-            teamId: this.teamId,
-            distinctId: this.distinctId,
-            loaded: this.loaded,
-        })
         return new LazyPersonContainer(this.teamId, this.distinctId, this.hub, person)
     }
 
     reset(): LazyPersonContainer {
-        console.log('container.reset called', {
-            teamId: this.teamId,
-            distinctId: this.distinctId,
-            loaded: this.loaded,
-        })
         return new LazyPersonContainer(this.teamId, this.distinctId, this.hub)
     }
 }

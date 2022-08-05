@@ -136,6 +136,13 @@ export class PersonState {
                     this.newUuid,
                     [this.distinctId]
                 )
+                console.log('createPersonIfDistinctIdIsNew success', {
+                    teamId: this.teamId,
+                    distinctId: this.distinctId,
+                    loaded: this.personContainer.loaded,
+                    eventUuid: this.event.uuid,
+                    person,
+                })
                 // :TRICKY: Avoid subsequent queries re-fetching person
                 this.personContainer = this.personContainer.with(person)
                 return true
