@@ -58,7 +58,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     }): JSX.Element {
         return (
             <Tooltip title={tooltip} placement="left">
-                <div className="width-full">
+                <div className="w-full">
                     {icon} {children}
                 </div>
             </Tooltip>
