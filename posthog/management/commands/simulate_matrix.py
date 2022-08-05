@@ -1,3 +1,4 @@
+import datetime as dt
 import logging
 from time import time
 from typing import cast
@@ -5,11 +6,10 @@ from typing import cast
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.utils import timezone
 
-from posthog.demo.hedgebox import HedgeboxMatrix
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.matrix.models import SimEvent
+from posthog.demo.products.hedgebox import HedgeboxMatrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
@@ -25,9 +25,7 @@ class Command(BaseCommand):
         )
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
         parser.add_argument(
-            "--now",
-            type=timezone.datetime.fromisoformat,
-            help="Simulation 'now' datetime in ISO format (default: now)",
+            "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)",
         )
         parser.add_argument(
             "--days-past", type=int, help="At how many days before 'now' should the simulation start (default: 120)",
@@ -42,7 +40,7 @@ class Command(BaseCommand):
         timer = time()
         matrix = HedgeboxMatrix(
             options["seed"],
-            now=options["now"] or timezone.now(),
+            now=options["now"] or dt.datetime.now(dt.timezone.utc),
             days_past=options["days_past"] or 120,
             days_future=options["days_future"] or 30,
             n_clusters=options["n_clusters"],

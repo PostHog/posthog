@@ -180,7 +180,7 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
-            person_uuid_str = str(UUIDT(unix_time_ms=int(subject.past_events[0].timestamp.timestamp() * 1000)))
+            person_uuid_str = str(subject.roll_uuidt(subject.past_events[0].timestamp))
             create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
             for distinct_id in subject.distinct_ids_at_now:
                 create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)

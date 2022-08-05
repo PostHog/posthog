@@ -15,8 +15,8 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo.hedgebox import HedgeboxMatrix
 from posthog.demo.matrix import MatrixManager
+from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
@@ -88,10 +88,10 @@ class SignupSerializer(serializers.Serializer):
         email = validated_data["email"]
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
-        matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=50,)
+        matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=20,)
         with transaction.atomic():
             self._organization, self._team, self._user = MatrixManager(
-                matrix, use_pre_save=False
+                matrix, use_pre_save=False  # FIXME
             ).ensure_account_and_save(email, first_name, organization_name)
 
         login(

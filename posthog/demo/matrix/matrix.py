@@ -24,7 +24,7 @@ class Cluster(ABC):
     end: timezone.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
-    # Grid containing all people in the cluster.
+    # Grid containing all people in the cluster
     people_matrix: List[List[SimPerson]]
 
     random: mimesis.random.Random

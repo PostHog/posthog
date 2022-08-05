@@ -1,28 +1,66 @@
-from typing import Literal, Optional
+import datetime as dt
+from dataclasses import dataclass, field
+from decimal import Decimal
+from enum import Enum, auto
+from typing import Dict, Optional, Set
 
-from django.utils import timezone
+import pytz
 
 from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.models import Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
-from posthog.models.utils import UUIDT
 
-from .matrix.matrix import Cluster, Matrix
-from .matrix.models import SimPerson
+from ..matrix.matrix import Cluster, Matrix
+from ..matrix.models import SimPerson
 
-PROJECT_NAME = "Hedgebox"
+# This is a simulation of an online drive SaaS called Hedgebox
+# See this flowchart for the layout of the product: https://www.figma.com/file/nmvylkFx4JdTRDqyo5Vkb5/Hedgebox-Paths
 
-# Event names
-EVENT_SIGNED_UP = "signed_up"
-EVENT_PAID_BILL = "paid_bill"
-EVENT_DOWNLOADED_FILE = "downloaded_file"
-EVENT_UPLOADED_FILE = "uploaded_file"
-EVENT_DELETED_FILE = "deleted_file"
-EVENT_COPIED_LINK = "copied_link"
+PRODUCT_NAME = "Hedgebox"
 
-# Group types
-GROUP_TYPE_ORGANIZATION = "organization"
+# URLs
+
+SITE_URL = "https://hedgebox.net"
+
+URL_HOME = f"{SITE_URL}/"
+URL_MARIUS_TECH_TIPS = f"{SITE_URL}/mariustechtips/"
+URL_PRICING = f"{SITE_URL}/pricing/"
+URL_PRODUCT = f"{SITE_URL}/product/"
+
+URL_SIGNUP = f"{SITE_URL}/signup/"
+URL_LOGIN = f"{SITE_URL}/login/"
+dyn_url_invite = lambda invite_id: f"{SITE_URL}/invite/{invite_id}/"
+
+URL_FILES = f"{SITE_URL}/files/"
+dyn_url_file = lambda file_id: f"{SITE_URL}/files/{file_id}/"
+
+URL_ACCOUNT_SETTINGS = f"{SITE_URL}/account/settings/"
+URL_ACCOUNT_BILLING = f"{SITE_URL}/account/billing/"
+URL_ACCOUNT_TEAM = f"{SITE_URL}/account/team/"
+
+# Event taxonomy
+
+EVENT_SIGNED_UP = "signed_up"  # Properties: from_invite
+EVENT_LOGGED_IN = "logged_in"  # No extra properties
+
+EVENT_UPLOADED_FILE = "uploaded_file"  # Properties: file_type, file_size_b
+EVENT_DOWNLOADED_FILE = "downloaded_file"  # Properties: file_type, file_size_b
+EVENT_DELETED_FILE = "deleted_file"  # Properties: file_type, file_size_b
+EVENT_SHARED_FILE_LINK = "shared_file_link"  # Properties: file_type, file_size_b
+
+EVENT_UPGRADED_PLAN = "upgraded_plan"  # Properties: previous_plan, new_plan
+EVENT_DOWNGRADED_PLAN = "downgraded_plan"  # Properties: previous_plan, new_plan
+
+EVENT_INVITE_TEAM_MEMBER = "invited_team_member"  # No extra properties
+EVENT_REMOVED_TEAM_MEMBER = "removed_team_member"  # No extra properties
+
+EVENT_PAID_BILL = "paid_bill"  # Properties: used_mb, allowed_mb, plan, amount
+
+# Group taxonomy
+
+GROUP_TYPE_ACCOUNT = "account"  # Properties: name, used_mb, plan, team_size
 
 # Feature flags
+
 FILE_PREVIEWS_FLAG_KEY = "file-previews"
 NEW_SIGNUP_PAGE_FLAG_KEY = "signup-page-4.0"
 NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT = 50
@@ -30,36 +68,113 @@ PROPERTY_NEW_SIGNUP_PAGE_FLAG = f"$feature/{NEW_SIGNUP_PAGE_FLAG_KEY}"
 SIGNUP_SUCCESS_RATE_TEST = 0.5794
 SIGNUP_SUCCESS_RATE_CONTROL = 0.4887
 
-# How many clusters should be companies (made up of professional users) as opposed to social circles (personal users)
-COMPANY_CLUSTERS_PROPORTION = 0.3
+# World properties
+
+# How many clusters should be companies (made up of business users) as opposed to social circles (personal users)
+COMPANY_CLUSTERS_PROPORTION = 0.2
+
+
+class HedgeboxReferrer(Enum):
+    """Where a user knows about Hedgebox from."""
+
+    WORD_OF_MOUTH = auto()
+    COWORKER = auto()
+    GOOGLE = auto()
+    MARIUS_TECH_TIPS = auto()
+
+
+class HedgeboxPlan(str, Enum):
+    PERSONAL_FREE = "personal/free"
+    PERSONAL_PRO = "personal/pro"
+    BUSINESS_STANDARD = "business/standard"
+    BUSINESS_ENTERPRISE = "business/enterprise"
+
+
+@dataclass
+class HedgeboxFile:
+    id: str
+    type: str
+    size_b: int
+    popularity: int
+
+
+@dataclass
+class HedgeboxAccount:
+    id: str
+    team_members: Set["HedgeboxPerson"]
+    plan: HedgeboxPlan = field(default=HedgeboxPlan.PERSONAL_FREE)
+    files: Dict[str, HedgeboxFile] = field(default_factory=dict)
+
+    @property
+    def current_allowed_mb(self) -> int:
+        if self.plan == HedgeboxPlan.PERSONAL_FREE:
+            return 10_000
+        elif self.plan == HedgeboxPlan.PERSONAL_PRO:
+            return 1_000_000
+        elif self.plan == HedgeboxPlan.BUSINESS_STANDARD:
+            return 5_000_000
+        elif self.plan == HedgeboxPlan.BUSINESS_ENTERPRISE:
+            return 100_000_000
+        else:
+            raise ValueError(f"Unknown plan: {self.plan}")
+
+    @property
+    def current_monthly_bill_usd(self) -> Decimal:
+        if self.plan == HedgeboxPlan.PERSONAL_FREE:
+            return Decimal("0.00")
+        elif self.plan == HedgeboxPlan.PERSONAL_PRO:
+            return Decimal("10.00")
+        elif self.plan == HedgeboxPlan.BUSINESS_STANDARD:
+            return Decimal("10.00") * len(self.team_members)
+        elif self.plan == HedgeboxPlan.BUSINESS_ENTERPRISE:
+            return Decimal("20.00") * len(self.team_members)
+        else:
+            raise ValueError(f"Unknown plan: {self.plan}")
 
 
 class HedgeboxPerson(SimPerson):
     cluster: "HedgeboxCluster"
 
-    # Dynamic aspects
-    _need: float  # 0 means no need, 1 means desperate
-    _satisfaction: float  # -1 means hate, 0 means neutrality, 1 means love
-    plan: Optional[Literal[0, 1, 2]]  # None means person has no account, 0 means free, 1 means 100 GB, 2 means 1 TB
-
-    # Static aspects
+    # Constant properties
+    person_id: str
     name: str
     email: str
-    country_code: str
+
+    # Internal state - plain
+    _referrer: Optional[HedgeboxReferrer]
+
+    # Internal state - bounded
+    _need: float  # 0 means no need, 1 means desperate
+    _satisfaction: float  # -1 means hate, 0 means neutrality, 1 means love
+    _personal_account: Optional[HedgeboxAccount]  # In company clusters the cluster-level account is used
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.need = self.cluster.random.uniform(0.6 if self.kernel else 0, 1 if self.kernel else 0.3)
-        self.satisfaction = 0.0
-        self.plan = None
+        self.person_id = self.cluster.random.randstr(False, 16)
         self.name = self.cluster.person_provider.full_name()
         self.email = self.cluster.person_provider.email()
-        self.country_code = (
-            "US" if self.cluster.random.random() < 0.9132 else self.cluster.address_provider.country_code()
-        )
+        self._referrer = None
+        self._need = self.cluster.random.uniform(0.6 if self.kernel else 0, 1 if self.kernel else 0.3)
+        self._satisfaction = 0.0
+        self._personal_account = None
+        while True:
+            try:  # Some tiny regions aren't in pytz - we want to omit those
+                self.country_code = (
+                    "US" if self.cluster.random.random() < 0.9132 else self.cluster.address_provider.country_code()
+                )
+                self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
+            except KeyError:
+                continue
+            else:
+                break
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
+
+    def __hash__(self) -> int:
+        return hash(self.email)
+
+    # Internal state - derived to ensure bounds
 
     @property
     def need(self) -> float:
@@ -77,34 +192,49 @@ class HedgeboxPerson(SimPerson):
     def satisfaction(self, value):
         self._satisfaction = max(-1, min(1, value))
 
-    def _move_satisfaction(self, delta: float):
-        self.satisfaction += delta
+    @property
+    def account(self) -> Optional[HedgeboxAccount]:
+        return self.cluster._business_account if self.cluster.company_name else self._personal_account
 
-    def _move_need(self, delta: float):
-        self.need += delta
+    @account.setter
+    def account(self, value):
+        if self.cluster.company_name:
+            self.cluster._business_account = value
+        else:
+            self._personal_account = value
+
+    @property
+    def has_signed_up(self) -> bool:
+        return self.account is not None and self in self.account.team_members
+
+    # Abstract methods
+
+    def _fast_forward_to_next_session(self):
+        while True:
+            self._simulation_time += dt.timedelta(
+                seconds=self.cluster.random.betavariate(2.5, 1 + self.need)
+                * (36_000 if self.has_signed_up else 172_800)
+                + 24
+            )
+            time_appropriateness: float
+            # Check if it's night
+            if 5 < self._simulation_time.hour < 23:
+                time_appropriateness = 0.1
+            # Check if it's 9 to 5 on a work day
+            elif self._simulation_time.weekday() <= 5 and 9 <= self._simulation_time.hour <= 17:
+                # Business users most likely to be active during the work day, personal users just the opposite
+                time_appropriateness = 1 if self.cluster.company_name else 0.3
+            else:
+                time_appropriateness = 0.2 if self.cluster.company_name else 1
+
+            if self.cluster.random.random() < time_appropriateness:
+                return  # If the time is right, let's go to simulation - otherwise, let's advance further
 
     def _simulate_session(self):
-        # Make sure the time makes sense
-        self._simulation_time += timezone.timedelta(
-            seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * (36_000 if self.plan is not None else 172_800)
-            + 24
-        )
-        if not 5 < self._simulation_time.hour < 23 and self.cluster.random.random() < 0.9:
-            return  # Not likely to be active at night
-        if (
-            self._simulation_time.weekday() < 5
-            and 9 < self._simulation_time.hour < 17
-            and self.cluster.random.random() < 0.5
-        ):
-            return  # Not very likely to be active during the work day
-
-        self._active_client.start_session(
-            str(UUIDT(int(self._simulation_time.timestamp()), seeded_random=self.cluster.random))
-        )
-
         if (
             PROPERTY_NEW_SIGNUP_PAGE_FLAG not in self._super_properties
             and self._simulation_time >= self.cluster.matrix.new_signup_page_experiment_start
+            and self._simulation_time < self.cluster.matrix.new_signup_page_experiment_end
         ):
             self._register(
                 {
@@ -114,59 +244,88 @@ class HedgeboxPerson(SimPerson):
                 },
             )
 
-        self._register({"$geoip_country_code": self.country_code})
-        self._identify(None, {"$geoip_country_code": self.country_code})
-
-        if self.need >= 0.3:
-            if self.plan is None:
-                self._visit_homepage()
-                if self.satisfaction > 0:
-                    self._consider_signing_up()
-            else:
-                if self.cluster.random.random() < 0.2:
-                    self._visit_homepage()
-                else:
-                    self._capture_pageview("https://hedgebox.net/my_files/")
-                    if self.cluster.random.random() < 0.5:
-                        self._consider_uploading_files()
-                    elif self.cluster.random.random() < 0.5:
-                        self._consider_downloading_file()
+        # TODO: Simulate paths
 
     # Individual flows
 
-    def _visit_homepage(self):
-        self._capture_pageview("https://hedgebox.net/")
-        self._advance_timer(0.5 + self.cluster.random.betavariate(1.1, 1.5) * 80)  # Viewing the page
-        self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.2) * 0.15  # It's a nice page
+    def _visit_home(self):
+        self._capture_pageview(URL_HOME)
+        self._advance_timer(1.8 + self.cluster.random.betavariate(1.5, 3) * 300)  # Viewing the page
+        self.satisfaction += (self.cluster.random.betavariate(1.6, 1.2) - 0.5) * 0.1  # It's a somewhat nice page
 
-    def _consider_signing_up(self):
+    def _visit_marius_tech_tips(self):
+        self._capture_pageview(URL_MARIUS_TECH_TIPS)
+        self._advance_timer(1.2 + self.cluster.random.betavariate(1.5, 2) * 150)  # Viewing the page
+        self.satisfaction += (self.cluster.random.betavariate(1.6, 1.2) - 0.5) * 0.4  # The user may be in target or not
+
+    def _visit_pricing(self):
+        self._capture_pageview(URL_PRICING)
+        self._advance_timer(1.2 + self.cluster.random.betavariate(1.5, 2) * 200)  # Viewing the page
+
+    def _visit_product(self):
+        self._capture_pageview(URL_PRODUCT)
+        self._advance_timer(1.2 + self.cluster.random.betavariate(1.5, 2) * 200)  # Viewing the page
+
+    def _visit_sign_up(self):
         """Go through sign-up flow and return True if the user signed up."""
-        self._capture_pageview("https://hedgebox.net/register/")  # Visiting the sign-up page
-        self._advance_timer(15 + self.cluster.random.betavariate(1.1, 2) * 70)  # Looking at things, filling out forms
+        if self.cluster.company_name and not self.kernel:
+            raise Exception("Only the kernel can sign up in a company cluster")
+        self._capture_pageview(URL_SIGNUP)  # Visiting the sign-up page
+        # Signup is faster with the new signup page
+        is_on_new_signup_page = self._super_properties.get(PROPERTY_NEW_SIGNUP_PAGE_FLAG) == "test"
+        self._advance_timer(
+            9 + self.cluster.random.betavariate(1.2, 2) * (120 if is_on_new_signup_page else 170)
+        )  # Looking at things, filling out forms
         # More likely to finish signing up with the new signup page
-        success_rate = (
-            SIGNUP_SUCCESS_RATE_TEST
-            if self._super_properties.get(PROPERTY_NEW_SIGNUP_PAGE_FLAG) == "test"
-            else SIGNUP_SUCCESS_RATE_CONTROL
-        )
+        success_rate = SIGNUP_SUCCESS_RATE_TEST if is_on_new_signup_page else SIGNUP_SUCCESS_RATE_CONTROL
         success = self.cluster.random.random() < success_rate  # What's the outlook?
         if success:  # Let's do this!
-            self._capture(EVENT_SIGNED_UP, current_url="https://hedgebox.net/register/")
+            self.account = HedgeboxAccount(id=str(self.roll_uuidt()), team_members={self})  # TODO: Add billing
+            self._capture(EVENT_SIGNED_UP, {"from_invite": False}, current_url="https://hedgebox.net/register/")
             self._advance_timer(self.cluster.random.uniform(0.1, 0.2))
-            self._identify(self.email, {"email": self.email, "name": self.name})
-            self._group_identify(GROUP_TYPE_ORGANIZATION, self.cluster.company_name or self.name)
-            self.plan = 0
+            self._identify(self.person_id, {"email": self.email, "name": self.name})
+            self._group(
+                GROUP_TYPE_ACCOUNT,
+                self.account.id,
+                {
+                    "name": self.cluster.company_name or self.name,
+                    "used_mb": 0,
+                    "plan": self.account.plan,
+                    "team_size": 1,
+                },
+            )
             self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.5) * 0.2
-            self._capture_pageview("https://hedgebox.net/my_files/")
-            self._consider_uploading_files()
         else:  # Something didn't go right...
             self.satisfaction += (self.cluster.random.betavariate(1, 3) - 0.75) * 0.5
-        return success
+
+    def _visit_login(self):
+        pass  # TODO
+
+    def _visit_invite(self, invite_id: str):
+        pass  # TODO
+
+    def _visit_files(self):
+        pass  # TODO
+
+    def _visit_own_file(self, file_id: str):
+        pass  # TODO
+
+    def _visit_shared_file(self, file_id: str):
+        self._capture_pageview(dyn_url_file(file_id))
+        # TODO
+
+    def _visit_account_settings(self):
+        pass  # TODO
+
+    def _visit_account_billing(self):
+        pass  # TODO
+
+    def _visit_account_team(self):
+        pass  # TODO
 
     def _consider_uploading_files(self):
         self._advance_timer(self.cluster.random.betavariate(2.5, 1.1) * 95)
         file_count = self.cluster.random.randint(1, 13)
-        self.cluster.file_provider.extension()
         for _ in range(file_count):
             self._capture(
                 EVENT_UPLOADED_FILE,
@@ -175,38 +334,29 @@ class HedgeboxPerson(SimPerson):
             )
         self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
         if self.satisfaction > 0.9:
-            self._affect_neighbors(lambda other: other._move_need(0.05))
-
-    def _consider_downloading_file(self):
-        self._capture(EVENT_DOWNLOADED_FILE, current_url="https://hedgebox.net/my_files/")
-        if self.satisfaction > 0.9:
-            self._affect_neighbors(lambda other: other._move_need(0.05))
-
-    def _consider_deleting_file(self):
-        self._capture(EVENT_DELETED_FILE, current_url="https://hedgebox.net/my_files/")
+            self._affect_neighbors(lambda other: other._move_needle("need", 0.05))
 
     def _share_file_link(self):
-        self._capture(EVENT_COPIED_LINK, current_url="https://hedgebox.net/my_files/")
-
-    def _receive_file_link(self):
-        file_name = self.cluster.file_provider.file_name()
-        self._capture_pageview(f"https://hedgebox.net/my_files/{file_name}/")
-        self._consider_downloading_file()
+        self._capture(EVENT_SHARED_FILE_LINK)  # TODO
 
 
 class HedgeboxCluster(Cluster):
     matrix: "HedgeboxMatrix"
 
-    MIN_RADIUS: int = 1
+    MIN_RADIUS: int = 0
     MAX_RADIUS: int = 6
 
-    # None means the cluster is a social circle instead of a company
-    company_name: Optional[str]
+    # Properties
+    company_name: Optional[str]  # None means the cluster is a social circle instead of a company
+
+    # Internal state - plain
+    _business_account: Optional[HedgeboxAccount]  # In social circle clusters the person-level account is used
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         is_company = self.random.random() < COMPANY_CLUSTERS_PROPORTION
         self.company_name = self.finance_provider.company() if is_company else None
+        self._business_account = None
 
     def __str__(self) -> str:
         return self.company_name or f"social circle {self.index+1}"
@@ -222,18 +372,18 @@ class HedgeboxMatrix(Matrix):
     person_model = HedgeboxPerson
     cluster_model = HedgeboxCluster
 
-    new_signup_page_experiment_start: timezone.datetime
-    new_signup_page_experiment_end: timezone.datetime
+    new_signup_page_experiment_start: dt.datetime
+    new_signup_page_experiment_end: dt.datetime
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Start new signup page experiment roughly halfway through the simulation, end late into it
-        self.new_signup_page_experiment_end = self.now - timezone.timedelta(days=2, hours=3, seconds=43)
+        self.new_signup_page_experiment_end = self.now - dt.timedelta(days=2, hours=3, seconds=43)
         self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2
 
     def set_project_up(self, team, user):
         super().set_project_up(team, user)
-        team.name = PROJECT_NAME
+        team.name = PRODUCT_NAME
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
@@ -253,7 +403,7 @@ class HedgeboxMatrix(Matrix):
                 "interval": "week",
                 "date_from": "-1m",
             },
-            last_modified_at=timezone.now() - timezone.timedelta(days=23),
+            last_modified_at=self.now - dt.timedelta(days=23),
             last_modified_by=user,
         )
         DashboardTile.objects.create(
@@ -279,7 +429,7 @@ class HedgeboxMatrix(Matrix):
                 "breakdown": "$geoip_country_code",
                 "date_from": "-1m",
             },
-            last_modified_at=timezone.now() - timezone.timedelta(days=6),
+            last_modified_at=self.now - dt.timedelta(days=6),
             last_modified_by=user,
         )
         DashboardTile.objects.create(
@@ -337,7 +487,7 @@ class HedgeboxMatrix(Matrix):
                 "filter_test_accounts": True,
                 "date_from": "-1m",
             },
-            last_modified_at=timezone.now() - timezone.timedelta(days=19),
+            last_modified_at=self.now - dt.timedelta(days=19),
             last_modified_by=user,
         )
         DashboardTile.objects.create(
@@ -364,7 +514,7 @@ class HedgeboxMatrix(Matrix):
                 "returning_entity": {"id": "uploaded_file", "name": "uploaded_file", "type": "events", "order": 0},
                 "filter_test_accounts": True,
             },
-            last_modified_at=timezone.now() - timezone.timedelta(days=34),
+            last_modified_at=self.now - dt.timedelta(days=34),
             last_modified_by=user,
         )
         DashboardTile.objects.create(
@@ -384,8 +534,7 @@ class HedgeboxMatrix(Matrix):
                     user=user,
                     insight=insight,
                     last_viewed_at=(
-                        timezone.now()
-                        - timezone.timedelta(days=self.random.randint(0, 3), minutes=self.random.randint(5, 60))
+                        self.now - dt.timedelta(days=self.random.randint(0, 3), minutes=self.random.randint(5, 60))
                     ),
                 )
                 for insight in Insight.objects.filter(team=team)
@@ -434,7 +583,7 @@ class HedgeboxMatrix(Matrix):
                 ]
             },
             created_by=user,
-            created_at=self.now - timezone.timedelta(days=15),
+            created_at=self.now - dt.timedelta(days=15),
         )
 
         # Experiments
@@ -452,7 +601,7 @@ class HedgeboxMatrix(Matrix):
                 },
             },
             created_by=user,
-            created_at=self.new_signup_page_experiment_start - timezone.timedelta(hours=1),
+            created_at=self.new_signup_page_experiment_start - dt.timedelta(hours=1),
         )
         Experiment.objects.create(
             team=team,
