@@ -149,7 +149,6 @@ export const WithSideAction = (): JSX.Element => {
                             <LemonButtonWithSideAction
                                 key={i}
                                 type={type}
-                                active
                                 sideAction={{
                                     icon: <IconPlus />,
                                     tooltip: 'Create new',
