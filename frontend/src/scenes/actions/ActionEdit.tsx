@@ -233,7 +233,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 </div>
                 <div>
                     <div style={{ marginTop: '2rem' }}>
-                        <h2 className="subtitle">Match groups</h2>
                         <Field name="post_to_slack">
                             {({ value, onChange }) => (
                                 <LemonCheckbox
