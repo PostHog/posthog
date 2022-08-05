@@ -465,12 +465,6 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export const posthogEvents = ['$autocapture', '$pageview', '$identify', '$pageleave']
-
-export function isAndroidOrIOS(): boolean {
-    return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
-}
-
 export function slugify(text: string): string {
     return text
         .toString() // Cast to string
