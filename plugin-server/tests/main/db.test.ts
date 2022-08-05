@@ -720,131 +720,169 @@ describe('DB', () => {
             expect(res?.properties).toEqual({ a: 333, b: false, c: 'bbb' })
         })
 
-        it('gets the right group properties', async () => {
-            await db.insertGroup(
-                // would get cached
-                2,
-                0,
-                'group_key',
-                { prop: 'val', num: 1234 },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-            await db.postgresQuery(
-                // not cached
-                `
-            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `,
-                [
+        describe('getGroupDataCache() and updateGroupDataCache()', () => {
+            it('returns null values by default', async () => {
+                const data = await db.getGroupDataCache(2, { index: 0, key: 'abc' })
+                expect(data).toEqual({
+                    identifier: { index: 0, key: 'abc' },
+                    data: null,
+                    cached: false,
+                })
+            })
+
+            it('can read own writes', async () => {
+                const groupsData = [
+                    { identifier: { index: 0, key: 'abc' }, data: null },
+                    { identifier: { index: 2, key: 'efg' }, data: { properties: { a: 3 }, created_at: TIMESTAMP } },
+                ]
+                await db.updateGroupDataCache(2, groupsData)
+
+                expect(await db.getGroupDataCache(2, { index: 0, key: 'abc' })).toEqual({
+                    identifier: { index: 0, key: 'abc' },
+                    data: null,
+                    cached: true,
+                })
+                expect(await db.getGroupDataCache(2, { index: 2, key: 'efg' })).toEqual({
+                    identifier: { index: 2, key: 'efg' },
+                    data: { properties: { a: 3 }, created_at: TIMESTAMP },
+                    cached: true,
+                })
+            })
+        })
+
+        describe('fetchGroupDataAndUpdateCache()', () => {
+            const identifiers = [
+                { index: 0, key: 'abc' },
+                { index: 2, key: 'efg' },
+            ]
+
+            beforeEach(() => {
+                jest.spyOn(db, 'updateGroupDataCache')
+            })
+
+            it('returns nulls if data does not exist and updates cache', async () => {
+                const groupsData = await db.fetchGroupDataAndUpdateCache(2, identifiers)
+
+                expect(groupsData).toEqual([
+                    {
+                        identifier: { index: 0, key: 'abc' },
+                        data: null,
+                    },
+                    {
+                        identifier: { index: 2, key: 'efg' },
+                        data: null,
+                    },
+                ])
+                expect(db.updateGroupDataCache).toHaveBeenCalledWith(2, groupsData)
+            })
+
+            it('returns values from database and caches', async () => {
+                await db.insertGroup(
+                    // would get cached
                     2,
-                    'g2',
-                    2,
-                    JSON.stringify({ p2: 'p2val' }),
+                    0,
+                    'abc',
+                    { a: 3 },
                     TIMESTAMP,
-                    JSON.stringify({ p2: TIMESTAMP.toISO() }),
-                    JSON.stringify({ p2: PropertyUpdateOperation.Set }),
+                    { a: TIMESTAMP.toISO() },
+                    { a: PropertyUpdateOperation.Set },
                     1,
-                ],
-                'testGroupPropertiesOnEvents'
-            )
-            const res = await db.getPropertiesForGroups(2, [
-                { index: 0, key: 'group_key' },
-                { index: 2, key: 'g2' },
-                { index: 3, key: 'no-such-group' },
-            ])
-            expect(res).toEqual({
-                group0_properties: '{"prop":"val","num":1234}',
-                group2_properties: '{"p2":"p2val"}',
-                group3_properties: '{}',
+                    undefined,
+                    { cache: false }
+                )
+
+                const groupsData = await db.fetchGroupDataAndUpdateCache(2, identifiers)
+
+                expect(groupsData).toEqual([
+                    {
+                        identifier: { index: 0, key: 'abc' },
+                        data: { properties: { a: 3 }, created_at: TIMESTAMP },
+                    },
+                    {
+                        identifier: { index: 2, key: 'efg' },
+                        data: null,
+                    },
+                ])
+                expect(db.updateGroupDataCache).toHaveBeenCalledWith(2, groupsData)
             })
         })
 
-        it('group props are cached and used from cache', async () => {
-            // manually update from the DB and check that we still get the right props, i.e. previous ones
-            await db.insertGroup(
-                // would get cached
-                2,
-                0,
-                'group_key',
-                { prop: 'val', num: 1234567 },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-            await db.postgresQuery(
-                // not cached
-                `
-            UPDATE posthog_group SET group_properties = $4
-            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
-            `,
-                [2, 0, 'group_key', JSON.stringify({ prop: 'val-that-isnt-cached' })],
-                'testGroupPropertiesOnEvents'
-            )
-            const res = await db.getPropertiesForGroups(2, [{ index: 0, key: 'group_key' }])
-            expect(res).toEqual({
-                group0_properties: '{"prop":"val","num":1234567}',
-            })
-        })
+        describe('fetchGroupColumnsValues()', () => {
+            const identifiers = [
+                { index: 0, key: 'abc' },
+                { index: 2, key: 'efg' },
+            ]
 
-        it('gets created_at from DB if cache does not exist', async () => {
-            jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
-
-            await db.insertGroup(2, 0, 'g0', {}, TIMESTAMP, {}, {}, 1, undefined, { cache: false })
-            await db.insertGroup(2, 1, 'g1', {}, TIMESTAMP.minus(1), {}, {}, 1, undefined, { cache: false })
-            await db.insertGroup(2, 2, 'g2', {}, TIMESTAMP.minus(2), {}, {}, 1, undefined, { cache: false })
-            await db.insertGroup(2, 3, 'g3', {}, TIMESTAMP.minus(3), {}, {}, 1, undefined, { cache: false })
-            await db.insertGroup(2, 4, 'g4', {}, TIMESTAMP.minus(4), {}, {}, 1, undefined, { cache: false })
-
-            const res = await db.getCreatedAtForGroups(2, [
-                { index: 0, key: 'g0' },
-                { index: 1, key: 'g1' },
-                { index: 2, key: 'g2' },
-                { index: 4, key: 'g4' },
-            ])
-
-            expect(res).toEqual({
-                group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
-                group1_created_at: castTimestampOrNow(TIMESTAMP.minus(1), TimestampFormat.ClickHouse),
-                group2_created_at: castTimestampOrNow(TIMESTAMP.minus(2), TimestampFormat.ClickHouse),
-                group4_created_at: castTimestampOrNow(TIMESTAMP.minus(4), TimestampFormat.ClickHouse),
+            beforeEach(() => {
+                jest.spyOn(db, 'getGroupDataCache')
+                jest.spyOn(db, 'fetchGroupDataAndUpdateCache')
             })
 
-            expect(db.getGroupsCreatedAtFromDbAndUpdateCache).toHaveBeenCalled()
-        })
+            it('returns no columns if not enabled', async () => {
+                const columns = await db.fetchGroupColumnsValues(3, identifiers)
+                expect(columns).toEqual({})
 
-        it('group created_at is cached and used from cache', async () => {
-            jest.spyOn(db, 'getGroupsCreatedAtFromDbAndUpdateCache')
-
-            // manually update from the DB and check that we still get the right props, i.e. previous ones
-            await db.insertGroup(
-                // would get cached
-                2,
-                0,
-                'group_key',
-                { prop: 'val', num: 1234567 },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-            await db.postgresQuery(
-                // not cached
-                `
-            UPDATE posthog_group SET created_at = now()
-            WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3
-            `,
-                [2, 0, 'group_key'],
-                'testGroupCreatedAtOnEvents'
-            )
-            const res = await db.getCreatedAtForGroups(2, [{ index: 0, key: 'group_key' }])
-            expect(res).toEqual({
-                group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+                expect(db.getGroupDataCache).toHaveBeenCalledTimes(0)
+                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(0)
             })
-            expect(db.getGroupsCreatedAtFromDbAndUpdateCache).not.toHaveBeenCalled()
+
+            it('returns no columns if no groups passed', async () => {
+                const columns = await db.fetchGroupColumnsValues(2, [])
+                expect(columns).toEqual({})
+
+                expect(db.getGroupDataCache).toHaveBeenCalledTimes(0)
+                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(0)
+            })
+
+            it('returns no columns if no cached or db data', async () => {
+                const columns = await db.fetchGroupColumnsValues(2, identifiers)
+                expect(columns).toEqual({})
+
+                expect(db.getGroupDataCache).toHaveBeenCalledTimes(2)
+                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(1)
+            })
+
+            it('returns columns from cache', async () => {
+                const groupsData = [
+                    { identifier: { index: 0, key: 'abc' }, data: null },
+                    { identifier: { index: 2, key: 'efg' }, data: { properties: { a: 3 }, created_at: TIMESTAMP } },
+                ]
+                await db.updateGroupDataCache(2, groupsData)
+
+                const columns = await db.fetchGroupColumnsValues(2, identifiers)
+                expect(columns).toEqual({
+                    group2_properties: JSON.stringify({ a: 3 }),
+                    group2_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+                })
+
+                expect(db.getGroupDataCache).toHaveBeenCalledTimes(2)
+                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(0)
+            })
+
+            it('returns columns from db', async () => {
+                await db.insertGroup(
+                    // would get cached
+                    2,
+                    0,
+                    'abc',
+                    { a: 3 },
+                    TIMESTAMP,
+                    { a: TIMESTAMP.toISO() },
+                    { a: PropertyUpdateOperation.Set },
+                    1,
+                    undefined,
+                    { cache: false }
+                )
+
+                const columns = await db.fetchGroupColumnsValues(2, identifiers)
+                expect(columns).toEqual({
+                    group0_properties: JSON.stringify({ a: 3 }),
+                    group0_created_at: castTimestampOrNow(TIMESTAMP, TimestampFormat.ClickHouse),
+                })
+
+                expect(db.getGroupDataCache).toHaveBeenCalledTimes(2)
+                expect(db.fetchGroupDataAndUpdateCache).toHaveBeenCalledTimes(1)
+            })
         })
     })
 
