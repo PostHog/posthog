@@ -105,7 +105,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
 export function InviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit, invitedTeamMembersInternalLoading: loading, invites } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit, invites } = useValues(inviteLogic)
     const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite, updateMessage } = useActions(inviteLogic)
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE

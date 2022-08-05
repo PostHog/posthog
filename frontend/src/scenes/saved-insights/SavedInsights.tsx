@@ -304,8 +304,7 @@ export function SavedInsights(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    status="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() =>
                                         deleteWithUndo({
                                             object: insight,

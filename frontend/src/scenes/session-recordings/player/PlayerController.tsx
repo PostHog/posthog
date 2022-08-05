@@ -148,7 +148,6 @@ export function PlayerControllerV3(): JSX.Element {
                                                             status="stealth"
                                                             active={speed === speedToggle}
                                                             key={speedToggle}
-                                                            value={speedToggle}
                                                             onClick={() => {
                                                                 setSpeed(speedToggle)
                                                             }}

@@ -410,7 +410,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         addVariant()
                                         focusVariantKeyField(newIndex)
                                     }}
-                                    style={{ margin: '1rem 0' }}
                                     fullWidth
                                     center
                                 >
