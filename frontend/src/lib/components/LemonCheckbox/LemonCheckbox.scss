@@ -3,6 +3,7 @@
     width: fit-content;
     font-weight: 500;
     align-items: center;
+    line-height: 1.5rem;
 
     .LemonCheckbox__input {
         appearance: none !important;
@@ -87,7 +88,7 @@
     }
     &.LemonCheckbox--bordered {
         label {
-            padding: 0.5rem 0.75rem;
+            padding: 0.75rem;
             border-radius: var(--radius);
             border: 1px solid var(--border);
         }

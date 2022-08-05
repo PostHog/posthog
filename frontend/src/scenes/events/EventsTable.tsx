@@ -427,7 +427,7 @@ export function EventsTable({
                     >
                         {showAutoload && (
                             <LemonSwitch
-                                type="primary"
+                                bordered
                                 data-tooltip="live-events-refresh-toggle"
                                 id="autoload-switch"
                                 label="Automatically load new events"

@@ -48,20 +48,21 @@ function ToolbarLaunch(): JSX.Element {
             <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
             <LemonDivider />
 
-            <LemonSwitch
-                data-tooltip="toolbar-authorized-toggle"
-                label="Enable the PostHog toolbar"
-                onChange={() =>
-                    updateUser({
-                        toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
-                    })
-                }
-                checked={user?.toolbar_mode !== 'disabled'}
-                disabled={userLoading}
-                loading={userLoading}
-                type="primary"
-                className="EnableToolbarSwitch my-4 py-4 w-full"
-            />
+            <div className="my-4">
+                <LemonSwitch
+                    data-tooltip="toolbar-authorized-toggle"
+                    label="Enable the PostHog toolbar"
+                    onChange={() =>
+                        updateUser({
+                            toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
+                        })
+                    }
+                    checked={user?.toolbar_mode !== 'disabled'}
+                    disabled={userLoading}
+                    loading={userLoading}
+                    bordered
+                />
+            </div>
 
             <h2 className="subtitle" id="urls">
                 Authorized URLs for Toolbar

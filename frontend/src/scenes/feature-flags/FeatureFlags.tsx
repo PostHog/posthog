@@ -67,17 +67,14 @@ function OverViewTab(): JSX.Element {
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <LemonSwitch
-                            id={`feature-flag-${featureFlag.id}-switch`}
-                            checked={featureFlag.active}
-                            onChange={(active) =>
-                                featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
-                            }
-                            label={featureFlag.active ? 'Enabled' : 'Disabled'}
-                            style={{ fontWeight: 400, padding: 0 }}
-                        />
-                    </div>
+                    <LemonSwitch
+                        id={`feature-flag-${featureFlag.id}-switch`}
+                        checked={featureFlag.active}
+                        onChange={(active) =>
+                            featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
+                        }
+                        label={<span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>}
+                    />
                 )
             },
         },
