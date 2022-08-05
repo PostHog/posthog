@@ -108,12 +108,6 @@ export class PersonState {
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
-        console.log('createPersonIfDistinctIdIsNew called', {
-            teamId: this.teamId,
-            distinctId: this.distinctId,
-            loaded: this.personContainer.loaded,
-            eventUuid: this.event.uuid,
-        })
         // :TRICKY: Short-circuit if person container already has loaded person and it exists
         if (this.personContainer.loaded) {
             return false
@@ -151,18 +145,11 @@ export class PersonState {
                     })
                 }
             }
-        } else {
-            // Person was likely created in-between start-of-processing and now, so ensure that subsequent queries
-            // to fetch person still return the right `person`
-            console.log('createPersonIfDistinctIdIsNew - calling reset', {
-                teamId: this.teamId,
-                distinctId: this.distinctId,
-                loaded: this.personContainer.loaded,
-                isNewPerson,
-                eventUuid: this.event.uuid,
-            })
-            this.personContainer = this.personContainer.reset()
         }
+
+        // Person was likely created in-between start-of-processing and now, so ensure that subsequent queries
+        // to fetch person still return the right `person`
+        this.personContainer = this.personContainer.reset()
         return false
     }
 
@@ -206,12 +193,6 @@ export class PersonState {
         const personFound = await this.personContainer.get()
         if (!personFound) {
             this.statsd?.increment('person_not_found', { teamId: String(this.teamId), key: 'update' })
-            console.log('Person lookup for update failed', {
-                teamId: this.teamId,
-                distinctId: this.distinctId,
-                loaded: this.personContainer.loaded,
-                eventUuid: this.event.uuid,
-            })
             throw new Error(
                 `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )
