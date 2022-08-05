@@ -313,12 +313,13 @@ export function formatAggregationValue(
     let formattedValue: ReactNode
     if (property && formatPropertyValueForDisplay) {
         formattedValue = formatPropertyValueForDisplay(property, propertyValue)
-        if (formattedValue === propertyValue) {
+        // yes, double equals not triple equals  ¯\_(ツ)_/¯ let JS compare strings and numbers however it wants
+        if (formattedValue == propertyValue) {
             // formatPropertyValueForDisplay didn't change the value...
-            formattedValue = renderCount(propertyValue ?? 0)
+            formattedValue = renderCount(propertyValue)
         }
     } else {
-        formattedValue = renderCount(propertyValue ?? 0)
+        formattedValue = renderCount(propertyValue)
     }
 
     // Since `propertyValue` is a number. `formatPropertyValueForDisplay` will only return a string
