@@ -22,13 +22,19 @@ export function AccessLevelIndicator({ organization }: { organization: Organizat
     )
 }
 
-export function OtherOrganizationButton({ organization }: { organization: OrganizationBasicType }): JSX.Element {
+export function OtherOrganizationButton({
+    organization,
+    index,
+}: {
+    organization: OrganizationBasicType
+    index: number
+}): JSX.Element {
     const { updateCurrentOrganization } = useActions(userLogic)
 
     return (
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
-            icon={<Lettermark name={organization.name} />}
+            icon={<Lettermark index={index} name={organization.name} />}
             className="SitePopover__organization"
             type="stealth"
             title={`Switch to organization ${organization.name}`}
@@ -85,8 +91,8 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
                     </div>
                 </LemonRow>
             )}
-            {otherOrganizations.map((otherOrganization) => (
-                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />
+            {otherOrganizations.map((otherOrganization, i) => (
+                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} index={i} />
             ))}
             {preflight?.can_create_org && <NewOrganizationButton />}
         </div>
