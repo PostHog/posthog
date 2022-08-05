@@ -302,18 +302,24 @@ export function summarizeInsightFilters(
 
 export function formatAggregationValue(
     property: string | undefined,
-    propertyValue: number,
+    propertyValue: number | null,
     renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
     formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
 ): ReactNode {
-    let formattedValue =
-        property && formatPropertyValueForDisplay
-            ? formatPropertyValueForDisplay(property, propertyValue)
-            : renderCount(propertyValue ?? 0)
+    if (propertyValue === null) {
+        return '-'
+    }
 
-    if (property && formattedValue === propertyValue.toString()) {
-        // formatPropertyValueForDisplay didn't change the value...
-        formattedValue = renderCount(propertyValue ?? 0)
+    let formattedValue: ReactNode
+    if (property && formatPropertyValueForDisplay) {
+        formattedValue = formatPropertyValueForDisplay(property, propertyValue)
+        // yes, double equals not triple equals  ¯\_(ツ)_/¯ let JS compare strings and numbers however it wants
+        if (formattedValue == propertyValue) {
+            // formatPropertyValueForDisplay didn't change the value...
+            formattedValue = renderCount(propertyValue)
+        }
+    } else {
+        formattedValue = renderCount(propertyValue)
     }
 
     // Since `propertyValue` is a number. `formatPropertyValueForDisplay` will only return a string
