@@ -127,13 +127,15 @@ export function PlayerControllerV3(): JSX.Element {
                         popup={{
                             overlay: (
                                 <>
-                                    <LemonSwitch
-                                        label="Skip inactivity"
-                                        checked={skipInactivitySetting}
-                                        onChange={() => {
-                                            setSkipInactivitySetting(!skipInactivitySetting)
-                                        }}
-                                    />
+                                    <div className="p-2">
+                                        <LemonSwitch
+                                            label="Skip inactivity"
+                                            checked={skipInactivitySetting}
+                                            onChange={() => {
+                                                setSkipInactivitySetting(!skipInactivitySetting)
+                                            }}
+                                        />
+                                    </div>
                                     <LemonButtonWithPopup
                                         data-attr="session-recording-speed-select"
                                         className="session-recording-speed-select"

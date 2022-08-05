@@ -27,11 +27,12 @@ function InsightRow({ insight }: InsightRowProps): JSX.Element {
                 reportInsightOpenedFromRecentInsightList()
             }}
         >
-            <div className="list-row">
+            <div className="ProjectHomePage__listrow">
                 <InsightIcon insight={insight} />
-                <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                    <p className="row-title link-text">{insight.name || insight.derived_name}</p>
-                    <p>Last modified {dayjs(insight.last_modified_at).fromNow()}</p>
+
+                <div className="ProjectHomePage__listrow__details">
+                    <div>{insight.name || insight.derived_name}</div>
+                    <div>Last modified {dayjs(insight.last_modified_at).fromNow()}</div>
                 </div>
             </div>
         </LemonButton>

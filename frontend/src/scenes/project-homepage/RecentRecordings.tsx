@@ -33,14 +33,16 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         >
-            <div className="list-row">
+            <div className="ProjectHomePage__listrow">
                 <ProfilePicture name={asDisplay(recording.person)} />
-                <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                    <p className="row-title">{asDisplay(recording.person)}</p>
-                    <p>Recorded {dayjs(recording.start_time).fromNow()}</p>
+
+                <div className="ProjectHomePage__listrow__details">
+                    <div>{asDisplay(recording.person)}</div>
+                    <div>Recorded {dayjs(recording.start_time).fromNow()}</div>
                 </div>
+
                 <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                <IconPlayCircle style={{ fontSize: '1.25rem', marginLeft: '0.5rem' }} />
+                <IconPlayCircle className="text-lg ml-2" />
             </div>
         </LemonButton>
     )
