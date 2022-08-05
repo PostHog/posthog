@@ -391,7 +391,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                         a,
                         b
                     ) {
-                        return a.playerTime - b.playerTime
+                        return (a.playerTime ?? 0) - (b.playerTime ?? 0)
                     })
 
                     return {
