@@ -1,5 +1,4 @@
 import React from 'react'
-import { Row } from 'antd'
 import { ingestionLogic } from './ingestionLogic'
 import { useValues } from 'kea'
 import { PanelFooter, PanelHeader } from './panels/PanelComponents'
@@ -17,12 +16,12 @@ export function CardContainer({
     children: React.ReactNode
     showFooter?: boolean
 }): JSX.Element {
-    const { onboardingSidebarEnabled, isSmallScreen } = useValues(ingestionLogic)
+    const { isSmallScreen } = useValues(ingestionLogic)
 
     return (
         <div className="ingestion-card-container">
-            {!onboardingSidebarEnabled && (
-                <Row align="middle" data-attr="wizard-step-counter">
+            {!isSmallScreen && (
+                <div className="flex items-center" data-attr="wizard-step-counter">
                     {index !== 0 && (
                         <ArrowLeftOutlined
                             className="button-border clickable"
@@ -31,9 +30,9 @@ export function CardContainer({
                         />
                     )}
                     <PanelHeader index={index} />
-                </Row>
+                </div>
             )}
-            {onboardingSidebarEnabled && isSmallScreen && (
+            {isSmallScreen && (
                 <>
                     <ArrowLeftOutlined
                         className="button-border clickable"
