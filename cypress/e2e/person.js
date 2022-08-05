@@ -16,7 +16,7 @@ describe('Person Visualization Check', () => {
         cy.get('table').contains('Event').should('exist')
     })
 
-    it.only('Does not show the Person column', () => {
+    it('Does not show the Person column', () => {
         cy.get('[role="tab"]').contains('Events').click()
         cy.get('table').contains('Event').click()
         cy.get('table').should('not.contain', 'Person')

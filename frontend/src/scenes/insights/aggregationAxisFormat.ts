@@ -23,7 +23,10 @@ export const aggregationAxisFormatSelectOptions: Record<AggregationAxisFormat, L
     },
 }
 
-export const formatAggregationAxisValue = (axisFormat: AggregationAxisFormat, value: number | string): string => {
+export const formatAggregationAxisValue = (
+    axisFormat: AggregationAxisFormat | undefined,
+    value: number | string
+): string => {
     value = Number(value)
     switch (axisFormat) {
         case 'duration':
@@ -38,19 +41,6 @@ export const formatAggregationAxisValue = (axisFormat: AggregationAxisFormat, va
         default:
             return compactNumber(value)
     }
-}
-
-export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): boolean => {
-    return (
-        !!chartDisplayType &&
-        [
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.ActionsLineGraphCumulative,
-            ChartDisplayType.ActionsBar,
-            ChartDisplayType.ActionsBarValue,
-            ChartDisplayType.ActionsTable,
-        ].includes(chartDisplayType)
-    )
 }
 
 export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
