@@ -1,5 +1,4 @@
 import React from 'react'
-import './AuthorizedUrls.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -108,7 +107,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
-                <LemonRow outlined fullWidth size="large" key={-1} className={clsx('AuthorizedUrlRow')}>
+                <LemonRow outlined fullWidth size="large" key={-1}>
                     <Spinner size="md" />
                 </LemonRow>
             ) : (
@@ -125,13 +124,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     />
                     {appUrlsKeyed.map((keyedAppURL, index) => {
                         return (
-                            <div
-                                key={index}
-                                className={clsx(
-                                    'AuthorizedUrlRow border rounded flex items-center py-2 px-4 h-14',
-                                    editUrlIndex !== index && 'highlight-on-hover'
-                                )}
-                            >
+                            <div key={index} className={clsx('border rounded flex items-center py-2 px-4 min-h-14')}>
                                 {editUrlIndex === index ? (
                                     <AuthorizedUrlForm actionId={actionId} />
                                 ) : (

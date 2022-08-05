@@ -76,7 +76,7 @@ export function PlayerConsole(): JSX.Element | null {
                             </p>
                             <LemonButton
                                 type="secondary"
-                                style={{ margin: '0 8px' }}
+                                className="my-2"
                                 href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                             >
                                 Learn more

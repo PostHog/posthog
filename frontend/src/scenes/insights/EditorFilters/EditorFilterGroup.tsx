@@ -40,12 +40,9 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                         onClick={() => setIsRowExpanded(!isRowExpanded)}
                         sideIcon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                         title={isRowExpanded ? 'Show less' : 'Show more'}
-                        style={{
-                            fontWeight: 600,
-                        }}
                         data-attr={'editor-filter-group-collapse-' + slugify(title)}
                     >
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2 font-semibold">
                             <span>{title}</span>
                             <LemonBubble count={count} />
                         </div>

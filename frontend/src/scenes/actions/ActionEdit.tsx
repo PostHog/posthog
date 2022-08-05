@@ -19,8 +19,8 @@ import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
-import { lemonToast } from 'lib/components/lemonToast'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { lemonToast } from '@posthog/lemon-ui'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -42,7 +42,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             data-attr="delete-action-bottom"
             status="danger"
             type="secondary"
-            style={{ marginRight: 8 }}
             onClick={() => {
                 deleteAction()
             }}
@@ -56,7 +55,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             data-attr="cancel-action-bottom"
             status="danger"
             type="secondary"
-            style={{ marginRight: 8 }}
             onClick={() => {
                 router.actions.push(shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
             }}
@@ -286,7 +284,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         )}
                     </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div className="flex justify-end gap-2">
                     {!!id ? deleteButton() : cancelButton()}
                     <LemonButton
                         data-attr="save-action-button"

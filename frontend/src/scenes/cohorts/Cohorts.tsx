@@ -128,12 +128,7 @@ export function Cohorts(): JSX.Element {
                                     Export users
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton
-                                    status="stealth"
-                                    style={{ color: 'var(--danger)' }}
-                                    onClick={() => deleteCohort(cohort)}
-                                    fullWidth
-                                >
+                                <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>
                                     Delete cohort
                                 </LemonButton>
                             </>

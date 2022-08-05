@@ -97,8 +97,7 @@ export function Experiments(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    status="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() => deleteExperiment(experiment.id as number)}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth

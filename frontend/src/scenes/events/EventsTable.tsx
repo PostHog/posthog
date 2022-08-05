@@ -138,13 +138,7 @@ export function EventsTable({
             children:
                 date_break ||
                 (new_events ? (
-                    <LemonButton
-                        icon={<IconSync />}
-                        style={{ borderRadius: 0 }}
-                        onClick={() => prependNewEvents()}
-                        center
-                        fullWidth
-                    >
+                    <LemonButton icon={<IconSync />} onClick={() => prependNewEvents()} center fullWidth>
                         There are new events. Click here to load them
                     </LemonButton>
                 ) : (
@@ -520,17 +514,16 @@ export function EventsTable({
                             : undefined
                     }
                 />
-                <Button
-                    type="primary"
-                    onClick={fetchNextEvents}
-                    loading={isLoadingNext}
-                    style={{
-                        display: hasNext || isLoadingNext ? 'block' : 'none',
-                        margin: '2rem auto 1rem',
-                    }}
-                >
-                    Load more events
-                </Button>
+                {hasNext || isLoadingNext ? (
+                    <LemonButton
+                        type="primary"
+                        onClick={fetchNextEvents}
+                        loading={isLoadingNext}
+                        className="my-8 mx-auto"
+                    >
+                        Load more events
+                    </LemonButton>
+                ) : null}
             </div>
         </div>
     )

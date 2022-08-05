@@ -86,14 +86,13 @@ export function PlayerControllerV3(): JSX.Element {
                 <Seekbar />
             </div>
             <Row className="rrweb-controller__bottom" wrap={false} justify="space-between" align="middle">
-                <Row wrap={false} style={{ width: '50%' }}>
+                <Row wrap={false} className="space-x-2" style={{ width: '50%' }}>
                     <LemonButton
                         size="small"
                         icon={<UnverifiedEvent />}
                         status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
                         active={tab === SessionRecordingTab.EVENTS}
                         onClick={() => setTab(SessionRecordingTab.EVENTS)}
-                        style={{ marginRight: '0.5rem' }}
                     >
                         Events
                     </LemonButton>

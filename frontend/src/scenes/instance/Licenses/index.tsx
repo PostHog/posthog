@@ -49,7 +49,7 @@ function ConfirmCancelModal({
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="deactivate-license-cancel"
-                        style={{ marginRight: '0.5rem' }}
+                        className="mr-2"
                         onClick={onCancel}
                     >
                         Cancel

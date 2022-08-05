@@ -10,7 +10,9 @@ import './LemonButton.scss'
 export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
-export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'type'> {
+export interface LemonButtonPropsBase
+    // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+    extends Pick<React.ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     status?: 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
@@ -31,6 +33,8 @@ export interface LemonButtonPropsBase extends Omit<React.ButtonHTMLAttributes<HT
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
+    /** @deprecated Buttons should never be disabled. Work with Design to find an alternative approach. */
+    disabled?: boolean
     /** Special case value for buttons such as compact icon-only buttons */
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'

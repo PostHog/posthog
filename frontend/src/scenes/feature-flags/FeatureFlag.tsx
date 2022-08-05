@@ -96,7 +96,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <PageHeader
                         title="Feature Flag"
                         buttons={
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-2">
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
@@ -121,7 +121,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         onClick={() => {
                                             deleteFeatureFlag(featureFlag)
                                         }}
-                                        style={{ marginRight: 16 }}
                                     >
                                         Delete
                                     </LemonButton>

@@ -151,19 +151,14 @@ export function AddToDashboardModal({
                     </AutoSizer>
                 </div>
             </section>
-            <section className="flex justify-between">
+            <footer className="flex justify-between">
                 <LemonButton type="secondary" size="small" onClick={addNewDashboard} disabled={!canEditInsight}>
                     Add to a new dashboard
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={closeModal}
-                    style={{ marginTop: 0 }} /* LemonModal > section styling was adding a margin top */
-                >
+                <LemonButton type="secondary" size="small" onClick={closeModal}>
                     Close
                 </LemonButton>
-            </section>
+            </footer>
         </LemonModal>
     )
 }

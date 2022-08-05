@@ -1,4 +1,5 @@
 .LemonButton {
+    position: relative;
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
     display: flex;
     flex-direction: row;
@@ -36,7 +37,7 @@
     &.LemonButton--centered {
         justify-content: center;
         .LemonButton__content {
-            flex-grow: initial;
+            flex: initial;
         }
     }
 

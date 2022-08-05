@@ -45,8 +45,8 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <Row gutter={16} className="invite-row" align="middle">
-            <Col xs={11}>
+        <div className="flex gap-2">
+            <div className="flex-1">
                 <LemonInput
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
@@ -58,7 +58,6 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         }
                         updateInviteAtIndex({ target_email: v, isValid }, index)
                     }}
-                    style={{ padding: 16 }}
                     value={invitesToSend[index]?.target_email}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
@@ -68,12 +67,11 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                     autoFocus={index === 0}
                     data-attr="invite-email-input"
                 />
-            </Col>
-            <Col xs={11}>
+            </div>
+            <div className="flex-1 flex justify-between">
                 {!preflight?.email_service_available ? (
                     <LemonButton
                         type="secondary"
-                        style={{ padding: '16px 24px' }}
                         disabled={!isEmail(invitesToSend[index].target_email)}
                         onClick={() => {
                             inviteTeamMembers()
@@ -88,7 +86,6 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         onChange={(v) => {
                             updateInviteAtIndex({ first_name: v }, index)
                         }}
-                        style={{ padding: 16 }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                                 inviteTeamMembers()
@@ -96,11 +93,11 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         }}
                     />
                 )}
-            </Col>
-            {isDeletable && (
-                <LemonButton icon={<IconDelete />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
-            )}
-        </Row>
+                {isDeletable && (
+                    <LemonButton icon={<IconDelete />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -170,27 +167,19 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                         }
                     />
                 )}
-                <div className="bulk-invite-modal">
-                    <Row gutter={16}>
-                        <Col span={12}>
-                            <b>Email address</b>
-                        </Col>
-                        <Col span={12}>
-                            <b>{preflight?.email_service_available ? 'Name (optional)' : 'Invite link'}</b>
-                        </Col>
-                    </Row>
+                <div className="bulk-invite-modal space-y-2">
+                    <div className="flex gap-2">
+                        <b className="flex-1">Email address</b>
+                        <b className="flex-1">
+                            {preflight?.email_service_available ? 'Name (optional)' : 'Invite link'}
+                        </b>
+                    </div>
 
                     {invites.map((invite: OrganizationInviteType) => {
                         return (
-                            <Row gutter={16} align="middle" className="my-4" key={invite.id}>
-                                <Col xs={11}>
-                                    <Input
-                                        disabled
-                                        style={{ backgroundColor: 'white', color: 'black', padding: 16 }}
-                                        defaultValue={invite.target_email}
-                                    />
-                                </Col>
-                                <Col xs={11}>
+                            <div className="flex gap-2 items-start" key={invite.id}>
+                                <div className="flex-1 border rounded p-2"> {invite.target_email} </div>
+                                <div className="flex-1 flex">
                                     {invite.is_expired ? (
                                         <b>Expired! Delete and recreate</b>
                                     ) : (
@@ -217,7 +206,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                                                             color: 'var(--primary)',
                                                             background: 'var(--bg-side)',
                                                             borderRadius: 4,
-                                                            padding: 16,
+                                                            padding: '0.5rem',
                                                         }}
                                                     >
                                                         <div className="InviteModal__share_link">
@@ -228,27 +217,27 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                                             )}
                                         </>
                                     )}
-                                </Col>
-                                <LemonButton
-                                    title="Cancel the invite"
-                                    data-attr="invite-delete"
-                                    icon={<IconDelete />}
-                                    status="danger"
-                                    onClick={() => {
-                                        invite.is_expired
-                                            ? deleteInvite(invite)
-                                            : Modal.confirm({
-                                                  title: `Do you want to cancel the invite for ${invite.target_email}?`,
-                                                  okText: 'Yes, cancel invite',
-                                                  okType: 'danger',
-                                                  onOk() {
-                                                      deleteInvite(invite)
-                                                  },
-                                                  cancelText: 'No, keep invite',
-                                              })
-                                    }}
-                                />
-                            </Row>
+                                    <LemonButton
+                                        title="Cancel the invite"
+                                        data-attr="invite-delete"
+                                        icon={<IconDelete />}
+                                        status="danger"
+                                        onClick={() => {
+                                            invite.is_expired
+                                                ? deleteInvite(invite)
+                                                : Modal.confirm({
+                                                      title: `Do you want to cancel the invite for ${invite.target_email}?`,
+                                                      okText: 'Yes, cancel invite',
+                                                      okType: 'danger',
+                                                      onOk() {
+                                                          deleteInvite(invite)
+                                                      },
+                                                      cancelText: 'No, keep invite',
+                                                  })
+                                        }}
+                                    />
+                                </div>
+                            </div>
                         )
                     })}
 
@@ -260,8 +249,8 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                         {areInvitesCreatable && (
                             <LemonButton
                                 type="secondary"
-                                style={{ padding: '1rem' }}
-                                icon={<IconPlus style={{ color: 'var(--primary)' }} />}
+                                size="large"
+                                icon={<IconPlus />}
                                 onClick={appendInviteRow}
                                 fullWidth
                                 center
@@ -286,7 +275,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                 <LemonDivider thick dashed />
                 <div className="mt-4">
                     {!preflight?.email_service_available ? (
-                        <LemonButton style={{ padding: '1rem' }} fullWidth center type="primary" onClick={onClose}>
+                        <LemonButton size="large" fullWidth center type="primary" onClick={onClose}>
                             Done
                         </LemonButton>
                     ) : (

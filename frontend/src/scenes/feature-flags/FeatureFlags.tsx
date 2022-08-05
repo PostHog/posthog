@@ -117,8 +117,7 @@ function OverViewTab(): JSX.Element {
                                 <LemonDivider />
                                 {featureFlag.id && (
                                     <LemonButton
-                                        status="stealth"
-                                        style={{ color: 'var(--danger)' }}
+                                        status="danger"
                                         onClick={() => {
                                             deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,

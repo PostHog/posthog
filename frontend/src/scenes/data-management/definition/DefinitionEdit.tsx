@@ -31,7 +31,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 setPageMode(DefinitionPageMode.View)
                             }}
-                            style={{ marginRight: 8 }}
                             disabled={definitionLoading}
                         >
                             Cancel
@@ -42,7 +41,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 saveDefinition({})
                             }}
-                            style={{ marginRight: 8 }}
                             disabled={definitionLoading}
                         >
                             Save

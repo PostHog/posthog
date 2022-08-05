@@ -31,6 +31,7 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     dropdownPlacement?: PopupProps['placement']
     allowClear?: boolean
     className?: string
+    placeholder?: string
     popup?: {
         className?: string
         ref?: React.MutableRefObject<HTMLDivElement | null>

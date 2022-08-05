@@ -16,7 +16,6 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     className?: string
-    style?: React.CSSProperties
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: () => HTMLElement
@@ -32,7 +31,6 @@ export function DateFilter({
     defaultValue,
     showCustom,
     showRollingRangePicker = true,
-    style,
     className,
     disabled,
     makeLabel,
@@ -136,10 +134,8 @@ export function DateFilter({
             data-attr="date-filter"
             id="daterange_selector"
             onClick={isOpen ? close : open}
-            value={value}
             disabled={disabled}
             className={className}
-            style={style}
             size={'small'}
             type={'secondary'}
             status="stealth"
