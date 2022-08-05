@@ -136,17 +136,17 @@ export class PersonState {
                     this.newUuid,
                     [this.distinctId]
                 )
-                console.log('createPersonIfDistinctIdIsNew success', {
-                    teamId: this.teamId,
-                    distinctId: this.distinctId,
-                    loaded: this.personContainer.loaded,
-                    eventUuid: this.event.uuid,
-                    person,
-                })
                 // :TRICKY: Avoid subsequent queries re-fetching person
                 this.personContainer = this.personContainer.with(person)
                 return true
             } catch (error) {
+                console.log('createPersonIfDistinctIdIsNew failed', {
+                    teamId: this.teamId,
+                    distinctId: this.distinctId,
+                    loaded: this.personContainer.loaded,
+                    eventUuid: this.event.uuid,
+                    error,
+                })
                 if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
                     Sentry.captureException(error, {
                         extra: {
@@ -158,18 +158,18 @@ export class PersonState {
                     })
                 }
             }
-        } else {
-            // Person was likely created in-between start-of-processing and now, so ensure that subsequent queries
-            // to fetch person still return the right `person`
-            console.log('createPersonIfDistinctIdIsNew - calling reset', {
-                teamId: this.teamId,
-                distinctId: this.distinctId,
-                loaded: this.personContainer.loaded,
-                isNewPerson,
-                eventUuid: this.event.uuid,
-            })
-            this.personContainer = this.personContainer.reset()
         }
+
+        // Person was likely created in-between start-of-processing and now, so ensure that subsequent queries
+        // to fetch person still return the right `person`
+        console.log('createPersonIfDistinctIdIsNew - calling reset', {
+            teamId: this.teamId,
+            distinctId: this.distinctId,
+            loaded: this.personContainer.loaded,
+            isNewPerson,
+            eventUuid: this.event.uuid,
+        })
+        this.personContainer = this.personContainer.reset()
         return false
     }
 
