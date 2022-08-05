@@ -19,10 +19,12 @@ import { addHistoricalEventsExportCapability } from './upgrades/historical-expor
 export class TimeoutError extends RetryError {
     name = 'TimeoutError'
     caller?: string = undefined
+    pluginConfig?: PluginConfig = undefined
 
-    constructor(message: string, caller?: string) {
+    constructor(message: string, caller?: string, pluginConfig?: PluginConfig) {
         super(message)
         this.caller = caller
+        this.pluginConfig = pluginConfig
     }
 }
 
