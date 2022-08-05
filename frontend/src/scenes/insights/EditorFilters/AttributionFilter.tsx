@@ -25,7 +25,7 @@ export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.E
                               element: (
                                   <LemonSelect
                                       outlined
-                                      className="ml-05"
+                                      className="ml-2"
                                       onChange={(value) => {
                                           if (value) {
                                               setFilters({

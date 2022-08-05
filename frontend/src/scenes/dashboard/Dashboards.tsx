@@ -25,6 +25,7 @@ import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -39,6 +40,7 @@ export function Dashboards(): JSX.Element {
     const { showNewDashboardModal, addDashboard } = useActions(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { closePrompts } = useActions(inAppPromptLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -73,7 +75,7 @@ export function Dashboards(): JSX.Element {
                             </Link>
                             {!canEditDashboard && (
                                 <Tooltip title="You don't have edit permissions for this dashboard.">
-                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em' }} />
+                                    <IconLock style={{ marginLeft: 6, verticalAlign: '-0.125em', display: 'inline' }} />
                                 </Tooltip>
                             )}
                             {is_shared && (
@@ -89,6 +91,7 @@ export function Dashboards(): JSX.Element {
                                             color: 'var(--warning)',
                                             fontSize: '1rem',
                                             verticalAlign: '-0.125em',
+                                            display: 'inline',
                                         }}
                                     />
                                 </Tooltip>
@@ -187,7 +190,14 @@ export function Dashboards(): JSX.Element {
             <PageHeader
                 title="Dashboards"
                 buttons={
-                    <LemonButton data-attr={'new-dashboard'} onClick={showNewDashboardModal} type="primary">
+                    <LemonButton
+                        data-attr={'new-dashboard'}
+                        onClick={() => {
+                            closePrompts()
+                            showNewDashboardModal()
+                        }}
+                        type="primary"
+                    >
                         New dashboard
                     </LemonButton>
                 }
@@ -216,6 +226,7 @@ export function Dashboards(): JSX.Element {
             <LemonDivider large />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
+                    data-tooltip="dashboards-table"
                     pagination={{ pageSize: 100 }}
                     dataSource={dashboards}
                     rowKey="id"
@@ -250,7 +261,7 @@ export function Dashboards(): JSX.Element {
                     nouns={['dashboard', 'dashboards']}
                 />
             ) : (
-                <div className="mt">
+                <div className="mt-4">
                     <p>Create your first dashboard:</p>
                     <Row gutter={[16, 16]}>
                         <Col xs={24} xl={6}>

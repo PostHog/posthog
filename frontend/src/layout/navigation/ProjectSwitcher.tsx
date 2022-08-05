@@ -69,12 +69,12 @@ function CurrentProjectButton(): JSX.Element | null {
                         hideProjectSwitcher()
                         push(urls.projectSettings())
                     }}
-                    icon={<IconSettings style={{ color: 'var(--muted-alt)' }} />}
+                    icon={<IconSettings className="text-muted-alt" />}
                 />
             }
             fullWidth
         >
-            <strong style={{ paddingRight: 8 }}>{currentTeam.name}</strong>
+            <strong className="pr-2">{currentTeam.name}</strong>
         </LemonRow>
     ) : null
 }
@@ -90,7 +90,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
                 updateCurrentTeam(team.id, '/')
             }}
             sideAction={{
-                icon: <IconSettings style={{ color: 'var(--muted-alt)' }} />,
+                icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
                 onClick: () => {
                     hideProjectSwitcher()
@@ -102,7 +102,7 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             fullWidth
             disabled={!team.effective_membership_level}
         >
-            <span style={{ paddingRight: 8 }}>{team.name}</span>
+            <span className="pr-2">{team.name}</span>
         </LemonButtonWithSideAction>
     )
 }

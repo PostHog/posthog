@@ -1,6 +1,6 @@
 import './PropertyKeyInfo.scss'
 import React from 'react'
-import { Col, Popover, Row, Typography } from 'antd'
+import { Popover, Typography } from 'antd'
 import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
 import { TooltipPlacement } from 'antd/lib/tooltip'
@@ -58,6 +58,7 @@ export const keyMapping: KeyMappingInterface = {
                 'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
+
         $screen_height: {
             label: 'Screen Height',
             description: "The height of the user's entire screen (in pixels).",
@@ -67,6 +68,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Screen Width',
             description: "The width of the user's entire screen (in pixels).",
             examples: ['1440', '1920'],
+        },
+        $screen_name: {
+            label: 'Screen Name',
+            description: 'The name of the active screen.',
         },
         $viewport_height: {
             label: 'Viewport Height',
@@ -153,6 +158,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Active Feature Flags',
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
+        },
+        $enabled_feature_flags: {
+            label: 'Enabled Feature Flags',
+            description: 'Object of the feature flags that were active while this event was sent.',
         },
         $feature_flag_response: {
             label: 'Feature Flag Response',
@@ -524,6 +533,61 @@ export const keyMapping: KeyMappingInterface = {
             ),
             examples: ['01:04:12'],
         },
+        $app_build: {
+            label: 'App Build',
+            description: 'The build number for the app',
+        },
+        $app_name: {
+            label: 'App Name',
+            description: 'The name of the app',
+        },
+        $app_namespace: {
+            label: 'App Namespace',
+            description: 'The namespace of the app as identified in the app store',
+            examples: ['com.posthog.app'],
+        },
+        $app_version: {
+            label: 'App Version',
+            description: 'The version of the app',
+        },
+        $device_manufacturer: {
+            label: 'Device Manufacturer',
+            description: 'The manufacturer of the device',
+            examples: ['Apple', 'Samsung'],
+        },
+        $device_name: {
+            label: 'Device Name',
+            description: 'Name of the device',
+            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
+        },
+        $locale: {
+            label: 'Locale',
+            description: 'The locale of the device',
+            examples: ['en-US', 'de-DE'],
+        },
+        $os_name: {
+            label: 'OS Name',
+            description: 'The Operating System name',
+            examples: ['iOS', 'Android'],
+        },
+        $os_version: {
+            label: 'OS Version',
+            description: 'The Operating System version',
+            examples: ['15.5'],
+        },
+        $timezone: {
+            label: 'Timezone',
+            description: 'The timezone as reported by the device',
+        },
+
+        $touch_x: {
+            label: 'Touch X',
+            description: 'The location of a Touch event on the X axis',
+        },
+        $touch_y: {
+            label: 'Touch Y',
+            description: 'The location of a Touch event on the Y axis',
+        },
     },
     element: {
         tag_name: {
@@ -604,14 +668,12 @@ export function PropertyKeyDescription({
                 </p>
             ) : null}
             {data.description || data.examples ? <hr /> : null}
-            <Row align={'middle'}>
-                <Col flex="1 1 75%" style={{ padding: '4px 0px' }}>
-                    Sent as <code style={{ padding: '2px 3px' }}>{value}</code>
-                </Col>
-                <Col flex="1 0 25%" style={{ padding: '4px 0px' }}>
-                    {propertyType && <div className="property-value-type">{propertyType}</div>}
-                </Col>
-            </Row>
+            <div>
+                <span>
+                    Sent as <code className="p-1">{value}</code>
+                </span>
+                <span>{propertyType && <div className="property-value-type">{propertyType}</div>}</span>
+            </div>
         </span>
     )
 }

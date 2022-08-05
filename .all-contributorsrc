@@ -1935,6 +1935,68 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "klink",
+      "name": "Kate Klink",
+      "avatar_url": "https://avatars.githubusercontent.com/u/5008686?v=4",
+      "profile": "http://kateklink.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "rafalmierzwiak",
+      "name": "Rafal Mierzwiak",
+      "avatar_url": "https://avatars.githubusercontent.com/u/11348586?v=4",
+      "profile": "https://www.rm.pl",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "gitstart",
+      "name": "GitStart",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1501599?v=4",
+      "profile": "http://gitstart.github.io/",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "haikusw",
+      "name": "Tyler",
+      "avatar_url": "https://avatars.githubusercontent.com/u/222271?v=4",
+      "profile": "https://github.com/haikusw",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "david-everett",
+      "name": "David Everett",
+      "avatar_url": "https://avatars.githubusercontent.com/u/98620729?v=4",
+      "profile": "https://github.com/david-everett",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "kefranabg",
+      "name": "Franck Abgrall",
+      "avatar_url": "",
+      "profile": "https://github.com/kefranabg",
+      "contributions": [
+        "code"
+      ]
+    },{
+      "login": "stuposluns",
+      "name": "stuposluns",
+      "avatar_url": "https://avatars.githubusercontent.com/u/23000883?v=4",
+      "profile": "https://github.com/stuposluns",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

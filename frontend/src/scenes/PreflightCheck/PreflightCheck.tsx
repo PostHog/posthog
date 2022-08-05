@@ -1,7 +1,7 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { LoadingOutlined } from '@ant-design/icons'
-import { PreflightCheckStatus, PreflightItemInterface, preflightLogic } from './preflightLogic'
+import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
 import './PreflightCheck.scss'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -41,7 +41,7 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
     return <IconErrorOutline {...size} />
 }
 
-function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.Element {
+function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element {
     const { preflightLoading } = useValues(preflightLogic)
     return (
         <div className={clsx('PreflightItem', preflightLoading ? 'Preflight--loading' : `Preflight--${status}`)}>
@@ -69,7 +69,8 @@ function PreflightItem({ name, status, caption }: PreflightItemInterface): JSX.E
 export function PreflightCheck(): JSX.Element {
     const { preflight, preflightLoading, preflightMode, checks, areChecksExpanded, checksSummary } =
         useValues(preflightLogic)
-    const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded } = useActions(preflightLogic)
+    const { setPreflightMode, handlePreflightFinished, setChecksManuallyExpanded, revalidatePreflight } =
+        useActions(preflightLogic)
 
     return (
         <div className="bridge-page Preflight">
@@ -89,7 +90,7 @@ export function PreflightCheck(): JSX.Element {
                                 fullWidth
                                 center
                                 type="primary"
-                                className="mt-05"
+                                className="mt-2"
                                 size="large"
                                 data-attr="preflight-live"
                                 onClick={() => setPreflightMode('live')}
@@ -100,7 +101,7 @@ export function PreflightCheck(): JSX.Element {
                                 type="secondary"
                                 fullWidth
                                 center
-                                className="mt-05"
+                                className="mt-2"
                                 size="large"
                                 data-attr="preflight-experimentation"
                                 onClick={() => setPreflightMode('experimentation')}
@@ -177,7 +178,7 @@ export function PreflightCheck(): JSX.Element {
                                 <AnimatedCollapsible collapsed={!areChecksExpanded}>
                                     <>
                                         {checks.map((item) => (
-                                            <PreflightItem key={item.id} {...item} />
+                                            <PreflightItemRow key={item.id} {...item} />
                                         ))}
                                     </>
                                 </AnimatedCollapsible>
@@ -186,11 +187,11 @@ export function PreflightCheck(): JSX.Element {
                                     fullWidth
                                     size="large"
                                     data-attr="preflight-refresh"
-                                    onClick={() => window.location.reload()}
+                                    onClick={() => revalidatePreflight()}
                                     disabled={preflightLoading || !preflight}
                                     style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+                                    icon={<IconRefresh />}
                                 >
-                                    <IconRefresh />
                                     <span style={{ paddingLeft: 8 }}>Validate requirements</span>
                                 </LemonButton>
                             </div>
@@ -200,7 +201,7 @@ export function PreflightCheck(): JSX.Element {
                                     fullWidth
                                     center
                                     type="primary"
-                                    className="mt-05"
+                                    className="mt-2"
                                     size="large"
                                     data-attr="preflight-complete"
                                     onClick={handlePreflightFinished}
@@ -208,14 +209,14 @@ export function PreflightCheck(): JSX.Element {
                                     Continue
                                 </LemonButton>
                             ) : (
-                                <LemonRow fullWidth center className="mt-05 Preflight__cannot-continue" size="large">
+                                <LemonRow fullWidth center className="mt-2 Preflight__cannot-continue" size="large">
                                     <p className="text-center text-muted">
                                         All required checks must pass before you can continue
                                     </p>
                                 </LemonRow>
                             )}
 
-                            <p className="text-center mt mb-0">
+                            <p className="text-center mt-4 mb-0">
                                 Need help? Take a look at our{' '}
                                 <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
                                     documentation

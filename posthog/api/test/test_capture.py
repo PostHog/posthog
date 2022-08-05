@@ -1,9 +1,11 @@
 import base64
 import gzip
 import json
+from collections import Counter
 from datetime import datetime, timedelta
 from datetime import timezone as tz
 from typing import Any, Dict, List, Union
+from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
@@ -16,6 +18,8 @@ from rest_framework import status
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
+from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings.data_stores import KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION
 from posthog.test.base import BaseTest
 
 
@@ -49,6 +53,7 @@ class TestCapture(BaseTest):
         args = patch_process_event_with_plugins.call_args[1]["data"]
 
         return {
+            "uuid": args["uuid"],
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
             "site_url": args["site_url"],
@@ -57,6 +62,36 @@ class TestCapture(BaseTest):
             "now": args["now"],
             "sent_at": args["sent_at"],
         }
+
+    def _send_session_recording_event(
+        self,
+        number_of_events=1,
+        event_data="data",
+        snapshot_source=3,
+        snapshot_type=1,
+        session_id="abc123",
+        window_id="def456",
+        distinct_id="ghi789",
+        timestamp=1658516991883,
+    ):
+        event = {
+            "event": "$snapshot",
+            "properties": {
+                "$snapshot_data": {
+                    "type": snapshot_type,
+                    "data": {"source": snapshot_source, "data": event_data,},
+                    "timestamp": timestamp,
+                },
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
+            },
+            "offset": 1993,
+        }
+
+        self.client.post(
+            "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token,},
+        )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):
@@ -234,6 +269,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -271,6 +307,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "94b03e599131fd5026b",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -438,6 +475,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -459,12 +497,14 @@ class TestCapture(BaseTest):
             "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json",
         )
 
-        # We should return a 200 but not process the invalid event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(kafka_produce.call_count, 4)
-
-        events_processed = [json.loads(call.kwargs["data"]["data"])["event"] for call in kafka_produce.call_args_list]
-        self.assertEqual(events_processed, ["event1", "event3", "event4", "event5"])  # event2 not processed
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_header(self, kafka_produce):
@@ -487,6 +527,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -515,6 +556,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -544,6 +586,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -609,9 +652,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + missing ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -645,7 +692,13 @@ class TestCapture(BaseTest):
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
-            {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
+            {
+                "uuid": mock.ANY,
+                "distinct_id": "3",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "team_id": self.team.pk,
+            },
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -781,9 +834,13 @@ class TestCapture(BaseTest):
             },
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + invalid ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -800,9 +857,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + invalid ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -829,6 +890,42 @@ class TestCapture(BaseTest):
         statsd_incr_first_call = statsd_incr.call_args_list[0]
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_event_name"}})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_custom_uuid(self, kafka_produce) -> None:
+        uuid = "01823e89-f75d-0000-0d4d-3d43e54f6de5"
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": uuid},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        arguments = self._to_arguments(kafka_produce)
+        self.assertEqual(arguments["uuid"], uuid)
+        self.assertEqual(arguments["data"]["uuid"], uuid)
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_custom_uuid_invalid(self, statsd_incr) -> None:
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": "invalid_uuid"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "uuid" is not a valid UUID!', code="invalid_payload",
+            ),
+        )
+
+        # endpoint success metric + invalid UUID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event_uuid")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_if_missing(self, kafka_produce) -> None:
@@ -921,3 +1018,212 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_only_sent_to_clickhouse_if_env_variable_not_set(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=None):
+            self._send_session_recording_event()
+            self.assertEqual(kafka_produce.call_count, 1)
+            kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+            self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_sent_to_object_storage_and_clickhouse_if_env_variable_is_set_for_team(
+        self, kafka_produce
+    ) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            self._send_session_recording_event()
+            self.assertEqual(kafka_produce.call_count, 2)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            self.assertEqual(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+            self.assertEqual(topic_counter[KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION], 1)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_is_not_sent_to_object_storage_if_env_variable_is_set_for_another_team(
+        self, kafka_produce
+    ) -> None:
+        wrong_team_id = self.team.pk + 1
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=wrong_team_id):
+            self._send_session_recording_event()
+            self.assertEqual(kafka_produce.call_count, 1)
+            kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+            self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+
+    @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_is_transformed_before_sent_to_object_storage(self, kafka_produce, _) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            timestamp = 1658516991883
+            session_id = "fake-session-id"
+            distinct_id = "fake-distinct-id"
+            window_id = "fake-window-id"
+            snapshot_source = 8
+            snapshot_type = 8
+            event_data = "{'foo': 'bar'}"
+            self._send_session_recording_event(
+                timestamp=timestamp,
+                snapshot_source=snapshot_source,
+                snapshot_type=snapshot_type,
+                session_id=session_id,
+                distinct_id=distinct_id,
+                window_id=window_id,
+                event_data=event_data,
+            )
+            self.assertEqual(kafka_produce.call_count, 2)
+            for call_args in kafka_produce.call_args_list:
+                kafka_topic_used = call_args[1]["topic"]
+                if kafka_topic_used == KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION:
+                    headers_sent = call_args[1]["headers"]
+                    expected_headers = [
+                        ("unixTimestamp", str(timestamp)),
+                        ("eventId", "fake-uuid"),
+                        ("sessionId", session_id),
+                        ("distinctId", distinct_id),
+                        ("chunkCount", "1"),
+                        ("chunkIndex", "0"),
+                        ("eventSource", str(snapshot_source),),
+                        ("eventType", str(snapshot_type),),
+                        ("windowId", window_id),
+                        ("teamId", str(self.team.pk)),
+                    ]
+                    self.assertEqual(headers_sent, expected_headers)
+                    data_sent = call_args[1]["data"]
+                    expected_data = json.dumps(
+                        {
+                            "type": snapshot_type,
+                            "data": {"source": snapshot_source, "data": event_data,},
+                            "timestamp": timestamp,
+                            "$window_id": window_id,
+                        }
+                    )
+                    self.assertEqual(data_sent, expected_data)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_multiple_events_are_split_into_multiple_messages_for_object_storage(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            number_of_events = 5
+            self._send_session_recording_event(number_of_events=number_of_events)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            self.assertEqual(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+            self.assertEqual(topic_counter[KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION], number_of_events)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_large_recording_data_is_split_into_multiple_messages_for_object_storage(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            data = "a" * (
+                512 * 1024
+            )  # 512 * 1024 is the max size of a single message, but because each event has a bit more data, this will be split into 2 messages
+            self._send_session_recording_event(event_data=data)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            self.assertEqual(
+                topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1
+            )  # Data gets compressed before sending to clickhouse, so this is still 1 message
+            self.assertEqual(topic_counter[KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION], 2)
+
+    def test_recording_data_without_distinct_id_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_distinct_id = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"type": 1, "data": {"source": 1, "data": "blah",}, "timestamp": 0,},
+                    "$session_id": "session_id",
+                    "$window_id": "window_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_distinct_id]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain property "distinct_id"', code="invalid_payload",
+                ),
+            )
+
+    def test_recording_data_without_session_id_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_session_id = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"type": 1, "data": {"source": 1, "data": "blah",}, "timestamp": 0,},
+                    "$window_id": "window_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_session_id]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain property "$session_id"', code="invalid_payload",
+                ),
+            )
+
+    def test_recording_data_without_timestamp_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_timestamp = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"type": 1, "data": {"source": 1, "data": "blah",}},
+                    "$session_id": "session_id",
+                    "$window_id": "window_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_timestamp]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain snapshot data with "timestamp"',
+                    code="invalid_payload",
+                ),
+            )
+
+    def test_recording_data_without_type_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_type = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"data": {"source": 1, "data": "blah",}, "timestamp": 0,},
+                    "$session_id": "session_id",
+                    "$window_id": "window_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_type]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain snapshot data with "type"', code="invalid_payload",
+                ),
+            )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_event_with_minimal_recording_data_succeeds(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_timestamp = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"timestamp": 0, "type": 1},
+                    "$session_id": "session_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            self.client.post(
+                "/s/", data={"data": json.dumps([event_without_timestamp]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(kafka_produce.call_count, 2)

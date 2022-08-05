@@ -119,7 +119,7 @@
                        breakdown_value
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-12 23:59:59') ))
      GROUP BY day_start,
               breakdown_value
@@ -186,7 +186,7 @@
              AND ((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', ''))
                    OR has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', '')))
                   AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-22 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-05 23:59:59')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') in (['second url'])
            GROUP BY day_start,
@@ -264,7 +264,7 @@
               AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-04 23:59:59') )
         GROUP BY date)
      group by day_start
@@ -307,8 +307,36 @@
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'watched movie'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-01-04 23:59:59') )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestFOSSTrends.test_timezone_weekly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59') - toIntervalWeek(number), 0, 'US/Pacific') AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific'), toDateTime('2020-01-26 23:59:59'), 'US/Pacific'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0, 'US/Pacific')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toDateTime(timestamp), 0, 'US/Pacific') as date
+        FROM
+          (SELECT e.timestamp as timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2020-01-12 08:00:00'), 0), 'US/Pacific'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-26 23:59:59') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -335,7 +363,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
              AND timestamp <= toDateTime('2020-01-05 23:59:59') )
         GROUP BY date)
      group by day_start
@@ -371,7 +399,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-22 08:00:00'), 'US/Pacific')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-22 08:00:00')), 'US/Pacific'), 'UTC')
              AND timestamp <= toDateTime('2020-01-05 23:59:59') )
         GROUP BY date)
      group by day_start
@@ -432,7 +460,7 @@
            GROUP BY d.timestamp
            ORDER BY d.timestamp)
         WHERE 1 = 1
-          AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+          AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
           AND timestamp <= toDateTime('2020-01-05 23:59:59') )
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -459,7 +487,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
              AND timestamp <= toDateTime('2020-01-05 23:59:59') )
         GROUP BY date)
      group by day_start
@@ -524,7 +552,7 @@
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfDay(toDateTime('2019-12-29 08:00:00'), 'US/Pacific')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-29 08:00:00')), 'US/Pacific'), 'UTC')
              AND timestamp <= toDateTime('2020-01-05 23:59:59')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
@@ -558,7 +586,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfHour(toDateTime('2020-01-03 08:00:00'), 'US/Pacific')
+             AND timestamp >= toTimezone(toDateTime(toStartOfHour(toDateTime('2020-01-03 08:00:00')), 'US/Pacific'), 'UTC')
              AND timestamp <= toDateTime('2020-01-04 07:59:59') )
         GROUP BY date)
      group by day_start
@@ -622,7 +650,7 @@
               HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+             AND timestamp >= toTimezone(toDateTime(toStartOfHour(toDateTime('2020-01-05 08:00:00')), 'US/Pacific'), 'UTC')
              AND timestamp <= toDateTime('2020-01-05 18:02:01') )
         GROUP BY date)
      group by day_start
@@ -676,7 +704,7 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
-             AND timestamp >= toStartOfHour(toDateTime('2020-01-05 08:00:00'), 'US/Pacific')
+             AND timestamp >= toTimezone(toDateTime(toStartOfHour(toDateTime('2020-01-05 08:00:00')), 'US/Pacific'), 'UTC')
              AND timestamp <= toDateTime('2020-01-05 18:02:01') )
         GROUP BY date)
      group by day_start
@@ -770,7 +798,7 @@
              AND event = 'sign up'
              AND ((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
                    OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-07-01 00:00:00')
              AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
            GROUP BY day_start,
@@ -870,7 +898,7 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
-             AND timestamp >= toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
              AND timestamp <= toDateTime('2020-07-01 00:00:00')
              AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com'])
            GROUP BY day_start,
@@ -934,7 +962,7 @@
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
-          AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+          AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
           AND timestamp <= toDateTime('2020-01-04 23:59:59')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
      GROUP BY $session_id,
@@ -994,7 +1022,7 @@
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
-          AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+          AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
           AND timestamp <= toDateTime('2020-01-04 23:59:59')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
      GROUP BY $session_id,
@@ -1026,7 +1054,7 @@
            GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+          AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
           AND timestamp <= toDateTime('2020-01-04 23:59:59') ) events
      GROUP BY $session_id)
   '
@@ -1054,7 +1082,7 @@
            GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+          AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
           AND timestamp <= toDateTime('2020-01-04 23:59:59') ) events
      GROUP BY $session_id)
   '
@@ -1094,7 +1122,7 @@
                  GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
               WHERE team_id = 2
                 AND event = 'sign up'
-                AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+                AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
                 AND timestamp <= toDateTime('2020-01-04 23:59:59') )
            GROUP BY $session_id, date)
         GROUP BY date)
@@ -1137,7 +1165,7 @@
                  GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
               WHERE team_id = 2
                 AND event = 'sign up'
-                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
                 AND timestamp <= toDateTime('2020-01-04 23:59:59') )
            GROUP BY $session_id, date)
         GROUP BY date)
@@ -1223,7 +1251,7 @@
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
-                   AND timestamp >= toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0, 'UTC')
+                   AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00'), 0), 'UTC'), 'UTC')
                    AND timestamp <= toDateTime('2020-01-04 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
               GROUP BY $session_id,
@@ -1317,7 +1345,7 @@
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
-                   AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                   AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
                    AND timestamp <= toDateTime('2020-01-04 23:59:59')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
               GROUP BY $session_id,

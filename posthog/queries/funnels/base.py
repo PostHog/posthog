@@ -367,7 +367,16 @@ class ClickhouseFunnelBase(ABC):
 
         conditions: List[str] = []
         for i in range(1, curr_index):
-            conditions.append(f"latest_{i - 1} < latest_{i }")
+            duplicate_event = (
+                True
+                if (
+                    self._filter.entities[i].equals(self._filter.entities[i - 1])
+                    or self._filter.entities[i].is_superset(self._filter.entities[i - 1])
+                )
+                else False
+            )
+
+            conditions.append(f"latest_{i - 1} {'<' if duplicate_event else '<='} latest_{i}")
             conditions.append(
                 f"latest_{i} <= latest_0 + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}"
             )

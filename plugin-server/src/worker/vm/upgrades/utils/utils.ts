@@ -1,5 +1,6 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Plugin } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
@@ -57,22 +58,31 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 }
 
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
-    const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
+    try {
+        const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
         SELECT min(_timestamp) as min, max(_timestamp) as max
         FROM events
         WHERE team_id = ${teamId}`)
-    const min = clickhouseFetchTimestampsResult.data[0].min
-    const max = clickhouseFetchTimestampsResult.data[0].max
 
-    const minDate = new Date(clickhouseEventTimestampToDate(min))
-    const maxDate = new Date(clickhouseEventTimestampToDate(max))
+        const min = clickhouseFetchTimestampsResult.data[0].min
+        const max = clickhouseFetchTimestampsResult.data[0].max
 
-    const isValidMin = minDate.getTime() !== new Date(0).getTime()
-    const isValidMax = maxDate.getTime() !== new Date(0).getTime()
+        const minDate = new Date(clickhouseEventTimestampToDate(min))
+        const maxDate = new Date(clickhouseEventTimestampToDate(max))
 
-    return {
-        min: isValidMin ? minDate : null,
-        max: isValidMax ? maxDate : null,
+        const isValidMin = minDate.getTime() !== new Date(0).getTime()
+        const isValidMax = maxDate.getTime() !== new Date(0).getTime()
+
+        return {
+            min: isValidMin ? minDate : null,
+            max: isValidMax ? maxDate : null,
+        }
+    } catch (e) {
+        Sentry.captureException(e)
+        return {
+            min: null,
+            max: null,
+        }
     }
 }
 
@@ -97,21 +107,19 @@ export const fetchEventsForInterval = async (
 
     const fetchEventsQuery = `
     SELECT
+        event,
         uuid,
         team_id,
         distinct_id,
         properties,
         timestamp,
-        now,
-        event,
-        ip,
-        site_url,
-        sent_at
+        created_at,
+        elements_chain
     FROM events
     WHERE team_id = ${teamId}
-    AND _timestamp >= '${chTimestampLower}'
-    AND _timestamp < '${chTimestampHigher}'
-    ORDER BY _offset
+    AND timestamp >= '${chTimestampLower}'
+    AND timestamp < '${chTimestampHigher}'
+    ORDER BY timestamp
     LIMIT ${eventsPerRun}
     OFFSET ${offset}`
 

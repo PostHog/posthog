@@ -8,7 +8,7 @@ import './ProfilePicture.scss'
 export interface ProfilePictureProps {
     name?: string
     email?: string
-    size?: 'md' | 'sm' | 'xl'
+    size?: 'md' | 'sm' | 'xl' | 'xxl'
     showName?: boolean
     style?: React.CSSProperties
     className?: string

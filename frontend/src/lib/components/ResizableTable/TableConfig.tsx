@@ -76,7 +76,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
         return (
             <LemonCheckbox
                 label="Save as default for all project members"
-                className="save-as-default-button mt"
+                className="save-as-default-button mt-4"
                 data-attr="events-table-save-columns-as-default-toggle"
                 onChange={toggleSaveAsDefault}
                 defaultChecked={false}

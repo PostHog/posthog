@@ -1,11 +1,14 @@
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass
+from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
     Deque,
     Dict,
+    Iterable,
     List,
     Optional,
     Tuple,
@@ -82,10 +85,16 @@ class SimPerson(ABC):
     _end_pageview: Optional[Callable[[], None]]
     _groups: Dict[str, str]
 
-    distinct_ids: List[str]
-    properties: Properties
+    # Internal state
+    _distinct_ids: List[str]
+    _properties: Properties
 
-    events: List[SimEvent]
+    # Exposed state at matrix.now
+    distinct_ids_at_now: List[str]
+    properties_at_now: Properties
+
+    past_events: List[SimEvent]
+    future_events: List[SimEvent]
     scheduled_effects: Deque[Tuple[timezone.datetime, Effect]]
 
     kernel: bool  # Whether this person is the cluster kernel. Kernels are the most likely to become users
@@ -94,9 +103,10 @@ class SimPerson(ABC):
     y: int
 
     def __init__(self, *, kernel: bool, cluster: "Cluster", x: int, y: int):
-        self.distinct_ids = []
-        self.properties = {}
-        self.events = []
+        self._distinct_ids = []
+        self._properties = {}
+        self.past_events = []
+        self.future_events = []
         self.scheduled_effects = Deque()
         self.kernel = kernel
         self.cluster = cluster
@@ -105,7 +115,19 @@ class SimPerson(ABC):
 
     def __str__(self) -> str:
         """Return person ID. Overriding this is recommended but optional."""
-        return " / ".join(self.distinct_ids) if self.distinct_ids else "???"
+        return " / ".join(self._distinct_ids) if self._distinct_ids else "???"
+
+    @property
+    def all_events(self) -> Iterable[SimEvent]:
+        return chain(self.past_events, self.future_events)
+
+    @property
+    def first_event(self) -> Optional[SimEvent]:
+        return self.past_events[0] if self.past_events else (self.future_events[0] if self.future_events else None)
+
+    @property
+    def last_event(self) -> Optional[SimEvent]:
+        return self.future_events[-1] if self.future_events else (self.past_events[-1] if self.past_events else None)
 
     def simulate(self):
         if hasattr(self, "simulation_time"):
@@ -122,12 +144,15 @@ class SimPerson(ABC):
         )
         self._groups = {}
         self._super_properties = {}
-        self.distinct_ids.append(self._active_client.anonymous_distinct_id)
+        self._distinct_ids.append(self._active_client.anonymous_distinct_id)
         while self._simulation_time <= self.cluster.end:
             self._simulate_session()
             if self._end_pageview is not None:
                 self._end_pageview()  # type: ignore
                 self._end_pageview = None
+
+    def schedule_effect(self, timestamp: timezone.datetime, effect: Effect):
+        self.scheduled_effects.append((timestamp, effect))
 
     @abstractmethod
     def _simulate_session(self):
@@ -145,11 +170,12 @@ class SimPerson(ABC):
         for neighbor in self.cluster._list_neighbors(self.x, self.y):
             neighbor.schedule_effect(self._simulation_time, effect)
 
-    def schedule_effect(self, timestamp: timezone.datetime, effect: Effect):
-        self.scheduled_effects.append((timestamp, effect))
-
     def _advance_timer(self, seconds: float):
         self._simulation_time += timezone.timedelta(seconds=seconds)
+
+    def _take_snapshot_at_now(self):
+        self.distinct_ids_at_now = deepcopy(self._distinct_ids)
+        self.properties_at_now = deepcopy(self._properties)
 
     def _capture(
         self,
@@ -159,6 +185,14 @@ class SimPerson(ABC):
         current_url: Optional[str] = None,
         referrer: Optional[str] = None,
     ):
+        if self._simulation_time > self.cluster.now:
+            # If we've just reached matrix's now, take a snapshot of the current state
+            if not hasattr(self, "distinct_ids_at_now"):
+                self._take_snapshot_at_now()
+            events = self.future_events
+        else:
+            events = self.past_events
+
         combined_properties: Properties = {
             "$distinct_id": self._active_client.active_distinct_id,
             "$lib": "web",
@@ -190,12 +224,12 @@ class SimPerson(ABC):
             combined_properties.update(properties)
         if combined_properties.get("$set_once"):
             for key, value in combined_properties["$set_once"].items():
-                if key not in self.properties:
-                    self.properties[key] = value
+                if key not in self._properties:
+                    self._properties[key] = value
         if combined_properties.get("$set"):
-            self.properties.update(combined_properties["$set"])
+            self._properties.update(combined_properties["$set"])
         # Saving
-        self.events.append(SimEvent(event=event, properties=combined_properties or {}, timestamp=self._simulation_time))
+        events.append(SimEvent(event=event, properties=combined_properties or {}, timestamp=self._simulation_time))
 
     def _capture_pageview(
         self, current_url: str, properties: Optional[Properties] = None, *, referrer: Optional[str] = None
@@ -213,8 +247,8 @@ class SimPerson(ABC):
         if distinct_id:
             self._active_client.active_distinct_id = distinct_id
             identify_properties["$user_id"] = distinct_id
-            if distinct_id not in self.distinct_ids:
-                self.distinct_ids.append(distinct_id)
+            if distinct_id not in self._distinct_ids:
+                self._distinct_ids.append(distinct_id)
         self._capture(EVENT_IDENTIFY, identify_properties)
 
     def _reset(self):

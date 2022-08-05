@@ -13,11 +13,11 @@ const Template: ComponentStory<typeof LemonBubble> = ({ count, ...props }: Lemon
 
     return (
         <>
-            <div className="flex space-x">
+            <div className="flex space-x-4">
                 Count: <LemonBubble count={countOverride} {...props} />
             </div>
             <br />
-            <div className="flex space-x">
+            <div className="flex space-x-4">
                 <LemonButton type="primary" onClick={() => setCount((countOverride || 0) + 1)}>
                     Increment
                 </LemonButton>
@@ -40,7 +40,7 @@ ShowZero.args = { count: 0, showZero: true }
 
 export const Positioning: ComponentStory<typeof LemonBubble> = () => {
     return (
-        <div className="space-y">
+        <div className="space-y-4">
             <LemonButton outlined style={{ position: 'relative' }}>
                 top-right
                 <LemonBubble count={4} position="top-right" />
@@ -66,7 +66,7 @@ export const Positioning: ComponentStory<typeof LemonBubble> = () => {
 
 export const Sizes: ComponentStory<typeof LemonBubble> = () => {
     return (
-        <div className="flex space-x-05 items-center">
+        <div className="flex space-x-2 items-center">
             <span>small:</span>
             <LemonBubble count={4} size="small" />
             <span>medium:</span>

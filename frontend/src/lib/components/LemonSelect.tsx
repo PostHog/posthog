@@ -145,7 +145,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 <LemonButton
                     className="LemonButtonWithSideAction--side-button"
                     type="tertiary"
-                    icon={<IconClose style={{ fontSize: '1rem' }} />}
+                    icon={<IconClose className="text-base" />}
                     tooltip="Clear selection"
                     onClick={() => {
                         onChange?.(null)

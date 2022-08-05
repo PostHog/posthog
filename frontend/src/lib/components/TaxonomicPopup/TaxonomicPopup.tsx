@@ -70,7 +70,7 @@ export function TaxonomicPopup({
             <Button
                 data-attr={dataAttr}
                 onClick={() => setVisible(!visible)}
-                className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
+                className={clsx('TaxonomicPopup__button', { 'w-full': fullWidth })}
                 style={style}
             >
                 <span className="text-overflow" style={{ maxWidth: '100%' }}>

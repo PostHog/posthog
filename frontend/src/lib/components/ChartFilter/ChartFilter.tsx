@@ -20,7 +20,7 @@ import { LemonSelect, LemonSelectOptions, LemonSelectSection } from '@posthog/le
 interface ChartFilterProps {
     filters: FilterType
     onChange?: (chartFilter: ChartDisplayType | FunnelVizType) => void
-    disabled: boolean
+    disabled?: boolean
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
@@ -58,7 +58,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     }): JSX.Element {
         return (
             <Tooltip title={tooltip} placement="left">
-                <div style={{ width: '100%' }}>
+                <div className="w-full">
                     {icon} {children}
                 </div>
             </Tooltip>

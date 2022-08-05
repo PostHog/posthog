@@ -2,10 +2,9 @@ import React from 'react'
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { BarChartOutlined } from '@ant-design/icons'
-import { PathType, FunnelPathType, EditorFilterProps } from '~/types'
+import { FunnelPathType, EditorFilterProps } from '~/types'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
@@ -24,23 +23,8 @@ export function PathsTarget({
 }: EditorFilterProps & {
     position: 'start' | 'end'
 }): JSX.Element {
-    const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    const { filter, wildcards, taxonomicGroupTypes } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
-
-    const taxonomicGroupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
-        ? [
-              ...filter.include_event_types.map((item) => {
-                  if (item === PathType.Screen) {
-                      return TaxonomicFilterGroupType.Screens
-                  } else if (item === PathType.CustomEvent) {
-                      return TaxonomicFilterGroupType.CustomEvents
-                  } else {
-                      return TaxonomicFilterGroupType.PageviewUrls
-                  }
-              }),
-              TaxonomicFilterGroupType.Wildcards,
-          ]
-        : [TaxonomicFilterGroupType.Wildcards]
 
     const overrideStartInput =
         filter.funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(filter.funnel_paths)

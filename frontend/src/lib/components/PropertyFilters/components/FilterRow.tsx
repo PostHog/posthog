@@ -59,7 +59,7 @@ export const FilterRow = React.memo(function FilterRow({
             className={clsx(
                 'property-filter-row',
                 !disablePopover && 'wrap-filters',
-                orFiltering && index !== 0 && 'mt-05'
+                orFiltering && index !== 0 && 'mt-2'
             )}
             data-attr={'property-filter-' + index}
             wrap={false}

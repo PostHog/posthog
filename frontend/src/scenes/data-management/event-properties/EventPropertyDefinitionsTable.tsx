@@ -13,10 +13,10 @@ import {
     eventPropertyDefinitionsTableLogic,
 } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
 import { Alert, Input } from 'antd'
-import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
-import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -81,7 +81,12 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <DataManagementPageHeader activeTab={DataManagementTab.EventPropertyDefinitions} />
+            <PageHeader
+                title="Data Management"
+                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
+                tabbedPage
+            />
+            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
             {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning tab="Event Property Definitions" />
             ) : (

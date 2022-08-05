@@ -1,10 +1,11 @@
-.player-meta-container {
+.player-meta-container-v2 {
     display: flex;
     flex-direction: column;
     background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: var(--recording-spacing);
+    margin-top: var(--recording-spacing);
 
     .player-meta-person {
         margin-bottom: 0.5rem;
@@ -37,6 +38,80 @@
 
         li {
             height: 12px;
+        }
+    }
+}
+
+.player-meta-container-v3 {
+    .player-meta-user-section {
+        padding: 0.75rem;
+
+        .player-meta-avatar {
+            margin-right: 0.75rem;
+
+            .profile-picture {
+                font-size: 11px !important;
+            }
+        }
+
+        .player-meta-details {
+            display: flex;
+            justify-content: center;
+            font-size: 14px;
+            flex-direction: column;
+            flex: 1;
+
+            .player-meta-details-top {
+                font-weight: 700;
+            }
+
+            .player-meta-details-bottom {
+                font-weight: 400;
+                font-size: 13px;
+            }
+        }
+    }
+
+    .player-meta-window-section {
+        font-size: 14px;
+        height: 48px;
+        padding: 0 0.75rem;
+
+        .icon-window {
+            height: 24px;
+            width: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            flex-shrink: 0;
+
+            .icon-window-number {
+                position: absolute;
+                font-size: 6px;
+                font-weight: 600;
+                top: 2px;
+            }
+
+            .icon-window-icon {
+                position: absolute;
+                font-size: 18px;
+            }
+        }
+        .window-number {
+            white-space: nowrap;
+        }
+        .window-url-copy-icon {
+            display: flex;
+        }
+    }
+
+    .ant-skeleton-paragraph {
+        margin: 0;
+
+        li {
+            height: 20px;
+            margin: 2px 0;
         }
     }
 }

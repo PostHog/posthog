@@ -15,7 +15,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
     const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
-        <Layout style={{ minHeight: '100vh' }}>
+        <Layout>
             {(!onboardingSidebarEnabled || (onboardingSidebarEnabled && activeScene !== Scene.Ingestion)) && <TopBar />}
             <SideBar>
                 <Layout.Content className={!sceneConfig?.plain ? 'main-app-content' : undefined}>

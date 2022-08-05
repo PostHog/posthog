@@ -34,6 +34,7 @@ const NEW_FLAG: FeatureFlagType = {
     is_simple_flag: false,
     rollout_percentage: null,
     ensure_experience_continuity: false,
+    experiment_set: null,
 }
 const NEW_VARIANT = {
     key: '',

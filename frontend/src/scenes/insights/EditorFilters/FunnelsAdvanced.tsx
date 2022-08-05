@@ -15,7 +15,7 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
     useMountedLogic(funnelCommandLogic)
 
     return (
-        <div className="space-y">
+        <div className="space-y-4">
             <EditorFilterItemTitle
                 label="Step order"
                 tooltip={
@@ -53,7 +53,7 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
             <FunnelExclusionsFilter />
 
             {!!advancedOptionsUsedCount && (
-                <div className="mt">
+                <div className="mt-4">
                     <LemonButton
                         type="stealth"
                         status="danger"

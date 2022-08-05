@@ -251,3 +251,10 @@ GROUP_TYPES_LIMIT = 5
 BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 CSV_EXPORT_LIMIT = 10000
+
+
+class CombinedEventType(str, Enum):
+    # Mimics CombinedEventType in frontend/src/types.ts
+    ALL = "all"
+    EVENT = "event"
+    ACTION_EVENT = "action_event"

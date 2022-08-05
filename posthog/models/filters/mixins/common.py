@@ -485,3 +485,25 @@ class SearchMixin(BaseParamMixin):
     def search(self) -> Optional[str]:
         search = self._data.get("search", None)
         return search
+
+
+class DistinctIdMixin(BaseParamMixin):
+    """
+    Filter on distinct id. Only used for person endpoint
+    """
+
+    @cached_property
+    def distinct_id(self) -> Optional[str]:
+        distinct_id = self._data.get("distinct_id", None)
+        return distinct_id
+
+
+class EmailMixin(BaseParamMixin):
+    """
+    Filter on email. Only used for person endpoint
+    """
+
+    @cached_property
+    def email(self) -> Optional[str]:
+        email = self._data.get("email", None)
+        return email

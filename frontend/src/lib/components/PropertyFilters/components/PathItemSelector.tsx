@@ -29,7 +29,6 @@ export function PathItemSelector({
             onClickOutside={() => setVisible(false)}
             overlay={
                 <TaxonomicFilter
-                    groupType={TaxonomicFilterGroupType.PageviewUrls}
                     value={pathItem}
                     onChange={(_, value) => {
                         onChange(value as string)

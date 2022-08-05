@@ -75,7 +75,7 @@ export function CurrentPlan({ plan }: { plan: PlanInterface }): JSX.Element {
                                     </Button>
                                 </div>
                             )}
-                            <div className="text-muted mt">
+                            <div className="text-muted mt-4">
                                 Click on <b>manage subscription</b> to cancel your billing agreement,{' '}
                                 <b>update your card</b> or other billing information.
                             </div>

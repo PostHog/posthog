@@ -52,7 +52,7 @@ export function ThirdPartyPanel(): JSX.Element {
                             <Row align="middle" justify="space-between">
                                 <Row align="middle">
                                     {source.icon}
-                                    <Col className="ml-05">
+                                    <Col className="ml-2">
                                         <h3
                                             className="mb-0"
                                             style={{
@@ -78,7 +78,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                 </Row>
                                 <Row>
                                     <LemonButton
-                                        className="mr-05"
+                                        className="mr-2"
                                         type="secondary"
                                         onClick={() => {
                                             window.open(
@@ -170,7 +170,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                         >
                             {thirdPartyIntegrationSource.type === ThirdPartySourceType.Integration ? (
                                 <div>
-                                    <p className="text-muted fw-500">Configure integration</p>
+                                    <p className="text-muted font-medium">Configure integration</p>
                                     {thirdPartyIntegrationSource.icon}
                                     <h1 className="ingestion-title">
                                         Integrate with {thirdPartyIntegrationSource.name}{' '}
@@ -216,7 +216,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         }}
                                     >
                                         <h4>Steps:</h4>
-                                        <ol className="pl">
+                                        <ol className="pl-4">
                                             <li>
                                                 Complete the steps in the {thirdPartyIntegrationSource.name}{' '}
                                                 integration.

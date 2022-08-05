@@ -1,6 +1,5 @@
 import { DateTime, Settings } from 'luxon'
 
-import { defaultConfig } from '../../../src/config/config'
 import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
@@ -13,6 +12,7 @@ import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestio
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
+jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/posthog', () => ({
     posthog: {
         identify: jest.fn(),
@@ -243,32 +243,9 @@ describe('TeamManager()', () => {
             expect(teamManager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150405)
         })
 
-        // TODO: #7422 temporary test
-        it('last_seen_at feature is experimental and completely disabled', async () => {
-            const [newHub, closeNewHub] = await createHub({
-                ...defaultConfig,
-                EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: false,
-            })
-            const newTeamManager = newHub.teamManager
-            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {})
-            jest.spyOn(newHub.db, 'postgresQuery')
-            await newTeamManager.updateEventNamesAndProperties(2, '$pageview', {}) // Called twice to test both insert and update
-            expect(newHub.db.postgresQuery).toHaveBeenCalledTimes(0)
-            expect(newTeamManager.eventLastSeenCache.length).toBe(0)
-            const eventDefinitions = await newHub.db.fetchEventDefinitions()
-            for (const def of eventDefinitions) {
-                if (def.name === 'disabled-feature') {
-                    expect(def.last_seen_at).toBe(null)
-                }
-            }
-
-            await closeNewHub()
-        })
-
         it('does not capture event', async () => {
             await teamManager.updateEventNamesAndProperties(2, 'new-event', { property_name: 'efg', number: 4 })
 
-            expect(posthog.identify).not.toHaveBeenCalled()
             expect(posthog.capture).not.toHaveBeenCalled()
         })
 
@@ -311,13 +288,16 @@ describe('TeamManager()', () => {
                 })
 
                 const team = await teamManager.fetchTeam(2)
-                expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')
-                expect(posthog.capture).toHaveBeenCalledWith('first team event ingested', {
-                    team: team!.uuid,
-                    host: 'localhost:8000',
-                    realm: undefined,
-                    sdk: 'python',
-                    $groups: {
+                expect(posthog.capture).toHaveBeenCalledWith({
+                    distinctId: 'plugin_test_user_distinct_id_1001',
+                    event: 'first team event ingested',
+                    properties: {
+                        team: team!.uuid,
+                        host: 'localhost:8000',
+                        realm: undefined,
+                        sdk: 'python',
+                    },
+                    groups: {
                         organization: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
                         project: team!.uuid,
                         instance: 'unknown',

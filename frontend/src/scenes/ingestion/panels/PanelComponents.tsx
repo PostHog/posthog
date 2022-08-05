@@ -32,7 +32,7 @@ export function PanelFooter(): JSX.Element {
                         Try PostHog with the exploration bookmarklet
                     </LemonButton>
                     <LemonButton
-                        className="mt-05"
+                        className="mt-2"
                         size="large"
                         fullWidth
                         center
@@ -49,13 +49,13 @@ export function PanelFooter(): JSX.Element {
                         size="large"
                         fullWidth
                         center
-                        className="mb-05"
+                        className="mb-2"
                         onClick={() => setVerify(true)}
                     >
                         Continue
                     </LemonButton>
                     <LemonButton
-                        className="mt-05"
+                        className="mt-2"
                         size="large"
                         fullWidth
                         center
@@ -95,7 +95,7 @@ export function PanelSupport(): JSX.Element {
     const { reportIngestionHelpClicked } = useActions(eventUsageLogic)
 
     return (
-        <p className="text-center mb-0 pb-05 mt text-muted" style={{ fontSize: 16 }}>
+        <p className="text-center mb-0 pb-2 mt-4 text-muted" style={{ fontSize: 16 }}>
             Need help?{' '}
             <a
                 data-attr="support-docs-help"

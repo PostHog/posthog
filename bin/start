@@ -14,6 +14,8 @@ service_warning() {
 nc -z localhost 9092 || ( service_warning 'Kafka'; bin/check_kafka_clickhouse_up )
 curl -s 'http://localhost:8123/ping' || ( service_warning 'ClickHouse'; bin/check_kafka_clickhouse_up )
 
+[ ! -f ./share/GeoLite2-City.mmdb ] && ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb )
+
 ./bin/start-worker &
 ./bin/start-backend &
 ./bin/start-frontend &

@@ -1,5 +1,5 @@
 /* Custom dropdown selector with an icon a help caption  */
-import { Dropdown, Menu, Row } from 'antd'
+import { Dropdown, Menu } from 'antd'
 import clsx from 'clsx'
 import React from 'react'
 import { IconArrowDropDown } from '../icons'
@@ -33,11 +33,11 @@ interface SelectItemInterface {
 function SelectItem({ icon, label, description, onClick }: SelectItemInterface): JSX.Element {
     return (
         <div onClick={onClick}>
-            <Row align={'middle'}>
+            <div className="flex items-center text-sm font-medium gap-2">
                 {icon}
-                <div style={{ fontSize: 14, fontWeight: 500, marginLeft: 8 }}>{label}</div>
-            </Row>
-            {description && <div style={{ fontSize: 12, color: 'rgba(0, 0, 0, 0.5)' }}>{description}</div>}
+                <div>{label}</div>
+            </div>
+            {description && <div className="text-muted text-xs mt-1">{description}</div>}
         </div>
     )
 }
@@ -76,7 +76,7 @@ export function DropdownSelector({
                     className={clsx('dropdown-selector', disabled && ' disabled', compact && 'compact')}
                     onClick={(e) => e.preventDefault()}
                 >
-                    <div style={{ flexGrow: 1 }}>
+                    <div className="grow">
                         {selectedOption && (
                             <SelectItem
                                 {...selectedOption}

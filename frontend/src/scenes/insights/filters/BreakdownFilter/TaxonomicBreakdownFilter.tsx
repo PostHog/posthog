@@ -1,8 +1,6 @@
 import { useValues } from 'kea'
 import { propertyFilterTypeToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { TaxonomicBreakdownButton } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownButton'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -32,7 +30,6 @@ export function BreakdownFilter({
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const { breakdown, breakdowns, breakdown_type } = filters
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     let breakdownType = propertyFilterTypeToTaxonomicFilterType(breakdown_type)
     if (breakdownType === TaxonomicFilterGroupType.Cohorts) {
@@ -86,9 +83,7 @@ export function BreakdownFilter({
         ? []
         : breakdownArray.map((t, index) => {
               const key = `${t}-${index}`
-              const isPropertyHistogramable = featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]
-                  ? !useMultiBreakdown && !!getPropertyDefinition(t)?.is_numerical
-                  : false
+              const isPropertyHistogramable = !useMultiBreakdown && !!getPropertyDefinition(t)?.is_numerical
               return (
                   <BreakdownTag
                       key={key}
@@ -108,20 +103,17 @@ export function BreakdownFilter({
               breakdownParts,
               setFilters,
               getPropertyDefinition: getPropertyDefinition,
-              histogramFeatureFlag: !!featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS],
           })
         : undefined
 
     return (
-        <div className="flex flex-wrap gap-05 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
             {tags}
             {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
                 <TaxonomicBreakdownButton
                     breakdownType={breakdownType}
                     onChange={onChange}
-                    includeSessions={
-                        !!featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] && filters.insight === InsightType.TRENDS
-                    }
+                    includeSessions={filters.insight === InsightType.TRENDS}
                 />
             ) : null}
         </div>

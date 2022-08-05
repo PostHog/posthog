@@ -8,11 +8,13 @@ from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.api.geoip import get_geoip_properties
 from posthog.api.utils import get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
+from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
-from posthog.utils import cors_response, get_js_url, load_data_from_request
+from posthog.utils import cors_response, get_ip_address, get_js_url, load_data_from_request
 
 from .utils import get_project_id
 
@@ -71,6 +73,7 @@ def parse_domain(url: Any) -> Optional[str]:
 
 
 @csrf_exempt
+@timed("posthog_cloud_decide_endpoint")
 def get_decide(request: HttpRequest):
     # handle cors request
     if request.method == "OPTIONS":
@@ -142,8 +145,29 @@ def get_decide(request: HttpRequest):
             team = user.teams.get(id=project_id)
 
         if team:
+            distinct_id = data.get("distinct_id")
+            if distinct_id is None:
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "decide",
+                        "Decide requires a distinct_id.",
+                        code="missing_distinct_id",
+                        type="validation_error",
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    ),
+                )
+
+            property_overrides = (
+                get_geoip_properties(get_ip_address(request)) if team.geoip_property_overrides_enabled else {}
+            )
+
             feature_flags = get_active_feature_flags(
-                team.pk, data["distinct_id"], data.get("groups", {}), hash_key_override=data.get("$anon_distinct_id")
+                team.pk,
+                data["distinct_id"],
+                data.get("groups", {}),
+                hash_key_override=data.get("$anon_distinct_id"),
+                property_value_overrides=property_overrides,
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
 

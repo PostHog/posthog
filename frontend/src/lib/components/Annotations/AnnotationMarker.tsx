@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Popover, Row, Input, Checkbox } from 'antd'
+import { Popover } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
-import { DeleteOutlined, PlusOutlined, ProjectOutlined, DeploymentUnitOutlined, CloseOutlined } from '@ant-design/icons'
+import { PlusOutlined, ProjectOutlined, DeploymentUnitOutlined } from '@ant-design/icons'
 import { annotationsLogic } from './annotationsLogic'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -13,8 +13,9 @@ import { styles } from '~/styles/vars'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { dayjs } from 'lib/dayjs'
-
-const { TextArea } = Input
+import { LemonTextArea } from '../LemonTextArea/LemonTextArea'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { IconClose, IconDelete } from '../icons'
 
 function coordinateContains(e: MouseEvent, element: DOMRect): boolean {
     if (
@@ -39,7 +40,6 @@ interface AnnotationMarkerProps {
     onDelete?: (annotation: AnnotationType) => void
     onClick?: () => void
     onClose?: () => void
-    onCreateAnnotation?: (textInput: string, applyAll: boolean) => void
     size?: number
     color: string | null
     accessoryColor: string | null
@@ -66,7 +66,6 @@ export function AnnotationMarker({
     currentDateMarker,
     onClose,
     dynamic,
-    onCreateAnnotation,
     index,
     getPopupContainer,
 }: AnnotationMarkerProps): JSX.Element | null {
@@ -127,6 +126,45 @@ export function AnnotationMarker({
         return null
     }
 
+    const _onClose = dynamic ? closePopup : () => setTextAreaVisible(false)
+
+    const editorSection = (
+        <>
+            <LemonTextArea maxLength={300} rows={4} value={textInput} onChange={(e) => setTextInput(e)} autoFocus />
+            <LemonCheckbox
+                checked={applyAll}
+                onChange={(e) => {
+                    setApplyAll(e.target.checked)
+                }}
+                label="Create for all charts"
+                rowProps={{ fullWidth: true }}
+            />
+            <div className="flex justify-end gap-2">
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => {
+                        _onClose()
+                        setTextInput('')
+                    }}
+                >
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => {
+                        onCreate && onCreate(textInput, applyAll)
+                        _onClose()
+                        setTextInput('')
+                    }}
+                >
+                    Add
+                </LemonButton>
+            </div>
+        </>
+    )
+
     return (
         <Popover
             trigger="click"
@@ -135,65 +173,27 @@ export function AnnotationMarker({
             getPopupContainer={() => (getPopupContainer ? getPopupContainer() : document.body)}
             content={
                 dynamic ? (
-                    <div ref={popupRef}>
-                        <div style={{ padding: '12px 16px' }}>
-                            <span style={{ marginBottom: 12 }}>{dayjs(currentDateMarker).format('MMMM Do YYYY')}</span>
-                            <TextArea
-                                maxLength={300}
-                                style={{ marginBottom: 12 }}
-                                rows={4}
-                                value={textInput}
-                                onChange={(e) => setTextInput(e.target.value)}
-                                autoFocus
-                            />
-                            <Checkbox
-                                checked={applyAll}
-                                onChange={(e) => {
-                                    setApplyAll(e.target.checked)
-                                }}
-                            >
-                                Create for all charts
-                            </Checkbox>
-                            <Row justify="end">
-                                <Button
-                                    style={{ marginRight: 10 }}
-                                    onClick={() => {
-                                        closePopup()
-                                        setTextInput('')
-                                    }}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    type="primary"
-                                    onClick={() => {
-                                        onCreateAnnotation && onCreateAnnotation(textInput, applyAll)
-                                        closePopup()
-                                        setTextInput('')
-                                    }}
-                                >
-                                    Add
-                                </Button>
-                            </Row>
-                        </div>
+                    <div ref={popupRef} className="p-2" style={{ minWidth: 300 }}>
+                        <div className="pb-2">{dayjs(currentDateMarker).format('MMMM Do YYYY')}</div>
+                        {editorSection}
                     </div>
                 ) : (
                     <div ref={popupRef} style={{ minWidth: 300 }}>
-                        <div style={{ overflowY: 'auto', maxHeight: '80vh', padding: '12px 16px 0 16px' }}>
+                        <div style={{ overflowY: 'auto', maxHeight: '80vh' }}>
                             {[...annotations]
                                 .sort(
                                     (annotationA, annotationB) =>
                                         dayjs(annotationA.created_at).unix() - dayjs(annotationB.created_at).unix()
                                 )
                                 .map((data) => (
-                                    <div key={data.id} style={{ marginBottom: 25 }}>
-                                        <Row justify="space-between" align="middle">
-                                            <div>
-                                                <b style={{ marginRight: 5 }}>
+                                    <div key={data.id} className="mb-2">
+                                        <div className="flex justify-between items-center">
+                                            <div className="space-x-2">
+                                                <b>
                                                     {data.created_by &&
                                                         (data.created_by.first_name || data.created_by.email)}
                                                 </b>
-                                                <i style={{ color: 'gray', marginRight: 6 }}>
+                                                <i className="text-muted">
                                                     {humanFriendlyDetailedTime(data.created_at)}
                                                 </i>
                                                 {data.scope === AnnotationScope.Project ? (
@@ -211,83 +211,50 @@ export function AnnotationMarker({
                                                 ) : null}
                                             </div>
                                             {(!data.created_by || data.created_by.uuid === user?.uuid) && (
-                                                <DeleteOutlined
-                                                    className="button-border clickable text-danger"
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    size="small"
+                                                    icon={<IconDelete />}
                                                     onClick={() => onDelete?.(data)}
                                                 />
                                             )}
-                                        </Row>
+                                        </div>
                                         <span>{data.content}</span>
                                     </div>
                                 ))}
                         </div>
-                        <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0' }}>
+                        <div className="border-t pt-2">
                             {textAreaVisible ? (
-                                <>
-                                    <TextArea
-                                        maxLength={300}
-                                        style={{ marginBottom: 12 }}
-                                        rows={4}
-                                        value={textInput}
-                                        onChange={(e) => setTextInput(e.target.value)}
-                                        autoFocus
-                                    />
-                                    <Checkbox
-                                        checked={applyAll}
-                                        onChange={(e) => {
-                                            setApplyAll(e.target.checked)
-                                        }}
-                                    >
-                                        Create for all charts
-                                    </Checkbox>
-                                    <Row justify="end">
-                                        <Button style={{ marginRight: 10 }} onClick={() => setTextAreaVisible(false)}>
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            onClick={() => {
-                                                onCreate && onCreate(textInput, applyAll)
-                                                setTextInput('')
-                                                setTextAreaVisible(false)
-                                            }}
-                                        >
-                                            Add
-                                        </Button>
-                                    </Row>
-                                </>
+                                editorSection
                             ) : (
-                                <Row justify="end">
-                                    <Button
-                                        type="primary"
-                                        onClick={() => {
-                                            setTextAreaVisible(true)
-                                        }}
-                                    >
+                                <div className="flex justify-end">
+                                    <LemonButton type="primary" size="small" onClick={() => setTextAreaVisible(true)}>
                                         Add Note
-                                    </Button>
-                                </Row>
+                                    </LemonButton>
+                                </div>
                             )}
                         </div>
                     </div>
                 )
             }
             title={
-                <Row justify="space-between" align="middle" style={{ lineHeight: '30px' }}>
+                <div className="flex justify-between items-center">
                     {label}
                     {focused && (
-                        <CloseOutlined
-                            className="button-border clickable"
+                        <LemonButton
+                            type="tertiary"
+                            icon={<IconClose />}
                             onClick={() => {
                                 setFocused(false)
                                 onClose?.()
                             }}
                         />
                     )}
-                </Row>
+                </div>
             }
         >
             <div
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     position: 'absolute',
                     left: left,

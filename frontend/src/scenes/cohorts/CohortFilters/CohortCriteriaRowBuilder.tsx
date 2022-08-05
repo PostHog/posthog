@@ -84,7 +84,7 @@ export function CohortCriteriaRowBuilder({
                 }}
             >
                 <>
-                    <Row align="middle" wrap={false} className="mb-025">
+                    <Row align="middle" wrap={false} className="mb-1">
                         <KeaField
                             name="value"
                             template={({ error, kids }) => {

@@ -45,11 +45,12 @@ export function TopBar(): JSX.Element {
                         <FriendlyLogo />
                     </Link>
 
-                    <div style={{ flexGrow: 1 }}>
+                    <div className="grow">
                         <UniversalSearchPopup
                             groupType={TaxonomicFilterGroupType.Events}
                             groupTypes={[
                                 TaxonomicFilterGroupType.Events,
+                                TaxonomicFilterGroupType.Persons,
                                 TaxonomicFilterGroupType.Actions,
                                 TaxonomicFilterGroupType.Cohorts,
                                 TaxonomicFilterGroupType.Insights,

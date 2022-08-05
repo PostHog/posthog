@@ -16,15 +16,14 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
-import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
@@ -38,26 +37,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { push } = useActions(router)
-
-    const exportOptions: ExportButtonItem[] = [
-        {
-            export_format: ExporterFormat.PNG,
-            dashboard: dashboard?.id,
-            export_context: {
-                path: apiUrl(),
-            },
-        },
-    ]
-    if (!!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-        exportOptions.push({
-            export_format: ExporterFormat.CSV,
-            export_context: {
-                path: apiUrl(),
-            },
-        })
-    }
 
     return dashboard || allItemsLoading ? (
         <>
@@ -128,6 +108,7 @@ export function DashboardHeader(): JSX.Element | null {
                     ) : (
                         <>
                             <More
+                                data-tooltip="dashboard-three-dots-options-menu"
                                 overlay={
                                     dashboard ? (
                                         <>
@@ -198,7 +179,19 @@ export function DashboardHeader(): JSX.Element | null {
                                                     </LemonButton>
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
-                                            <ExportButton fullWidth type="stealth" items={exportOptions} />
+                                            <ExportButton
+                                                fullWidth
+                                                type="stealth"
+                                                items={[
+                                                    {
+                                                        export_format: ExporterFormat.PNG,
+                                                        dashboard: dashboard?.id,
+                                                        export_context: {
+                                                            path: apiUrl(),
+                                                        },
+                                                    },
+                                                ]}
+                                            />
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>
@@ -278,6 +271,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
@@ -285,6 +279,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         staticOnly
                                         className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : null}
                             </>

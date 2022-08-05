@@ -53,14 +53,6 @@
                     "value": "--max-old-space-size=4096"
                 },
                 {
-                    "name": "JOB_QUEUES",
-                    "value": "graphile"
-                },
-                {
-                    "name": "CRASH_IF_NO_PERSISTENT_JOB_QUEUE",
-                    "value": "0"
-                },
-                {
                     "name": "CAPTURE_INTERNAL_METRICS",
                     "value": "False"
                 },
@@ -73,16 +65,8 @@
                     "value": "True"
                 },
                 {
-                    "name": "NEW_PERSON_PROPERTIES_UPDATE_ENABLED_TEAMS",
-                    "value": "2"
-                },
-                {
                     "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
                     "value": "2,2635"
-                },
-                {
-                    "name": "EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED",
-                    "value": "True"
                 },
                 {
                     "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
@@ -91,10 +75,6 @@
                 {
                     "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
                     "value": "5"
-                },
-                {
-                    "name": "CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS",
-                    "value": "True"
                 },
                 {
                     "name": "PERSON_INFO_TO_REDIS_TEAMS",

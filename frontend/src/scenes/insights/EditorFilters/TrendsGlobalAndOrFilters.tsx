@@ -2,20 +2,17 @@ import React from 'react'
 import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { EditorFilterProps } from '~/types'
+import { EditorFilterProps, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
 
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
@@ -23,7 +20,7 @@ export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilter
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS] ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
 
     return (

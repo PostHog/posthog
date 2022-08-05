@@ -49,6 +49,7 @@ function ToolbarLaunch(): JSX.Element {
             <LemonDivider />
 
             <LemonSwitch
+                data-tooltip="toolbar-authorized-toggle"
                 label="Enable the PostHog toolbar"
                 onChange={() =>
                     updateUser({
@@ -59,7 +60,7 @@ function ToolbarLaunch(): JSX.Element {
                 disabled={userLoading}
                 loading={userLoading}
                 type="primary"
-                className="EnableToolbarSwitch mt mb pt pb full-width"
+                className="EnableToolbarSwitch my-4 py-4 w-full"
             />
 
             <h2 className="subtitle" id="urls">
@@ -71,12 +72,12 @@ function ToolbarLaunch(): JSX.Element {
             </p>
             <AuthorizedUrls pageKey="toolbar-launch" />
 
-            <div className="footer-caption text-muted mt text-center">
+            <div className="footer-caption text-muted mt-4 text-center">
                 Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>
 
-            <div className="feature-highlight-list mt-2 mx-auto mb-0 flex flex-wrap flex-center justify-center">
+            <div className="feature-highlight-list mt-8 mx-auto mb-0 flex flex-wrap items-center justify-center">
                 {features.map((feature) => (
                     <FeatureHighlight key={feature.title} {...feature} />
                 ))}
@@ -93,8 +94,8 @@ interface FeatureHighlightProps {
 
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
-        <div className="fh-item flex flex-center mt">
-            <div className="fh-icon mr text-muted-alt">{icon}</div>
+        <div className="fh-item flex items-center mt-4">
+            <div className="fh-icon mr-4 text-muted-alt">{icon}</div>
             <div>
                 <h4 className="mb-0 text-muted-alt">{title}</h4>
                 <div className="caption">{caption}</div>

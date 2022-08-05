@@ -40,7 +40,7 @@ export function Experiments(): JSX.Element {
                 return (
                     <>
                         <Link to={experiment.id ? urls.experiment(experiment.id) : undefined}>
-                            <h4 className="row-name">{stringWithWBR(experiment.name, 17)}</h4>
+                            <span className="row-name">{stringWithWBR(experiment.name, 17)}</span>
                         </Link>
                         {experiment.description && <span className="row-description">{experiment.description}</span>}
                     </>
@@ -117,7 +117,7 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader
                 title={
-                    <div className="flex-center">
+                    <div className="flex items-center">
                         Experiments
                         <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
                             BETA
@@ -134,7 +134,7 @@ export function Experiments(): JSX.Element {
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div className="mb">
+                    <div className="mb-4">
                         Check out our
                         <a
                             data-attr="experiment-help"
@@ -165,6 +165,7 @@ export function Experiments(): JSX.Element {
                         pagination={{ pageSize: 100 }}
                         nouns={['experiment', 'experiments']}
                         data-attr="experiment-table"
+                        data-tooltip="experiments-table"
                     />
                 </>
             ) : (

@@ -54,7 +54,7 @@ describe('the column configurator lets the user change which columns should be v
         })
     })
 
-    it.only('saves columns as default', async () => {
+    it('saves columns as default', async () => {
         await expectLogic(logic, () => {
             logic.actions.selectColumn('added')
             logic.actions.toggleSaveAsDefault()

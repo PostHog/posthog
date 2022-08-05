@@ -43,7 +43,9 @@ export function PluginSource({
             return
         }
         monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-            jsx: currentFile.endsWith('.tsx') ? 'react' : 'preserve',
+            jsx: currentFile.endsWith('.tsx')
+                ? monaco.languages.typescript.JsxEmit.React
+                : monaco.languages.typescript.JsxEmit.Preserve,
             esModuleInterop: true,
         })
     }, [monaco, currentFile])
@@ -53,9 +55,11 @@ export function PluginSource({
             return
         }
         import('./types/packages.json').then((files) => {
-            for (const fileName in files) {
+            for (const [fileName, fileContents] of Object.entries(files).filter(
+                ([fileName]) => fileName !== 'default'
+            )) {
                 const fakePath = `file:///node_modules/${fileName}`
-                monaco?.languages.typescript.typescriptDefaults.addExtraLib(files[fileName], fakePath)
+                monaco?.languages.typescript.typescriptDefaults.addExtraLib(fileContents as string, fakePath)
             }
         })
     }, [monaco])

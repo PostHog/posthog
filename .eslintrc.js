@@ -30,8 +30,9 @@ module.exports = {
         ecmaVersion: 2018,
         sourceType: 'module',
     },
-    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint'],
+    plugins: ['prettier', 'react', 'cypress', '@typescript-eslint', 'no-only-tests'],
     rules: {
+        'no-only-tests/no-only-tests': 'error',
         'react/prop-types': [0],
         'react/no-unescaped-entities': [0],
         'react/jsx-no-target-blank': [0],
@@ -64,6 +65,38 @@ module.exports = {
                     {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
+                    },
+                ],
+            },
+        ],
+        'react/forbid-dom-props': [
+            1,
+            {
+                forbid: [
+                    {
+                        propName: 'style',
+                        message:
+                            'style should be avoided in favor of utility CSS classes - see https://storybook.posthog.net/?path=/docs/lemon-ui-utilities--overview',
+                    },
+                ],
+            },
+        ],
+        'react/forbid-elements': [
+            1,
+            {
+                forbid: [
+                    {
+                        element: 'Row',
+                        message:
+                            'use flex utility classes instead e.g. <Row align="middle"> could be <div className="flex items-center">',
+                    },
+                    {
+                        element: 'Col',
+                        message: 'use flex utility classes instead. Most of the time can simply be a plain <div>',
+                    },
+                    {
+                        element: 'Button',
+                        message: 'use <LemonButton> instead',
                     },
                 ],
             },

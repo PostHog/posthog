@@ -5,14 +5,11 @@ import { CohortType, ExporterFormat } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { deleteWithUndo, processCohort } from 'lib/utils'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const POLL_TIMEOUT = 5000
 
 export const cohortsModel = kea<cohortsModelType>({
     path: ['models', 'cohortsModel'],
-    connect: { values: [featureFlagLogic, ['featureFlags']] },
     actions: () => ({
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
         updateCohort: (cohort: CohortType) => ({ cohort }),
@@ -71,7 +68,7 @@ export const cohortsModel = kea<cohortsModelType>({
         ],
     },
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CohortType[] }) => {
             const is_calculating = cohorts.filter((cohort) => cohort.is_calculating).length > 0
             if (!is_calculating) {
@@ -80,17 +77,13 @@ export const cohortsModel = kea<cohortsModelType>({
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
         exportCohortPersons: async ({ id }) => {
-            if (!!values.featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-                await triggerExport({
-                    export_format: ExporterFormat.CSV,
-                    export_context: {
-                        path: `/api/cohort/${id}/persons`,
-                        max_limit: 10000,
-                    },
-                })
-            } else {
-                window.open(`/api/person.csv?cohort=${id}`, '_blank')
-            }
+            await triggerExport({
+                export_format: ExporterFormat.CSV,
+                export_context: {
+                    path: `/api/cohort/${id}/persons`,
+                    max_limit: 10000,
+                },
+            })
         },
         deleteCohort: ({ cohort }) => {
             deleteWithUndo({

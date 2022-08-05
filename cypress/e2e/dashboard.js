@@ -31,9 +31,9 @@ describe('Dashboard', () => {
         cy.focused().clear().type('Test Insight Zeus')
         cy.get('button').contains('Save').click() // Save the new name
         cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
-        cy.get('.modal-row button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.get('.modal-row button').first().contains('Added')
-        cy.get('.modal-row a').first().click({ force: true }) // Go to the dashboard
+        cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
+        cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
+        cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
         cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
     })
 

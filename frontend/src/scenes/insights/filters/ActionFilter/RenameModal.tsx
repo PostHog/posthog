@@ -45,7 +45,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
             Query series/steps can be renamed to provide a more{' '}
             <strong>meaningful label for you and your team members</strong>. Custom names are also shown on dashboards.
             <br />
-            <div className="l4 mt-05 mb-05">Name</div>
+            <div className="l4 mt-2 mb-2">Name</div>
             <Input
                 ref={ref}
                 value={name}

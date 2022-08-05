@@ -18,7 +18,7 @@
 
         &.disabled {
             cursor: not-allowed;
-            color: var(--text-muted);
+            color: var(--muted);
             background-color: var(--bg-mid);
         }
 
@@ -52,7 +52,7 @@
 
     .drag-handle {
         cursor: move;
-        color: var(--text-default);
+        color: var(--default);
         font-size: 1.2em;
         padding-right: 0.25rem;
 
@@ -75,7 +75,7 @@
     padding: 0.5rem;
 
     .drag-handle {
-        color: var(--text-default);
+        color: var(--default);
         font-size: 1.2em;
         padding-right: 0.25rem;
         transform: rotate(90deg) translateX(2px);

@@ -15,43 +15,9 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                 {
                     type: 'FeatureFlag',
                     action: 'changed',
-                    field: 'filters',
-                    before: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                            {
-                                properties: [],
-                                rollout_percentage: 30,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                    after: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                        ],
-                        multivariate: null,
-                    },
+                    field: 'name',
+                    before: 'starting',
+                    after: 'finishing',
                 },
             ],
             merge: null,
@@ -61,94 +27,28 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         created_at: '2022-05-24T12:28:14.507709Z',
     },
     {
-        user: { first_name: 'Alex Kim', email: 'alex@posthog.com' },
+        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1474',
+        item_id: '984',
         detail: {
             merge: null,
-            changes: [
-                {
-                    type: 'FeatureFlag',
-                    action: 'changed',
-                    field: 'filters',
-                    before: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                            {
-                                properties: [],
-                                rollout_percentage: 30,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                    after: {
-                        groups: [
-                            {
-                                properties: [
-                                    {
-                                        key: 'id',
-                                        type: 'cohort',
-                                        value: 98,
-                                        operator: null,
-                                    },
-                                ],
-                                rollout_percentage: null,
-                            },
-                        ],
-                        multivariate: null,
-                    },
-                },
-            ],
-            name: 'data-management',
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
+            name: 'cloud-announcement',
         },
-        created_at: '2022-03-21T15:58:55.792014Z',
+        created_at: '2022-03-20T15:26:58.006900Z',
     },
     {
-        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
         activity: 'updated',
         scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1846',
+        item_id: '984',
         detail: {
             merge: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
-            name: 'test-ff',
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
+            name: 'cloud-announcement',
         },
-        created_at: '2022-03-21T15:50:25.894422Z',
-    },
-    {
-        user: { first_name: 'Neil', email: 'neil@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1846',
-        detail: {
-            merge: null,
-            changes: null,
-            name: 'test-ff',
-        },
-        created_at: '2022-03-21T15:50:15.625221Z',
-    },
-    {
-        user: { first_name: 'Paul', email: 'paul@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '1825',
-        detail: {
-            merge: null,
-            changes: null,
-            name: 'feature_that_will_dazzle',
-        },
-        created_at: '2022-03-21T13:22:14.605131Z',
+        created_at: '2022-03-20T15:26:58.006900Z',
     },
     {
         user: { first_name: 'Paul', email: 'paul@posthog.com' },
@@ -251,30 +151,6 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         item_id: '984',
         detail: {
             merge: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
-            name: 'cloud-announcement',
-        },
-        created_at: '2022-03-20T15:26:58.006900Z',
-    },
-    {
-        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
-        activity: 'updated',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '984',
-        detail: {
-            merge: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
-            name: 'cloud-announcement',
-        },
-        created_at: '2022-03-20T15:26:46.397726Z',
-    },
-    {
-        user: { first_name: 'James', email: 'fuziontech@gmail.com' },
-        activity: 'updated',
-        scope: ActivityScope.FEATURE_FLAG,
-        item_id: '984',
-        detail: {
-            merge: null,
             changes: [
                 {
                     type: 'FeatureFlag',
@@ -360,38 +236,159 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         },
         created_at: '2022-03-19T16:58:47.747634Z',
     },
-]
-
-export const personActivityResponseJson: ActivityLogItem[] = [
     {
-        user: { first_name: 'Paul', email: 'paul.dambra@gmail.com' },
-        activity: 'split_person',
-        scope: ActivityScope.PERSON,
-        item_id: '502792727',
+        user: { first_name: 'Alex Kim', email: 'alex@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1474',
         detail: {
+            merge: null,
             changes: [
                 {
-                    type: 'Person',
-                    action: 'split',
-                    field: undefined,
-                    before: undefined,
-                    after: {
-                        distinct_ids: [
-                            '1819208c6ed32c-0e427ef09bbae-3297640-75300-1819208c6ee74b',
-                            '18192189287517-0e66a695611002-3297640-75300-18192189288790',
-                            '1819220a99e5ec-0005fee037f8d2-3297640-75300-1819220a99f6b7',
-                            '1819231753016b-0b04ab5a3ab143-3297640-75300-181923175313d4',
-                            '1819249450126c-0162012e0be59d-3297640-75300-1819249450238e',
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
+                                rollout_percentage: null,
+                            },
+                            {
+                                properties: [],
+                                rollout_percentage: 30,
+                            },
                         ],
+                        multivariate: null,
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        type: 'cohort',
+                                        value: 98,
+                                        operator: null,
+                                    },
+                                ],
+                                rollout_percentage: null,
+                            },
+                        ],
+                        multivariate: null,
                     },
                 },
             ],
-            merge: null,
-            name: null,
-            short_id: null,
+            name: 'data-management',
         },
-        created_at: '2022-06-23T20:53:17.620277Z',
+        created_at: '2022-03-21T15:58:55.792014Z',
     },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: true, after: false }],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'key',
+                    before: 'the-original-key',
+                    after: 'the-new-key',
+                },
+            ],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'ensure_experience_continuity',
+                    before: false,
+                    after: true,
+                },
+            ],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Neil', email: 'neil@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1846',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'FeatureFlag',
+                    action: 'changed',
+                    field: 'ensure_experience_continuity',
+                    before: true,
+                    after: false,
+                },
+            ],
+            name: 'test-ff',
+        },
+        created_at: '2022-03-21T15:50:25.894422Z',
+    },
+    {
+        user: { first_name: 'Paul', email: 'paul@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.FEATURE_FLAG,
+        item_id: '1825',
+        detail: {
+            merge: null,
+            changes: null,
+            name: 'feature_that_will_dazzle',
+        },
+        created_at: '2022-03-21T13:22:14.605131Z',
+    },
+]
+
+export const personActivityResponseJson: ActivityLogItem[] = [
     {
         user: { first_name: 'Paul', email: 'paul.dambra@gmail.com' },
         activity: 'updated',
@@ -582,9 +579,192 @@ export const personActivityResponseJson: ActivityLogItem[] = [
         },
         created_at: '2022-06-23T20:52:53.637157Z',
     },
+    {
+        user: { first_name: 'Paul', email: 'paul.dambra@gmail.com' },
+        activity: 'split_person',
+        scope: ActivityScope.PERSON,
+        item_id: '502792727',
+        detail: {
+            changes: [
+                {
+                    type: 'Person',
+                    action: 'split',
+                    field: undefined,
+                    before: undefined,
+                    after: {
+                        distinct_ids: [
+                            '1819208c6ed32c-0e427ef09bbae-3297640-75300-1819208c6ee74b',
+                            '18192189287517-0e66a695611002-3297640-75300-18192189288790',
+                            '1819220a99e5ec-0005fee037f8d2-3297640-75300-1819220a99f6b7',
+                            '1819231753016b-0b04ab5a3ab143-3297640-75300-181923175313d4',
+                            '1819249450126c-0162012e0be59d-3297640-75300-1819249450238e',
+                        ],
+                    },
+                },
+            ],
+            merge: null,
+            name: null,
+            short_id: null,
+        },
+        created_at: '2022-06-23T20:53:17.620277Z',
+    },
 ]
 
 export const insightsActivityResponseJson: ActivityLogItem[] = [
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'created',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738509',
+        detail: {
+            changes: null,
+            merge: null,
+            name: 'an amazing discovery awaits',
+            short_id: 'kUUjoSL9' as InsightShortId,
+        },
+        created_at: '2022-05-03T16:28:29.544239Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [{ type: 'Insight', action: 'changed', field: 'deleted', before: false, after: true }],
+            merge: null,
+            name: 'Pageview count',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:29.072978Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [{ type: 'Insight', action: 'changed', field: 'deleted', before: true, after: false }],
+            merge: null,
+            name: 'Pageview count',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:29.072978Z',
+    },
+    {
+        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [
+                { type: 'Insight', action: 'changed', field: 'name', before: 'original name', after: 'cool insight' },
+            ],
+            merge: null,
+            name: 'cool insight',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:20.265216Z',
+    },
+    {
+        user: { first_name: 'Michael', email: 'michael@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [{ type: 'Insight', action: 'changed', field: 'short_id', before: 'wr34th', after: 'iVXqSrre' }],
+            merge: null,
+            name: 'Pageview count',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:14.031192Z',
+    },
+    {
+        user: { first_name: 'Michael', email: 'michael@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'description',
+                    before: 'something',
+                    after: 'something better',
+                },
+            ],
+            merge: null,
+            name: 'Pageview count',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:14.031192Z',
+    },
+    {
+        user: { first_name: 'Michael', email: 'michael@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'favorited',
+                    before: false,
+                    after: 'TRUE',
+                },
+            ],
+            merge: null,
+            name: 'Pageview count',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:14.031192Z',
+    },
+    {
+        user: { first_name: 'Michael', email: 'michael@posthog.com' },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '738061',
+        detail: {
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'favorited',
+                    before: 'TRUe',
+                    after: 'fAlSe',
+                },
+            ],
+            merge: null,
+            name: 'Pageview count',
+            short_id: 'iVXqSrre' as InsightShortId,
+        },
+        created_at: '2022-05-03T15:27:14.031192Z',
+    },
+    {
+        user: {
+            first_name: 'Ben',
+            email: 'ben@posthog.com',
+        },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '6',
+        detail: {
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'exported',
+                    field: 'tags',
+                    before: ['one', 'two', 'wrong', 'three'],
+                    after: ['one', 'two', 'right', 'four'],
+                },
+            ],
+            merge: null,
+            name: 'Super B.I.',
+            short_id: 'KQhbLk2R' as InsightShortId,
+        },
+        created_at: '2022-06-24T14:53:24.194502Z',
+    },
     {
         user: {
             first_name: 'Ben',
@@ -608,51 +788,6 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
             short_id: 'KQhbLk2R' as InsightShortId,
         },
         created_at: '2022-06-24T14:53:24.194502Z',
-    },
-    {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738509',
-        detail: { changes: null, merge: null, name: null, short_id: 'kUUjoSL9' as InsightShortId },
-        created_at: '2022-05-03T16:28:29.544239Z',
-    },
-    {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738495',
-        detail: { changes: null, merge: null, name: null, short_id: 'sp1SXU36' as InsightShortId },
-        created_at: '2022-05-03T16:27:26.942756Z',
-    },
-    {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738494',
-        detail: { changes: null, merge: null, name: null, short_id: '3wfG32yd' as InsightShortId },
-        created_at: '2022-05-03T16:27:26.215581Z',
-    },
-    {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738493',
-        detail: { changes: null, merge: null, name: null, short_id: 'mFw8dLOL' as InsightShortId },
-        created_at: '2022-05-03T16:27:23.649287Z',
-    },
-    {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'updated',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738061',
-        detail: {
-            changes: [{ type: 'Insight', action: 'changed', field: 'name', before: 'cool insight', after: '' }],
-            merge: null,
-            name: 'Pageview count',
-            short_id: 'iVXqSrre' as InsightShortId,
-        },
-        created_at: '2022-05-03T15:27:29.072978Z',
     },
     {
         user: { first_name: 'Paul', email: 'paul@posthog.com' },
@@ -755,38 +890,43 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                         funnel_window_days: 14,
                     },
                 },
+                { type: 'Insight', action: 'changed', field: 'name', before: 'cool insight', after: 'DAU' },
             ],
             short_id: 'eRY9-Frr' as InsightShortId,
         },
         created_at: '2022-05-03T15:27:29.072978Z',
     },
     {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
+        user: {
+            first_name: 'Ben',
+            email: 'ben@posthog.com',
+        },
         activity: 'updated',
         scope: ActivityScope.INSIGHT,
-        item_id: '738061',
+        item_id: '6',
         detail: {
-            changes: [{ type: 'Insight', action: 'changed', field: 'name', before: '', after: 'cool insight' }],
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'exported',
+                    field: 'dashboards',
+                    before: [
+                        { id: 1, name: 'one' },
+                        { id: 2, name: 'two' },
+                        { id: 3, name: 'wrong' },
+                    ],
+                    after: [
+                        { id: 1, name: 'one' },
+                        { id: 2, name: 'two' },
+                        { id: 4, name: 'right' },
+                        { id: 5, name: 'five' },
+                    ],
+                },
+            ],
             merge: null,
-            name: 'cool insight',
-            short_id: 'iVXqSrre' as InsightShortId,
+            name: 'Super B.I.',
+            short_id: 'KQhbLk2R' as InsightShortId,
         },
-        created_at: '2022-05-03T15:27:20.265216Z',
-    },
-    {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738061',
-        detail: { changes: null, merge: null, name: 'Pageview count', short_id: 'iVXqSrre' as InsightShortId },
-        created_at: '2022-05-03T15:27:14.031192Z',
-    },
-    {
-        user: { first_name: 'Cameron', email: 'cameron@posthog.com' },
-        activity: 'created',
-        scope: ActivityScope.INSIGHT,
-        item_id: '738027',
-        detail: { changes: null, merge: null, name: null, short_id: '4vIGUyy1' as InsightShortId },
-        created_at: '2022-05-03T15:24:03.779164Z',
+        created_at: '2022-06-24T14:53:24.194502Z',
     },
 ]

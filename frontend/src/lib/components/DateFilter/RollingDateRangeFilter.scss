@@ -4,7 +4,7 @@
     height: 2rem;
     padding: 1.25rem 0.5rem;
     align-items: center;
-    color: var(--text-default);
+    color: var(--default);
     font-weight: normal;
     font-size: 0.875rem;
     line-height: 1.375em;
@@ -17,7 +17,7 @@
 
     &.RollingDateRangeFilter--selected {
         background: var(--primary-bg-hover);
-        color: var(--text-default);
+        color: var(--default);
     }
 
     input::-webkit-outer-spin-button,

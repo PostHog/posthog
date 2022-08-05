@@ -51,13 +51,13 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             onClick={hideSideBarMobile}
             {...buttonProps}
         >
-            <span style={{ flexGrow: 1 }}>{title || sceneConfigurations[identifier].name}</span>
+            <span className="grow">{title || sceneConfigurations[identifier].name}</span>
             {highlight === 'beta' ? (
-                <LemonTag type="warning" style={{ marginLeft: 4, float: 'right' }}>
+                <LemonTag type="warning" className="ml-1 float-right">
                     Beta
                 </LemonTag>
             ) : highlight === 'new' ? (
-                <LemonTag type="success" style={{ marginLeft: 4, float: 'right' }}>
+                <LemonTag type="success" className="ml-1 float-right">
                     New
                 </LemonTag>
             ) : null}

@@ -42,7 +42,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             error && `CohortCriteriaGroups__matching-group--error`
                                         )}
                                     >
-                                        <Row align="middle" wrap={false} className="pl pr">
+                                        <Row align="middle" wrap={false} className="px-4">
                                             <Lettermark name={alphabet[groupIndex]} color={LettermarkColor.Gray} />
                                             <AndOrFilterSelect
                                                 prefix="Match persons against"
@@ -113,7 +113,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
             )}
             <LemonButton
                 data-attr={`cohort-add-filter-group`}
-                className="mb mt"
+                className="mb-4 mt-4"
                 type="secondary"
                 onClick={() => addFilter()}
                 icon={<IconPlusMini color="var(--primary)" />}

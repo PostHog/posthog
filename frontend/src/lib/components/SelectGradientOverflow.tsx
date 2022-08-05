@@ -121,7 +121,7 @@ export function SelectGradientOverflow({
     document.addEventListener('click', outsideClickListener)
 
     return (
-        <div ref={containerRef} style={{ width: '100%' }}>
+        <div ref={containerRef} className="w-full">
             {/*
             This config provider is used to configure the empty data state on the wrapped
             ANT select component
@@ -130,7 +130,7 @@ export function SelectGradientOverflow({
                 renderEmpty={() => {
                     if (props.loading) {
                         return (
-                            <div className="illustration-main" style={{ textAlign: 'center' }}>
+                            <div className="illustration-main text-center">
                                 <LoadingOutlined style={{ fontSize: 20 }} />
                                 <div>Loading data</div>
                             </div>

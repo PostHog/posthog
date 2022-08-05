@@ -61,7 +61,7 @@ export async function kafkaHealthcheck(
             messages: [
                 {
                     partition: 0,
-                    value: Buffer.from('healthcheck'),
+                    value: 'healthcheck',
                 },
             ],
         })

@@ -39,7 +39,7 @@ export function InternalMetricsTab(): JSX.Element {
                     </Collapse.Panel>
                 ) : null}
                 <Collapse.Panel header="PostgreSQL - currently running queries" key="1">
-                    <div className="mb float-right">
+                    <div className="mb-4 float-right">
                         <Checkbox
                             checked={showIdle}
                             onChange={(e) => {
@@ -56,7 +56,7 @@ export function InternalMetricsTab(): JSX.Element {
                 </Collapse.Panel>
                 {queries?.clickhouse_running != undefined ? (
                     <Collapse.Panel header="Clickhouse - currently running queries" key="2">
-                        <div className="mb float-right">
+                        <div className="mb-4 float-right">
                             <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
                                 <ReloadOutlined /> Reload Queries
                             </Button>
@@ -70,7 +70,7 @@ export function InternalMetricsTab(): JSX.Element {
                 ) : null}
                 {queries?.clickhouse_slow_log != undefined ? (
                     <Collapse.Panel header="Clickhouse - slow query log (past 6 hours)" key="3">
-                        <div className="mb float-right">
+                        <div className="mb-4 float-right">
                             <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
                                 <ReloadOutlined /> Reload Queries
                             </Button>

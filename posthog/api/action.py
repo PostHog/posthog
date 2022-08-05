@@ -16,7 +16,7 @@ from rest_hooks.signals import raw_hook_event
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
+from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
@@ -60,6 +60,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
     steps = ActionStepSerializer(many=True, required=False)
     created_by = UserBasicSerializer(read_only=True)
     is_calculating = serializers.SerializerMethodField()
+    is_action = serializers.BooleanField(read_only=True, default=True)
 
     class Meta:
         model = Action
@@ -77,6 +78,7 @@ class ActionSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSe
             "is_calculating",
             "last_calculated_at",
             "team_id",
+            "is_action",
         ]
         extra_kwargs = {"team_id": {"read_only": True}}
 
@@ -160,6 +162,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     serializer_class = ActionSerializer
     authentication_classes = [
         TemporaryTokenAuthentication,
+        JwtAuthentication,
         PersonalAPIKeyAuthentication,
         authentication.SessionAuthentication,
         authentication.BasicAuthentication,
