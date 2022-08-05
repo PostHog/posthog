@@ -108,6 +108,11 @@ export class PersonState {
     }
 
     private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
+        console.log('createPersonIfDistinctIdIsNew called', {
+            teamId: this.teamId,
+            distinctId: this.distinctId,
+            loaded: this.personContainer.loaded,
+        })
         // :TRICKY: Short-circuit if person container already has loaded person and it exists
         if (this.personContainer.loaded) {
             return false
