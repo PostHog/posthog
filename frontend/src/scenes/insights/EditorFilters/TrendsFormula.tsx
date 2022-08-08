@@ -62,7 +62,7 @@ export function TrendsFormula({ filters, insightProps }: EditorFilterProps): JSX
     return (
         <>
             {isUsingFormulas ? (
-                <div className="flex items-center gap-05">
+                <div className="flex items-center gap-2">
                     <CloseButton
                         onClick={() => {
                             setIsUsingFormulas(false)

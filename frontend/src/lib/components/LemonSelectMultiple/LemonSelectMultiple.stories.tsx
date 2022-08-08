@@ -14,7 +14,7 @@ export default {
                     ...acc,
                     [`user-${i}`]: {
                         labelComponent: (
-                            <span className="flex gap-05 items-center">
+                            <span className="flex gap-2 items-center">
                                 <ProfilePicture name={x} email={`${x}@posthog.com`} size="sm" />
                                 <span>
                                     {capitalizeFirstLetter(x)} <b>{`<${x}@posthog.com>`}</b>

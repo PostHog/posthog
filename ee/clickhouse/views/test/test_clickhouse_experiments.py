@@ -638,11 +638,64 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["groups"][0]["properties"][0]["key"], "$geoip_country_name")
         self.assertEqual(created_ff.filters["aggregation_group_type_index"], None)
 
+    def test_used_in_experiment_is_populated_correctly_for_feature_flag_list(self) -> None:
+
+        ff_key = "a-b-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        created_experiment = response.json()["id"]
+
+        # add another random feature flag
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": f"flag", "key": f"flag_0", "filters": {"groups": [{"rollout_percentage": 5,}]},},
+            format="json",
+        ).json()
+
+        with self.assertNumQueries(7):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result = response.json()
+
+            self.assertEqual(result["count"], 2)
+
+            self.assertCountEqual(
+                [(res["key"], res["experiment_set"]) for res in result["results"]],
+                [("flag_0", []), (ff_key, [created_experiment]),],
+            )
+
 
 @flaky(max_runs=10, min_passes=1)
 class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_queries
     def test_experiment_flow_with_event_results(self):
+
         journeys_for(
             {
                 "person1": [
@@ -734,12 +787,13 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
         journeys_for(
             {
                 "person1_2": [
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_2"},},
+                    # one event having the property is sufficient, since first touch breakdown is the default
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {},},
                     {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_2"},},
                 ],
                 "person1_1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test_1"},},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {},},
                 ],
                 "person2_1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
@@ -747,14 +801,14 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 ],
                 "person1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"},},
-                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "test"},},
+                    {"event": "$pageleave", "timestamp": "2020-01-04", "properties": {},},
                 ],
                 "person2": [
                     {"event": "$pageview", "timestamp": "2020-01-03", "properties": {"$feature/a-b-test": "control"}},
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
                 "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {"$feature/a-b-test": "control"}},
+                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {}},
                     {"event": "$pageleave", "timestamp": "2020-01-05", "properties": {"$feature/a-b-test": "control"}},
                 ],
                 # doesn't have feature set
@@ -775,6 +829,43 @@ class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest
                 ],
                 "person6_1": [
                     {"event": "$pageview", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test_1"},},
+                ],
+                # converters with unknown flag variant set
+                "person_unknown_1": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_1"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "unknown_1"},
+                    },
+                ],
+                "person_unknown_2": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_2"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "unknown_2"},
+                    },
+                ],
+                "person_unknown_3": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2020-01-02",
+                        "properties": {"$feature/a-b-test": "unknown_3"},
+                    },
+                    {
+                        "event": "$pageleave",
+                        "timestamp": "2020-01-04",
+                        "properties": {"$feature/a-b-test": "unknown_3"},
+                    },
                 ],
             },
             self.team,

@@ -28,7 +28,6 @@ import {
     FunnelVizType,
     InsightLogicProps,
     InsightType,
-    PersonType,
     PropertyFilter,
     PropertyOperator,
     StepOrderValue,
@@ -203,14 +202,6 @@ export const funnelLogic = kea<funnelLogicType>({
         __ignore: null as FunnelCorrelationResultsType | null,
     },
     loaders: ({ values }) => ({
-        people: [
-            [] as any[],
-            {
-                loadPeople: async (steps) => {
-                    return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
-                },
-            },
-        ],
         correlations: [
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
@@ -494,21 +485,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 return filters.funnel_viz_type === FunnelVizType.TimeToConvert
                     ? (results as FunnelsTimeConversionBins)
                     : null
-            },
-        ],
-        peopleSorted: [
-            () => [selectors.stepsWithCount, selectors.people],
-            (steps, people) => {
-                if (!people) {
-                    return null
-                }
-                const score = (person: PersonType): number => {
-                    return steps.reduce(
-                        (val, step) => (person.uuid && (step.people?.indexOf(person.uuid) ?? -1) > -1 ? val + 1 : val),
-                        0
-                    )
-                }
-                return [...people].sort((a, b) => score(b) - score(a))
             },
         ],
         isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],

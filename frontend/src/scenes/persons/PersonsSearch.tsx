@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { Input } from 'antd'
 import { useValues, useActions } from 'kea'
 import { personsLogic } from './personsLogic'
-import { LemonRow } from 'lib/components/LemonRow'
 import { IconInfo } from 'lib/components/icons'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
     const { loadPersons, setListFilters } = useActions(personsLogic)
@@ -15,7 +15,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
     }, [])
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', width: 'min(100%, 24rem)' }}>
+        <div className="flex items-center gap-2" style={{ width: 'min(100%, 24rem)' }}>
             <Input.Search
                 data-attr="persons-search"
                 placeholder="Search for persons"
@@ -23,10 +23,6 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                 value={searchTerm}
                 onChange={(e) => {
                     setSearchTerm(e.target.value)
-                    if (!e.target.value) {
-                        setListFilters({ search: undefined })
-                        loadPersons()
-                    }
                 }}
                 enterButton
                 onPressEnter={(e) => {
@@ -35,23 +31,22 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                     loadPersons()
                 }}
                 allowClear
-                onSearch={() => {
-                    setListFilters({ search: searchTerm || undefined })
+                onSearch={(value) => {
+                    setListFilters({ search: value || undefined })
                     loadPersons()
                 }}
                 style={{ width: '100%' }}
             />
-            <LemonRow
-                className="ml-05"
-                type="stealth"
-                tooltip={
+            <Tooltip
+                title={
                     <>
-                        Search by email, name, ID, or even contents of properties. You can also search for persons who
-                        just <i>have</i> a property like so: "has:your_property".
+                        Search by email or Distinct ID. Email will match partially, for example: "@gmail.com". Distinct
+                        ID needs to match exactly.
                     </>
                 }
-                icon={<IconInfo />}
-            />
+            >
+                <IconInfo className="text-2xl text-muted-alt" />
+            </Tooltip>
         </div>
     )
 }

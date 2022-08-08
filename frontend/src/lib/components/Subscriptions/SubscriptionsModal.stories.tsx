@@ -5,8 +5,7 @@ import { AvailableFeature, InsightShortId, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { uuid } from 'lib/utils'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from '../LemonButton'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
 
@@ -24,7 +23,6 @@ const Template = (
     const [modalOpen, setModalOpen] = useState(false)
 
     useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
-    useFeatureFlags([FEATURE_FLAGS.SUBSCRIPTIONS_SLACK])
 
     useStorybookMocks({
         get: {
@@ -65,7 +63,7 @@ const Template = (
     return (
         <div>
             <div className="LemonModal">
-                <div className="border-all ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
+                <div className="rounded border ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
                     <Subscriptions
                         {...(props as SubscriptionsModalProps)}
                         closeModal={() => console.log('close')}
@@ -75,7 +73,7 @@ const Template = (
                 </div>
             </div>
 
-            <div className="flex justify-center mt">
+            <div className="flex justify-center mt-4">
                 <LemonButton onClick={() => setModalOpen(true)} type="primary">
                     Open as Modal
                 </LemonButton>

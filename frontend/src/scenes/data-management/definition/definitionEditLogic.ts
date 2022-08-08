@@ -26,7 +26,14 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
     key((props) => props.id || 'new'),
     connect(({ id }: DefinitionEditLogicProps) => ({
         values: [definitionLogic({ id }), ['isEvent', 'singular', 'mode', 'hasTaxonomyFeatures']],
-        actions: [definitionLogic({ id }), ['setDefinition', 'setPageMode']],
+        actions: [
+            definitionLogic({ id }),
+            ['setDefinition', 'setPageMode'],
+            eventPropertyDefinitionsTableLogic,
+            ['setLocalEventPropertyDefinition'],
+            eventDefinitionsTableLogic,
+            ['setLocalEventDefinition'],
+        ],
     })),
     forms(({ actions, props }) => ({
         definition: {
@@ -81,9 +88,9 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                     eventDefinitionsModel.actions.loadEventDefinitions(true) // reload definitions so they are immediately available
                     // Update table values
                     if (values.isEvent) {
-                        eventDefinitionsTableLogic.actions.setLocalEventDefinition(definition)
+                        actions.setLocalEventDefinition(definition)
                     } else {
-                        eventPropertyDefinitionsTableLogic.actions.setLocalEventPropertyDefinition(definition)
+                        actions.setLocalEventPropertyDefinition(definition)
                     }
                     actions.setPageMode(DefinitionPageMode.View)
                     actions.setDefinition(definition)

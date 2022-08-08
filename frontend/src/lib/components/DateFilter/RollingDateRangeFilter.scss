@@ -4,7 +4,7 @@
     height: 2rem;
     padding: 1.25rem 0.5rem;
     align-items: center;
-    color: var(--text-default);
+    color: var(--default);
     font-weight: normal;
     font-size: 0.875rem;
     line-height: 1.375em;
@@ -13,11 +13,6 @@
 
     &:hover {
         background-color: var(--bg-mid);
-    }
-
-    &.RollingDateRangeFilter--selected {
-        background: var(--primary-bg-hover);
-        color: var(--text-default);
     }
 
     input::-webkit-outer-spin-button,
@@ -43,16 +38,27 @@
     height: 2rem;
     border: 1px solid var(--border-light);
     border-radius: 0.25rem;
+    background-color: #fff;
     box-sizing: border-box;
     -moz-box-sizing: border-box;
     -webkit-box-sizing: border-box;
     margin-right: 0.25rem;
     margin-left: 0.25rem;
     line-height: 1.25rem;
+    align-items: center;
 
     input {
         width: 3rem;
         text-align: center;
+    }
+
+    .RollingDateRangeFilter__counter__step {
+        margin: 0 0.25rem;
+        border-radius: var(--radius);
+        padding: 0.25rem;
+        &:hover {
+            background-color: var(--primary-highlight);
+        }
     }
 }
 

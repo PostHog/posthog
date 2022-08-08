@@ -17,6 +17,7 @@ import {
     ChartDisplayType,
     ChartParams,
     DashboardType,
+    ExporterFormat,
     FilterType,
     InsightColor,
     InsightLogicProps,
@@ -51,6 +52,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../AlertMessage'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -187,7 +189,7 @@ function InsightMeta({
     showDetailsControls = true,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboards } = insight
-
+    const { exporterResourceParams } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
@@ -255,6 +257,7 @@ function InsightMeta({
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
+                                            status="muted-alt"
                                             size={showDetailsButtonLabel ? 'small' : undefined}
                                         >
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
@@ -265,7 +268,7 @@ function InsightMeta({
                                             overlay={
                                                 <>
                                                     <LemonButton
-                                                        type="stealth"
+                                                        status="stealth"
                                                         to={urls.insightView(short_id)}
                                                         fullWidth
                                                     >
@@ -273,7 +276,7 @@ function InsightMeta({
                                                     </LemonButton>
                                                     {refresh && (
                                                         <LemonButton
-                                                            type="stealth"
+                                                            status="stealth"
                                                             onClick={() => {
                                                                 refresh()
                                                                 reportDashboardItemRefreshed(insight)
@@ -285,18 +288,17 @@ function InsightMeta({
                                                     )}
                                                     {editable && updateColor && (
                                                         <LemonButtonWithPopup
-                                                            type="stealth"
+                                                            status="stealth"
                                                             popup={{
                                                                 overlay: Object.values(InsightColor).map(
                                                                     (availableColor) => (
                                                                         <LemonButton
                                                                             key={availableColor}
-                                                                            type={
+                                                                            active={
                                                                                 availableColor ===
                                                                                 (color || InsightColor.White)
-                                                                                    ? 'highlighted'
-                                                                                    : 'stealth'
                                                                             }
+                                                                            status="stealth"
                                                                             onClick={() => updateColor(availableColor)}
                                                                             icon={
                                                                                 availableColor !==
@@ -327,12 +329,12 @@ function InsightMeta({
                                                     )}
                                                     {editable && moveToDashboard && otherDashboards.length > 0 && (
                                                         <LemonButtonWithPopup
-                                                            type="stealth"
+                                                            status="stealth"
                                                             popup={{
                                                                 overlay: otherDashboards.map((otherDashboard) => (
                                                                     <LemonButton
                                                                         key={otherDashboard.id}
-                                                                        type="stealth"
+                                                                        status="stealth"
                                                                         onClick={() => {
                                                                             moveToDashboard(otherDashboard)
                                                                         }}
@@ -353,7 +355,7 @@ function InsightMeta({
                                                     <LemonDivider />
                                                     {editable && (
                                                         <LemonButton
-                                                            type="stealth"
+                                                            status="stealth"
                                                             to={urls.insightEdit(short_id)}
                                                             fullWidth
                                                         >
@@ -361,19 +363,34 @@ function InsightMeta({
                                                         </LemonButton>
                                                     )}
                                                     {editable && (
-                                                        <LemonButton type="stealth" onClick={rename} fullWidth>
+                                                        <LemonButton status="stealth" onClick={rename} fullWidth>
                                                             Rename
                                                         </LemonButton>
                                                     )}
-                                                    <LemonButton type="stealth" onClick={duplicate} fullWidth>
+                                                    <LemonButton status="stealth" onClick={duplicate} fullWidth>
                                                         Duplicate
                                                     </LemonButton>
+                                                    <LemonDivider />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={[
+                                                                {
+                                                                    export_format: ExporterFormat.PNG,
+                                                                    insight: insight.id,
+                                                                },
+                                                                {
+                                                                    export_format: ExporterFormat.CSV,
+                                                                    export_context: exporterResourceParams,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ) : null}
                                                     {editable && (
                                                         <>
                                                             <LemonDivider />
                                                             {removeFromDashboard ? (
                                                                 <LemonButton
-                                                                    type="stealth"
                                                                     status="danger"
                                                                     onClick={removeFromDashboard}
                                                                     fullWidth
@@ -382,7 +399,6 @@ function InsightMeta({
                                                                 </LemonButton>
                                                             ) : (
                                                                 <LemonButton
-                                                                    type="stealth"
                                                                     status="danger"
                                                                     onClick={deleteWithUndo}
                                                                     fullWidth

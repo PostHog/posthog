@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from posthog.demo import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
-from posthog.models import PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, User
+from posthog.models import EventProperty, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, Team, User
 from posthog.models.event_definition import EventDefinition
 from posthog.models.property_definition import PropertyDefinition
 
@@ -35,12 +35,12 @@ class Command(BaseCommand):
             )
             EventDefinition.objects.create(team=team, name="$pageview")
             EventDefinition.objects.create(team=team, name="$autocapture")
-            PropertyDefinition.objects.create(team=team, name="$current_url")
-            PropertyDefinition.objects.create(team=team, name="$browser")
-            PropertyDefinition.objects.create(team=team, name="$os")
-            PropertyDefinition.objects.create(team=team, name="usage_count", is_numerical=True)
-            PropertyDefinition.objects.create(team=team, name="volume", is_numerical=True)
-            PropertyDefinition.objects.create(team=team, name="is_first_movie")
+            self.add_property_definition(team, "$current_url")
+            self.add_property_definition(team, "$browser")
+            self.add_property_definition(team, "$os")
+            self.add_property_definition(team, "usage_count")
+            self.add_property_definition(team, "volume")
+            self.add_property_definition(team, "is_first_movie")
 
             PersonalAPIKey.objects.create(user=user, label="e2e_demo_api_key key", value="e2e_demo_api_key")
             if not options["no_data"]:
@@ -48,6 +48,12 @@ class Command(BaseCommand):
 
             if options["create_e2e_test_plugin"]:
                 self.create_plugin(team)
+
+    @staticmethod
+    def add_property_definition(team: Team, property: str) -> None:
+        PropertyDefinition.objects.create(team=team, name=property, query_usage_30_day=10)
+        EventProperty.objects.create(team=team, event="$pageview", property=property)
+        EventProperty.objects.create(team=team, event="$autocapture", property=property)
 
     def create_plugin(self, team):
         plugin = Plugin.objects.create(organization=team.organization, name="e2e test plugin", plugin_type="source")

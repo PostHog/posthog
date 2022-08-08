@@ -875,10 +875,11 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
-def print_warning(warning_lines: Sequence[str]):
+def print_warning(warning_lines: Sequence[str], *, top_emoji="🔻", bottom_emoji="🔺"):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print(
-        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
+        "\n".join(("", top_emoji * highlight_length, *warning_lines, bottom_emoji * highlight_length, "",)),
+        file=sys.stderr,
     )
 
 
@@ -991,3 +992,19 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     except Exception as err:
         capture_exception(err)
         return None
+
+
+def should_write_recordings_to_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
+    )
+
+
+def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
+    )

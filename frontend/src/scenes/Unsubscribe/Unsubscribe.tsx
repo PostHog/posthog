@@ -14,13 +14,13 @@ export const scene: SceneExport = {
 export function Unsubscribe(): JSX.Element {
     const { unsubscriptionLoading, unsubscription } = useValues(unsubscribeLogic)
     return (
-        <div className="Unsubscribe text-center gap">
-            <div className="mb">
+        <div className="Unsubscribe text-center gap-4">
+            <div className="mb-4">
                 <WelcomeLogo view="unsubscribe" />
             </div>
 
             {unsubscriptionLoading ? (
-                <div className="pa">
+                <div className="p-4">
                     <Spinner />
                 </div>
             ) : unsubscription ? (

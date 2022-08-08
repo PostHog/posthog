@@ -64,7 +64,7 @@ export function Invites(): JSX.Element {
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="flex-center">
+                    <div className="flex items-center">
                         <ProfilePicture
                             name={invite.first_name}
                             email={invite.target_email}

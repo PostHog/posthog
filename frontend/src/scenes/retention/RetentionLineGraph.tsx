@@ -48,14 +48,14 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={false}
                 labelGroupType={filters.aggregation_group_type_index ?? 'people'}
-                percentage={true}
+                aggregationAxisFormat="percentage"
                 tooltip={{
                     rowCutoff: 11, // 11 time units is hardcoded into retention insights
                     renderSeries: function _renderCohortPrefix(value) {
                         return (
                             <>
                                 {value}
-                                <span className="ml-025">Cohort</span>
+                                <span className="ml-1">Cohort</span>
                             </>
                         )
                     },

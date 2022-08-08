@@ -1,9 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { allOperatorsMapping, chooseOperatorMap, isMobile, isOperatorFlag, isOperatorMulti } from 'lib/utils'
+import {
+    allOperatorsMapping,
+    chooseOperatorMap,
+    isMobile,
+    isOperatorFlag,
+    isOperatorMulti,
+    isOperatorRange,
+    isOperatorRegex,
+} from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
+import { dayjs } from 'lib/dayjs'
 
 export interface OperatorValueSelectProps {
     type?: string
@@ -24,6 +33,25 @@ interface OperatorSelectProps extends SelectProps<any> {
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
     defaultOpen?: boolean
+}
+
+function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+    if (isOperatorRegex(operator)) {
+        try {
+            new RegExp(value)
+        } catch (e: any) {
+            return e.message
+        }
+    }
+    if (isOperatorRange(operator) && isNaN(value)) {
+        let message = `Range operators only work with numeric values`
+        if (dayjs(value).isValid()) {
+            const propertyReference = property ? `property ${property}` : 'this property'
+            message += `. If you'd like to compare dates and times, make sure ${propertyReference} is typed as DateTime in Data Management. You will then be able to use operators "before" and "after"`
+        }
+        return message
+    }
+    return null
 }
 
 export function OperatorValueSelect({
@@ -47,6 +75,7 @@ export function OperatorValueSelect({
             ? PropertyOperator.IsDateExact
             : operator || PropertyOperator.Exact
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
+    const [validationError, setValidationError] = useState<string | null>(null)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
@@ -61,6 +90,14 @@ export function OperatorValueSelect({
                     operator={currentOperator || PropertyOperator.Exact}
                     operators={operators}
                     onChange={(newOperator: PropertyOperator) => {
+                        const tentativeValidationError =
+                            newOperator && value ? getValidationError(newOperator, value, propkey) : null
+                        if (tentativeValidationError) {
+                            setValidationError(tentativeValidationError)
+                            return
+                        } else {
+                            setValidationError(null)
+                        }
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
@@ -91,6 +128,16 @@ export function OperatorValueSelect({
                         placeholder={placeholder}
                         value={value}
                         onSet={(newValue: string | number | string[] | null) => {
+                            const tentativeValidationError =
+                                currentOperator && newValue
+                                    ? getValidationError(currentOperator, newValue, propkey)
+                                    : null
+                            if (tentativeValidationError) {
+                                setValidationError(tentativeValidationError)
+                                return
+                            } else {
+                                setValidationError(null)
+                            }
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
                         // open automatically only if new filter
@@ -98,6 +145,7 @@ export function OperatorValueSelect({
                     />
                 </Col>
             )}
+            {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
         </>
     )
 }

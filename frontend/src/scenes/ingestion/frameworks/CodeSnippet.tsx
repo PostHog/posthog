@@ -106,7 +106,6 @@ export function CodeSnippet({
                     )}
                 {!hideCopyButton && (
                     <LemonButton
-                        className="CodeSnippet__copy-button"
                         data-attr="copy-code-button"
                         icon={<IconCopy />}
                         onClick={() => {

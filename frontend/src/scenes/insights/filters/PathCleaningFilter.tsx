@@ -37,8 +37,8 @@ export function PathCleaningFilter(): JSX.Element {
             <Row align="middle" justify="space-between" style={{ paddingLeft: 0 }}>
                 <Popup
                     visible={open}
-                    placement={'bottom-end'}
-                    fallbackPlacements={['bottom-start']}
+                    placement={'top-end'}
+                    fallbackPlacements={['top-start']}
                     onClickOutside={() => setOpen(false)}
                     overlay={
                         <PathRegexPopup
@@ -75,7 +75,7 @@ export function PathCleaningFilter(): JSX.Element {
                             : "You don't have path cleaning filters. Click the gear icon to configure it."
                     }
                 >
-                    <div className="flex gap">
+                    <div className="flex gap-4">
                         <label>Apply global path URL cleaning</label>
                         <LemonSwitch
                             disabled={!hasFilters}

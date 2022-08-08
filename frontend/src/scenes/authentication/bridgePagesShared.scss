@@ -1,4 +1,4 @@
-@import '../../styles/breakpoints';
+@import '../../styles/mixins';
 
 .bridge-page {
     background-color: var(--bg-bridge);
@@ -11,12 +11,12 @@
     .ant-form-item-has-error {
         input[type='password'],
         input[type='text'] {
-            border-color: var(--danger-bridge) !important;
+            border-color: var(--danger-light) !important;
         }
     }
 
     .ant-form-item-explain-error {
-        color: var(--danger-bridge);
+        color: var(--danger-light);
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
     }

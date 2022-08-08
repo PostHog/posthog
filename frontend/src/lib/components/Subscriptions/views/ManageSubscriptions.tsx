@@ -19,7 +19,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
     return (
         <LemonButtonWithSideAction
             type="secondary"
-            outlined
+            status="stealth"
             onClick={() => onClick()}
             data-attr="subscription-list-item"
             fullWidth
@@ -33,7 +33,6 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                                 <LemonButton
                                     onClick={() => onDelete()}
                                     data-attr="subscription-list-item-delete"
-                                    type="stealth"
                                     status="danger"
                                     fullWidth
                                 >
@@ -45,10 +44,10 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                 },
             }}
         >
-            <div className="space-between-items flex-auto items-center pa-05">
+            <div className="flex justify-between flex-auto items-center p-2">
                 <div>
-                    <div>{subscription.title}</div>
-                    <div className="text-default">{capitalizeFirstLetter(subscription.summary)}</div>
+                    <div className="text-primary font-medium">{subscription.title}</div>
+                    <div className="text-sm text-default">{capitalizeFirstLetter(subscription.summary)}</div>
                 </div>
                 {subscription.target_type === 'email' ? (
                     <ProfileBubbles
@@ -83,8 +82,8 @@ export function ManageSubscriptions({
 
     return (
         <>
-            <header className="border-bottom pb-05">
-                <h4 className="mt-05">Manage Subscriptions</h4>
+            <header className="border-b pb-4">
+                <h4 className="mt-2">Manage Subscriptions</h4>
             </header>
 
             <section
@@ -117,7 +116,7 @@ export function ManageSubscriptions({
                         ))}
                     </>
                 ) : (
-                    <div className="flex-column pa items-center text-center">
+                    <div className="flex flex-col p-4 items-center text-center">
                         <h3>There are no subscriptions for this insight</h3>
 
                         <p>Once subscriptions are created they will display here. </p>
@@ -129,7 +128,7 @@ export function ManageSubscriptions({
                 )}
             </section>
 
-            <footer className="space-between-items pt">
+            <footer className="flex justify-between pt-4">
                 <div>
                     {!!subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
@@ -137,7 +136,7 @@ export function ManageSubscriptions({
                         </LemonButton>
                     ) : null}
                 </div>
-                <div className="flex gap-05">
+                <div className="flex gap-2">
                     <LemonButton type="secondary" onClick={onCancel}>
                         Close
                     </LemonButton>

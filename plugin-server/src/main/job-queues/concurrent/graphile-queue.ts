@@ -77,7 +77,7 @@ export class GraphileQueue extends JobQueueBase {
                     concurrency: 1,
                     // Install signal handlers for graceful shutdown on SIGINT, SIGTERM, etc
                     noHandleSignals: false,
-                    pollInterval: 100,
+                    pollInterval: this.serverConfig.PLUGIN_SERVER_MODE === 'async' ? 100 : 2000,
                     // you can set the taskList or taskDirectory but not both
                     taskList: this.jobHandlers,
                 })

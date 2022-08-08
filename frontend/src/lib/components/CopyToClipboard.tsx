@@ -24,7 +24,6 @@ export function CopyToClipboardInline({
     selectable = false,
     isValueSensitive = false,
     tooltipMessage = null,
-    iconStyle = {},
     iconPosition = 'end',
     style,
     ...props
@@ -51,12 +50,9 @@ export function CopyToClipboardInline({
             <LemonButton
                 size="small"
                 icon={<IconCopy />}
+                noPadding
                 className="copy-icon"
                 onClick={!selectable ? undefined : copy}
-                style={{
-                    [iconPosition === 'end' ? 'marginLeft' : 'marginRight']: 4,
-                    ...iconStyle,
-                }}
             />
         </span>
     )

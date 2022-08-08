@@ -1,0 +1,13 @@
+.add-to-dashboard-modal {
+    .list-wrapper {
+        min-height: 420px;
+    }
+
+    .existing-links-info {
+        color: var(--muted-alt);
+
+        strong {
+            color: var(--default);
+        }
+    }
+}

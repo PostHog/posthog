@@ -3,7 +3,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FullScreen } from 'lib/components/FullScreen'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
-import { LemonRow } from 'lib/components/LemonRow'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -16,15 +15,14 @@ import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
-import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
+import { privilegeLevelToName } from 'lib/constants'
 import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { IconLock } from 'lib/components/icons'
 import { urls } from 'scenes/urls'
 import { Link } from 'lib/components/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
-import { SubscriptionsModal, SubscribeButton } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
@@ -38,26 +36,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboardLoading } = useValues(dashboardsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
     const { push } = useActions(router)
-
-    const exportOptions: ExportButtonItem[] = [
-        {
-            export_format: ExporterFormat.PNG,
-            dashboard: dashboard?.id,
-            export_context: {
-                path: apiUrl(),
-            },
-        },
-    ]
-    if (!!featureFlags[FEATURE_FLAGS.ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS]) {
-        exportOptions.push({
-            export_format: ExporterFormat.CSV,
-            export_context: {
-                path: apiUrl(),
-            },
-        })
-    }
 
     return dashboard || allItemsLoading ? (
         <>
@@ -128,18 +107,19 @@ export function DashboardHeader(): JSX.Element | null {
                     ) : (
                         <>
                             <More
+                                data-tooltip="dashboard-three-dots-options-menu"
                                 overlay={
                                     dashboard ? (
                                         <>
                                             {dashboard.created_by && (
                                                 <>
-                                                    <LemonRow fullWidth style={{ color: 'var(--muted-alt)' }}>
+                                                    <div className="flex p-2 text-muted-alt">
                                                         Created by{' '}
                                                         {dashboard.created_by.first_name ||
                                                             dashboard.created_by.email ||
                                                             '-'}{' '}
                                                         on {humanFriendlyDetailedTime(dashboard.created_at)}
-                                                    </LemonRow>
+                                                    </div>
                                                     <LemonDivider />
                                                 </>
                                             )}
@@ -151,7 +131,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                             DashboardEventSource.MoreDropdown
                                                         )
                                                     }
-                                                    type="stealth"
+                                                    status="stealth"
                                                     fullWidth
                                                 >
                                                     Edit layout (E)
@@ -164,7 +144,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         DashboardEventSource.MoreDropdown
                                                     )
                                                 }
-                                                type="stealth"
+                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Go full screen (F)
@@ -178,7 +158,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        type="stealth"
+                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Unpin dashboard
@@ -191,14 +171,26 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        type="stealth"
+                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
-                                            <ExportButton fullWidth type="stealth" items={exportOptions} />
+                                            <ExportButton
+                                                fullWidth
+                                                status="stealth"
+                                                items={[
+                                                    {
+                                                        export_format: ExporterFormat.PNG,
+                                                        dashboard: dashboard?.id,
+                                                        export_context: {
+                                                            path: apiUrl(),
+                                                        },
+                                                    },
+                                                ]}
+                                            />
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() =>
@@ -208,7 +200,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         show: true,
                                                     })
                                                 }
-                                                type="stealth"
+                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Duplicate dashboard
@@ -219,7 +211,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         deleteDashboard({ id: dashboard.id, redirect: true })
                                                     }
                                                     status="danger"
-                                                    type="stealth"
                                                     fullWidth
                                                 >
                                                     Delete dashboard
@@ -278,6 +269,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
@@ -285,6 +277,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         staticOnly
                                         className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : null}
                             </>

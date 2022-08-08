@@ -23,7 +23,7 @@ export function RenderMetricValue({
     if (value && isSecret) {
         return (
             <LemonTag
-                style={{ color: 'var(--text-muted)', backgroundColor: '#fee5b3' }}
+                style={{ color: 'var(--muted)', backgroundColor: '#fee5b3' }}
                 icon={isSecret ? <IconLock style={{ color: 'var(--warning)' }} /> : undefined}
             >
                 Secret
@@ -43,7 +43,7 @@ export function RenderMetricValue({
     }
 
     if (value === null || value === undefined || value === '') {
-        return <LemonTag style={{ color: 'var(--text-muted)' }}>{emptyNullLabel ?? 'Unknown'}</LemonTag>
+        return <LemonTag style={{ color: 'var(--muted)' }}>{emptyNullLabel ?? 'Unknown'}</LemonTag>
     }
 
     if (value_type === 'int' || typeof value === 'number') {

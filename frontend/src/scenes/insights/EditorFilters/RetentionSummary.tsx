@@ -25,7 +25,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
     const { setFilters } = useActions(retentionTableLogic(insightProps))
 
     return (
-        <div className="space-y-05" data-attr="retention-summary">
+        <div className="space-y-2" data-attr="retention-summary">
             <div>
                 Show{' '}
                 {showGroupsOptions ? (
@@ -38,7 +38,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                 )}{' '}
                 who performed event or action
             </div>
-            <div className="flex-center">
+            <div className="flex items-center">
                 <ActionFilter
                     entitiesLimit={1}
                     mathAvailability={MathAvailability.None}
@@ -118,7 +118,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
             </div>
 
             <div>
-                <p className="text-muted mt">
+                <p className="text-muted mt-4">
                     Want to learn more about retention?{' '}
                     <a
                         href="https://posthog.com/docs/features/retention?utm_campaign=learn-more-horizontal&utm_medium=in-product"

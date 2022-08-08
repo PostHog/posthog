@@ -10,7 +10,7 @@ export const scene: SceneExport = {
 
 export function IntegrationsRedirect(): JSX.Element {
     return (
-        <div className="text-center gap flex">
+        <div className="text-center gap-4 flex">
             <Spinner />
         </div>
     )

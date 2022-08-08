@@ -16,25 +16,7 @@ export const plugin60: Plugin = {
     name: 'test-maxmind-plugin',
     description: 'Ingest GeoIP data via MaxMind',
     url: 'https://www.npmjs.com/package/posthog-maxmind-plugin',
-    config_schema: {
-        localhostIP: {
-            hint: 'Useful if testing locally',
-            name: 'IP to use instead of 127.0.0.1',
-            type: 'string',
-            order: 2,
-            default: '',
-            required: false,
-        },
-        maxmindMmdb: {
-            hint: 'The "GeoIP2 City" or "GeoLite2 City" database file',
-            name: 'GeoIP .mddb database',
-            type: 'attachment',
-            order: 1,
-            markdown:
-                'Sign up for a [MaxMind.com](https://www.maxmind.com) account, download and extract the database and then upload the `.mmdb` file below',
-            required: true,
-        },
-    },
+    config_schema: {},
     tag: '0.0.2',
     error: undefined,
     from_json: false,
@@ -70,7 +52,6 @@ export const pluginConfig39: PluginConfig = {
     enabled: true,
     order: 0,
     config: { localhostIP: '94.224.212.175' },
-    error: undefined,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
 }

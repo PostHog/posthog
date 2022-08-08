@@ -1,11 +1,9 @@
 import React, { useState } from 'react'
 import { AnyPropertyFilter } from '~/types'
-import { Button } from 'antd'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { PlusCircleOutlined } from '@ant-design/icons'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import clsx from 'clsx'
@@ -25,7 +23,6 @@ interface FilterRowProps {
     label: string
     onRemove: (index: number) => void
     orFiltering?: boolean
-    useLemonButton?: boolean // To be removed once lemon is completely released
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -40,7 +37,6 @@ export const FilterRow = React.memo(function FilterRow({
     label,
     onRemove,
     orFiltering,
-    useLemonButton = false,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
 
@@ -59,7 +55,7 @@ export const FilterRow = React.memo(function FilterRow({
             className={clsx(
                 'property-filter-row',
                 !disablePopover && 'wrap-filters',
-                orFiltering && index !== 0 && 'mt-05'
+                orFiltering && index !== 0 && 'mt-2'
             )}
             data-attr={'property-filter-' + index}
             wrap={false}
@@ -71,7 +67,7 @@ export const FilterRow = React.memo(function FilterRow({
                         (orFiltering ? (
                             <LemonButton
                                 icon={<IconDelete />}
-                                type="alt"
+                                status="primary-alt"
                                 onClick={() => onRemove(index)}
                                 size="small"
                             />
@@ -108,7 +104,7 @@ export const FilterRow = React.memo(function FilterRow({
                         >
                             {`${item['alias']}::${item['regex']}`}
                         </PropertyFilterButton>
-                    ) : useLemonButton ? (
+                    ) : (
                         <LemonButton
                             onClick={() => setOpen(!open)}
                             className="new-prop-filter"
@@ -119,23 +115,6 @@ export const FilterRow = React.memo(function FilterRow({
                         >
                             {label}
                         </LemonButton>
-                    ) : (
-                        <Button
-                            onClick={() => setOpen(!open)}
-                            className="new-prop-filter"
-                            data-attr={'new-prop-filter-' + pageKey}
-                            style={{
-                                color: 'var(--primary)',
-                                border: 'none',
-                                boxShadow: 'none',
-                                paddingLeft: 0,
-                                background: 'none',
-                            }}
-                            icon={<PlusCircleOutlined />}
-                            type="default"
-                        >
-                            {label}
-                        </Button>
                     )}
                 </Popup>
             )}

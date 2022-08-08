@@ -142,10 +142,14 @@ def get_interval_func_ch(period: Optional[str]) -> str:
 
 def date_from_clause(interval_annotation: str, round_interval: bool) -> str:
     if round_interval:
+        # Truncate function in clickhouse will remove the time granularity and leave only the date
+        # Specify that this truncated date is the local timezone target
+        # Convert target to UTC so that stored timestamps can be compared accordingly
+        # Example: `2022-04-05 07:00:00` -> truncated to `2022-04-05` -> 2022-04-05 00:00:00 PST -> 2022-04-05 07:00:00 UTC
         if interval_annotation == "toStartOfWeek":
-            return "AND timestamp >= toStartOfWeek(toDateTime(%(date_from)s), 0, %(timezone)s)"
+            return "AND timestamp >= toTimezone(toDateTime(toStartOfWeek(toDateTime(%(date_from)s), 0), %(timezone)s), 'UTC')"
 
-        return "AND timestamp >= {interval}(toDateTime(%(date_from)s), %(timezone)s)".format(
+        return "AND timestamp >= toTimezone(toDateTime({interval}(toDateTime(%(date_from)s)), %(timezone)s), 'UTC')".format(
             interval=interval_annotation
         )
     else:

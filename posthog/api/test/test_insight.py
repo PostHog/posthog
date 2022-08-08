@@ -24,7 +24,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.update_cache import update_insight_cache
+from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -272,6 +272,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "id",
                 "short_id",
                 "name",
+                "favorited",
                 "filters",
                 "dashboards",
                 "description",
@@ -698,7 +699,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @patch("posthog.api.insight.update_insight_cache", wraps=update_insight_cache)
+    @patch("posthog.api.insight.synchronously_update_insight_cache", wraps=synchronously_update_insight_cache)
     def test_insight_refreshing(self, spy_update_insight_cache):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d",}})
 
@@ -1501,8 +1502,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(self):
         # create insight and dashboard separately with default user
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        dashboard_restricted_id, _ = self._create_dashboard(
+            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
         )
 
         insight_id, response_data = self._create_insight(data={"name": "starts un-restricted dashboard"})
@@ -1514,9 +1515,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.client.force_login(user_without_permissions)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted.id]},
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted_id]},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted_id]},
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_non_admin_user_with_privilege_can_add_an_insight_to_a_restricted_dashboard(self):
         # create insight and dashboard separately with default user

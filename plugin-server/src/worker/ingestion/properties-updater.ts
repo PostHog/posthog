@@ -28,7 +28,7 @@ export async function upsertGroup(
     timestamp: DateTime
 ): Promise<void> {
     try {
-        const [propertiesUpdate, createdAt, version] = await db.postgresTransaction(async (client) => {
+        const [propertiesUpdate, createdAt, version] = await db.postgresTransaction('upsertGroup', async (client) => {
             const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, client, {
                 forUpdate: true,
             })

@@ -1,4 +1,4 @@
-@import '../../styles/breakpoints';
+@import '../../styles/mixins';
 @import './bridgePagesShared';
 
 .bridge-page.login {
@@ -9,18 +9,17 @@
         justify-content: space-between;
         text-align: center;
         padding-top: 1rem;
+        flex-direction: column;
+
+        a {
+            display: block;
+            width: 100%;
+        }
     }
 
-    @media screen and (max-width: $sm) {
+    @include screen($sm) {
         .helper-links {
-            flex-direction: column;
-            a {
-                display: block;
-                width: 100%;
-                a {
-                    flex-grow: 1;
-                }
-            }
+            flex-direction: row;
         }
     }
 

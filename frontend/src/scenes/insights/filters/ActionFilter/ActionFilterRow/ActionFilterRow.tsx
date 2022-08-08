@@ -30,8 +30,6 @@ import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/c
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const DragHandle = sortableHandle(() => (
     <span className="ActionFilterRowDragHandle">
@@ -123,7 +121,6 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -215,7 +212,7 @@ export function ActionFilterRow({
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-hover)' : '',
+                    borderColor: selectedFilter && selectedFilter.index === index ? 'var(--primary-light)' : '',
                     borderWidth: selectedFilter && selectedFilter.index === index ? '1.5px' : '1px',
                 }}
             >
@@ -233,9 +230,10 @@ export function ActionFilterRow({
         <IconWithCount count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
-                type="alt"
+                status="primary-alt"
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
+                noPadding
                 onClick={() => {
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
@@ -248,9 +246,10 @@ export function ActionFilterRow({
     const renameRowButton = (
         <LemonButton
             icon={<IconEdit />}
-            type="alt"
+            status="primary-alt"
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
+            noPadding
             onClick={() => {
                 selectFilter(filter)
                 onRenameClick()
@@ -261,9 +260,10 @@ export function ActionFilterRow({
     const duplicateRowButton = (
         <LemonButton
             icon={<IconCopy />}
-            type="alt"
+            status="primary-alt"
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
+            noPadding
             onClick={() => {
                 duplicateFilter(filter)
             }}
@@ -273,9 +273,10 @@ export function ActionFilterRow({
     const deleteButton = (
         <LemonButton
             icon={<IconDelete />}
-            type="alt"
+            status="primary-alt"
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
+            noPadding
             onClick={onClose}
         />
     )
@@ -320,11 +321,10 @@ export function ActionFilterRow({
                                         <div className="col">
                                             <TaxonomicStringPopup
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                                                groupTypes={[TaxonomicFilterGroupType.NumericalEventProperties].concat(
-                                                    featureFlags[FEATURE_FLAGS.SESSION_ANALYSIS]
-                                                        ? [TaxonomicFilterGroupType.Sessions]
-                                                        : []
-                                                )}
+                                                groupTypes={[
+                                                    TaxonomicFilterGroupType.NumericalEventProperties,
+                                                    TaxonomicFilterGroupType.Sessions,
+                                                ]}
                                                 value={mathProperty}
                                                 onChange={(currentValue) => onMathPropertySelect(index, currentValue)}
                                                 eventNames={name ? [name] : []}
@@ -381,7 +381,6 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
-                        useLemonButton
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]

@@ -61,7 +61,7 @@ function EmailUnavailable(): JSX.Element {
                 your password.
             </div>
             <Divider />
-            <div className="mt">
+            <div className="mt-4">
                 If you're an administrator:
                 <ul>
                     <li>
@@ -88,7 +88,7 @@ function ResetForm(): JSX.Element {
 
     return (
         <>
-            <div className="text-center mb">
+            <div className="text-center mb-4">
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
             {!resetResponseLoading && resetResponse?.errorCode && (
@@ -150,7 +150,7 @@ function ResetSuccess(): JSX.Element {
         <div className="text-center">
             Request received successfully! If the email <b>{resetResponse?.email || 'you typed'}</b> exists, you’ll
             receive an email with a reset link soon.
-            <div className="mt">
+            <div className="mt-4">
                 <Button className="btn-bridge" data-attr="back-to-login" block onClick={() => push('/login')}>
                     Back to login
                 </Button>

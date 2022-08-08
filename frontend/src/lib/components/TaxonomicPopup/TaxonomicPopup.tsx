@@ -22,6 +22,7 @@ export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     placeholder?: React.ReactNode
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
+    style?: React.CSSProperties
 }
 
 /** Like TaxonomicPopup, but convenient when you know you will only use string values */
@@ -70,7 +71,7 @@ export function TaxonomicPopup({
             <Button
                 data-attr={dataAttr}
                 onClick={() => setVisible(!visible)}
-                className={clsx('TaxonomicPopup__button', { 'full-width': fullWidth })}
+                className={clsx('TaxonomicPopup__button', { 'w-full': fullWidth })}
                 style={style}
             >
                 <span className="text-overflow" style={{ maxWidth: '100%' }}>
@@ -120,6 +121,8 @@ export function LemonTaxonomicPopup({
 
     return (
         <div className="LemonButtonWithSideAction">
+            {/* TODO: This is nasty. We embed a button in the sideicon which should be a big no-no.
+            We should merge WithPopup and WithSideaction as this is a common use case */}
             <LemonButtonWithPopup
                 className="TaxonomicPopup__button"
                 data-attr={dataAttr}
@@ -146,30 +149,29 @@ export function LemonTaxonomicPopup({
                 onClick={() => {
                     setVisible(!visible)
                 }}
-                relaxedIconWidth
                 sideIcon={
-                    <div className="side-buttons-row">
-                        {isClearButtonShown && (
-                            <>
-                                <LemonButton
-                                    className="side-buttons-row-button"
-                                    type="tertiary"
-                                    icon={<IconClose style={{ fontSize: 16 }} />}
-                                    tooltip="Clear selection"
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        onChange?.('', groupType)
-                                        setLocalValue('')
-                                    }}
-                                />
-                                <div className="side-buttons-row-button-divider" />
-                            </>
+                    <div className="flex">
+                        {isClearButtonShown ? (
+                            <LemonButton
+                                className="side-buttons-row-button"
+                                type="tertiary"
+                                icon={<IconClose style={{ fontSize: 16 }} />}
+                                tooltip="Clear selection"
+                                noPadding
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onChange?.('', groupType)
+                                    setLocalValue('')
+                                }}
+                            />
+                        ) : (
+                            <LemonButton
+                                className="side-buttons-row-button side-buttons-row-button-no-hover"
+                                type="tertiary"
+                                noPadding
+                                icon={<IconArrowDropDown />}
+                            />
                         )}
-                        <LemonButton
-                            className="side-buttons-row-button side-buttons-row-button-no-hover"
-                            type="tertiary"
-                            icon={<IconArrowDropDown />}
-                        />
                     </div>
                 }
                 {...buttonProps}

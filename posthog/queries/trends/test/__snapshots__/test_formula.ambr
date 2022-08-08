@@ -23,7 +23,7 @@
               FROM events e
               WHERE team_id = 2
                 AND event = 'session start'
-                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
                 AND timestamp <= toDateTime('2020-01-04 23:59:59') )
            GROUP BY date)
         group by day_start
@@ -56,7 +56,7 @@
                  HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
                 AND event = 'session start'
-                AND timestamp >= toStartOfDay(toDateTime('2019-12-28 00:00:00'), 'UTC')
+                AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00')), 'UTC'), 'UTC')
                 AND timestamp <= toDateTime('2020-01-04 23:59:59') )
            GROUP BY date)
         group by day_start

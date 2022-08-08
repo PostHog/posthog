@@ -20,7 +20,7 @@ from webdriver_manager.utils import ChromeType
 from posthog.internal_metrics import incr, timing
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
-from posthog.tasks.update_cache import update_insight_cache
+from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -135,7 +135,7 @@ def export_image(exported_asset: ExportedAsset) -> None:
         if exported_asset.insight:
             # NOTE: Dashboards are regularly updated but insights are not
             # so, we need to trigger a manual update to ensure the results are good
-            update_insight_cache(exported_asset.insight, dashboard=exported_asset.dashboard)
+            synchronously_update_insight_cache(exported_asset.insight, dashboard=exported_asset.dashboard)
 
         if exported_asset.export_format == "image/png":
             _export_to_png(exported_asset)

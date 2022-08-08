@@ -8,6 +8,7 @@ import {
     MOCK_DEFAULT_USER,
     MOCK_DEFAULT_COHORT,
     MOCK_PERSON_PROPERTIES,
+    MOCK_DECIDE,
 } from 'lib/api.mock'
 import { getAvailableFeatures } from '~/mocks/features'
 
@@ -49,7 +50,9 @@ export const handlers = mocksToHandlers({
     },
     post: {
         '/e/': () => [200, 'ok'],
-        '/decide/': () => [200, 'ok'],
+        '/decide/': MOCK_DECIDE,
         'https://app.posthog.com/decide/': () => [200, 'ok'],
+        'https://app.posthog.com/engage/': () => [200, 'ok'],
+        'https://app.posthog.com/e/': () => [200, 'ok'],
     },
 })

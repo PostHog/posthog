@@ -12,7 +12,7 @@ export type PreflightMode = 'experimentation' | 'live'
 
 export type PreflightCheckStatus = 'validated' | 'error' | 'warning' | 'optional'
 
-export interface PreflightItemInterface {
+export interface PreflightItem {
     name: string
     status: PreflightCheckStatus
     caption?: string
@@ -49,6 +49,7 @@ export const preflightLogic = kea<preflightLogicType>([
         handlePreflightFinished: true,
         setChecksManuallyExpanded: (expanded: boolean | null) => ({ expanded }),
         acknowledgeEventBuffer: true,
+        revalidatePreflight: true,
     }),
     reducers({
         preflightMode: [
@@ -152,7 +153,7 @@ export const preflightLogic = kea<preflightLogicType>([
                     })
                 }
 
-                return preflightItems as PreflightItemInterface[]
+                return preflightItems as PreflightItem[]
             },
         ],
         checksSummary: [
@@ -262,6 +263,17 @@ export const preflightLogic = kea<preflightLogicType>([
         },
         setPreflightMode: async ({ mode, noReload }) => {
             if (mode && !noReload) {
+                actions.loadPreflight()
+            }
+        },
+        revalidatePreflight: () => {
+            // The TLS check MUST be in the array returned by the `checks` selector
+            const tlsCheckResult = values.checks.find((check) => check.id === 'tls') as PreflightItem
+            if (tlsCheckResult.status === 'warning') {
+                // Full page reload is needed to revalidate whether the page is served over HTTPS
+                window.location.reload()
+            } else {
+                // Otherwise, just fetch from the preflight endpoint within the logic
                 actions.loadPreflight()
             }
         },

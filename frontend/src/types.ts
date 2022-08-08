@@ -23,6 +23,7 @@ import { LogLevel } from 'rrweb'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
+import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -468,6 +469,11 @@ export enum SessionRecordingUsageType {
     LOADED = 'loaded',
 }
 
+export enum SessionRecordingTab {
+    EVENTS = 'events',
+    CONSOLE = 'console',
+}
+
 export enum SessionPlayerState {
     BUFFER = 'buffer',
     PLAY = 'play',
@@ -693,7 +699,7 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     colonTimestamp?: string // Used in session recording events list
-    person?: Partial<PersonType> | null
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
 }
 
@@ -1102,6 +1108,7 @@ export interface FilterType {
     breakdown_attribution_type?: BreakdownAttributionType // funnels breakdown attribution type
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    aggregation_axis_format?: AggregationAxisFormat
 }
 
 export interface RecordingEventsFilters {
@@ -1385,6 +1392,7 @@ export interface FeatureFlagType {
     is_simple_flag: boolean
     rollout_percentage: number | null
     ensure_experience_continuity: boolean | null
+    experiment_set: string[] | null
 }
 
 export interface CombinedFeatureFlagAndValueType {
@@ -1928,14 +1936,6 @@ export interface SubscriptionType {
     deleted?: boolean
 }
 
-export type Description = string | JSX.Element | null
-
-export interface ChangeDescriptions {
-    descriptions: Description[]
-    // e.g. should description say "did deletion _to_ Y" or "deleted Y"
-    bareName: boolean
-}
-
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
 
 export type Duration = {
@@ -1944,6 +1944,12 @@ export type Duration = {
 }
 
 export type CombinedEvent = EventDefinition | ActionType
+
+export enum CombinedEventType {
+    All = 'all',
+    Event = 'event',
+    ActionEvent = 'action_event',
+}
 
 export interface IntegrationType {
     id: number

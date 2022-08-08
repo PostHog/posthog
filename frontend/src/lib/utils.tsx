@@ -20,6 +20,7 @@ import {
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyOperator,
     PropertyType,
     TimeUnitType,
 } from '~/types'
@@ -161,13 +162,11 @@ export function percentage(
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
-    return division
-        .toLocaleString('en-US', {
-            style: 'percent',
-            maximumFractionDigits,
-            minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
-        })
-        .replace(',', ' ') // Use space as thousands separator as it's more international
+    return division.toLocaleString('en-US', {
+        style: 'percent',
+        maximumFractionDigits,
+        minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+    })
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -175,22 +174,6 @@ export function Loading(props: Record<string, any>): JSX.Element {
         <div className="loading-overlay" style={props.style}>
             <Spinner size="lg" />
         </div>
-    )
-}
-
-export function TableRowLoading({
-    colSpan = 1,
-    asOverlay = false,
-}: {
-    colSpan: number
-    asOverlay: boolean
-}): JSX.Element {
-    return (
-        <tr className={asOverlay ? 'loading-overlay over-table' : ''}>
-            <td colSpan={colSpan} style={{ padding: 50, textAlign: 'center' }}>
-                <Spinner />
-            </td>
-        </tr>
     )
 }
 
@@ -369,21 +352,34 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
     return choice
 }
 
-export function isOperatorMulti(operator: string): boolean {
-    return ['exact', 'is_not'].includes(operator)
+export function isOperatorMulti(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
 }
 
-export function isOperatorFlag(operator: string): boolean {
+export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return ['is_set', 'is_not_set'].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
 }
 
-export function isOperatorRegex(operator: string): boolean {
-    return ['regex', 'not_regex'].includes(operator)
+export function isOperatorRegex(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Regex, PropertyOperator.NotRegex].includes(operator)
 }
 
-export function isOperatorDate(operator: string): boolean {
-    return ['is_date_before', 'is_date_after', 'is_date_exact'].includes(operator)
+export function isOperatorRange(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.GreaterThan,
+        PropertyOperator.GreaterThanOrEqual,
+        PropertyOperator.LessThan,
+        PropertyOperator.LessThanOrEqual,
+        PropertyOperator.Between,
+        PropertyOperator.NotBetween,
+    ].includes(operator)
+}
+
+export function isOperatorDate(operator: PropertyOperator): boolean {
+    return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
+        operator
+    )
 }
 
 export function formatPropertyLabel(
@@ -469,12 +465,6 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export const posthogEvents = ['$autocapture', '$pageview', '$identify', '$pageleave']
-
-export function isAndroidOrIOS(): boolean {
-    return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
-}
-
 export function slugify(text: string): string {
     return text
         .toString() // Cast to string
@@ -514,7 +504,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits).join(' ')
+    return units.slice(0, maxUnits).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -624,6 +614,10 @@ export function isEmail(string: string): boolean {
     const regexp =
         /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
     return !!string.match?.(regexp)
+}
+
+export function truncate(str: string, maxLength: number): string {
+    return str.length > maxLength ? str.slice(0, maxLength - 1) + '...' : str
 }
 
 export function eventToDescription(
@@ -1047,16 +1041,16 @@ export function colorForString(s: string): string {
     return tagColors[hashCodeForString(s) % tagColors.length]
 }
 
+/** Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output. */
 export function midEllipsis(input: string, maxLength: number): string {
-    /* Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output string
-     excluding the ... */
     if (input.length <= maxLength) {
         return input
     }
 
     const middle = Math.ceil(input.length / 2)
-    const excess = Math.ceil((input.length - maxLength) / 2)
-    return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
+    const excessLeft = Math.ceil((input.length - maxLength) / 2)
+    const excessRight = Math.ceil((input.length - maxLength + 1) / 2)
+    return `${input.slice(0, middle - excessLeft)}…${input.slice(middle + excessRight)}`
 }
 
 export const disableHourFor: Record<string, boolean> = {

@@ -27,6 +27,7 @@ from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
+from posthog.settings.geoip import *
 from posthog.settings.logs import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
@@ -116,6 +117,12 @@ EVENTS_DEAD_LETTER_QUEUE_STATSD_METRIC = "events_added_to_dead_letter_queue"
 KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
 )
+
+# Topic to write recording events to before they are uploaded to object storage
+KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC: str = os.getenv(
+    "KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC", KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION
+)
+
 
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent this
