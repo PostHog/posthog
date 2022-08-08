@@ -370,43 +370,47 @@ export function SavedInsights(): JSX.Element {
                                 value={search || ''}
                             />
                         </div>
-                        <div className="flex items-center gap-2 ">
-                            <span>Type:</span>
-                            <LemonSelect
-                                size="small"
-                                options={
-                                    {
-                                        'All types': {
-                                            label: 'All types',
-                                        },
-                                        ...INSIGHT_TYPE_OPTIONS,
-                                    } as LemonSelectOptions
-                                }
-                                value={insightType}
-                                onChange={(v: any): void => setSavedInsightsFilters({ insightType: v })}
-                                status="stealth"
-                                type="secondary"
-                                dropdownMatchSelectWidth={false}
-                                data-attr="insight-type"
-                            />
-                            <span>Last modified:</span>
-                            <DateFilter
-                                defaultValue="All time"
-                                disabled={false}
-                                dateFrom={dateFrom}
-                                dateTo={dateTo}
-                                onChange={(fromDate, toDate) =>
-                                    setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
-                                }
-                                makeLabel={(key) => (
-                                    <>
-                                        <CalendarOutlined />
-                                        <span className="hide-when-small"> {key}</span>
-                                    </>
-                                )}
-                            />
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                                <span>Type:</span>
+                                <LemonSelect
+                                    size="small"
+                                    options={
+                                        {
+                                            'All types': {
+                                                label: 'All types',
+                                            },
+                                            ...INSIGHT_TYPE_OPTIONS,
+                                        } as LemonSelectOptions
+                                    }
+                                    value={insightType}
+                                    onChange={(v: any): void => setSavedInsightsFilters({ insightType: v })}
+                                    status="stealth"
+                                    type="secondary"
+                                    dropdownMatchSelectWidth={false}
+                                    data-attr="insight-type"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span>Last modified:</span>
+                                <DateFilter
+                                    defaultValue="All time"
+                                    disabled={false}
+                                    dateFrom={dateFrom}
+                                    dateTo={dateTo}
+                                    onChange={(fromDate, toDate) =>
+                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                                    }
+                                    makeLabel={(key) => (
+                                        <>
+                                            <CalendarOutlined />
+                                            <span className="hide-when-small"> {key}</span>
+                                        </>
+                                    )}
+                                />
+                            </div>
                             {tab !== SavedInsightsTabs.Yours ? (
-                                <>
+                                <div className="flex items-center gap-2">
                                     <span>Created by:</span>
                                     {/* TODO: Fix issues with user name order due to numbers having priority */}
                                     <LemonSelect
@@ -431,7 +435,7 @@ export function SavedInsights(): JSX.Element {
                                         type="secondary"
                                         dropdownMatchSelectWidth={false}
                                     />
-                                </>
+                                </div>
                             ) : null}
                         </div>
                     </div>
