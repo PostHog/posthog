@@ -1,4 +1,3 @@
-import { Col, Row } from 'antd'
 import { useValues, useActions } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import React from 'react'
@@ -8,7 +7,6 @@ import './Panels.scss'
 import { LemonModal } from 'lib/components/LemonModal'
 import { thirdPartySources, ThirdPartySourceType } from '../constants'
 import { IconOpenInNew } from 'lib/components/icons'
-import { PanelSupport } from './PanelComponents'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType, PluginRepositoryEntryType, PluginTypeWithConfig } from 'scenes/plugins/types'
@@ -33,7 +31,7 @@ export function ThirdPartyPanel(): JSX.Element {
 
     return (
         <CardContainer index={index} showFooter={true} onBack={() => setPlatform(null)}>
-            <div style={{ paddingLeft: 24, paddingRight: 24 }}>
+            <div className="px-6">
                 <h1 className="ingestion-title">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {
                     const installedThirdPartyPlugin = installedPlugins?.find((plugin: PluginTypeWithConfig) =>
@@ -42,25 +40,22 @@ export function ThirdPartyPanel(): JSX.Element {
                     return (
                         <div
                             key={source.name}
+                            className="p-4 mb-2"
                             style={{
                                 minWidth: 600,
                                 border: '2px solid var(--border-light)',
                                 borderRadius: 4,
-                                padding: 16,
-                                marginBottom: 8,
                             }}
                         >
-                            <Row align="middle" justify="space-between">
-                                <Row align="middle">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center">
                                     {source.icon}
-                                    <Col className="ml-2">
+                                    <div className="flex ml-2">
                                         <h3
-                                            className="mb-0"
+                                            className="mb-0 flex align-center"
                                             style={{
                                                 fontWeight: 600,
                                                 fontSize: 16,
-                                                display: 'flex',
-                                                alignItems: 'center',
                                             }}
                                         >
                                             {source.name} Import
@@ -75,9 +70,9 @@ export function ThirdPartyPanel(): JSX.Element {
                                             ))}
                                         </h3>
                                         <p className="mb-0 text-muted">Send events from {source.name} into PostHog</p>
-                                    </Col>
-                                </Row>
-                                <Row>
+                                    </div>
+                                </div>
+                                <div>
                                     <LemonButton
                                         className="mr-2"
                                         type="secondary"
@@ -138,8 +133,8 @@ export function ThirdPartyPanel(): JSX.Element {
                                             )}
                                         </>
                                     )}
-                                </Row>
-                            </Row>
+                                </div>
+                            </div>
                         </div>
                     )
                 })}
@@ -153,7 +148,6 @@ export function IntegrationInstructionsModal(): JSX.Element {
     const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogic)
     const { setInstructionsModal } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <>
@@ -167,21 +161,28 @@ export function IntegrationInstructionsModal(): JSX.Element {
                             isOpen={instructionsModalOpen}
                             onClose={() => setInstructionsModal(false)}
                             title="Configure integration"
+                            footer={
+                                <LemonButton
+                                    fullWidth
+                                    center
+                                    type="primary"
+                                    onClick={() => setInstructionsModal(false)}
+                                >
+                                    Done
+                                </LemonButton>
+                            }
                         >
                             {thirdPartyIntegrationSource.type === ThirdPartySourceType.Integration ? (
                                 <div>
-                                    {thirdPartyIntegrationSource.icon}
                                     <h1 className="ingestion-title">
-                                        Integrate with {thirdPartyIntegrationSource.name}{' '}
+                                        {thirdPartyIntegrationSource.icon}
+                                        <span>Integrate with {thirdPartyIntegrationSource.name}</span>
                                     </h1>
                                     <div style={{ borderTop: '2px dashed var(--border)' }}>
                                         <div
+                                            className="p-5 mt-6 mb-4 font-medium"
                                             style={{
-                                                padding: 20,
-                                                marginTop: 24,
-                                                marginBottom: 16,
                                                 backgroundColor: 'var(--bg-side)',
-                                                fontWeight: 500,
                                             }}
                                         >
                                             <p>
@@ -207,13 +208,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                     >
                                         Take me to {thirdPartyIntegrationSource.name}
                                     </LemonButton>
-                                    <div
-                                        style={{
-                                            borderBottom: '2px dashed var(--border)',
-                                            marginBottom: 24,
-                                            marginTop: 16,
-                                        }}
-                                    >
+                                    <div className="mb-6 mt-4">
                                         <h4>Steps:</h4>
                                         <ol className="pl-4">
                                             <li>
@@ -232,19 +227,10 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                             </b>
                                         </p>
                                     </div>
-                                    <LemonButton
-                                        fullWidth
-                                        center
-                                        type="primary"
-                                        onClick={() => setInstructionsModal(false)}
-                                    >
-                                        Done
-                                    </LemonButton>
                                 </div>
                             ) : (
                                 <PluginDrawer />
                             )}
-                            {!onboardingSidebarEnabled && <PanelSupport />}
                         </LemonModalV2>
                     )}
                 </>
