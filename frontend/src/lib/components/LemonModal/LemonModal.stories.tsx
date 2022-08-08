@@ -58,3 +58,30 @@ export const _LemonModal: ComponentStory<typeof LemonModal> = (props: LemonModal
         </>
     )
 }
+
+export const WithoutContent: ComponentStory<typeof LemonModal> = (props: LemonModalProps) => {
+    const [isOpen, setIsOpen] = useState(false)
+    return (
+        <>
+            <LemonButton type="primary" onClick={() => setIsOpen(true)}>
+                Show control panel
+            </LemonButton>
+            <LemonModal
+                {...props}
+                isOpen={isOpen}
+                onClose={() => setIsOpen(false)}
+                title="I don't have content"
+                description="But thats okay"
+                footer={
+                    <>
+                        <div className="flex-1">
+                            <LemonButton type="secondary">Tertiary action</LemonButton>
+                        </div>
+                        <LemonButton type="secondary">Secondary</LemonButton>
+                        <LemonButton type="primary">Primary</LemonButton>
+                    </>
+                }
+            />
+        </>
+    )
+}

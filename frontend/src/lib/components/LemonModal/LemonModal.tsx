@@ -67,8 +67,7 @@ export function LemonModal({
                             </LemonModalHeader>
                         ) : null}
 
-                        <LemonModalContent>{children}</LemonModalContent>
-
+                        {children ? <LemonModalContent>{children}</LemonModalContent> : null}
                         {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
                     </>
                 )}
