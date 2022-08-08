@@ -131,8 +131,9 @@ function VerifiedDomainsTable(): JSX.Element {
                             checked={jit_provisioning_enabled}
                             disabled={updatingDomainLoading || !is_verified}
                             onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
-                            label={jit_provisioning_enabled ? 'Enabled' : 'Disabled'}
-                            style={{ padding: 0, fontWeight: 400 }}
+                            label={
+                                <span className="font-normal">{jit_provisioning_enabled ? 'Enabled' : 'Disabled'}</span>
+                            }
                         />
                     </div>
                 ) : (
@@ -225,7 +226,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => setConfigureSAMLModalId(id)}
                                     fullWidth
                                     disabled={!isSAMLAvailable}
@@ -234,8 +235,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                     Configure SAML
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() =>
                                         Modal.confirm({
                                             title: `Remove ${domain}?`,

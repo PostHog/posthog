@@ -23,7 +23,7 @@ export function LemonSnack({ children, disabled, onClose }: LemonSnackProps): JS
 
                 {onClose ? (
                     <span className="LemonSnack__close">
-                        <LemonButton type="stealth" size="small" icon={<IconClose />} onClick={onClose} />
+                        <LemonButton status="stealth" size="small" icon={<IconClose />} onClick={onClose} />
                     </span>
                 ) : undefined}
             </span>

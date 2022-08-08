@@ -68,12 +68,10 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                         checked={sharingConfiguration.enabled}
                         loading={sharingConfigurationLoading}
                         data-attr="sharing-switch"
-                        onChange={(active) => {
-                            setIsEnabled(active)
-                        }}
+                        onChange={(active) => setIsEnabled(active)}
                         icon={<IconGlobeLock />}
+                        bordered
                         fullWidth
-                        type="primary"
                     />
 
                     {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
@@ -109,7 +107,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                     <div className="rounded border">
                                         <LemonButton
                                             fullWidth
-                                            type="stealth"
+                                            status="stealth"
                                             sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                             onClick={togglePreview}
                                         >
@@ -133,7 +131,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                     {({ value, onChange }) => (
                                         <LemonSwitch
                                             fullWidth
-                                            type="primary"
+                                            bordered
                                             label={
                                                 <div className="flex">
                                                     <div className="mr-2" style={{ lineHeight: '1.5rem' }}>
@@ -157,7 +155,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
-                                                type="primary"
+                                                bordered
                                                 label={<div>Show title and description</div>}
                                                 onChange={() => onChange(!value)}
                                                 checked={!value}
@@ -170,7 +168,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
-                                                type="primary"
+                                                bordered
                                                 label={<div>Show legend</div>}
                                                 onChange={() => onChange(!value)}
                                                 checked={value}

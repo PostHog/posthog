@@ -36,7 +36,7 @@ export function NewDashboardModal(): JSX.Element {
                     <LemonButton
                         form="new-dashboard-form"
                         type="secondary"
-                        data-attr="dashboard-submit"
+                        data-attr="dashboard-submit-and-go"
                         loading={isNewDashboardSubmitting}
                         disabled={isNewDashboardSubmitting}
                         onClick={createAndGoToDashboard}
@@ -74,11 +74,9 @@ export function NewDashboardModal(): JSX.Element {
                                 'data-attr': 'dashboard-select-default-app',
                             },
                         }}
-                        type="stealth"
-                        outlined
-                        style={{
-                            width: '100%',
-                        }}
+                        status="stealth"
+                        type="secondary"
+                        fullWidth
                         data-attr="copy-from-template"
                     />
                 </Field>
@@ -90,11 +88,9 @@ export function NewDashboardModal(): JSX.Element {
                                 onChange={onChange}
                                 options={DASHBOARD_RESTRICTION_OPTIONS}
                                 loading={isNewDashboardSubmitting}
-                                type="stealth"
-                                outlined
-                                style={{
-                                    width: '100%',
-                                }}
+                                status="stealth"
+                                type="secondary"
+                                fullWidth
                             />
                         </PayGateMini>
                     )}

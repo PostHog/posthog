@@ -44,7 +44,7 @@ export function SideBarApps(): JSX.Element {
                                       },
                                       overlay: (
                                           <LemonButton
-                                              type="stealth"
+                                              status="stealth"
                                               onClick={() => openAppSourceEditor(id, pluginId)}
                                               fullWidth
                                           >

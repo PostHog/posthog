@@ -326,7 +326,7 @@ export function Experiment(): JSX.Element {
                                                                                 placement="bottomLeft"
                                                                             >
                                                                                 <LemonButton
-                                                                                    type="alt"
+                                                                                    status="primary-alt"
                                                                                     size="small"
                                                                                     icon={<IconDelete />}
                                                                                     onClick={() =>
@@ -436,7 +436,6 @@ export function Experiment(): JSX.Element {
                                                                 properties: anyProperties.filter(isValidPropertyFilter),
                                                             })
                                                         }}
-                                                        useLemonButton
                                                         taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                     />
                                                 </div>
@@ -677,11 +676,7 @@ export function Experiment(): JSX.Element {
                                     {experimentData.end_date ? (
                                         <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
                                     ) : (
-                                        <LemonButton
-                                            type="highlighted"
-                                            className="end-experiment-btn"
-                                            onClick={() => endExperiment()}
-                                        >
+                                        <LemonButton status="success" type="primary" onClick={() => endExperiment()}>
                                             End experiment
                                         </LemonButton>
                                     )}

@@ -54,7 +54,7 @@ export function VerificationPanel(): JSX.Element {
                     </>
                 ) : (
                     <>
-                        <IconCheckCircleOutline style={{ color: 'var(--success)' }} />
+                        <IconCheckCircleOutline className="text-success text-4xl" />
                         <h1 className="ingestion-title">Successfully sent events!</h1>
                         <p className="prompt-text text-muted">
                             You will now be able to explore PostHog and take advantage of all its features to understand

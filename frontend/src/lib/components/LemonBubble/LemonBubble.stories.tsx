@@ -41,22 +41,22 @@ ShowZero.args = { count: 0, showZero: true }
 export const Positioning: ComponentStory<typeof LemonBubble> = () => {
     return (
         <div className="space-y-4">
-            <LemonButton outlined style={{ position: 'relative' }}>
+            <LemonButton type="secondary">
                 top-right
                 <LemonBubble count={4} position="top-right" />
             </LemonButton>
 
-            <LemonButton outlined style={{ position: 'relative' }}>
+            <LemonButton type="secondary">
                 top-left
                 <LemonBubble count={4} position="top-left" />
             </LemonButton>
 
-            <LemonButton outlined style={{ position: 'relative' }}>
+            <LemonButton type="secondary">
                 bottom-right
                 <LemonBubble count={4} position="bottom-right" />
             </LemonButton>
 
-            <LemonButton outlined style={{ position: 'relative' }}>
+            <LemonButton type="secondary">
                 bottom-left
                 <LemonBubble count={4} position="bottom-left" />
             </LemonButton>

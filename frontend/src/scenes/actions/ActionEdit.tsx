@@ -19,8 +19,8 @@ import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
-import { lemonToast } from 'lib/components/lemonToast'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { lemonToast } from '@posthog/lemon-ui'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -42,7 +42,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             data-attr="delete-action-bottom"
             status="danger"
             type="secondary"
-            style={{ marginRight: 8 }}
             onClick={() => {
                 deleteAction()
             }}
@@ -56,7 +55,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             data-attr="cancel-action-bottom"
             status="danger"
             type="secondary"
-            style={{ marginRight: 8 }}
             onClick={() => {
                 router.actions.push(shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
             }}
@@ -231,58 +229,59 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         )}
                     </Field>
                 </div>
-                <div>
-                    <div style={{ marginTop: '2rem' }}>
-                        <Field name="post_to_slack">
-                            {({ value, onChange }) => (
+                <div className="my-8">
+                    <Field name="post_to_slack">
+                        {({ value, onChange }) => (
+                            <>
                                 <LemonCheckbox
                                     id="webhook-checkbox"
                                     checked={!!value}
                                     onChange={(e) => onChange(e.target.checked)}
-                                    rowProps={{ fullWidth: true }}
                                     disabled={!slackEnabled}
                                     label={
                                         <>
                                             Post to webhook when this{' '}
                                             {shouldSimplifyActions ? 'calculated event' : 'action'} is triggered.
-                                            <Link to="/project/settings#webhook" style={{ marginLeft: 4 }}>
-                                                {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
-                                            </Link>
                                         </>
                                     }
                                 />
-                            )}
-                        </Field>
-                        {action.post_to_slack && (
-                            <>
-                                <Field name="slack_message_format">
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <div>Message format (optional)</div>
-                                            <LemonInput
-                                                placeholder="Default: [action.name] triggered by [person]"
-                                                value={value}
-                                                onChange={onChange}
-                                                disabled={!slackEnabled || !action.post_to_slack}
-                                                data-attr="edit-slack-message-format"
-                                            />
-                                            <small>
-                                                <a
-                                                    href="https://posthog.com/docs/integrations/message-formatting/"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                >
-                                                    See documentation on how to format webhook messages.
-                                                </a>
-                                            </small>
-                                        </>
-                                    )}
-                                </Field>
+                                <p className="pl-7">
+                                    <Link to="/project/settings#webhook">
+                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                                    </Link>
+                                </p>
                             </>
                         )}
-                    </div>
+                    </Field>
+                    {action.post_to_slack && (
+                        <>
+                            <Field name="slack_message_format">
+                                {({ value, onChange }) => (
+                                    <>
+                                        <div className="mt-2">Message format (optional)</div>
+                                        <LemonInput
+                                            placeholder="Default: [action.name] triggered by [person]"
+                                            value={value}
+                                            onChange={onChange}
+                                            disabled={!slackEnabled || !action.post_to_slack}
+                                            data-attr="edit-slack-message-format"
+                                        />
+                                        <small>
+                                            <a
+                                                href="https://posthog.com/docs/integrations/message-formatting/"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                            >
+                                                See documentation on how to format webhook messages.
+                                            </a>
+                                        </small>
+                                    </>
+                                )}
+                            </Field>
+                        </>
+                    )}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div className="flex justify-end gap-2">
                     {!!id ? deleteButton() : cancelButton()}
                     <LemonButton
                         data-attr="save-action-button"

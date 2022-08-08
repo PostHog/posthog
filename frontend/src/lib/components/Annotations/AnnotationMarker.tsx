@@ -129,15 +129,13 @@ export function AnnotationMarker({
     const _onClose = dynamic ? closePopup : () => setTextAreaVisible(false)
 
     const editorSection = (
-        <>
+        <div className="space-y-2">
             <LemonTextArea maxLength={300} rows={4} value={textInput} onChange={(e) => setTextInput(e)} autoFocus />
             <LemonCheckbox
                 checked={applyAll}
-                onChange={(e) => {
-                    setApplyAll(e.target.checked)
-                }}
+                onChange={(e) => setApplyAll(e.target.checked)}
                 label="Create for all charts"
-                rowProps={{ fullWidth: true }}
+                fullWidth
             />
             <div className="flex justify-end gap-2">
                 <LemonButton
@@ -162,7 +160,7 @@ export function AnnotationMarker({
                     Add
                 </LemonButton>
             </div>
-        </>
+        </div>
     )
 
     return (
@@ -242,7 +240,7 @@ export function AnnotationMarker({
                     {label}
                     {focused && (
                         <LemonButton
-                            type="tertiary"
+                            status="stealth"
                             icon={<IconClose />}
                             onClick={() => {
                                 setFocused(false)
