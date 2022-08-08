@@ -21,14 +21,20 @@ export interface LemonModalV2Props {
     title: string | JSX.Element
     description?: string | JSX.Element
     footer?: React.ReactNode
+    /** When enabled, the modal content will only include children allowing greater customisation */
+    simple?: boolean
 }
 
 export const LemonModalHeader = ({ children }: LemonModalHeaderProps): JSX.Element => {
-    return <div className="LemonModalHeader">{children}</div>
+    return <header className="LemonModal__header">{children}</header>
 }
 
 export const LemonModalFooter = ({ children }: LemonModalFooterProps): JSX.Element => {
-    return <div className="LemonModalFooter">{children}</div>
+    return <footer className="LemonModal__footer">{children}</footer>
+}
+
+export const LemonModalContent = ({ children }: LemonModalFooterProps): JSX.Element => {
+    return <section className="LemonModal__content">{children}</section>
 }
 
 /** A lightweight wrapper over Ant's Modal for matching Lemon style. */
@@ -41,6 +47,7 @@ export function LemonModalV2({
     description,
     footer,
     inline,
+    simple,
 }: LemonModalV2Props): JSX.Element {
     const modalContent = (
         <>
@@ -48,16 +55,22 @@ export function LemonModalV2({
                 <LemonButton icon={<IconClose />} status="stealth" onClick={onClose} />
             </div>
 
-            {title ? (
-                <header className="LemonModal__header">
-                    <h3>{title}</h3>
-                    {description ? <p>{description}</p> : null}
-                </header>
-            ) : null}
+            {simple ? (
+                children
+            ) : (
+                <>
+                    {title ? (
+                        <LemonModalHeader>
+                            <h3>{title}</h3>
+                            {description ? <p>{description}</p> : null}
+                        </LemonModalHeader>
+                    ) : null}
 
-            <div className="LemonModal__content">{children}</div>
+                    <LemonModalContent>{children}</LemonModalContent>
 
-            {footer ? <footer className="LemonModal__footer">{footer}</footer> : null}
+                    {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
+                </>
+            )}
         </>
     )
     return inline ? (
@@ -82,3 +95,4 @@ export function LemonModalV2({
 
 LemonModalV2.Header = LemonModalHeader
 LemonModalV2.Footer = LemonModalFooter
+LemonModalV2.Content = LemonModalContent
