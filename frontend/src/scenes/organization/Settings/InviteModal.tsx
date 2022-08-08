@@ -12,7 +12,7 @@ import { LemonTextArea, LemonInput } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { OrganizationInviteType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -113,7 +113,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
 
     return (
         <div className="InviteModal">
-            <LemonModalV2
+            <LemonModal
                 isOpen={visible}
                 onClose={() => {
                     resetInviteRows()
@@ -277,7 +277,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
                         />
                     </div>
                 )}
-            </LemonModalV2>
+            </LemonModal>
         </div>
     )
 }

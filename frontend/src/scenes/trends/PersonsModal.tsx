@@ -24,7 +24,7 @@ import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingBu
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -119,7 +119,7 @@ export function PersonsModal({
     return (
         <>
             {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
-            <LemonModalV2
+            <LemonModal
                 title={title}
                 isOpen={visible}
                 onClose={hidePeople}
@@ -308,7 +308,7 @@ export function PersonsModal({
                         )
                     )}
                 </div>
-            </LemonModalV2>
+            </LemonModal>
         </>
     )
 }

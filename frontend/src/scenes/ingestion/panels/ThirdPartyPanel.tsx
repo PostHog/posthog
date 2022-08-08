@@ -15,7 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -156,7 +156,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
             ) : (
                 <>
                     {thirdPartyIntegrationSource?.name && (
-                        <LemonModalV2
+                        <LemonModal
                             width={600}
                             isOpen={instructionsModalOpen}
                             onClose={() => setInstructionsModal(false)}
@@ -231,7 +231,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                             ) : (
                                 <PluginDrawer />
                             )}
-                        </LemonModalV2>
+                        </LemonModal>
                     )}
                 </>
             )}

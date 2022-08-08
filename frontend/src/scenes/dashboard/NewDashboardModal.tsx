@@ -10,14 +10,14 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
 
     return (
-        <LemonModalV2
+        <LemonModal
             title="New dashboard"
             description="Use dashboards to compose multiple insights into a single view."
             onClose={hideNewDashboardModal}
@@ -95,6 +95,6 @@ export function NewDashboardModal(): JSX.Element {
                     )}
                 </Field>
             </VerticalForm>
-        </LemonModalV2>
+        </LemonModal>
     )
 }

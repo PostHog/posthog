@@ -2,7 +2,7 @@ import { Input } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
@@ -13,7 +13,7 @@ export function VerifyDomainModal(): JSX.Element {
     const challengeName = `_posthog-challenge.${domainBeingVerified?.domain}.`
 
     return (
-        <LemonModalV2
+        <LemonModal
             isOpen={!!domainBeingVerified}
             onClose={() => setVerifyModal(null)}
             title="Verify your domain"
@@ -73,6 +73,6 @@ export function VerifyDomainModal(): JSX.Element {
                     <li>Press verify below.</li>
                 </ol>
             </div>
-        </LemonModalV2>
+        </LemonModal>
     )
 }

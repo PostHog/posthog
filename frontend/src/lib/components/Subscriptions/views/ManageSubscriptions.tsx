@@ -8,7 +8,7 @@ import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { Skeleton } from 'antd'
 import { SubscriptionBaseProps } from '../utils'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -83,10 +83,10 @@ export function ManageSubscriptions({
 
     return (
         <>
-            <LemonModalV2.Header>
+            <LemonModal.Header>
                 <h3> Manage Subscriptions</h3>
-            </LemonModalV2.Header>
-            <LemonModalV2.Content>
+            </LemonModal.Header>
+            <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
                     <>
                         <Skeleton paragraph={false} />
@@ -122,9 +122,9 @@ export function ManageSubscriptions({
                         </LemonButton>
                     </div>
                 )}
-            </LemonModalV2.Content>
+            </LemonModal.Content>
 
-            <LemonModalV2.Footer>
+            <LemonModal.Footer>
                 <div className="flex-1">
                     {!!subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
@@ -135,7 +135,7 @@ export function ManageSubscriptions({
                 <LemonButton type="secondary" onClick={onCancel}>
                     Close
                 </LemonButton>
-            </LemonModalV2.Footer>
+            </LemonModal.Footer>
         </>
     )
 }

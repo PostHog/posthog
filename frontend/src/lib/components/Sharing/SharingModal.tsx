@@ -14,7 +14,7 @@ import './SharingModal.scss'
 import { Form } from 'kea-forms'
 import { Spinner } from '../Spinner/Spinner'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { LemonModalV2 } from '../LemonModalV2'
+import { LemonModal } from '../LemonModal'
 
 export interface SharingModalProps {
     dashboardId?: number
@@ -56,7 +56,7 @@ export function SharingModal({
     }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <LemonModalV2
+        <LemonModal
             onClose={closeModal}
             isOpen={visible}
             width={480}
@@ -201,6 +201,6 @@ export function SharingModal({
                     </>
                 )}
             </div>
-        </LemonModalV2>
+        </LemonModal>
     )
 }

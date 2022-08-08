@@ -14,7 +14,7 @@ import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonModalV2 } from '../LemonModalV2'
+import { LemonModal } from '../LemonModal'
 
 interface SaveToDashboardModalProps {
     visible: boolean
@@ -111,7 +111,7 @@ export function AddToDashboardModal({
     }
 
     return (
-        <LemonModalV2
+        <LemonModal
             onClose={closeModal}
             isOpen={visible}
             title="Add to dashboard"
@@ -157,6 +157,6 @@ export function AddToDashboardModal({
                     </AutoSizer>
                 </div>
             </div>
-        </LemonModalV2>
+        </LemonModal>
     )
 }

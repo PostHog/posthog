@@ -1,7 +1,7 @@
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 import { DOMAIN_REGEX } from 'lib/constants'
 import React, { useState } from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
@@ -33,7 +33,7 @@ export function AddDomainModal(): JSX.Element {
     }
 
     return (
-        <LemonModalV2
+        <LemonModal
             onClose={handleClose}
             isOpen={addModalShown}
             title="Add authentication domain"
@@ -59,6 +59,6 @@ export function AddDomainModal(): JSX.Element {
                     Please enter a valid domain or subdomain name (e.g. my.posthog.com)
                 </span>
             )}
-        </LemonModalV2>
+        </LemonModal>
     )
 }

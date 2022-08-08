@@ -14,7 +14,7 @@ import { LicenseType, TeamType } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { dayjs } from 'lib/dayjs'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 export const scene: SceneExport = {
     component: Licenses,
@@ -39,7 +39,7 @@ function ConfirmCancelModal({
     const willDeleteProjects = !hasAnotherValidLicense && nonDemoProjects.slice(1, nonDemoProjects.length).length > 0
 
     return (
-        <LemonModalV2
+        <LemonModal
             isOpen={true}
             onClose={onCancel}
             title="Are you sure you want to deactivate your license?"
@@ -91,7 +91,7 @@ function ConfirmCancelModal({
                 )}
                 <li>You will immediately be billed for usage in the current period, if any.</li>
             </ul>
-        </LemonModalV2>
+        </LemonModal>
     )
 }
 

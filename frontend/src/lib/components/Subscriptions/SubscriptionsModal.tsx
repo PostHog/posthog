@@ -9,7 +9,7 @@ import { PayGatePage } from '../PayGatePage/PayGatePage'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { Spinner } from '../Spinner/Spinner'
-import { LemonModalV2 } from '../LemonModalV2'
+import { LemonModal } from '../LemonModal'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     visible: boolean
@@ -27,7 +27,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         return <Spinner />
     }
     return (
-        <LemonModalV2 onClose={closeModal} isOpen={visible} width={650} simple title="" inline={inline}>
+        <LemonModal onClose={closeModal} isOpen={visible} width={650} simple title="" inline={inline}>
             {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) ? (
                 !subscriptionId ? (
                     <ManageSubscriptions
@@ -59,7 +59,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                     />
                 </div>
             )}
-        </LemonModalV2>
+        </LemonModal>
     )
 }
 

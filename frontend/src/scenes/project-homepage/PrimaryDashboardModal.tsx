@@ -7,7 +7,7 @@ import { Skeleton } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 export function PrimaryDashboardModal(): JSX.Element {
     const { visible, primaryDashboardId } = useValues(primaryDashboardModalLogic)
@@ -15,7 +15,7 @@ export function PrimaryDashboardModal(): JSX.Element {
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
 
     return (
-        <LemonModalV2
+        <LemonModal
             isOpen={visible}
             onClose={closePrimaryDashboardModal}
             title="Select a default dashboard for the project"
@@ -80,6 +80,6 @@ export function PrimaryDashboardModal(): JSX.Element {
                     })}
                 </div>
             )}
-        </LemonModalV2>
+        </LemonModal>
     )
 }

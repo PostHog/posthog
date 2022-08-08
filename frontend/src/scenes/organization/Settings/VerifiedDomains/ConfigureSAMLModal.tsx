@@ -6,7 +6,7 @@ import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 
 export function ConfigureSAMLModal(): JSX.Element {
@@ -21,7 +21,7 @@ export function ConfigureSAMLModal(): JSX.Element {
     }
 
     return (
-        <LemonModalV2
+        <LemonModal
             onClose={handleClose}
             isOpen={!!configureSAMLModalId}
             title="Configure SAML authentication and provisioning"
@@ -54,6 +54,6 @@ export function ConfigureSAMLModal(): JSX.Element {
                     </AlertMessage>
                 )}
             </VerticalForm>
-        </LemonModalV2>
+        </LemonModal>
     )
 }

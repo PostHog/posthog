@@ -1,21 +1,98 @@
 import React from 'react'
-import { Modal, ModalProps } from 'antd'
 import { IconClose } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
-import clsx from 'clsx'
+import Modal from 'react-modal'
 import './LemonModal.scss'
 
-export type LemonModalProps = React.PropsWithChildren<Omit<ModalProps, 'closeIcon'>>
+export type LemonModalHeaderProps = {
+    children?: React.ReactNode
+}
+
+export type LemonModalFooterProps = {
+    children?: React.ReactNode
+}
+
+export interface LemonModalProps {
+    children?: React.ReactNode
+    isOpen: boolean
+    onClose: () => void
+    width?: number
+    inline?: boolean
+    title: string | JSX.Element
+    description?: string | JSX.Element
+    footer?: React.ReactNode
+    /** When enabled, the modal content will only include children allowing greater customisation */
+    simple?: boolean
+}
+
+export const LemonModalHeader = ({ children }: LemonModalHeaderProps): JSX.Element => {
+    return <header className="LemonModal__header">{children}</header>
+}
+
+export const LemonModalFooter = ({ children }: LemonModalFooterProps): JSX.Element => {
+    return <footer className="LemonModal__footer">{children}</footer>
+}
+
+export const LemonModalContent = ({ children }: LemonModalFooterProps): JSX.Element => {
+    return <section className="LemonModal__content">{children}</section>
+}
 
 /** A lightweight wrapper over Ant's Modal for matching Lemon style. */
-export function LemonModal({ className, footer = null, width = 480, ...modalProps }: LemonModalProps): JSX.Element {
-    return (
+export function LemonModal({
+    width,
+    children,
+    isOpen,
+    onClose,
+    title,
+    description,
+    footer,
+    inline,
+    simple,
+}: LemonModalProps): JSX.Element {
+    const modalContent = (
+        <>
+            <div className="LemonModal__closebutton">
+                <LemonButton icon={<IconClose />} status="stealth" onClick={onClose} />
+            </div>
+
+            {simple ? (
+                children
+            ) : (
+                <>
+                    {title ? (
+                        <LemonModalHeader>
+                            <h3>{title}</h3>
+                            {description ? <p>{description}</p> : null}
+                        </LemonModalHeader>
+                    ) : null}
+
+                    <LemonModalContent>{children}</LemonModalContent>
+
+                    {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
+                </>
+            )}
+        </>
+    )
+    return inline ? (
+        <div className="LemonModal ReactModal__Content--after-open">{modalContent}</div>
+    ) : (
         <Modal
-            {...modalProps}
-            footer={footer}
-            width={width}
-            closeIcon={<LemonButton icon={<IconClose />} status="stealth" size="small" />}
-            className={clsx('LemonModal', className)}
-        />
+            isOpen={isOpen}
+            onRequestClose={onClose}
+            closeTimeoutMS={250}
+            className="LemonModal"
+            overlayClassName="LemonModal__overlay"
+            style={{
+                content: {
+                    width: width,
+                },
+            }}
+        >
+            {modalContent}
+        </Modal>
     )
 }
+
+LemonModal.Header = LemonModalHeader
+LemonModal.Footer = LemonModalFooter
+LemonModal.Content = LemonModalContent

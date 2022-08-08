@@ -32,7 +32,7 @@ import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 import { urls } from 'scenes/urls'
 import { Skeleton } from 'antd'
-import { LemonModalV2 } from 'lib/components/LemonModalV2'
+import { LemonModal } from 'lib/components/LemonModal'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -101,7 +101,7 @@ export function EditSubscription({
     return (
         <>
             <VerticalForm logic={subscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
-                <LemonModalV2.Header>
+                <LemonModal.Header>
                     <div className="flex items-center">
                         <LemonButton status="stealth" onClick={onCancel} size="small">
                             <IconChevronLeft fontSize={'1rem'} />
@@ -111,9 +111,9 @@ export function EditSubscription({
 
                         <h3>{id === 'new' ? 'New' : 'Edit '} Subscription</h3>
                     </div>
-                </LemonModalV2.Header>
+                </LemonModal.Header>
 
-                <LemonModalV2.Content>
+                <LemonModal.Content>
                     {!subscription ? (
                         subscriptionLoading ? (
                             <>
@@ -421,9 +421,9 @@ export function EditSubscription({
                             </div>
                         </>
                     )}
-                </LemonModalV2.Content>
+                </LemonModal.Content>
 
-                <LemonModalV2.Footer>
+                <LemonModal.Footer>
                     <div className="flex-1">
                         {subscription && id !== 'new' && (
                             <LemonButton
@@ -447,7 +447,7 @@ export function EditSubscription({
                     >
                         {id === 'new' ? 'Create subscription' : 'Save'}
                     </LemonButton>
-                </LemonModalV2.Footer>
+                </LemonModal.Footer>
             </VerticalForm>
         </>
     )
