@@ -38,8 +38,8 @@
     transform: scale(0.85) translateY(25%);
     opacity: 0;
     display: flex;
-    flex-direction: column;
-    overflow-y: hidden;
+    flex-direction: col;
+
     max-height: 90%;
 
     &.ReactModal__Content--after-open {
@@ -56,6 +56,14 @@
         position: absolute;
         top: 1rem;
         right: 1rem;
+    }
+
+    // We nest the content in layout so that "simple" modal implementations can use this class as well
+    .LemonModal__layout {
+        display: flex;
+        flex-direction: column;
+        overflow-y: hidden;
+        flex: 1;
     }
 
     .LemonModal__content {

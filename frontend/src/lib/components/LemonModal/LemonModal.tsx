@@ -55,22 +55,24 @@ export function LemonModal({
                 <LemonButton icon={<IconClose />} status="stealth" onClick={onClose} />
             </div>
 
-            {simple ? (
-                children
-            ) : (
-                <>
-                    {title ? (
-                        <LemonModalHeader>
-                            <h3>{title}</h3>
-                            {description ? <p>{description}</p> : null}
-                        </LemonModalHeader>
-                    ) : null}
+            <div className="LemonModal__layout">
+                {simple ? (
+                    children
+                ) : (
+                    <>
+                        {title ? (
+                            <LemonModalHeader>
+                                <h3>{title}</h3>
+                                {description ? <p>{description}</p> : null}
+                            </LemonModalHeader>
+                        ) : null}
 
-                    <LemonModalContent>{children}</LemonModalContent>
+                        <LemonModalContent>{children}</LemonModalContent>
 
-                    {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
-                </>
-            )}
+                        {footer ? <LemonModalFooter>{footer}</LemonModalFooter> : null}
+                    </>
+                )}
+            </div>
         </>
     )
     return inline ? (
