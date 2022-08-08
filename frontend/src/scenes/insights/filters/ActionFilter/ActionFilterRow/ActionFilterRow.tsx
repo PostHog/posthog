@@ -230,9 +230,10 @@ export function ActionFilterRow({
         <IconWithCount count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
-                type="alt"
+                status="primary-alt"
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
+                noPadding
                 onClick={() => {
                     typeof filter.order === 'number'
                         ? setEntityFilterVisibility(filter.order, !propertyFiltersVisible)
@@ -245,9 +246,10 @@ export function ActionFilterRow({
     const renameRowButton = (
         <LemonButton
             icon={<IconEdit />}
-            type="alt"
+            status="primary-alt"
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
+            noPadding
             onClick={() => {
                 selectFilter(filter)
                 onRenameClick()
@@ -258,9 +260,10 @@ export function ActionFilterRow({
     const duplicateRowButton = (
         <LemonButton
             icon={<IconCopy />}
-            type="alt"
+            status="primary-alt"
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
+            noPadding
             onClick={() => {
                 duplicateFilter(filter)
             }}
@@ -270,9 +273,10 @@ export function ActionFilterRow({
     const deleteButton = (
         <LemonButton
             icon={<IconDelete />}
-            type="alt"
+            status="primary-alt"
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
+            noPadding
             onClick={onClose}
         />
     )
@@ -377,7 +381,6 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
-                        useLemonButton
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]

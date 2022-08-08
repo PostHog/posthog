@@ -38,15 +38,11 @@
                     flex-shrink: 0;
 
                     &.taxonomy-icon-muted {
-                        path {
-                            fill: var(--taxonomy-icon-muted);
-                        }
+                        color: var(--muted-alt);
                     }
 
                     &.taxonomy-icon-verified {
-                        path {
-                            fill: var(--success);
-                        }
+                        color: var(--success);
                     }
                 }
             }

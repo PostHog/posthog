@@ -53,9 +53,9 @@ export function PathsEventTypes({ insightProps }: EditorFilterProps): JSX.Elemen
 
     return (
         <LemonButtonWithPopup
-            type="stealth"
+            status="stealth"
             fullWidth
-            outlined
+            type="secondary"
             popup={{
                 sameWidth: true,
                 closeOnClickInside: false,
@@ -63,12 +63,14 @@ export function PathsEventTypes({ insightProps }: EditorFilterProps): JSX.Elemen
                     <LemonButton
                         key={option.type}
                         onClick={() => onClickPathtype(option.type)}
-                        type="stealth"
+                        status="stealth"
                         disabled={option.selected && filter.include_event_types?.length === 1}
                         fullWidth
                         data-attr={option['data-attr']}
-                        icon={<LemonCheckbox style={{ pointerEvents: 'none' }} checked={option.selected} />}
                     >
+                        <span className="pointer-events-none mr-2">
+                            <LemonCheckbox checked={option.selected} />
+                        </span>
                         {option.label}
                     </LemonButton>
                 )),

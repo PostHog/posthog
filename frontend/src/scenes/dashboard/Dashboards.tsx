@@ -126,7 +126,7 @@ export function Dashboards(): JSX.Element {
                         overlay={
                             <div style={{ maxWidth: 250 }}>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
                                         dashboardLogic({ id }).mount()
@@ -140,7 +140,7 @@ export function Dashboards(): JSX.Element {
                                     View
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.dashboard(id)}
                                     onClick={() => {
                                         dashboardLogic({ id }).mount()
@@ -153,23 +153,22 @@ export function Dashboards(): JSX.Element {
                                 >
                                     Edit
                                 </LemonButton>
-                                <LemonButton type="stealth" onClick={() => duplicateDashboard({ id, name })} fullWidth>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => duplicateDashboard({ id, name })}
+                                    fullWidth
+                                >
                                     Duplicate
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonRow
-                                    icon={<IconCottage style={{ color: 'var(--warning)' }} />}
-                                    fullWidth
-                                    status="muted"
-                                >
-                                    <span>
+                                <LemonRow icon={<IconCottage className="text-warning" />} fullWidth status="warning">
+                                    <span className="text-muted">
                                         Change the default dashboard on the{' '}
                                         <Link to={urls.projectHomepage()}>project home page</Link>.
                                     </span>
                                 </LemonRow>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
                                     onClick={() => deleteDashboard({ id, redirect: false })}
                                     fullWidth
                                     status="danger"

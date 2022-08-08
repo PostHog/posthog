@@ -103,7 +103,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                         data-attr="edit-definition"
                                         data-tooltip="data-management-event-edit-button"
                                         type="secondary"
-                                        style={{ marginRight: 8 }}
                                         onClick={() => {
                                             setPageMode(DefinitionPageMode.Edit)
                                         }}

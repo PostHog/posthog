@@ -27,10 +27,10 @@ import {
     IconPerson,
     IconRecording,
     IconTools,
+    IconCoffee,
 } from 'lib/components/icons'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
 import posthog from 'posthog-js'
-import { CoffeeOutlined } from '@ant-design/icons'
 
 /** To be extended with other types of notifications e.g. modals, bars */
 export type PromptType = 'tooltip'
@@ -97,7 +97,7 @@ const iconMap = {
     recordings: <IconRecording />,
     'feature-flags': <IconFlag />,
     experiments: <IconExperiment />,
-    'web-performance': <CoffeeOutlined />,
+    'web-performance': <IconCoffee />,
     'data-management': <UnverifiedEvent />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,

@@ -96,7 +96,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <PageHeader
                         title="Feature Flag"
                         buttons={
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-2">
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
@@ -121,7 +121,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         onClick={() => {
                                             deleteFeatureFlag(featureFlag)
                                         }}
-                                        style={{ marginRight: 16 }}
                                     >
                                         Delete
                                     </LemonButton>
@@ -203,7 +202,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </Field>
                             <Field name="ensure_experience_continuity">
                                 {({ value, onChange }) => (
-                                    <div style={{ border: '1px solid var(--border)', borderRadius: 4 }}>
+                                    <div className="border rounded p-4">
                                         <LemonCheckbox
                                             id="continuity-checkbox"
                                             label={
@@ -213,18 +212,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 </div>
                                             }
                                             onChange={() => onChange(!value)}
-                                            rowProps={{ fullWidth: true }}
+                                            fullWidth
                                             checked={value}
                                         />
-                                        <div
-                                            className="text-muted"
-                                            style={{
-                                                fontSize: 13,
-                                                marginLeft: '2.5rem',
-                                                paddingBottom: '.75rem',
-                                                paddingRight: '.75rem',
-                                            }}
-                                        >
+                                        <div className="text-muted text-sm pl-7">
                                             If your feature flag is applied prior to an identify or authentication
                                             event, use this to ensure that feature flags are not reset after a person is
                                             identified. This ensures the experience for the anonymous person is carried
@@ -419,7 +410,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         addVariant()
                                         focusVariantKeyField(newIndex)
                                     }}
-                                    style={{ margin: '1rem 0' }}
                                     fullWidth
                                     center
                                 >
@@ -528,7 +518,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             showConditionBadge
-                                            useLemonButton
                                         />
                                     </div>
 

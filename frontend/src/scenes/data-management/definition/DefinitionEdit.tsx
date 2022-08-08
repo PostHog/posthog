@@ -31,7 +31,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 setPageMode(DefinitionPageMode.View)
                             }}
-                            style={{ marginRight: 8 }}
                             disabled={definitionLoading}
                         >
                             Cancel
@@ -42,7 +41,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 saveDefinition({})
                             }}
-                            style={{ marginRight: 8 }}
                             disabled={definitionLoading}
                         >
                             Save
@@ -111,7 +109,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                 <LemonSelect
                                     onChange={(val) => onChange(val)}
                                     value={value}
-                                    bordered
+                                    type="secondary"
                                     options={{
                                         DateTime: {
                                             label: 'DateTime',
