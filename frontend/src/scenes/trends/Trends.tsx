@@ -6,12 +6,13 @@ import { SaveCohortModal } from './SaveCohortModal'
 import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
-import { Button } from 'antd'
 import { personsModalLogic } from './personsModalLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { LemonButton } from '@posthog/lemon-ui'
 
 interface Props {
     view: InsightType
@@ -43,6 +44,9 @@ export function TrendInsight({ view }: Props): JSX.Element {
         ) {
             return <ActionsLineGraph />
         }
+        if (_filters.display === ChartDisplayType.BoldNumber) {
+            return <BoldNumber />
+        }
         if (_filters.display === ChartDisplayType.ActionsTable) {
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
@@ -73,9 +77,10 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 <div
                     className={
                         _filters.display !== ChartDisplayType.ActionsTable &&
-                        _filters.display !== ChartDisplayType.WorldMap
+                        _filters.display !== ChartDisplayType.WorldMap &&
+                        _filters.display !== ChartDisplayType.BoldNumber
                             ? 'trends-insights-container'
-                            : undefined /* Tables and world map don't need this padding, but graphs do for sizing */
+                            : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
                     }
                 >
                     {renderViz()}
@@ -87,13 +92,15 @@ export function TrendInsight({ view }: Props): JSX.Element {
                         For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
                     </div>
                     <div>
-                        <Button
+                        <LemonButton
                             style={{ textAlign: 'center', marginBottom: 16 }}
                             onClick={loadMoreBreakdownValues}
                             loading={breakdownValuesLoading}
+                            size="small"
+                            type="secondary"
                         >
                             Load more breakdown values
-                        </Button>
+                        </LemonButton>
                     </div>
                 </div>
             )}

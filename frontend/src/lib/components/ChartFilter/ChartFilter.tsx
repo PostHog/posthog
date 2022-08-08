@@ -9,6 +9,7 @@ import {
     PieChartOutlined,
     GlobalOutlined,
     TableOutlined,
+    NumberOutlined,
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -29,7 +30,6 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
     const worldMapDisabled: boolean =
         filters.insight === InsightType.RETENTION ||
         filters.insight === InsightType.STICKINESS ||
@@ -111,12 +111,16 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                   {
                       label: '',
                       options: {
+                          [ChartDisplayType.BoldNumber]: {
+                              label: <Label icon={<NumberOutlined />}>Number</Label>,
+                              disabled: cumulativeDisabled,
+                          },
                           [ChartDisplayType.ActionsTable]: {
                               label: <Label icon={<TableOutlined />}>Table</Label>,
                           },
                           [ChartDisplayType.ActionsPie]: {
                               label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                              disabled: pieDisabled,
+                              disabled: cumulativeDisabled,
                           },
                           [ChartDisplayType.WorldMap]: {
                               label: (

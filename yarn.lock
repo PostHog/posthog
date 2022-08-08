@@ -15068,6 +15068,14 @@ react-textarea-autosize@^8.3.3:
     use-composed-ref "^1.0.0"
     use-latest "^1.0.0"
 
+react-textfit@^1.1.1:
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/react-textfit/-/react-textfit-1.1.1.tgz#cce3d974c69b8b4222cfae78200abc366f74d050"
+  integrity sha512-UDSQRo5yBEGueLTE5SgNV9fSmr5CWJkE0E0R0YbcbCO69iuJGfcT6wspKhX2sIwdsDyT9qXOwMC80cnRolir7Q==
+  dependencies:
+    process "^0.11.10"
+    prop-types "^15.7.2"
+
 react-toastify@^8.2.0:
   version "8.2.0"
   resolved "https://registry.yarnpkg.com/react-toastify/-/react-toastify-8.2.0.tgz#ef7d56bdfdc6272ca6b228368ab564721c3a3244"

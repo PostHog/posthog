@@ -985,6 +985,7 @@ export enum ChartDisplayType {
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
     WorldMap = 'WorldMap',
+    BoldNumber = 'BoldNumber',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
@@ -1109,6 +1110,7 @@ export interface FilterType {
     breakdown_attribution_value?: number // funnels breakdown attribution specific step value
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
     aggregation_axis_format?: AggregationAxisFormat
+    font?: string
 }
 
 export interface RecordingEventsFilters {

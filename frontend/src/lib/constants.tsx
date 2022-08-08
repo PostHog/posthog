@@ -7,6 +7,7 @@ export const NON_TIME_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
 ]
 
 export enum OrganizationMembershipLevel {

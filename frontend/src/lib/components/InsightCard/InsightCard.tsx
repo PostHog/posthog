@@ -53,6 +53,7 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../AlertMessage'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -105,6 +106,10 @@ const displayMap: Record<
     WorldMap: {
         className: 'world-map',
         element: WorldMap,
+    },
+    BoldNumber: {
+        className: 'bold-number',
+        element: BoldNumber,
     },
 }
 
