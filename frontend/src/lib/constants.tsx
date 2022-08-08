@@ -116,7 +116,6 @@ export const FEATURE_FLAGS = {
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
-    ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
