@@ -39,8 +39,13 @@ def bulk_queue_graphile_jobs(jobs: Sequence[GraphileJob]):
         params.append(job.run_at.isoformat())
         params.append(job.max_attempts)
         params.append(json.dumps(job.flags) if job.flags else None)
-    with connection.cursor() as cursor:
-        cursor.execute(BULK_INSERT_JOBS_SQL.format(values=", ".join(values)), params=params)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(BULK_INSERT_JOBS_SQL.format(values=", ".join(values)), params=params)
+    except Exception as e:
+        if 'relation "graphile_worker.jobs" does not exist' in str(e):
+            raise Exception("The plugin server must be started before trying to save future demo data") from e
+        raise e
 
 
 def copy_graphile_jobs_between_teams(source_team_id: int, target_team_id: int):
@@ -48,7 +53,13 @@ def copy_graphile_jobs_between_teams(source_team_id: int, target_team_id: int):
 
     This is a bit dirty and only intended for demo data, not production.
     """
-    with connection.cursor() as cursor:
-        cursor.execute(
-            COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL, {"target_team_id": target_team_id, "source_team_id": source_team_id},
-        )
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                COPY_GRAPHILE_JOBS_BETWEEN_TEAMS_SQL,
+                {"target_team_id": target_team_id, "source_team_id": source_team_id},
+            )
+    except Exception as e:
+        if 'relation "graphile_worker.jobs" does not exist' in str(e):
+            raise Exception("The plugin server must be started before trying to save future demo data") from e
+        raise e
