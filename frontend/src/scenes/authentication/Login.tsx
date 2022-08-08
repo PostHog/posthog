@@ -169,11 +169,11 @@ export function Login(): JSX.Element {
                         </Form>
                         <div className="helper-links">
                             {preflight?.cloud && (
-                                <Link to="/signup" data-attr="signup" className="lhs">
+                                <Link to="/signup" data-attr="signup">
                                     Create an account
                                 </Link>
                             )}
-                            <Link to="/reset" data-attr="forgot-password" className="rhs">
+                            <Link to="/reset" data-attr="forgot-password">
                                 Forgot your password?
                             </Link>
                         </div>
