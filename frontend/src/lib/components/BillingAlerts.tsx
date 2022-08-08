@@ -20,8 +20,8 @@ export function BillingAlerts(): JSX.Element | null {
         message = (
             <p>
                 <b>Warning!</b> You have already used{' '}
-                <b style={{ color: 'var(--warning)' }}>{freePlanPercentage && freePlanPercentage * 100}%</b> of your 1
-                million free events this month.{' '}
+                <b className="text-warning">{freePlanPercentage && freePlanPercentage * 100}%</b> of your 1 million free
+                events this month.{' '}
                 <Link to="/organization/billing" data-attr="alert_free_usage_near_limit">
                     {billing?.plan?.custom_setup_billing_message ||
                         'To avoid losing data or access to it, upgrade your billing plan now.'}
@@ -47,7 +47,7 @@ export function BillingAlerts(): JSX.Element | null {
         isWarning = true
         message = (
             <p>
-                <b>Warning!</b> You have already used{' '}
+                <b>Warning!</b> You have already used {/* eslint-disable-next-line react/forbid-dom-props */}
                 <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
                     {percentage && percentage * 100}%
                 </b>{' '}
@@ -75,7 +75,7 @@ export function BillingAlerts(): JSX.Element | null {
 
     return (
         <div className={'Announcement'}>
-            {isWarning && <IconWarningAmber className="text-warning" style={{ paddingRight: '1rem' }} />}
+            {isWarning && <IconWarningAmber className="text-warning " style={{ paddingRight: '1rem' }} />}
             {isAlert && <IconWarningAmber className="text-warning" style={{ paddingRight: '1rem' }} />}
             {message}
         </div>
