@@ -1,19 +1,21 @@
 import { dayjs } from 'lib/dayjs'
 
 const interceptPropertyDefinitions = () => {
+    /** NB this doesn't intercept calls to populate list of feature flag properties **/
+
     cy.intercept('api/projects/@current/property_definitions/?limit=5000', {
         fixture: 'api/event/property_definitions',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?search=&*', {
+    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=&*', {
         fixture: 'api/event/property_definitions',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?search=%24time*', {
+    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=%24time*', {
         fixture: 'api/event/only_time_property_definition',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?search=%24browser*', {
+    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=%24browser*', {
         fixture: 'api/event/only_browser_version_property_definition',
     })
 }
