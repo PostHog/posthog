@@ -234,7 +234,6 @@ export function EventDefinitionsTable(): JSX.Element {
                         placeholder="Search for events"
                         onChange={(v) => setFilters({ event: v || '' })}
                         value={filters.event}
-                        data-attr="persons-search"
                     />
                 </div>
                 {shouldSimplifyActions && (

@@ -189,7 +189,6 @@ export function PersonsModal({
                                         setPersonsModalFilters(value, people, filters)
                                     }}
                                     value={searchTerm}
-                                    data-attr="persons-search"
                                 />
                             </div>
                             {!!people.crossDataset?.length && people.seriesId !== undefined && (

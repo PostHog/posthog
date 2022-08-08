@@ -98,7 +98,6 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                             placeholder="Search for authorized URLs"
                             onChange={setSearchTerm}
                             value={searchTerm}
-                            data-attr="persons-search"
                         />
                     </div>
                 </div>

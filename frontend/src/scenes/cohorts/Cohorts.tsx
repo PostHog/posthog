@@ -155,7 +155,6 @@ export function Cohorts(): JSX.Element {
                         placeholder="Search for cohorts"
                         onChange={setSearchTerm}
                         value={searchTerm}
-                        data-attr="persons-search"
                     />
                 </div>
                 <LemonButton

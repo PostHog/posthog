@@ -220,7 +220,6 @@ export function ActionsTable(): JSX.Element {
                     placeholder="Search for actions"
                     onChange={setSearchTerm}
                     value={searchTerm}
-                    data-attr="persons-search"
                 />
             </div>
 
