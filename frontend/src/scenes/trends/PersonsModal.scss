@@ -1,31 +1,4 @@
-.person-modal {
-    .ant-modal-header {
-        padding: 1rem;
-    }
-
-    .ant-modal-title {
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .ant-modal-content {
-        overflow: hidden;
-    }
-
-    .ant-modal-body {
-        padding: 0;
-        max-height: 60vh;
-        overflow-y: auto;
-    }
-
-    .ant-modal-footer .ant-btn {
-        color: var(--primary);
-    }
-
-    .ant-input-search {
-        padding: 1rem;
-    }
-
+.persons-modal {
     .persons-table {
         border-top: 1px solid var(--border);
         border-bottom: 1px solid var(--border);
@@ -37,7 +10,6 @@
     }
 
     .user-count-subheader {
-        padding: 0.5rem 1rem;
         color: var(--muted-alt);
         > * {
             vertical-align: middle;
@@ -49,8 +21,6 @@
     }
 
     .data-point-selector {
-        padding: 0 1rem 1rem;
-        border-bottom: 1px solid var(--border);
         .ant-select {
             display: block;
             width: 100%;

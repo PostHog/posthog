@@ -17,6 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { LemonModalV2 } from 'lib/components/LemonModalV2'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { index } = useValues(ingestionLogic)
@@ -161,16 +162,14 @@ export function IntegrationInstructionsModal(): JSX.Element {
             ) : (
                 <>
                     {thirdPartyIntegrationSource?.name && (
-                        <LemonModal
-                            width="auto"
-                            style={{ maxWidth: 600 }}
-                            visible={instructionsModalOpen}
-                            onCancel={() => setInstructionsModal(false)}
-                            bodyStyle={{ padding: 40 }}
+                        <LemonModalV2
+                            width={600}
+                            isOpen={instructionsModalOpen}
+                            onClose={() => setInstructionsModal(false)}
+                            title="Configure integration"
                         >
                             {thirdPartyIntegrationSource.type === ThirdPartySourceType.Integration ? (
                                 <div>
-                                    <p className="text-muted font-medium">Configure integration</p>
                                     {thirdPartyIntegrationSource.icon}
                                     <h1 className="ingestion-title">
                                         Integrate with {thirdPartyIntegrationSource.name}{' '}
@@ -246,7 +245,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                 <PluginDrawer />
                             )}
                             {!onboardingSidebarEnabled && <PanelSupport />}
-                        </LemonModal>
+                        </LemonModalV2>
                     )}
                 </>
             )}

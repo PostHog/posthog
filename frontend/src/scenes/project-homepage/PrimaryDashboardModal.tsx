@@ -1,5 +1,4 @@
 import React from 'react'
-import './PrimaryDashboardModal.scss'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonButton } from 'lib/components/LemonButton'

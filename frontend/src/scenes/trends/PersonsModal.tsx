@@ -23,7 +23,8 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonModalV2 } from 'lib/components/LemonModalV2'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -118,10 +119,10 @@ export function PersonsModal({
     return (
         <>
             {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
-            <LemonModal
+            <LemonModalV2
                 title={title}
-                visible={visible}
-                onCancel={hidePeople}
+                isOpen={visible}
+                onClose={hidePeople}
                 footer={
                     people &&
                     people.count > 0 &&
@@ -167,145 +168,147 @@ export function PersonsModal({
                     )
                 }
                 width={600}
-                className="person-modal"
             >
-                {isInitialLoad ? (
-                    <div className="p-4">
-                        <Skeleton active />
-                    </div>
-                ) : (
-                    people && (
-                        <>
-                            <div className="p-4">
-                                <LemonInput
-                                    icon={<IconMagnifier />}
-                                    allowClear
-                                    placeholder="Search for persons by email, name, or ID"
-                                    onChange={(value) => {
-                                        setSearchTerm(value)
-                                        if (!value) {
-                                            setFirstLoadedActors(firstLoadedPeople)
+                <div className="persons-modal space-y-2">
+                    {isInitialLoad ? (
+                        <div className="p-4">
+                            <Skeleton active />
+                        </div>
+                    ) : (
+                        people && (
+                            <>
+                                <div className="mb-4">
+                                    <LemonInput
+                                        icon={<IconMagnifier />}
+                                        allowClear
+                                        placeholder="Search for persons by email, name, or ID"
+                                        onChange={(value) => {
+                                            setSearchTerm(value)
+                                            if (!value) {
+                                                setFirstLoadedActors(firstLoadedPeople)
+                                            }
+                                            setPersonsModalFilters(value, people, filters)
+                                        }}
+                                        value={searchTerm}
+                                    />
+                                </div>
+                                {!!people.crossDataset?.length && people.seriesId !== undefined && (
+                                    <div className="data-point-selector">
+                                        <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
+                                            {people.crossDataset.map((dataPoint) => (
+                                                <Select.Option
+                                                    value={dataPoint.id}
+                                                    key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
+                                                >
+                                                    <InsightLabel
+                                                        seriesColor={getSeriesColor(dataPoint.id)}
+                                                        action={dataPoint.action}
+                                                        breakdownValue={
+                                                            dataPoint.breakdown_value === ''
+                                                                ? 'None'
+                                                                : dataPoint.breakdown_value?.toString()
+                                                        }
+                                                        showCountedByTag={showCountedByTag}
+                                                        hasMultipleSeries={hasMultipleSeries}
+                                                    />
+                                                </Select.Option>
+                                            ))}
+                                        </Select>
+                                    </div>
+                                )}
+                                <div className="user-count-subheader">
+                                    <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
+                                    <span>
+                                        This list contains{' '}
+                                        <b>
+                                            {people.count} unique {aggregationTargetLabel.plural}
+                                        </b>
+                                        {peopleParams?.pointValue !== undefined &&
+                                            (!peopleParams.action?.math || peopleParams.action?.math === 'total') && (
+                                                <>
+                                                    {' '}
+                                                    who performed the event{' '}
+                                                    <b>
+                                                        {peopleParams.pointValue} total{' '}
+                                                        {pluralize(peopleParams.pointValue, 'time', undefined, false)}
+                                                    </b>
+                                                </>
+                                            )}
+                                        .
+                                    </span>
+                                </div>
+                                {people.count > 0 ? (
+                                    <LemonTable
+                                        columns={
+                                            [
+                                                {
+                                                    title: 'Person',
+                                                    key: 'person',
+                                                    render: function Render(_, actor: ActorType) {
+                                                        return <ActorRow actor={actor} />
+                                                    },
+                                                },
+                                                {
+                                                    width: 0,
+                                                    title: 'Recordings',
+                                                    key: 'recordings',
+                                                    render: function Render(_, actor: ActorType) {
+                                                        if (
+                                                            actor.matched_recordings?.length &&
+                                                            actor.matched_recordings?.length > 0
+                                                        ) {
+                                                            return (
+                                                                <MultiRecordingButton
+                                                                    sessionRecordings={actor.matched_recordings}
+                                                                    onOpenRecording={(sessionRecording) => {
+                                                                        openRecordingModal(sessionRecording.session_id)
+                                                                    }}
+                                                                />
+                                                            )
+                                                        }
+                                                    },
+                                                },
+                                            ] as LemonTableColumns<ActorType>
                                         }
-                                        setPersonsModalFilters(value, people, filters)
-                                    }}
-                                    value={searchTerm}
-                                />
-                            </div>
-                            {!!people.crossDataset?.length && people.seriesId !== undefined && (
-                                <div className="data-point-selector">
-                                    <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
-                                        {people.crossDataset.map((dataPoint) => (
-                                            <Select.Option
-                                                value={dataPoint.id}
-                                                key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
-                                            >
-                                                <InsightLabel
-                                                    seriesColor={getSeriesColor(dataPoint.id)}
-                                                    action={dataPoint.action}
-                                                    breakdownValue={
-                                                        dataPoint.breakdown_value === ''
-                                                            ? 'None'
-                                                            : dataPoint.breakdown_value?.toString()
-                                                    }
-                                                    showCountedByTag={showCountedByTag}
-                                                    hasMultipleSeries={hasMultipleSeries}
-                                                />
-                                            </Select.Option>
-                                        ))}
-                                    </Select>
-                                </div>
-                            )}
-                            <div className="user-count-subheader">
-                                <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
-                                <span>
-                                    This list contains{' '}
-                                    <b>
-                                        {people.count} unique {aggregationTargetLabel.plural}
-                                    </b>
-                                    {peopleParams?.pointValue !== undefined &&
-                                        (!peopleParams.action?.math || peopleParams.action?.math === 'total') && (
-                                            <>
-                                                {' '}
-                                                who performed the event{' '}
-                                                <b>
-                                                    {peopleParams.pointValue} total{' '}
-                                                    {pluralize(peopleParams.pointValue, 'time', undefined, false)}
-                                                </b>
-                                            </>
-                                        )}
-                                    .
-                                </span>
-                            </div>
-                            {people.count > 0 ? (
-                                <LemonTable
-                                    columns={
-                                        [
-                                            {
-                                                title: 'Person',
-                                                key: 'person',
-                                                render: function Render(_, actor: ActorType) {
-                                                    return <ActorRow actor={actor} />
-                                                },
+                                        className="persons-table"
+                                        rowKey="id"
+                                        expandable={{
+                                            expandedRowRender: function RenderPropertiesTable({ properties }) {
+                                                return Object.keys(properties).length ? (
+                                                    <PropertiesTable properties={properties} />
+                                                ) : (
+                                                    'This person has no properties.'
+                                                )
                                             },
-                                            {
-                                                width: 0,
-                                                title: 'Recordings',
-                                                key: 'recordings',
-                                                render: function Render(_, actor: ActorType) {
-                                                    if (
-                                                        actor.matched_recordings?.length &&
-                                                        actor.matched_recordings?.length > 0
-                                                    ) {
-                                                        return (
-                                                            <MultiRecordingButton
-                                                                sessionRecordings={actor.matched_recordings}
-                                                                onOpenRecording={(sessionRecording) => {
-                                                                    openRecordingModal(sessionRecording.session_id)
-                                                                }}
-                                                            />
-                                                        )
-                                                    }
-                                                },
-                                            },
-                                        ] as LemonTableColumns<ActorType>
-                                    }
-                                    className="persons-table"
-                                    rowKey="id"
-                                    expandable={{
-                                        expandedRowRender: function RenderPropertiesTable({ properties }) {
-                                            return Object.keys(properties).length ? (
-                                                <PropertiesTable properties={properties} />
-                                            ) : (
-                                                'This person has no properties.'
-                                            )
-                                        },
-                                    }}
-                                    embedded
-                                    showHeader={false}
-                                    dataSource={people.people}
-                                    nouns={['person', 'persons']}
-                                />
-                            ) : (
-                                <div className="person-row-container person-row">
-                                    We couldn't find any matching {aggregationTargetLabel.plural} for this data point.
-                                </div>
-                            )}
-                            {people?.next && (
-                                <div className="m-4 text-center">
-                                    <Button
-                                        type="primary"
-                                        style={{ color: 'white' }}
-                                        onClick={loadMorePeople}
-                                        loading={loadingMorePeople}
-                                    >
-                                        Load more {aggregationTargetLabel.plural}
-                                    </Button>
-                                </div>
-                            )}
-                        </>
-                    )
-                )}
-            </LemonModal>
+                                        }}
+                                        embedded
+                                        showHeader={false}
+                                        dataSource={people.people}
+                                        nouns={['person', 'persons']}
+                                    />
+                                ) : (
+                                    <div className="person-row-container person-row">
+                                        We couldn't find any matching {aggregationTargetLabel.plural} for this data
+                                        point.
+                                    </div>
+                                )}
+                                {people?.next && (
+                                    <div className="m-4 text-center">
+                                        <Button
+                                            type="primary"
+                                            style={{ color: 'white' }}
+                                            onClick={loadMorePeople}
+                                            loading={loadingMorePeople}
+                                        >
+                                            Load more {aggregationTargetLabel.plural}
+                                        </Button>
+                                    </div>
+                                )}
+                            </>
+                        )
+                    )}
+                </div>
+            </LemonModalV2>
         </>
     )
 }
