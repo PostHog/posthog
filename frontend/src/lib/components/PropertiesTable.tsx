@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
-import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
+import { IconDeleteForever, IconMagnifier, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
@@ -11,6 +11,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from './LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
+import { LemonInput } from '@posthog/lemon-ui'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -275,17 +276,17 @@ export function PropertiesTable({
             <>
                 {searchable && (
                     <div className="flex justify-between gap-4">
-                        <Input.Search
-                            placeholder="Search for property keys and values"
-                            className="mb-4"
-                            allowClear
-                            enterButton
-                            style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                            value={searchTerm}
-                            onChange={(e) => {
-                                setSearchTerm(e.target.value)
-                            }}
-                        />
+                        <div style={{ width: 360 }}>
+                            <LemonInput
+                                icon={<IconMagnifier />}
+                                allowClear
+                                placeholder="Search for property keys and values"
+                                autoFocus
+                                value={searchTerm || ''}
+                                onChange={setSearchTerm}
+                            />
+                        </div>
+
                         {onEdit && <NewPropertyComponent editProperty={onEdit} />}
                     </div>
                 )}

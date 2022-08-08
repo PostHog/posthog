@@ -17,6 +17,8 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { LemonInput } from '@posthog/lemon-ui'
+import { IconMagnifier } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -98,28 +100,17 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     />
                 )
             )}
-            <div
-                style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '0.5rem',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    width: '100%',
-                    marginBottom: '1rem',
-                }}
-            >
-                <Input.Search
-                    placeholder="Search for properties"
+
+            <div className="mb-4" style={{ width: 360 }}>
+                <LemonInput
+                    icon={<IconMagnifier />}
                     allowClear
-                    enterButton
+                    placeholder="Search for properties"
+                    onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
-                    style={{ maxWidth: 600, width: 'initial' }}
-                    onChange={(e) => {
-                        setFilters({ property: e.target.value || '' })
-                    }}
                 />
             </div>
+
             <LemonTable
                 columns={columns}
                 className="event-properties-definition-table"

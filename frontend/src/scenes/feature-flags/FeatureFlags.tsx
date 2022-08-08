@@ -21,6 +21,8 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { IconMagnifier } from 'lib/components/icons'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -138,16 +140,15 @@ function OverViewTab(): JSX.Element {
     return (
         <>
             <div>
-                <Input.Search
-                    placeholder="Search for feature flags"
-                    allowClear
-                    enterButton
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1, marginBottom: '1rem' }}
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
-                />
+                <div className="mb-4" style={{ width: 360 }}>
+                    <LemonInput
+                        icon={<IconMagnifier />}
+                        allowClear
+                        placeholder="Search for feature flags"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                    />
+                </div>
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}

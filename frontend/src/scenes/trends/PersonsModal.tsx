@@ -14,7 +14,7 @@ import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled } from 'lib/components/icons'
+import { IconMagnifier, IconPersonFilled, IconSave } from 'lib/components/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,6 +23,7 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 export interface PersonsModalProps {
     visible: boolean
@@ -113,10 +114,11 @@ export function PersonsModal({
 
     const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
+
     return (
         <>
             {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
-            <Modal
+            <LemonModal
                 title={title}
                 visible={visible}
                 onCancel={hidePeople}
@@ -124,10 +126,11 @@ export function PersonsModal({
                     people &&
                     people.count > 0 &&
                     (isDownloadCsvAvailable || isSaveAsCohortAvailable) && (
-                        <>
+                        <div className="flex gap-2">
                             {isDownloadCsvAvailable && (
-                                <Button
+                                <LemonButton
                                     icon={<DownloadOutlined />}
+                                    type="secondary"
                                     onClick={() => {
                                         triggerExport({
                                             export_format: ExporterFormat.CSV,
@@ -145,51 +148,50 @@ export function PersonsModal({
                                             },
                                         })
                                     }}
-                                    style={{ marginRight: 8 }}
                                     data-attr="person-modal-download-csv"
                                 >
                                     Download CSV
-                                </Button>
+                                </LemonButton>
                             )}
                             {isSaveAsCohortAvailable && (
-                                <Button
+                                <LemonButton
                                     onClick={onSaveCohort}
-                                    icon={<UsergroupAddOutlined />}
+                                    icon={<IconSave />}
+                                    type="secondary"
                                     data-attr="person-modal-save-as-cohort"
                                 >
                                     Save as cohort
-                                </Button>
+                                </LemonButton>
                             )}
-                        </>
+                        </div>
                     )
                 }
                 width={600}
                 className="person-modal"
             >
                 {isInitialLoad ? (
-                    <div style={{ padding: 16 }}>
+                    <div className="p-4">
                         <Skeleton active />
                     </div>
                 ) : (
                     people && (
                         <>
-                            <Input.Search
-                                allowClear
-                                enterButton
-                                placeholder="Search for persons by email, name, or ID"
-                                onChange={(e) => {
-                                    setSearchTerm(e.target.value)
-                                    if (!e.target.value) {
-                                        setFirstLoadedActors(firstLoadedPeople)
-                                    }
-                                }}
-                                value={searchTerm}
-                                onSearch={(term) =>
-                                    term
-                                        ? setPersonsModalFilters(term, people, filters)
-                                        : setFirstLoadedActors(firstLoadedPeople)
-                                }
-                            />
+                            <div className="p-4">
+                                <LemonInput
+                                    icon={<IconMagnifier />}
+                                    allowClear
+                                    placeholder="Search for persons by email, name, or ID"
+                                    onChange={(value) => {
+                                        setSearchTerm(value)
+                                        if (!value) {
+                                            setFirstLoadedActors(firstLoadedPeople)
+                                        }
+                                        setPersonsModalFilters(value, people, filters)
+                                    }}
+                                    value={searchTerm}
+                                    data-attr="persons-search"
+                                />
+                            </div>
                             {!!people.crossDataset?.length && people.seriesId !== undefined && (
                                 <div className="data-point-selector">
                                     <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
@@ -290,12 +292,7 @@ export function PersonsModal({
                                 </div>
                             )}
                             {people?.next && (
-                                <div
-                                    style={{
-                                        margin: '1rem',
-                                        textAlign: 'center',
-                                    }}
-                                >
+                                <div className="m-4 text-center">
                                     <Button
                                         type="primary"
                                         style={{ color: 'white' }}
@@ -309,7 +306,7 @@ export function PersonsModal({
                         </>
                     )
                 )}
-            </Modal>
+            </LemonModal>
         </>
     )
 }

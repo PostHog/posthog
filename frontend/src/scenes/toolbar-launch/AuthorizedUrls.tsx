@@ -7,7 +7,7 @@ import { Input, Popconfirm } from 'antd'
 import { authorizedUrlsLogic } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
-import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
+import { IconDelete, IconEdit, IconMagnifier, IconOpenInApp, IconPlus } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
@@ -90,17 +90,17 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
         <div>
             <div className="flex items-center mb-4 gap-2">
                 <div className="flex grow">
-                    <Input.Search
-                        allowClear
-                        enterButton
-                        placeholder="Search for authorized URLs"
-                        style={{ maxWidth: 480 }}
-                        value={searchTerm}
-                        onChange={(e) => {
-                            setSearchTerm(e.target.value)
-                        }}
-                        autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
-                    />
+                    <div style={{ width: 360 }}>
+                        <LemonInput
+                            icon={<IconMagnifier />}
+                            allowClear
+                            autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
+                            placeholder="Search for authorized URLs"
+                            onChange={setSearchTerm}
+                            value={searchTerm}
+                            data-attr="persons-search"
+                        />
+                    </div>
                 </div>
                 <LemonButton onClick={newUrl} type="secondary" icon={<IconPlus />} data-attr="toolbar-add-url">
                     Add{pageKey === 'toolbar-launch' && ' authorized URL'}

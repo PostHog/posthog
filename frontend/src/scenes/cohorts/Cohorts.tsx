@@ -20,6 +20,8 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
+import { LemonInput } from '@posthog/lemon-ui'
+import { IconMagnifier } from 'lib/components/icons'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -35,7 +37,7 @@ export function Cohorts(): JSX.Element {
     const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
-    const [searchTerm, setSearchTerm] = useState<string | false>(false)
+    const [searchTerm, setSearchTerm] = useState<string>('')
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -145,36 +147,34 @@ export function Cohorts(): JSX.Element {
                 title="Cohorts"
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
-            <div>
-                <Input.Search
-                    allowClear
-                    enterButton
-                    placeholder="Search for cohorts"
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
-                />
-                <div className="mb-4 float-right">
-                    <LemonButton
-                        type="primary"
-                        data-attr="create-cohort"
-                        onClick={() => router.actions.push(urls.cohort('new'))}
-                    >
-                        New Cohort
-                    </LemonButton>
+            <div className="flex justify-between items-center mb-4 gap-2">
+                <div style={{ width: 360 }}>
+                    <LemonInput
+                        icon={<IconMagnifier />}
+                        allowClear
+                        placeholder="Search for cohorts"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                        data-attr="persons-search"
+                    />
                 </div>
-
-                <LemonTable
-                    columns={columns}
-                    loading={cohortsLoading}
-                    rowKey="id"
-                    pagination={{ pageSize: 100 }}
-                    dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
-                    nouns={['cohort', 'cohorts']}
-                    data-tooltip="cohorts-table"
-                />
+                <LemonButton
+                    type="primary"
+                    data-attr="create-cohort"
+                    onClick={() => router.actions.push(urls.cohort('new'))}
+                >
+                    New Cohort
+                </LemonButton>
             </div>
+            <LemonTable
+                columns={columns}
+                loading={cohortsLoading}
+                rowKey="id"
+                pagination={{ pageSize: 100 }}
+                dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
+                nouns={['cohort', 'cohorts']}
+                data-tooltip="cohorts-table"
+            />
         </div>
     )
 }

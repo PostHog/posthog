@@ -86,25 +86,27 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         disabled: textProps.disabled,
         fullWidth,
         icon,
-        sideIcon: allowClear ? (
-            <LemonButton
-                size="small"
-                icon={<IconClose />}
-                status="muted-alt"
-                tooltip="Clear input"
-                onClick={(e) => {
-                    e.stopPropagation()
-                    if (type === 'number') {
-                        onChange?.(0)
-                    } else {
-                        onChange?.('')
-                    }
-                    focus()
-                }}
-            />
-        ) : (
-            sideIcon
-        ),
+        sideIcon:
+            allowClear && value ? (
+                <LemonButton
+                    size="small"
+                    noPadding
+                    icon={<IconClose />}
+                    status="muted-alt"
+                    tooltip="Clear input"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        if (type === 'number') {
+                            onChange?.(0)
+                        } else {
+                            onChange?.('')
+                        }
+                        focus()
+                    }}
+                />
+            ) : (
+                sideIcon
+            ),
         onKeyDown: (event) => {
             if (onPressEnter && event.key === 'Enter') {
                 if (type === 'number') {

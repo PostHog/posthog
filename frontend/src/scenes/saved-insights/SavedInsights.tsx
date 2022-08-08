@@ -359,8 +359,8 @@ export function SavedInsights(): JSX.Element {
                 <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
             ) : (
                 <>
-                    <div className="flex justify-between gap-2 mb-2 items-center">
-                        <div>
+                    <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
+                        <div style={{ width: 360 }}>
                             <LemonInput
                                 icon={<IconMagnifier />}
                                 allowClear

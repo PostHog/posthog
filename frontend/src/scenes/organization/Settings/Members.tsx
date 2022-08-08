@@ -19,6 +19,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonInput } from '@posthog/lemon-ui'
+import { IconMagnifier } from 'lib/components/icons'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -195,16 +197,15 @@ export function Members({ user }: MembersProps): JSX.Element {
     return (
         <>
             <h2 className="subtitle">Members</h2>
-            <Input.Search
-                placeholder="Search for members"
-                allowClear
-                enterButton
-                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
-                value={search}
-                onChange={(e) => {
-                    setSearch(e.target.value)
-                }}
-            />
+            <div style={{ width: 360 }}>
+                <LemonInput
+                    icon={<IconMagnifier />}
+                    allowClear
+                    placeholder="Search for members"
+                    value={search}
+                    onChange={setSearch}
+                />
+            </div>
             <LemonTable
                 dataSource={filteredMembers}
                 columns={columns}

@@ -21,11 +21,12 @@ import { dashboardLogic } from './dashboardLogic'
 import { LemonRow } from 'lib/components/LemonRow'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Tooltip } from 'lib/components/Tooltip'
-import { IconCottage, IconLock } from 'lib/components/icons'
+import { IconCottage, IconLock, IconMagnifier } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -210,17 +211,17 @@ export function Dashboards(): JSX.Element {
                 <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
                 <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
             </Tabs>
-            <div>
-                <Input.Search
-                    allowClear
-                    enterButton
-                    placeholder="Search for dashboards"
-                    style={{ width: 240 }}
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
-                />
+            <div className="flex">
+                <div style={{ width: 360 }}>
+                    <LemonInput
+                        icon={<IconMagnifier />}
+                        allowClear
+                        placeholder="Search for dashboards"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                    />
+                </div>
+                <div />
             </div>
             <LemonDivider large />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
