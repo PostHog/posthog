@@ -58,6 +58,13 @@
     > div {
         margin: 0.5rem 0;
     }
+
+    .Pages {
+        > .LemonButtonWithSideAction,
+        > a button {
+            margin-bottom: 1px;
+        }
+    }
 }
 
 .SideBar__heading {
