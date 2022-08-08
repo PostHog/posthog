@@ -41,22 +41,15 @@ export function ThirdPartyPanel(): JSX.Element {
                             key={source.name}
                             className="p-4 mb-2"
                             style={{
-                                minWidth: 600,
                                 border: '2px solid var(--border-light)',
                                 borderRadius: 4,
                             }}
                         >
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center">
                                     {source.icon}
                                     <div className="ml-2">
-                                        <h3
-                                            className="mb-0 flex align-center"
-                                            style={{
-                                                fontWeight: 600,
-                                                fontSize: 16,
-                                            }}
-                                        >
+                                        <h3 className="mb-0 flex align-center font-semibold text-base">
                                             {source.name} Import
                                             {source.labels?.map((label, labelIdx) => (
                                                 <LemonTag
@@ -71,7 +64,7 @@ export function ThirdPartyPanel(): JSX.Element {
                                         <p className="mb-0 text-muted">Send events from {source.name} into PostHog</p>
                                     </div>
                                 </div>
-                                <div>
+                                <div className="flex">
                                     <LemonButton
                                         className="mr-2"
                                         type="secondary"
