@@ -2,19 +2,21 @@ import clsx from 'clsx'
 import React from 'react'
 import './Lettermark.scss'
 
+// This is the number of known --lettermark-* variables in `globals.scss`
+const NUM_LETTERMARK_STYLES = 8
+
 export enum LettermarkColor {
-    Default = 1,
-    Gray = 8,
+    Gray = 'gray',
 }
 
 export interface LettermarkProps {
     /** Name or value the lettermark should represent. */
     name?: string | number | null
-    // If given, will choose a color based on the index
+    /** If given, will choose a color based on the index */
     index?: number
-    // Specify the color
+    /** Specify the color */
     color?: LettermarkColor
-    // Specify the color
+    /** Circular rounded style rather than square */
     rounded?: boolean
 }
 
@@ -29,7 +31,7 @@ export function Lettermark({ name, index, color, rounded = false }: LettermarkPr
             : name.toLocaleUpperCase().charAt(0)
         : '?'
 
-    const colorIndex = color ? color : typeof index === 'number' ? (index % 8) + 1 : undefined
+    const colorIndex = color ? color : typeof index === 'number' ? (index % NUM_LETTERMARK_STYLES) + 1 : undefined
 
     return (
         <div
