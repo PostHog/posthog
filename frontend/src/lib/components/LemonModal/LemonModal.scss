@@ -35,12 +35,14 @@
     box-shadow: 0 16px 16px -16px rgba(0, 0, 0, 0.35);
 
     transition: opacity 250ms ease-out, transform 250ms ease-out;
-    transform: scale(0.85) translateY(25%);
-    opacity: 0;
     display: flex;
     flex-direction: col;
-
     max-height: 90%;
+
+    // Transition properties
+    will-change: transform;
+    transform: scale(0.85) translateY(25%);
+    opacity: 0;
 
     &.ReactModal__Content--after-open {
         transform: scale(1) translateY(0);
