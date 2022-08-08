@@ -79,7 +79,7 @@ class MatrixManager:
 
     def run_on_team(self, team: Team, user: User):
         if not self.use_pre_save or not self._is_demo_data_pre_saved():
-            if self.matrix.simulation_complete is None:
+            if self.matrix.complete is None:
                 self.matrix.simulate()
             self._save_analytics_data(self.MASTER_TEAM if self.use_pre_save else team)
         if self.use_pre_save:

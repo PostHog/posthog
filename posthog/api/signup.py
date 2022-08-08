@@ -88,7 +88,7 @@ class SignupSerializer(serializers.Serializer):
         email = validated_data["email"]
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
-        matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=20,)
+        matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=50,)
         with transaction.atomic():
             self._organization, self._team, self._user = MatrixManager(
                 matrix, use_pre_save=False  # FIXME
