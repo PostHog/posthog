@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { EditorFilterProps, FilterType } from '~/types'
+import { EditorFilterProps } from '~/types'
 import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Tooltip } from 'lib/components/Tooltip'
