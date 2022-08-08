@@ -20,7 +20,7 @@ export function CardContainer({
 
     return (
         <div className="ingestion-card-container">
-            {!isSmallScreen && (
+            {!isSmallScreen ? (
                 <div className="flex items-center" data-attr="wizard-step-counter">
                     {index !== 0 && (
                         <ArrowLeftOutlined
@@ -31,8 +31,7 @@ export function CardContainer({
                     )}
                     <PanelHeader index={index} />
                 </div>
-            )}
-            {isSmallScreen && (
+            ) : (
                 <>
                     <ArrowLeftOutlined
                         className="button-border clickable"
