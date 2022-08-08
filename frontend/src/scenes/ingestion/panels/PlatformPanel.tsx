@@ -15,7 +15,7 @@ export function PlatformPanel(): JSX.Element {
             <p>
                 First things first, where do you want to send events from? You can always instrument more sources later.
             </p>
-            <LemonDivider thick dashed className="mt-6 mb-6" />
+            <LemonDivider thick dashed className="my-6" />
             <div className="flex flex-col mb-6">
                 {platforms.map((platform) => (
                     <LemonButton
