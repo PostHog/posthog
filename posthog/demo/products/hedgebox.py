@@ -855,12 +855,7 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 0,
                         "properties": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": "https://hedgebox.net/",
-                                "operator": "exact",
-                            }
+                            {"key": "$current_url", "type": "event", "value": URL_HOME, "operator": "exact",}
                         ],
                     },
                     {
@@ -870,12 +865,7 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 1,
                         "properties": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": "https:\\/\\/hedgebox\\.net\\/register($|\\/)",
-                                "operator": "regex",
-                            }
+                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "regex",}
                         ],
                     },
                     {"custom_name": "Signed up", "id": "signed_up", "name": "signed_up", "type": "events", "order": 2},
@@ -1018,12 +1008,7 @@ class HedgeboxMatrix(Matrix):
                         "type": "events",
                         "order": 0,
                         "properties": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": "https:\\/\\/hedgebox\\.net\\/register($|\\/)",
-                                "operator": "regex",
-                            }
+                            {"key": "$current_url", "type": "event", "value": URL_SIGNUP, "operator": "exact",}
                         ],
                     },
                     {"id": "signed_up", "name": "signed_up", "type": "events", "order": 1},
