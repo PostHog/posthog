@@ -9,61 +9,37 @@ import { IconDelete, IconPlusMini } from 'lib/components/icons'
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
 
-function Formula({
-    filters,
-    onChange,
-    autoFocus,
-    allowClear = true,
-}: {
-    filters: Partial<FilterType>
-    onChange: (formula: string) => void
-    onFocus?: (hasFocus: boolean, localFormula: string) => void
-    autoFocus?: boolean
-    allowClear?: boolean
-}): JSX.Element {
-    const [value, setValue] = useState(filters.formula)
-    useEffect(() => {
-        setValue(filters.formula)
-    }, [filters.formula])
-    return (
-        <LemonInput
-            className="flex-1"
-            placeholder="e.g. (A + B)/(A - B) * 100"
-            allowClear={allowClear}
-            autoFocus={autoFocus}
-            value={value}
-            onChange={(value) => {
-                let changedValue = value.toLocaleUpperCase()
-                // Only allow typing of allowed characters
-                changedValue = changedValue
-                    .split('')
-                    .filter((d) => ALLOWED_FORMULA_CHARACTERS.test(d))
-                    .join('')
-                setValue(changedValue)
-            }}
-            onBlur={() => onChange(value)}
-            onPressEnter={() => onChange(value)}
-        />
-    )
-}
-
 export function TrendsFormula({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
     const [isUsingFormulas, setIsUsingFormulas] = useState(!!filters.formula)
-
     const formulaEnabled = (filters.events?.length || 0) + (filters.actions?.length || 0) > 0
+    const [value, setValue] = useState(filters.formula)
+
+    useEffect(() => {
+        setValue(filters.formula)
+    }, [filters.formula])
 
     return (
         <>
             {isUsingFormulas ? (
                 <div className="flex items-center gap-2">
-                    <Formula
-                        filters={filters}
-                        onChange={(formula: string): void => {
-                            setFilters({ formula })
-                        }}
+                    <LemonInput
+                        className="flex-1"
+                        placeholder="e.g. (A + B)/(A - B) * 100"
+                        allowClear
                         autoFocus
-                        allowClear={false}
+                        value={value}
+                        onChange={(value) => {
+                            let changedValue = value.toLocaleUpperCase()
+                            // Only allow typing of allowed characters
+                            changedValue = changedValue
+                                .split('')
+                                .filter((d) => ALLOWED_FORMULA_CHARACTERS.test(d))
+                                .join('')
+                            setValue(changedValue)
+                        }}
+                        onBlur={() => setFilters({ formula: value })}
+                        onPressEnter={() => setFilters({ formula: value })}
                     />
 
                     <LemonButton
