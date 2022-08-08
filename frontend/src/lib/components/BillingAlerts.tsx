@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { Link } from 'lib/components/Link'
 import { IconWarningAmber } from './icons'
+import clsx from 'clsx'
 
 export function BillingAlerts(): JSX.Element | null {
     const { billing } = useValues(billingLogic)
@@ -74,9 +75,12 @@ export function BillingAlerts(): JSX.Element | null {
     }
 
     return (
-        <div className={'Announcement'}>
-            {isWarning && <IconWarningAmber className="text-warning " style={{ paddingRight: '1rem' }} />}
-            {isAlert && <IconWarningAmber className="text-warning" style={{ paddingRight: '1rem' }} />}
+        <div className="Announcement">
+            {isWarning || isAlert ? (
+                <IconWarningAmber
+                    className={clsx('text-lg mr-2', isWarning && 'text-warning', isAlert && 'text-danger')}
+                />
+            ) : null}
             {message}
         </div>
     )
