@@ -20,8 +20,16 @@ labels: bug
 - [ ] PostHog Cloud
 - [ ] self-hosted PostHog, version/commit: please provide
 
+##  Technical details
+
+- Browser version, screen recording, console logs, network requests: You can make a recording with [Bird Eats Bug](https://birdeatsbug.com/).
+- Node.js version
+
 ## Additional context
 
 
 
 #### *Thank you* for your bug report – we love squashing them!
+
+
+
