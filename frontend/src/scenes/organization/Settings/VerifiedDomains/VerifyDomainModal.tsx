@@ -2,7 +2,6 @@ import { Input } from 'antd'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonModalV2 } from 'lib/components/LemonModalV2'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import React from 'react'
@@ -15,7 +14,7 @@ export function VerifyDomainModal(): JSX.Element {
 
     return (
         <LemonModalV2
-            isOpen={!!domainBeingVerified || true}
+            isOpen={!!domainBeingVerified}
             onClose={() => setVerifyModal(null)}
             title="Verify your domain"
             description={
