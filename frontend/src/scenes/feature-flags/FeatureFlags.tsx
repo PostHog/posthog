@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
-import { Input, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Input, Radio } from 'antd'
+import { Radio } from 'antd'
 import { CheckOutlined } from '@ant-design/icons'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'

@@ -12,13 +12,13 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     eventPropertyDefinitionsTableLogic,
 } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { Alert, Input } from 'antd'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { IconMagnifier } from 'lib/components/icons'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {
     component: EventPropertyDefinitionsTable,
@@ -93,11 +93,11 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 <UsageDisabledWarning tab="Event Property Definitions" />
             ) : (
                 eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
-                    <Alert
-                        type="warning"
-                        message="We haven't been able to get usage and volume data yet. Please check back later."
-                        style={{ marginBottom: '1rem' }}
-                    />
+                    <div className="mb-4">
+                        <AlertMessage type="warning">
+                            We haven't been able to get usage and volume data yet. Please check back later.
+                        </AlertMessage>
+                    </div>
                 )
             )}
 

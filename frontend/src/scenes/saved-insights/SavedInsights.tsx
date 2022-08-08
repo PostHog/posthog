@@ -1,4 +1,4 @@
-import { Col, Input, Radio, Row, Select, Tabs } from 'antd'
+import { Radio, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'

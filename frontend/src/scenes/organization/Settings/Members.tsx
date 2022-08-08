@@ -1,5 +1,5 @@
 import React from 'react'
-import { Modal, Input } from 'antd'
+import { Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
 import { ExclamationCircleOutlined, SwapOutlined } from '@ant-design/icons'

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
-import { DownloadOutlined, UsergroupAddOutlined } from '@ant-design/icons'
-import { Button, Input, Modal, Select, Skeleton } from 'antd'
+import { DownloadOutlined } from '@ant-design/icons'
+import { Button, Select, Skeleton } from 'antd'
 import { ActorType, ChartDisplayType, ExporterFormat, FilterType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -23,7 +23,7 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 export interface PersonsModalProps {
     visible: boolean

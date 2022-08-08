@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import { Input } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'

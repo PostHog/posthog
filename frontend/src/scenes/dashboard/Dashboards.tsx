@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Card, Col, Input, Row, Tabs } from 'antd'
+import { Card, Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboardsLogic'
 import { Link } from 'lib/components/Link'
 import { AppstoreAddOutlined, PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
@@ -263,42 +263,38 @@ export function Dashboards(): JSX.Element {
             ) : (
                 <div className="mt-4">
                     <p>Create your first dashboard:</p>
-                    <Row gutter={[16, 16]}>
-                        <Col xs={24} xl={6}>
-                            <Card
-                                title="Empty"
-                                size="small"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() =>
-                                    addDashboard({
-                                        name: 'New Dashboard',
-                                        useTemplate: '',
-                                    })
-                                }
-                            >
-                                <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                    <AppstoreAddOutlined />
-                                </div>
-                            </Card>
-                        </Col>
-                        <Col xs={24} xl={6}>
-                            <Card
-                                title="App Default"
-                                size="small"
-                                style={{ cursor: 'pointer' }}
-                                onClick={() =>
-                                    addDashboard({
-                                        name: 'Web App Dashboard',
-                                        useTemplate: 'DEFAULT_APP',
-                                    })
-                                }
-                            >
-                                <div style={{ textAlign: 'center', fontSize: 40 }}>
-                                    <AppstoreAddOutlined />
-                                </div>
-                            </Card>
-                        </Col>
-                    </Row>
+                    <div className="flex justify-center items-center gap-4">
+                        <Card
+                            title="Empty"
+                            size="small"
+                            style={{ width: 200, cursor: 'pointer' }}
+                            onClick={() =>
+                                addDashboard({
+                                    name: 'New Dashboard',
+                                    useTemplate: '',
+                                })
+                            }
+                        >
+                            <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                <AppstoreAddOutlined />
+                            </div>
+                        </Card>
+                        <Card
+                            title="App Default"
+                            size="small"
+                            style={{ width: 200, cursor: 'pointer' }}
+                            onClick={() =>
+                                addDashboard({
+                                    name: 'Web App Dashboard',
+                                    useTemplate: 'DEFAULT_APP',
+                                })
+                            }
+                        >
+                            <div style={{ textAlign: 'center', fontSize: 40 }}>
+                                <AppstoreAddOutlined />
+                            </div>
+                        </Card>
+                    </div>
                 </div>
             )}
         </div>

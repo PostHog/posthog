@@ -3,10 +3,8 @@ import { EditorFilterProps, FilterType } from '~/types'
 import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { CloseButton } from 'lib/components/CloseButton'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { IconDelete, IconDeleteForever, IconPlusMini } from 'lib/components/icons'
-import { Input } from 'antd'
+import { IconDelete, IconPlusMini } from 'lib/components/icons'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
@@ -14,7 +12,6 @@ const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z\ \-\*\^0-9\+\/\(\)\.]+$/
 function Formula({
     filters,
     onChange,
-    onFocus,
     autoFocus,
     allowClear = true,
 }: {
