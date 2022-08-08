@@ -614,6 +614,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
             actions.refreshAllDashboardItems()
         },
         refreshAllDashboardItems: async ({ items: _items }, breakpoint) => {
+            if (!props.id) {
+                // what are we loading the insight card on?!
+                return
+            }
+            const dashboardId: number = props.id
+
             const items = _items || values.items || []
 
             // Don't do anything if there's nothing to refresh
@@ -632,15 +638,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 try {
                     breakpoint()
 
-                    if (!props.id) {
-                        // what are we loading the insight card on?!
-                        return
-                    }
-
                     const refreshedDashboardItem = await api.get(
                         `api/projects/${values.currentTeamId}/insights/${dashboardItem.id}/?${toParams({
                             refresh: true,
-                            from_dashboard: props.id, // needed to load insight in correct context
+                            from_dashboard: dashboardId, // needed to load insight in correct context
                         })}`
                     )
                     breakpoint()
@@ -649,7 +650,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                     if (dashboardItem.filters.insight) {
                         const itemResultLogic = insightLogic?.findMounted({
                             dashboardItemId: dashboardItem.short_id,
-                            dashboardId: props.id,
+                            dashboardId: dashboardId,
                             cachedInsight: dashboardItem,
                         })
                         itemResultLogic?.actions.setInsight(
@@ -658,7 +659,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         )
                     }
 
-                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem, [props.id])
+                    dashboardsModel.actions.updateDashboardItem(refreshedDashboardItem, [dashboardId])
                     actions.setRefreshStatus(dashboardItem.short_id)
                 } catch (e: any) {
                     if (isBreakpoint(e)) {
@@ -679,7 +680,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 void loadNextPromise()
             }
 
-            eventUsageLogic.actions.reportDashboardRefreshed(values.lastRefreshed)
+            eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.lastRefreshed)
         },
         updateAndRefreshDashboard: async (_, breakpoint) => {
             await breakpoint(200)
