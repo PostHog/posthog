@@ -57,7 +57,7 @@ SectionedOptions.args = {
 }
 
 export const Stealth = Template.bind({})
-Stealth.args = { type: 'stealth', outlined: true }
+Stealth.args = { status: 'stealth' }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }

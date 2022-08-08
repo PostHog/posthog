@@ -33,11 +33,13 @@ export function IconSeekBack({
     time: number
 } & IconProps): JSX.Element {
     return (
-        <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
-            <>
-                <span className="seek-seconds">{time}</span>
-                <LemonButton type="alt" icon={<UndoOutlined className="seek-icon" rotate={90} />} />
-            </>
+        <BaseIcon onClick={onClick} style={style}>
+            <LemonButton status="primary-alt" size="small">
+                <div className="rrweb-controller-icon-seek">
+                    <span className="seek-seconds">{time}</span>
+                    <UndoOutlined className="seek-icon" rotate={90} />
+                </div>
+            </LemonButton>
         </BaseIcon>
     )
 }
@@ -50,11 +52,13 @@ export function IconSeekForward({
     time: number
 } & IconProps): JSX.Element {
     return (
-        <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
-            <>
-                <span className="seek-seconds">{time}</span>
-                <LemonButton type="alt" icon={<RedoOutlined className="seek-icon" rotate={270} />} />
-            </>
+        <BaseIcon onClick={onClick} style={style}>
+            <LemonButton status="primary-alt" size="small">
+                <div className="rrweb-controller-icon-seek">
+                    <span className="seek-seconds">{time}</span>
+                    <RedoOutlined className="seek-icon" rotate={270} />
+                </div>
+            </LemonButton>
         </BaseIcon>
     )
 }

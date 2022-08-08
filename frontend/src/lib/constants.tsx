@@ -59,7 +59,15 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
-export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    'email',
+    'Email',
+    'name',
+    'Name',
+    'username',
+    'Username',
+    'UserName',
+]
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
@@ -108,7 +116,6 @@ export const FEATURE_FLAGS = {
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
-    ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,

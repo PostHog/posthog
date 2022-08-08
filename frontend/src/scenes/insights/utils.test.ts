@@ -1,7 +1,13 @@
 import { CohortType, Entity, EntityFilter, FilterLogicalOperator, FilterType, InsightType, PathType } from '~/types'
-import { extractObjectDiffKeys, getDisplayNameFromEntityFilter, summarizeInsightFilters } from 'scenes/insights/utils'
+import {
+    extractObjectDiffKeys,
+    formatAggregationValue,
+    getDisplayNameFromEntityFilter,
+    summarizeInsightFilters,
+} from 'scenes/insights/utils'
 import { BASE_MATH_DEFINITIONS, MathDefinition, PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -484,5 +490,28 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual('User lifecycle based on Rageclick')
+    })
+})
+
+describe('formatAggregationValue', () => {
+    it('safely handles null', () => {
+        const fakeRenderCount = (x: number): string => String(x)
+        const noOpFormatProperty = jest.fn((_, y) => y)
+        const actual = formatAggregationValue('some name', null, fakeRenderCount, noOpFormatProperty)
+        expect(actual).toEqual('-')
+    })
+
+    it('uses render count when there is a value and property format is a no-op', () => {
+        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const noOpFormatProperty = jest.fn((_, y) => y)
+        const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
+        expect(actual).toEqual('8m 20s')
+    })
+
+    it('uses render count when there is a value and property format converts number to string', () => {
+        const fakeRenderCount = (x: number): string => formatAggregationAxisValue('duration', x)
+        const noOpFormatProperty = jest.fn((_, y) => String(y))
+        const actual = formatAggregationValue('some name', 500, fakeRenderCount, noOpFormatProperty)
+        expect(actual).toEqual('8m 20s')
     })
 })

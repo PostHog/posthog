@@ -6,6 +6,7 @@ import { Action, Hook, IngestionEvent, IngestionPersonData } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
 import { stringify } from '../../utils/utils'
+import { LazyPersonContainer } from './lazy-person-container'
 import { OrganizationManager } from './organization-manager'
 import { SiteUrlManager } from './site-url-manager'
 import { TeamManager } from './team-manager'
@@ -71,14 +72,14 @@ export function getTokens(messageFormat: string): [string[], string] {
     return [matchedTokens, tokenizedMessage]
 }
 
-export function getValueOfToken(
+export async function getValueOfToken(
     action: Action,
     event: IngestionEvent,
-    person: IngestionPersonData | undefined,
+    personContainer: LazyPersonContainer,
     siteUrl: string,
     webhookType: WebhookType,
     tokenParts: string[]
-): [string, string] {
+): Promise<[string, string]> {
     let text = ''
     let markdown = ''
 
@@ -86,6 +87,7 @@ export function getValueOfToken(
         // [user.name] and [user.foo] are DEPRECATED as they had odd mechanics
         // [person] OR [event.properties.bar] should be used instead
         if (tokenParts[1] === 'name') {
+            const person = await personContainer.get()
             ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
         } else {
             const propertyName = `$${tokenParts[1]}`
@@ -94,6 +96,7 @@ export function getValueOfToken(
             markdown = text
         }
     } else if (tokenParts[0] === 'person') {
+        const person = await personContainer.get()
         if (tokenParts.length === 1) {
             ;[text, markdown] = getUserDetails(event, person, siteUrl, webhookType)
         } else if (tokenParts[1] === 'properties' && tokenParts.length > 2) {
@@ -123,13 +126,13 @@ export function getValueOfToken(
     return [text, markdown]
 }
 
-export function getFormattedMessage(
+export async function getFormattedMessage(
     action: Action,
     event: IngestionEvent,
-    person: IngestionPersonData | undefined,
+    personContainer: LazyPersonContainer,
     siteUrl: string,
     webhookType: WebhookType
-): [string, string] {
+): Promise<[string, string]> {
     const messageFormat = action.slack_message_format || '[action.name] was triggered by [person]'
     let messageText: string
     let messageMarkdown: string
@@ -142,7 +145,14 @@ export function getFormattedMessage(
         for (const token of tokens) {
             const tokenParts = token.match(/\$\w+|\$\$\w+|\w+/g) || []
 
-            const [value, markdownValue] = getValueOfToken(action, event, person, siteUrl, webhookType, tokenParts)
+            const [value, markdownValue] = await getValueOfToken(
+                action,
+                event,
+                personContainer,
+                siteUrl,
+                webhookType,
+                tokenParts
+            )
             values.push(value)
             markdownValues.push(markdownValue)
         }
@@ -180,7 +190,7 @@ export class HookCommander {
 
     public async findAndFireHooks(
         event: IngestionEvent,
-        person: IngestionPersonData | undefined,
+        personContainer: LazyPersonContainer,
         actionMatches: Action[]
     ): Promise<void> {
         if (!actionMatches.length) {
@@ -199,17 +209,19 @@ export class HookCommander {
         if (webhookUrl) {
             const webhookRequests = actionMatches
                 .filter((action) => action.post_to_slack)
-                .map((action) => this.postWebhook(webhookUrl, action, event, person))
+                .map((action) => this.postWebhook(webhookUrl, action, event, personContainer))
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
         if (organization!.available_features.includes('zapier')) {
             const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
-            const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
-            await Promise.all(restHookRequests).catch((error) => captureException(error))
-
             if (restHooks.length > 0) {
+                const person = await personContainer.get()
+
+                const restHookRequests = restHooks.map((hook) => this.postRestHook(hook, event, person))
+                await Promise.all(restHookRequests).catch((error) => captureException(error))
+
                 this.statsd?.increment('zapier_hooks_fired', {
                     team_id: String(team.id),
                 })
@@ -221,11 +233,17 @@ export class HookCommander {
         webhookUrl: string,
         action: Action,
         event: IngestionEvent,
-        person: IngestionPersonData | undefined
+        personContainer: LazyPersonContainer
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
         const siteUrl = await this.siteUrlManager.getSiteUrl()
-        const [messageText, messageMarkdown] = getFormattedMessage(action, event, person, siteUrl || '', webhookType)
+        const [messageText, messageMarkdown] = await getFormattedMessage(
+            action,
+            event,
+            personContainer,
+            siteUrl || '',
+            webhookType
+        )
         let message: Record<string, any>
         if (webhookType === WebhookType.Slack) {
             message = {

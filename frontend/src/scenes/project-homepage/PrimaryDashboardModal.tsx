@@ -30,7 +30,6 @@ export function PrimaryDashboardModal(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         data-attr="close-primary-dashboard-modal"
-                        style={{ marginRight: '0.5rem' }}
                         onClick={closePrimaryDashboardModal}
                     >
                         Close

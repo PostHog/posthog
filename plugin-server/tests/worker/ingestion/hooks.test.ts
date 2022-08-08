@@ -13,6 +13,7 @@ import {
     HookCommander,
     WebhookType,
 } from '../../../src/worker/ingestion/hooks'
+import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
 import { Hook } from './../../../src/types'
 
 describe('hooks', () => {
@@ -102,18 +103,25 @@ describe('hooks', () => {
         })
     })
 
-    describe('getValueOfToken', () => {
+    describe('getValueOfToken()', () => {
         const action = { id: 1, name: 'action1' } as Action
         const event = { distinctId: 'WALL-E', properties: { $browser: 'Chrome' } } as unknown as PreIngestionEvent
         const person = { properties: { enjoys_broccoli_on_pizza: false } } as unknown as Person
+        let personContainer: any
 
-        test('person with just distinct ID', () => {
+        beforeEach(() => {
+            personContainer = new LazyPersonContainer(2, 'my_id', {} as any, person)
+
+            jest.spyOn(personContainer, 'get')
+        })
+
+        test('person with just distinct ID', async () => {
             const tokenUserName = ['person']
 
-            const [text, markdown] = getValueOfToken(
+            const [text, markdown] = await getValueOfToken(
                 action,
                 event,
-                person,
+                personContainer,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserName
@@ -121,15 +129,22 @@ describe('hooks', () => {
 
             expect(text).toBe('WALL-E')
             expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(personContainer.get).toBeCalledTimes(1)
         })
 
-        test('person with email', () => {
+        test('person with email', async () => {
             const tokenUserName = ['person']
+            personContainer = personContainer.with({
+                ...person,
+                properties: { ...person.properties, email: 'wall-e@buynlarge.com' },
+            })
 
-            const [text, markdown] = getValueOfToken(
+            jest.spyOn(personContainer, 'get')
+
+            const [text, markdown] = await getValueOfToken(
                 action,
                 event,
-                { ...person, properties: { ...person.properties, email: 'wall-e@buynlarge.com' } },
+                personContainer,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserName
@@ -137,15 +152,16 @@ describe('hooks', () => {
 
             expect(text).toBe('wall-e@buynlarge.com')
             expect(markdown).toBe('[wall-e@buynlarge.com](http://localhost:8000/person/WALL-E)')
+            expect(personContainer.get).toBeCalledTimes(1)
         })
 
-        test('person prop', () => {
+        test('person prop', async () => {
             const tokenUserPropString = ['person', 'properties', 'enjoys_broccoli_on_pizza']
 
-            const [text, markdown] = getValueOfToken(
+            const [text, markdown] = await getValueOfToken(
                 action,
                 event,
-                person,
+                personContainer,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserPropString
@@ -153,15 +169,16 @@ describe('hooks', () => {
 
             expect(text).toBe('false')
             expect(markdown).toBe('false')
+            expect(personContainer.get).toBeCalledTimes(1)
         })
 
-        test('user name (alias for person name)', () => {
+        test('user name (alias for person name)', async () => {
             const tokenUserName = ['user', 'name']
 
-            const [text, markdown] = getValueOfToken(
+            const [text, markdown] = await getValueOfToken(
                 action,
                 event,
-                person,
+                personContainer,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserName
@@ -169,15 +186,16 @@ describe('hooks', () => {
 
             expect(text).toBe('WALL-E')
             expect(markdown).toBe('[WALL-E](http://localhost:8000/person/WALL-E)')
+            expect(personContainer.get).toBeCalledTimes(1)
         })
 
-        test('user prop (actually event prop)', () => {
+        test('user prop (actually event prop)', async () => {
             const tokenUserPropString = ['user', 'browser']
 
-            const [text, markdown] = getValueOfToken(
+            const [text, markdown] = await getValueOfToken(
                 action,
                 event,
-                person,
+                personContainer,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserPropString
@@ -185,15 +203,16 @@ describe('hooks', () => {
 
             expect(text).toBe('Chrome')
             expect(markdown).toBe('Chrome')
+            expect(personContainer.get).toBeCalledTimes(0)
         })
 
-        test('user prop but missing', () => {
+        test('user prop but missing', async () => {
             const tokenUserPropMissing = ['user', 'missing_property']
 
-            const [text, markdown] = getValueOfToken(
+            const [text, markdown] = await getValueOfToken(
                 action,
                 event,
-                person,
+                personContainer,
                 'http://localhost:8000',
                 WebhookType.Teams,
                 tokenUserPropMissing
@@ -201,17 +220,25 @@ describe('hooks', () => {
 
             expect(text).toBe('undefined')
             expect(markdown).toBe('undefined')
+            expect(personContainer.get).toBeCalledTimes(0)
         })
     })
 
-    describe('getFormattedMessage', () => {
+    describe('getFormattedMessage()', () => {
         const event = {
             distinctId: 2,
             properties: { $browser: 'Chrome', page_title: 'Pricing' },
         } as unknown as PreIngestionEvent
         const person = {} as Person
+        let personContainer: any
 
-        test('custom format', () => {
+        beforeEach(() => {
+            personContainer = new LazyPersonContainer(2, 'my_id', {} as any, person)
+
+            jest.spyOn(personContainer, 'get')
+        })
+
+        test('custom format', async () => {
             const action = {
                 id: 1,
                 name: 'action1',
@@ -219,24 +246,25 @@ describe('hooks', () => {
                     '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit]',
             } as Action
 
-            const [text, markdown] = getFormattedMessage(
+            const [text, markdown] = await getFormattedMessage(
                 action,
                 event,
-                person,
+                personContainer,
                 'https://localhost:8000',
                 WebhookType.Slack
             )
             expect(text).toBe('2 from Chrome on Pricing page with undefined')
             expect(markdown).toBe('<https://localhost:8000/person/2|2> from Chrome on Pricing page with undefined')
+            expect(personContainer.get).toBeCalledTimes(1)
         })
 
-        test('default format', () => {
+        test('default format', async () => {
             const action = { id: 1, name: 'action1', slack_message_format: '' } as Action
 
-            const [text, markdown] = getFormattedMessage(
+            const [text, markdown] = await getFormattedMessage(
                 action,
                 event,
-                person,
+                personContainer,
                 'https://localhost:8000',
                 WebhookType.Slack
             )
@@ -244,24 +272,26 @@ describe('hooks', () => {
             expect(markdown).toBe(
                 '<https://localhost:8000/action/1|action1> was triggered by <https://localhost:8000/person/2|2>'
             )
+            expect(personContainer.get).toBeCalledTimes(1)
         })
 
-        test('not quite correct format', () => {
+        test('not quite correct format', async () => {
             const action = {
                 id: 1,
                 name: 'action1',
                 slack_message_format: '[user.name] did thing from browser [user.brauzer]',
             } as Action
 
-            const [text, markdown] = getFormattedMessage(
+            const [text, markdown] = await getFormattedMessage(
                 action,
                 event,
-                person,
+                personContainer,
                 'https://localhost:8000',
                 WebhookType.Slack
             )
             expect(text).toBe('2 did thing from browser undefined')
             expect(markdown).toBe('<https://localhost:8000/person/2|2> did thing from browser undefined')
+            expect(personContainer.get).toBeCalledTimes(1)
         })
     })
 
@@ -270,7 +300,7 @@ describe('hooks', () => {
         let hook: Hook
 
         beforeEach(() => {
-            hookCommander = new HookCommander({} as any, {} as any, {} as any)
+            hookCommander = new HookCommander({} as any, {} as any, {} as any, {} as any)
             hook = {
                 id: 'id',
                 team_id: 2,

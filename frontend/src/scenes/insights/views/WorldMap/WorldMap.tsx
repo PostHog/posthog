@@ -13,6 +13,7 @@ import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModa
 import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from '../../filters/ActionFilter/entityFilterLogic'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
@@ -60,6 +61,9 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     </div>
                                 )
                             }
+                            renderCount={(value: number) => (
+                                <>{formatAggregationAxisValue(filters.aggregation_axis_format, value)}</>
+                            )}
                             showHeader={false}
                             hideColorCol
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}

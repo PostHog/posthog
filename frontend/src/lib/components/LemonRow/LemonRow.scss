@@ -19,25 +19,25 @@
         color: var(--default);
         font-weight: 600;
 
-        .LemonRow__icon {
+        .LemonRow__icon .LemonIcon {
             color: var(--primary);
         }
     }
 
     &.LemonRow--status-danger {
-        .LemonRow__icon {
+        .LemonRow__icon .LemonIcon {
             color: var(--danger);
         }
     }
 
     &.LemonRow--status-warning {
-        .LemonRow__icon {
+        .LemonRow__icon .LemonIcon {
             color: var(--warning);
         }
     }
 
     &.LemonRow--status-success {
-        .LemonRow__icon {
+        .LemonRow__icon .LemonIcon {
             color: var(--success);
         }
     }
@@ -119,7 +119,7 @@
     @extend .LemonRow--tall;
     font-size: 1rem;
 
-    .LemonRow__icon {
+    .LemonRow__icon .LemonIcon {
         font-size: 1.75rem;
     }
 }
@@ -135,23 +135,27 @@
         padding: 0;
     }
 
-    .LemonRow__icon {
+    .LemonRow__icon .LemonIcon {
         font-size: 1.25rem;
     }
 }
 
 .LemonRow__icon {
-    width: 1em;
-    height: 1em;
-    transition: background-color 200ms ease, color 200ms ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-    color: var(--muted-alt);
+    .LemonIcon {
+        width: 1em;
+        height: 1em;
+        transition: background-color 200ms ease, color 200ms ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: var(--muted-alt);
+    }
 
     &.LemonRow__icon--relaxed-width {
-        width: auto;
+        .LemonIcon {
+            width: auto;
+        }
     }
 }
 

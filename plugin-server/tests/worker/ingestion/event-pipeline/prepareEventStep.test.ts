@@ -5,6 +5,7 @@ import { Hub, Person } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/4-prepareEventStep'
+import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -36,6 +37,7 @@ const person: Person = {
 
 describe('prepareEventStep()', () => {
     let runner: any
+    let personContainer: any
     let hub: Hub
     let closeHub: () => Promise<void>
 
@@ -48,6 +50,7 @@ describe('prepareEventStep()', () => {
             'my_id',
         ])
         hub.db.kafkaProducer!.queueMessage = jest.fn()
+        personContainer = new LazyPersonContainer(2, 'my_id', hub)
 
         runner = {
             nextStep: (...args: any[]) => args,
@@ -60,7 +63,7 @@ describe('prepareEventStep()', () => {
     })
 
     it('goes to `createEventStep` for normal events', async () => {
-        const response = await prepareEventStep(runner, pluginEvent, person)
+        const response = await prepareEventStep(runner, pluginEvent, personContainer)
 
         expect(response).toEqual([
             'createEventStep',
@@ -75,14 +78,14 @@ describe('prepareEventStep()', () => {
                 },
                 teamId: 2,
                 timestamp: expect.any(DateTime),
-                person: person,
             },
+            personContainer,
         ])
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
     it('produces to kafka and to `runAsyncHandlersStep` for $snapshot events', async () => {
-        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, person)
+        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, personContainer)
 
         expect(response).toEqual([
             'runAsyncHandlersStep',
@@ -98,6 +101,7 @@ describe('prepareEventStep()', () => {
                 teamId: 2,
                 timestamp: '2020-02-23 02:15:00.000',
             },
+            personContainer,
         ])
         expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
     })
@@ -105,7 +109,7 @@ describe('prepareEventStep()', () => {
     it('does not continue if event is ignored', async () => {
         await hub.db.postgresQuery('UPDATE posthog_team SET session_recording_opt_in = $1', [false], 'testRecordings')
 
-        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, person)
+        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, personContainer)
 
         expect(response).toEqual(null)
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()

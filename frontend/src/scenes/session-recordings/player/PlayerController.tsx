@@ -86,20 +86,21 @@ export function PlayerControllerV3(): JSX.Element {
                 <Seekbar />
             </div>
             <Row className="rrweb-controller__bottom" wrap={false} justify="space-between" align="middle">
-                <Row wrap={false} style={{ width: '50%' }}>
+                <Row wrap={false} className="space-x-2" style={{ width: '50%' }}>
                     <LemonButton
                         size="small"
                         icon={<UnverifiedEvent />}
-                        type={tab === SessionRecordingTab.EVENTS ? 'highlighted' : 'alt'}
+                        status={tab === SessionRecordingTab.EVENTS ? 'primary' : 'primary-alt'}
+                        active={tab === SessionRecordingTab.EVENTS}
                         onClick={() => setTab(SessionRecordingTab.EVENTS)}
-                        style={{ marginRight: '0.5rem' }}
                     >
                         Events
                     </LemonButton>
                     <LemonButton
                         size="small"
                         icon={<IconTerminal />}
-                        type={tab === SessionRecordingTab.CONSOLE ? 'highlighted' : 'alt'}
+                        status={tab === SessionRecordingTab.CONSOLE ? 'primary' : 'primary-alt'}
+                        active={tab === SessionRecordingTab.CONSOLE}
                         onClick={() => {
                             setTab(SessionRecordingTab.CONSOLE)
                         }}
@@ -107,26 +108,15 @@ export function PlayerControllerV3(): JSX.Element {
                         Console
                     </LemonButton>
                 </Row>
-                <Row wrap={false} style={{ margin: '0 1rem' }}>
+                <Row wrap={false} className="gap-2 mx-2">
                     <SeekBack />
-                    <LemonButton
-                        type="alt"
-                        icon={
-                            [SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
-                                <IconPause
-                                    onClick={togglePlayPause}
-                                    className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                                    style={{ margin: '0 1.25rem' }}
-                                />
-                            ) : (
-                                <IconPlay
-                                    onClick={togglePlayPause}
-                                    className="rrweb-controller-icon ph-rrweb-controller-icon-play-pause"
-                                />
-                            )
-                        }
-                        style={{ margin: '0 1.25rem' }}
-                    />
+                    <LemonButton status="primary-alt" size="small">
+                        {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
+                            <IconPause onClick={togglePlayPause} className="rrweb-controller-icon" />
+                        ) : (
+                            <IconPlay onClick={togglePlayPause} className="rrweb-controller-icon " />
+                        )}
+                    </LemonButton>
                     <SeekForward />
                 </Row>
                 <Row wrap={false} style={{ width: '50%' }} justify="end" align="middle">
@@ -137,26 +127,29 @@ export function PlayerControllerV3(): JSX.Element {
                         popup={{
                             overlay: (
                                 <>
-                                    <LemonSwitch
-                                        label="Skip inactivity"
-                                        checked={skipInactivitySetting}
-                                        onChange={() => {
-                                            setSkipInactivitySetting(!skipInactivitySetting)
-                                        }}
-                                    />
+                                    <div className="p-2">
+                                        <LemonSwitch
+                                            label="Skip inactivity"
+                                            checked={skipInactivitySetting}
+                                            onChange={() => {
+                                                setSkipInactivitySetting(!skipInactivitySetting)
+                                            }}
+                                        />
+                                    </div>
                                     <LemonButtonWithPopup
                                         data-attr="session-recording-speed-select"
                                         className="session-recording-speed-select"
-                                        type="stealth"
+                                        fullWidth
+                                        status="stealth"
                                         popup={{
                                             overlay: (
                                                 <>
                                                     {PLAYBACK_SPEEDS.map((speedToggle) => (
                                                         <LemonButton
                                                             fullWidth
-                                                            type={speed === speedToggle ? 'highlighted' : 'stealth'}
+                                                            status="stealth"
+                                                            active={speed === speedToggle}
                                                             key={speedToggle}
-                                                            value={speedToggle}
                                                             onClick={() => {
                                                                 setSpeed(speedToggle)
                                                             }}

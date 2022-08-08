@@ -33,7 +33,7 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
                             form="async-migration-parameters-form"
                             type="secondary"
                             data-attr="async-migration-parameters-cancel"
-                            style={{ marginRight: '0.5rem' }}
+                            className="mr-2"
                             onClick={closeAsyncMigrationsModal}
                         >
                             Cancel

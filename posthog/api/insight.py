@@ -120,6 +120,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "created_by",
             "created_at",
             "last_modified_at",
+            "favorited",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 

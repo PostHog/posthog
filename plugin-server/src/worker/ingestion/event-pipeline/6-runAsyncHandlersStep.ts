@@ -1,14 +1,19 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Action, Element, IngestionEvent, IngestionPersonData } from '../../../types'
+import { Action, Element, IngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent, runOnSnapshot } from '../../plugins/run'
+import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
-export async function runAsyncHandlersStep(runner: EventPipelineRunner, event: IngestionEvent): Promise<StepResult> {
+export async function runAsyncHandlersStep(
+    runner: EventPipelineRunner,
+    event: IngestionEvent,
+    personContainer: LazyPersonContainer
+): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
         await Promise.all([
             processOnEvent(runner, event),
-            processWebhooks(runner, event, event.person, event.elementsList),
+            processWebhooks(runner, event, personContainer, event.elementsList),
         ])
     }
 
@@ -32,13 +37,13 @@ async function processOnEvent(runner: EventPipelineRunner, event: IngestionEvent
 async function processWebhooks(
     runner: EventPipelineRunner,
     event: IngestionEvent,
-    person: IngestionPersonData | undefined,
+    personContainer: LazyPersonContainer,
     elements: Element[] | undefined
 ) {
     let actionMatches: Action[] = []
 
     if (event.event !== '$snapshot') {
-        actionMatches = await runner.hub.actionMatcher.match(event, person, elements)
-        await runner.hub.hookCannon.findAndFireHooks(event, person, actionMatches)
+        actionMatches = await runner.hub.actionMatcher.match(event, personContainer, elements)
+        await runner.hub.hookCannon.findAndFireHooks(event, personContainer, actionMatches)
     }
 }

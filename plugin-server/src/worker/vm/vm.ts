@@ -19,10 +19,12 @@ import { addHistoricalEventsExportCapability } from './upgrades/historical-expor
 export class TimeoutError extends RetryError {
     name = 'TimeoutError'
     caller?: string = undefined
+    pluginConfig?: PluginConfig = undefined
 
-    constructor(message: string, caller?: string) {
+    constructor(message: string, caller?: string, pluginConfig?: PluginConfig) {
         super(message)
         this.caller = caller
+        this.pluginConfig = pluginConfig
     }
 }
 
@@ -80,7 +82,7 @@ export function createPluginConfigVM(
                     const message = `Script execution timed out after promise waited for ${timeout} second${
                         timeout === 1 ? '' : 's'
                     }`
-                    reject(new TimeoutError(message, `${name}`))
+                    reject(new TimeoutError(message, `${name}`, pluginConfig))
                 }, timeout * 1000)
             ),
         ])

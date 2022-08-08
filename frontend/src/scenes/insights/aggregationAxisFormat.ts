@@ -23,7 +23,10 @@ export const aggregationAxisFormatSelectOptions: Record<AggregationAxisFormat, L
     },
 }
 
-export const formatAggregationAxisValue = (axisFormat: AggregationAxisFormat, value: number | string): string => {
+export const formatAggregationAxisValue = (
+    axisFormat: AggregationAxisFormat | undefined,
+    value: number | string
+): string => {
     value = Number(value)
     switch (axisFormat) {
         case 'duration':
@@ -40,14 +43,18 @@ export const formatAggregationAxisValue = (axisFormat: AggregationAxisFormat, va
     }
 }
 
-export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): boolean => {
-    return (
-        !!chartDisplayType &&
-        [
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.ActionsLineGraphCumulative,
-            ChartDisplayType.ActionsBar,
-            ChartDisplayType.ActionsBarValue,
-        ].includes(chartDisplayType)
-    )
+export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
+    switch (chartDisplayType) {
+        case ChartDisplayType.ActionsLineGraph:
+        case ChartDisplayType.ActionsLineGraphCumulative:
+        case ChartDisplayType.ActionsBar:
+            return 'Y-axis unit'
+        case ChartDisplayType.ActionsBarValue:
+            return 'X-axis unit'
+        case ChartDisplayType.ActionsTable:
+        case ChartDisplayType.ActionsPie:
+        case ChartDisplayType.WorldMap:
+        default:
+            return 'Unit'
+    }
 }

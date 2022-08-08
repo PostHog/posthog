@@ -162,13 +162,11 @@ export function percentage(
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
-    return division
-        .toLocaleString('en-US', {
-            style: 'percent',
-            maximumFractionDigits,
-            minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
-        })
-        .replace(',', ' ') // Use space as thousands separator as it's more international
+    return division.toLocaleString('en-US', {
+        style: 'percent',
+        maximumFractionDigits,
+        minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
+    })
 }
 
 export function Loading(props: Record<string, any>): JSX.Element {
@@ -467,12 +465,6 @@ export function clearDOMTextSelection(): void {
     }
 }
 
-export const posthogEvents = ['$autocapture', '$pageview', '$identify', '$pageleave']
-
-export function isAndroidOrIOS(): boolean {
-    return typeof window !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent)
-}
-
 export function slugify(text: string): string {
     return text
         .toString() // Cast to string
@@ -512,7 +504,7 @@ export function humanFriendlyDuration(d: string | number | null | undefined, max
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits).join(' ')
+    return units.slice(0, maxUnits).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -1049,16 +1041,16 @@ export function colorForString(s: string): string {
     return tagColors[hashCodeForString(s) % tagColors.length]
 }
 
+/** Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output. */
 export function midEllipsis(input: string, maxLength: number): string {
-    /* Truncates a string (`input`) in the middle. `maxLength` represents the desired maximum length of the output string
-     excluding the ... */
     if (input.length <= maxLength) {
         return input
     }
 
     const middle = Math.ceil(input.length / 2)
-    const excess = Math.ceil((input.length - maxLength) / 2)
-    return `${input.substring(0, middle - excess)}...${input.substring(middle + excess)}`
+    const excessLeft = Math.ceil((input.length - maxLength) / 2)
+    const excessRight = Math.ceil((input.length - maxLength + 1) / 2)
+    return `${input.slice(0, middle - excessLeft)}…${input.slice(middle + excessRight)}`
 }
 
 export const disableHourFor: Record<string, boolean> = {

@@ -31,6 +31,7 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     dropdownPlacement?: PopupProps['placement']
     allowClear?: boolean
     className?: string
+    placeholder?: string
     popup?: {
         className?: string
         ref?: React.MutableRefObject<HTMLDivElement | null>
@@ -111,11 +112,10 @@ export function LemonSelect<O extends LemonSelectOptions>({
                                             setLocalValue(key)
                                         }
                                     }}
-                                    type={
-                                        /* Intentionally == instead of === because JS treats object number keys as strings, */
-                                        /* messing comparisons up a bit */
-                                        key == localValue ? 'highlighted' : 'stealth'
-                                    }
+                                    status="stealth"
+                                    /* Intentionally == instead of === because JS treats object number keys as strings, */
+                                    /* messing comparisons up a bit */
+                                    active={key == localValue}
                                     disabled={option.disabled}
                                     fullWidth
                                     data-attr={option['data-attr']}
@@ -137,9 +137,11 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 {...buttonProps}
             >
-                {(localValue && (allOptions[localValue]?.label || localValue)) || (
-                    <span className="text-muted">{placeholder}</span>
-                )}
+                <span>
+                    {(localValue && (allOptions[localValue]?.label || localValue)) || (
+                        <span className="text-muted">{placeholder}</span>
+                    )}
+                </span>
             </LemonButtonWithPopup>
             {isClearButtonShown && (
                 <LemonButton

@@ -1,60 +1,87 @@
 import React from 'react'
 import { useValues } from 'kea'
-import { AlertOutlined, ToolFilled } from '@ant-design/icons'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
-import { LinkButton } from './LinkButton'
+import { Link } from 'lib/components/Link'
+import { IconWarningAmber } from './icons'
+import clsx from 'clsx'
 
 export function BillingAlerts(): JSX.Element | null {
     const { billing } = useValues(billingLogic)
-    const { alertToShow, percentage, strokeColor } = useValues(billingLogic)
+    const { alertToShow, freePlanPercentage, percentage, strokeColor } = useValues(billingLogic)
 
     if (!alertToShow) {
         return null
     }
+    let message: JSX.Element | undefined
+    let isWarning = false
+    let isAlert = false
+
+    if (alertToShow === BillingAlertType.FreeUsageNearLimit) {
+        isWarning = true
+        message = (
+            <p>
+                <b>Warning!</b> You have already used{' '}
+                <b className="text-warning">{freePlanPercentage && freePlanPercentage * 100}%</b> of your 1 million free
+                events this month.{' '}
+                <Link to="/organization/billing" data-attr="alert_free_usage_near_limit">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'To avoid losing data or access to it, upgrade your billing plan now.'}
+                </Link>
+            </p>
+        )
+    }
+
+    if (alertToShow === BillingAlertType.SetupBilling) {
+        isWarning = true
+        message = (
+            <p>
+                <b>Action needed!&nbsp;</b>
+                <Link href={billing?.subscription_url} data-attr="alert_setup_billing">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'Please finish setting up your billing information.'}
+                </Link>
+            </p>
+        )
+    }
+
+    if (alertToShow === BillingAlertType.UsageNearLimit) {
+        isWarning = true
+        message = (
+            <p>
+                <b>Warning!</b> You have already used {/* eslint-disable-next-line react/forbid-dom-props */}
+                <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
+                    {percentage && percentage * 100}%
+                </b>{' '}
+                of your event allocation this month.{' '}
+                <Link to="/organization/billing" data-attr="alert_usage_near_limit">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'To avoid losing data or access to it, upgrade your billing plan now.'}
+                </Link>
+            </p>
+        )
+    }
+
+    if (alertToShow === BillingAlertType.UsageLimitExceeded) {
+        isAlert = true
+        message = (
+            <p>
+                <b>Alert!</b> The monthly limit of events or billing limit for your organization has been exceeded.{' '}
+                <Link to="/organization/billing" data-attr="alert_usage_limit_exceeded">
+                    {billing?.plan?.custom_setup_billing_message ||
+                        'To avoid losing data or access to it, increase your billing limit now.'}
+                </Link>
+            </p>
+        )
+    }
 
     return (
-        <>
-            <div className="p-6 mt-6 border rounded-lg flex items-center">
-                <div className="flex items-center grow gap-4">
-                    <AlertOutlined className="text-warning pr-4" />
-                    <div className="flex grow">
-                        {alertToShow === BillingAlertType.SetupBilling ? (
-                            <>
-                                <b>Action needed!&nbsp;</b>
-                                {billing?.plan?.custom_setup_billing_message ||
-                                    'Please finish setting up your billing information.'}
-                            </>
-                        ) : alertToShow === BillingAlertType.UsageNearLimit ? (
-                            <div>
-                                <b>Warning!</b> Nearing the monthly limit of events or billing limit for your
-                                organization. You have already used{' '}
-                                <b style={{ color: typeof strokeColor === 'string' ? strokeColor : 'inherit' }}>
-                                    {percentage && percentage * 100}%
-                                </b>{' '}
-                                of your event allocation this month. To avoid losing data or access to it,{' '}
-                                <b>we recommend upgrading</b> your billing plan now.
-                            </div>
-                        ) : alertToShow === BillingAlertType.UsageLimitExceeded ? (
-                            <>
-                                <b>Alert!</b> The monthly limit of events or billing limit for your organization has
-                                been exceeded. To avoid losing data or access to it, <b>we recommend increasing</b> your
-                                billing limit.
-                            </>
-                        ) : undefined}
-                    </div>
-
-                    <LinkButton
-                        type="primary"
-                        to={
-                            alertToShow === BillingAlertType.SetupBilling
-                                ? billing?.subscription_url
-                                : '/organization/billing'
-                        }
-                    >
-                        <ToolFilled /> {alertToShow === BillingAlertType.SetupBilling ? 'Set up now' : 'Manage billing'}
-                    </LinkButton>
-                </div>
-            </div>
-        </>
+        <div className="Announcement">
+            {isWarning || isAlert ? (
+                <IconWarningAmber
+                    className={clsx('text-lg mr-2', isWarning && 'text-warning', isAlert && 'text-danger')}
+                />
+            ) : null}
+            {message}
+        </div>
     )
 }

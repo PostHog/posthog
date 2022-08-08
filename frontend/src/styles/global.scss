@@ -151,8 +151,6 @@ $_lifecycle_dormant: #f86234;
     --z-city-background-content: 1;
     --z-city-background-image: 0;
 
-    // Taxonomy
-    --taxonomy-icon-muted: #747ea1;
     // Toasts
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
@@ -171,6 +169,25 @@ $_lifecycle_dormant: #f86234;
     --depr-lighten-primary-10: #{lighten($_primary, 10%)};
     --depr-lighten-primary-5: #{lighten($_primary, 5%)};
     --depr-lighten-primary-15: #{lighten($_primary, 15%)};
+
+    --lettermark-1-bg: #dcb1e3;
+    --lettermark-1-text: #572e5e;
+    --lettermark-2-bg: #ffc4b2;
+    --lettermark-2-text: #3e5891;
+    --lettermark-3-bg: #fdedc9;
+    --lettermark-3-text: #3e5891;
+    --lettermark-4-bg: #3e5891;
+    --lettermark-4-text: #ffc4b2;
+    --lettermark-5-bg: #8da9e7;
+    --lettermark-5-text: #572e5e;
+    --lettermark-6-bg: #572e5e;
+    --lettermark-6-text: #dcb1e3;
+    --lettermark-7-bg: #ffc035;
+    --lettermark-7-text: #35416b;
+    --lettermark-8-bg: #ff906e;
+    --lettermark-8-text: #2a3d65;
+    --lettermark-8-bg: #e8edff;
+    --lettermark-8-text: #35416b;
 }
 
 // Text styles

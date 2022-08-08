@@ -8,7 +8,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import React from 'react'
 
-export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'popup' | 'to'> {
+export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
     identifier: string | number
     sideAction?: Omit<SideAction, 'type'> & { identifier?: string }
@@ -28,30 +28,33 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             ? identifier === aliasedActiveScene
             : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
+    const buttonStatus = isActive ? 'primary' : 'stealth'
+
     return sideAction ? (
         <LemonButtonWithSideAction
             fullWidth
-            type={isActive ? 'highlighted' : 'stealth'}
+            status={buttonStatus}
+            active={isActive}
             onClick={hideSideBarMobile}
             sideAction={{
                 ...sideAction,
-                type: isActiveSide ? 'highlighted' : isActive ? undefined : 'stealth',
                 'data-attr': sideAction.identifier ? `menu-item-${sideAction.identifier.toLowerCase()}` : undefined,
             }}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             {...buttonProps}
         >
-            {title || sceneConfigurations[identifier].name}
+            <span className="text-default">{title || sceneConfigurations[identifier].name}</span>
         </LemonButtonWithSideAction>
     ) : (
         <LemonButton
             fullWidth
-            type={isActive ? 'highlighted' : 'stealth'}
+            status={buttonStatus}
+            active={isActive}
             data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
             onClick={hideSideBarMobile}
             {...buttonProps}
         >
-            <span className="grow">{title || sceneConfigurations[identifier].name}</span>
+            <span className="text-default grow">{title || sceneConfigurations[identifier].name}</span>
             {highlight === 'beta' ? (
                 <LemonTag type="warning" className="ml-1 float-right">
                     Beta
