@@ -25,7 +25,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData', 'tab']],
+        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData', 'sessionPlayerDataLoading', 'tab']],
         actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab']],
     }),
     actions({
@@ -37,6 +37,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endBuffer: true,
         startScrub: true,
         endScrub: true,
+        showErrorPlayerState: true,
+        hideErrorPlayerState: true,
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         syncPlayerSpeed: true,
@@ -110,6 +112,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        isErrored: [false, { showErrorPlayerState: () => true, hideErrorPlayerState: () => false }],
         isScrubbing: [false, { startScrub: () => true, endScrub: () => false }],
     })),
     selectors({
@@ -117,13 +120,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (selectors) => [
                 selectors.playingState,
                 selectors.isBuffering,
+                selectors.isErrored,
                 selectors.isScrubbing,
                 selectors.isSkippingInactivity,
             ],
-            (playingState, isBuffering, isScrubbing, isSkippingInactivity) => {
+            (playingState, isBuffering, isErrored, isScrubbing, isSkippingInactivity) => {
                 if (isScrubbing) {
                     // If scrubbing, playingState takes precedence
                     return playingState
+                }
+                if (isErrored) {
+                    return SessionPlayerState.ERROR
                 }
                 if (isBuffering) {
                     return SessionPlayerState.BUFFER
@@ -296,6 +303,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         startBuffer: () => {
             actions.stopAnimation()
         },
+        showErrorPlayerState: () => {
+            actions.stopAnimation()
+        },
         startScrub: () => {
             actions.stopAnimation()
         },
@@ -320,8 +330,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
-            // If next time is greater than last buffered time, set to buffering
+            // If not currently loading anything and part of the recording hasn't loaded, set error state
             if (
+                !!values.sessionPlayerData?.bufferedTo &&
+                !!playerPosition &&
+                !!values.currentSegment &&
+                comparePlayerPositions(
+                    playerPosition,
+                    values.sessionPlayerData.bufferedTo,
+                    values.sessionPlayerData.metadata.segments
+                ) > 0 &&
+                !values.sessionPlayerDataLoading
+            ) {
+                values.player?.replayer?.pause()
+                actions.showErrorPlayerState()
+                actions.endBuffer()
+            }
+
+            // If next time is greater than last buffered time, set to buffering
+            else if (
                 !values.sessionPlayerData?.bufferedTo ||
                 !playerPosition ||
                 !values.currentSegment ||
@@ -333,18 +360,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.startBuffer()
+                actions.hideErrorPlayerState()
             }
 
             // If not forced to play and if last playing state was pause, pause
             else if (!forcePlay && values.currentPlayerState === SessionPlayerState.PAUSE) {
                 values.player?.replayer?.pause(playerPosition.time)
                 actions.endBuffer()
+                actions.hideErrorPlayerState()
             }
             // Otherwise play
             else {
                 values.player?.replayer?.play(playerPosition.time)
                 actions.updateAnimation()
                 actions.endBuffer()
+                actions.hideErrorPlayerState()
             }
             breakpoint()
         },

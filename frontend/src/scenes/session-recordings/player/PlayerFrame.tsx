@@ -3,7 +3,7 @@ import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState } from '~/types'
-import { IconPlay } from 'scenes/session-recordings/player/icons'
+import { IconError, IconPlay } from 'scenes/session-recordings/player/icons'
 
 export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrameInner(_, ref): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
@@ -46,13 +46,20 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
     }
 
     const renderPlayerState = (): JSX.Element | null => {
+        if (currentPlayerState === SessionPlayerState.ERROR) {
+            return (
+                <div className="rrweb-overlay">
+                    <IconError className="rrweb-overlay-icon" />
+                </div>
+            )
+        }
         if (currentPlayerState === SessionPlayerState.BUFFER) {
             return <div className="rrweb-overlay">Buffering...</div>
         }
         if (currentPlayerState === SessionPlayerState.PAUSE) {
             return (
                 <div className="rrweb-overlay">
-                    <IconPlay className="rrweb-overlay-play-icon" />
+                    <IconPlay className="rrweb-overlay-icon" />
                 </div>
             )
         }
