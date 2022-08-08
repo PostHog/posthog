@@ -84,8 +84,8 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
             { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
         ]
     }
-    if (action?.properties) {
-        params.properties = { ...(flattenedPropertyGroup || {}), ...action.properties }
+    if (action?.properties && (action.properties?.length ?? 0) > 0) {
+        params.properties = [...(flattenedPropertyGroup || []), ...action.properties]
     }
 
     return toParams({ ...params, ...restParams })
