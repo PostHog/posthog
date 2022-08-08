@@ -88,8 +88,9 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         icon,
         sideIcon: allowClear ? (
             <LemonButton
-                type="tertiary"
-                icon={<IconClose style={{ fontSize: '1rem' }} />}
+                size="small"
+                icon={<IconClose />}
+                status="muted-alt"
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()
