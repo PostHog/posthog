@@ -16,6 +16,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { UniversalSearchPopup } from 'lib/components/UniversalSearch/UniversalSearchPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
+import { BillingAlerts } from 'lib/components/BillingAlerts'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -29,6 +30,7 @@ export function TopBar(): JSX.Element {
     return (
         <>
             <Announcement />
+            <BillingAlerts />
             <header className="TopBar">
                 <div className="TopBar__segment TopBar__segment--left">
                     {!bareNav && (

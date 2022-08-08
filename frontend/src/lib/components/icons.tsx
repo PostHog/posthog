@@ -620,8 +620,8 @@ export function IconErrorOutline(props: SvgIconProps): JSX.Element {
 /** Material Design Warning Amber Outline icon. */
 export function IconWarningAmber(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
-            <path d="m12 5.99 7.53 13.01h-15.06zm0-3.99-11 19h22zm1 14h-2v2h2zm0-6h-2v4h2z" fill="currentColor" />{' '}
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path d="m12 5.99 7.53 13.01h-15.06zm0-3.99-11 19h22zm1 14h-2v2h2zm0-6h-2v4h2z" fill="currentColor" />
         </SvgIcon>
     )
 }
@@ -629,7 +629,7 @@ export function IconWarningAmber(props: SvgIconProps): JSX.Element {
 /** Material Design Comment icon. */
 export function IconComment(props: SvgIconProps): JSX.Element {
     return (
-        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+        <SvgIcon viewBox="0 0 24 24" {...props}>
             <path
                 d="m20 4v13.17l-1.17-1.17h-14.83v-12zm0-2h-16c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4v-18c0-1.1-.9-2-2-2zm-2 10h-12v2h12zm0-3h-12v2h12zm0-3h-12v2h12z"
                 fill="currentColor"

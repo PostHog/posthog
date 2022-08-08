@@ -1,6 +1,7 @@
 import { kea } from 'kea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -33,6 +34,8 @@ export const announcementLogic = kea<announcementLogicType>({
             ['asyncMigrationsOk'],
             teamLogic,
             ['currentTeam'],
+            billingLogic,
+            ['alertToShow'],
         ],
     },
     actions: {
@@ -66,11 +69,19 @@ export const announcementLogic = kea<announcementLogicType>({
             (relevantAnnouncementType): boolean => relevantAnnouncementType !== AnnouncementType.Demo,
         ],
         shownAnnouncementType: [
-            (s) => [s.relevantAnnouncementType, s.closable, s.closed, s.persistedClosedAnnouncements],
-            (relevantAnnouncementType, closable, closed, persistedClosedAnnouncements): AnnouncementType | null => {
+            (s) => [s.relevantAnnouncementType, s.closable, s.closed, s.persistedClosedAnnouncements, s.alertToShow],
+            (
+                relevantAnnouncementType,
+                closable,
+                closed,
+                persistedClosedAnnouncements,
+                alertToShow
+            ): AnnouncementType | null => {
                 if (
-                    closable &&
-                    (closed || (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))
+                    (closable &&
+                        (closed ||
+                            (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) ||
+                    alertToShow
                 ) {
                     return null
                 }
