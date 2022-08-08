@@ -49,7 +49,7 @@ export function ThirdPartyPanel(): JSX.Element {
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center">
                                     {source.icon}
-                                    <div className="flex ml-2">
+                                    <div className="ml-2">
                                         <h3
                                             className="mb-0 flex align-center"
                                             style={{
