@@ -712,7 +712,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('dashboard mode toggled', { mode, source })
         },
         reportDashboardRefreshed: async ({ lastRefreshed }) => {
-            posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed?.toString() })
+            posthog.capture(`dashboard refreshed`, {
+                last_refreshed: lastRefreshed?.toString(),
+                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+            })
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
             posthog.capture(`dashboard date range changed`, {
