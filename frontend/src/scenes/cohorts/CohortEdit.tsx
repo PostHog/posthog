@@ -39,7 +39,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 <PageHeader
                     title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-2">
                             {isNewCohort ? (
                                 <LemonButton
                                     data-attr="cancel-cohort"
@@ -47,7 +47,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     onClick={() => {
                                         router.actions.push(urls.cohorts())
                                     }}
-                                    style={{ marginRight: 8 }}
                                     disabled={cohortLoading}
                                 >
                                     Cancel
@@ -60,7 +59,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     onClick={() => {
                                         deleteCohort()
                                     }}
-                                    style={{ marginRight: 8 }}
                                     disabled={cohortLoading}
                                 >
                                     Delete
@@ -101,9 +99,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                             onChange={(cohortType) => {
                                                 onChange(cohortType === CohortTypeEnum.Static)
                                             }}
-                                            type="stealth"
-                                            outlined
-                                            style={{ width: '100%' }}
+                                            type="secondary"
+                                            status="stealth"
+                                            fullWidth
                                             data-attr="cohort-type"
                                         />
                                     </div>

@@ -26,19 +26,15 @@ export const scene: SceneExport = {
 }
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
-    const size = {
-        height: '20px',
-        width: '20px',
-    }
     if (loading) {
         return <LoadingOutlined style={{ color: 'var(--primary)' }} />
     }
     if (status === 'validated') {
-        return <IconCheckCircleOutline {...size} />
+        return <IconCheckCircleOutline />
     } else if (status === 'warning' || status === 'optional') {
-        return <IconWarningAmber {...size} />
+        return <IconWarningAmber />
     }
-    return <IconErrorOutline {...size} />
+    return <IconErrorOutline />
 }
 
 function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element {
@@ -189,10 +185,9 @@ export function PreflightCheck(): JSX.Element {
                                     data-attr="preflight-refresh"
                                     onClick={() => revalidatePreflight()}
                                     disabled={preflightLoading || !preflight}
-                                    style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
                                     icon={<IconRefresh />}
                                 >
-                                    <span style={{ paddingLeft: 8 }}>Validate requirements</span>
+                                    Validate requirements
                                 </LemonButton>
                             </div>
                             <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />

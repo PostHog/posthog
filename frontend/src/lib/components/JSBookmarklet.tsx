@@ -19,7 +19,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
                 className="w-full text-primary-alt bg-primary-alt-highlight rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
                 onDragStart={reportBookmarkletDragged}
             >
-                <IconBookmarkBorder />
+                <IconBookmarkBorder fontSize="1.5rem" />
                 <span className="text-base">PostHog Bookmarklet</span>
             </a>
             <p className="text-center text-muted font-medium mt-2">

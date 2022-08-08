@@ -255,7 +255,7 @@ export function EventDefinitionsTable(): JSX.Element {
                                 options={eventTypeOptions}
                                 data-attr="event-type-filter"
                                 dropdownMatchSelectWidth={false}
-                                bordered
+                                type="secondary"
                                 onChange={(value) => {
                                     setFilters({ event_type: value as CombinedEventType })
                                 }}

@@ -49,7 +49,7 @@ function ConfirmCancelModal({
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="deactivate-license-cancel"
-                        style={{ marginRight: '0.5rem' }}
+                        className="mr-2"
                         onClick={onCancel}
                     >
                         Cancel
@@ -155,12 +155,7 @@ export function Licenses(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
-                                    onClick={() => setShowConfirmCancel(license)}
-                                    fullWidth
-                                >
+                                <LemonButton status="danger" onClick={() => setShowConfirmCancel(license)} fullWidth>
                                     Deactivate license
                                 </LemonButton>
                             </>

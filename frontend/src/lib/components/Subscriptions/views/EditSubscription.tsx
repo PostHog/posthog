@@ -76,8 +76,8 @@ export function EditSubscription({
     }
 
     const commonSelectProps: Partial<LemonSelectProps<LemonSelectOptions>> = {
-        type: 'stealth',
-        outlined: true,
+        status: 'stealth',
+        type: 'secondary',
     }
 
     useEffect(() => {
@@ -101,7 +101,7 @@ export function EditSubscription({
         <>
             <VerticalForm logic={subscriptionLogic} props={logicProps} formKey="subscription" enableFormOnSubmit>
                 <header className="flex items-center border-b pb-2">
-                    <LemonButton type="stealth" onClick={onCancel} size="small">
+                    <LemonButton status="stealth" onClick={onCancel} size="small">
                         <IconChevronLeft fontSize={'1rem'} />
                         Back
                     </LemonButton>

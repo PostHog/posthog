@@ -28,6 +28,7 @@ export interface LemonTextAreaProps
     sideIcon?: React.ReactElement | null
     /** Whether input field is disabled */
     disabled?: boolean
+    minRows?: number
 }
 
 /** A `LemonRow`-based `textarea` component for multi-line text. */
@@ -42,6 +43,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         allowClear = false,
         icon,
         sideIcon,
+        minRows = 3,
         ...textProps
     },
     ref
@@ -105,7 +107,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 
     return (
         <LemonRow {...rowProps}>
-            <TextareaAutosize minRows={3} {...props} ref={textRef} />
+            <TextareaAutosize minRows={minRows} {...props} ref={textRef} />
         </LemonRow>
     )
 })

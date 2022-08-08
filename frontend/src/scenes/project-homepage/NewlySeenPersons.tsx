@@ -19,17 +19,17 @@ function PersonRow({ person }: { person: PersonType }): JSX.Element {
     return (
         <LemonButton
             fullWidth
-            className="list-row"
             to={urls.person(person.distinct_ids[0])}
             onClick={() => {
                 reportPersonOpenedFromNewlySeenPersonsList()
             }}
         >
-            <ProfilePicture name={asDisplay(person)} />
-
-            <div className="row-text-container" style={{ flexDirection: 'column', display: 'flex' }}>
-                <p className="row-title link-text">{asDisplay(person)}</p>
-                <p>First seen {dayjs(person.created_at).fromNow()}</p>
+            <div className="ProjectHomePage__listrow">
+                <ProfilePicture name={asDisplay(person)} />
+                <div className="ProjectHomePage__listrow__details">
+                    <div>{asDisplay(person)}</div>
+                    <div>First seen {dayjs(person.created_at).fromNow()}</div>
+                </div>
             </div>
         </LemonButton>
     )
