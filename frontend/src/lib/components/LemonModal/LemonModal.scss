@@ -13,7 +13,7 @@
     justify-content: center;
 
     &.ReactModal__Overlay--after-open {
-        background-color: rgba(0, 0, 0, 0.2);
+        background-color: rgba(0, 0, 0, 0.4);
         backdrop-filter: blur(5px);
     }
 
@@ -54,8 +54,8 @@
 
     .LemonModal__closebutton {
         position: absolute;
-        top: 1rem;
-        right: 1rem;
+        top: 1.25rem;
+        right: 1.5rem;
     }
 
     // We nest the content in layout so that "simple" modal implementations can use this class as well

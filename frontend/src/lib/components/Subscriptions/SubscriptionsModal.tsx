@@ -27,7 +27,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         return <Spinner />
     }
     return (
-        <LemonModal onClose={closeModal} isOpen={visible} width={650} simple title="" inline={inline}>
+        <LemonModal onClose={closeModal} isOpen={visible} width={600} simple title="" inline={inline}>
             {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) ? (
                 !subscriptionId ? (
                     <ManageSubscriptions

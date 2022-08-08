@@ -52,7 +52,7 @@ export function LemonModal({
     const modalContent = (
         <>
             <div className="LemonModal__closebutton">
-                <LemonButton icon={<IconClose />} status="stealth" onClick={onClose} />
+                <LemonButton icon={<IconClose />} size="small" status="stealth" onClick={onClose} />
             </div>
 
             <div className="LemonModal__layout">
