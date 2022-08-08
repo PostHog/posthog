@@ -1,13 +1,13 @@
 import React, { useState } from 'react'
 import { useActions } from 'kea'
 import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
-import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { asyncMigrationParameterFormLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationParameterFormLogic'
 import { Field } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { VerticalForm } from 'lib/forms/VerticalForm'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { LemonModalV2 } from 'lib/components/LemonModalV2'
 
 export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): JSX.Element {
     const { closeAsyncMigrationsModal } = useActions(asyncMigrationsLogic)
@@ -22,11 +22,10 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
             enableFormOnSubmit
             id="async-migration-parameters-form"
         >
-            <LemonModal
+            <LemonModalV2
                 title="Advanced migration configuration"
-                destroyOnClose
-                onCancel={closeAsyncMigrationsModal}
-                visible={true}
+                onClose={closeAsyncMigrationsModal}
+                isOpen={true}
                 footer={
                     <>
                         <LemonButton
@@ -72,7 +71,7 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
                         </Field>
                     ))}
                 </AnimatedCollapsible>
-            </LemonModal>
+            </LemonModalV2>
         </VerticalForm>
     )
 }

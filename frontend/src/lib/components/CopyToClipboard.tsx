@@ -34,6 +34,8 @@ export function CopyToClipboardInline({
         <span
             className={isValueSensitive ? 'ph-no-capture' : ''}
             style={{
+                position: 'relative',
+                overflow: 'hidden',
                 cursor: selectable ? 'text' : 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
