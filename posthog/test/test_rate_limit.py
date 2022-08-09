@@ -37,7 +37,7 @@ class TestUserAPI(APIBaseTest):
         incr_mock.assert_called_with(
             "rate_limit_exceeded",
             tags={
-                "class": "api/projects/(?P<parent_lookup_team_id>[^/.]+)/insights/?$ (ClickhouseInsightsViewSet)",
+                "route_id": "api/projects/(?P<parent_lookup_team_id>[^/.]+)/insights/?$ (ClickhouseInsightsViewSet)",
                 "action": "list",
                 "method": "GET",
                 "user_id": self.user.pk,
@@ -66,7 +66,7 @@ class TestUserAPI(APIBaseTest):
             incr_mock.assert_called_with(
                 "rate_limit_exceeded",
                 tags={
-                    "class": "api/projects/(?P<parent_lookup_team_id>[^/.]+)/insights/?$ (ClickhouseInsightsViewSet)",
+                    "route_id": "api/projects/(?P<parent_lookup_team_id>[^/.]+)/insights/?$ (ClickhouseInsightsViewSet)",
                     "action": "list",
                     "method": "GET",
                     "user_id": self.user.pk,
@@ -93,7 +93,7 @@ class TestUserAPI(APIBaseTest):
         incr_mock.assert_called_with(
             "rate_limit_exceeded",
             tags={
-                "class": "api/login/?$ (LoginViewSet)",
+                "route_id": "api/login/?$ (LoginViewSet)",
                 "action": "create",
                 "method": "POST",
                 "user_id": None,

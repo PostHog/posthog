@@ -18,7 +18,7 @@ class PassThroughMixin(UserRateThrottle):
                 incr(
                     "rate_limit_exceeded",
                     tags={
-                        "class": route_id,
+                        "route_id": route_id,
                         "action": getattr(view, "action", None),
                         "method": request.method,
                         "user_id": user_id,
