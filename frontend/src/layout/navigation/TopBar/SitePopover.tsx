@@ -311,8 +311,12 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
                         <SitePopoverSection title="Other organizations">
-                            {otherOrganizations.map((otherOrganization) => (
-                                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} />
+                            {otherOrganizations.map((otherOrganization, i) => (
+                                <OtherOrganizationButton
+                                    key={otherOrganization.id}
+                                    organization={otherOrganization}
+                                    index={i + 2}
+                                />
                             ))}
                             {preflight?.can_create_org && <NewOrganizationButton />}
                         </SitePopoverSection>
