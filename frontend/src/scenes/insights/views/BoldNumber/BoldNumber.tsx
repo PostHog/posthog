@@ -1,8 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 
-import { ChartParams } from '~/types'
+import { ChartParams, TrendResult } from '~/types'
 import { insightLogic } from '../../insightLogic'
 import { Textfit } from 'react-textfit'
 
@@ -13,6 +13,7 @@ import { ensureTooltipElement } from '../LineGraph/LineGraph'
 import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { personsModalLogic } from 'scenes/trends/personsModalLogic'
 
 /** The effect of the value's padding is reduced by the offset. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = -16
@@ -73,22 +74,38 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insight, filters } = useValues(insightLogic)
+    const { loadPeople } = useActions(personsModalLogic)
+
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const value = insight.result[0].aggregated_value
+    const resultSeries = insight.result[0] as TrendResult
 
     return (
         <div className="BoldNumber">
             <Textfit mode="single" min={32} max={160}>
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
-                    onClick={showPersonsModal ? () => {} : undefined}
+                    onClick={
+                        showPersonsModal
+                            ? () => {
+                                  loadPeople({
+                                      action: resultSeries.action,
+                                      label: resultSeries.label,
+                                      date_from: resultSeries.filter?.date_from as string,
+                                      date_to: resultSeries.filter?.date_to as string,
+                                      filters,
+                                      saveOriginal: true,
+                                      pointValue: resultSeries.aggregated_value,
+                                  })
+                              }
+                            : undefined
+                    }
                     onMouseLeave={() => setIsTooltipShown(false)}
                     ref={valueRef}
                     onMouseEnter={() => setIsTooltipShown(true)}
                 >
-                    {formatAggregationAxisValue(filters.aggregation_axis_format, value)}
+                    {formatAggregationAxisValue(filters.aggregation_axis_format, resultSeries.aggregated_value)}
                 </div>
             </Textfit>
         </div>
