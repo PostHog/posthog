@@ -483,6 +483,7 @@ export function InsightViz({
         // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
         // With this, autosizing runs again after `metaPrimaryHeight` is ready
         if (
+            // `display` should be ignored in non-Trends insight
             (!!insight.filters.insight || insight.filters.insight === InsightType.TRENDS) &&
             insight.filters.display === ChartDisplayType.BoldNumber
         ) {
