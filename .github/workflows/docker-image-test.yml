@@ -193,8 +193,7 @@ jobs:
               uses: actions/upload-artifact@v3
               with:
                   name: accessibility-violations
-                  path: cypress/a11y
-              if: ${{ failure() }}
+                  path: '**/a11y/'
 
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
