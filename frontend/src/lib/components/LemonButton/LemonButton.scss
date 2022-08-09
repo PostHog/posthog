@@ -1,7 +1,7 @@
 .LemonButton {
     position: relative;
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
-    display: flex;
+    display: inline-flex;
     flex-direction: row;
     flex-shrink: 0;
     align-items: center;
