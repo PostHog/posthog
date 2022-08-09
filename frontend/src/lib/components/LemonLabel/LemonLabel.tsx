@@ -1,5 +1,5 @@
+import './LemonLabel.scss'
 import React from 'react'
-import clsx from 'clsx'
 import { Tooltip } from '../Tooltip'
 import { IconInfo } from '../icons'
 
@@ -10,8 +10,8 @@ export interface LemonLabelProps
 
 export function LemonLabel({ children, info, ...props }: LemonLabelProps): JSX.Element {
     return (
-        <label className={'LemonLabel inline-flex items-center gap-2'} {...props}>
-            <span className="font-semibold">{children}</span>
+        <label className={'LemonLabel'} {...props}>
+            {children}
 
             {info ? (
                 <Tooltip title={info}>
