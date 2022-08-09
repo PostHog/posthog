@@ -87,21 +87,18 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </div>
             )}
             {_filters.breakdown && loadMoreBreakdownUrl && (
-                <div className="mt-4 text-center">
-                    <div className="text-muted mb-4">
+                <div className="my-4 flex flex-col items-center">
+                    <div className="text-muted mb-2">
                         For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
                     </div>
-                    <div>
-                        <LemonButton
-                            style={{ textAlign: 'center', marginBottom: 16 }}
-                            onClick={loadMoreBreakdownValues}
-                            loading={breakdownValuesLoading}
-                            size="small"
-                            type="secondary"
-                        >
-                            Load more breakdown values
-                        </LemonButton>
-                    </div>
+                    <LemonButton
+                        onClick={loadMoreBreakdownValues}
+                        loading={breakdownValuesLoading}
+                        size="small"
+                        type="secondary"
+                    >
+                        Load more breakdown values
+                    </LemonButton>
                 </div>
             )}
             <PersonsModal
