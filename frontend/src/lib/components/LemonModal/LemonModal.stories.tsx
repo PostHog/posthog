@@ -4,7 +4,7 @@ import { LemonModal, LemonModalProps } from './LemonModal'
 import { LemonButton } from '../LemonButton'
 
 export default {
-    title: 'Lemon UI/LemonModal',
+    title: 'Lemon UI/Lemon Modal',
     component: LemonModal,
 } as ComponentMeta<typeof LemonModal>
 
@@ -83,5 +83,28 @@ export const WithoutContent: ComponentStory<typeof LemonModal> = (props: LemonMo
                 }
             />
         </>
+    )
+}
+
+export const Inline: ComponentStory<typeof LemonModal> = () => {
+    const [isOpen, setIsOpen] = useState(false)
+    return (
+        <div className="bg-default p-4">
+            <LemonModal
+                isOpen={isOpen}
+                onClose={() => setIsOpen(false)}
+                title="Inline Modals"
+                description="You can display modal inline (i.e. just the content, no actual modal. This is mostly useful for creating Storybooks of modals"
+                inline
+                footer={
+                    <>
+                        <LemonButton type="secondary">Amazing</LemonButton>
+                    </>
+                }
+            >
+                If you use this pattern in a Story for a modal, it is recommended to wrap it in a div with a dark
+                background (like this example)
+            </LemonModal>
+        </div>
     )
 }
