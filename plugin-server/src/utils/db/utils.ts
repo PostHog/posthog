@@ -45,6 +45,7 @@ const campaignParams = new Set([
     'utm_medium',
     'utm_campaign',
     'utm_content',
+    'utm_name',
     'utm_term',
     'gclid',
     'fbclid',
