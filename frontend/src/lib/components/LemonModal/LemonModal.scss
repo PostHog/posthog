@@ -42,11 +42,11 @@
 
     // Transition properties
     will-change: transform;
-    transform: scale(0.85) translateY(10%);
+    transform: scale(0.85);
     opacity: 0;
 
     &.ReactModal__Content--after-open:not(.ReactModal__Content--before-close) {
-        transform: scale(1) translateY(0);
+        transform: scale(1);
         opacity: 1;
     }
     .LemonModal__closebutton {
