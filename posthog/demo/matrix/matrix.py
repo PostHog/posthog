@@ -88,7 +88,7 @@ class Cluster(ABC):
                 ):
                     continue
                 neighbor = self.people_matrix[neighbor_y][neighbor_x]
-                if neighbor.finito:
+                if neighbor.is_complete:
                     continue
                 neighbors.append(neighbor)
         return neighbors
@@ -117,7 +117,7 @@ class Cluster(ABC):
     def _print_simulation_update(self, person_spiral_index: int, person: SimPerson):
         title = f"Simulated person {person_spiral_index + 1} in cluster {self} ({len(person.past_events)} event{'' if len(person.past_events) == 1 else 's'}):"
         grid_generator = (
-            " ".join(("-" if not person.finito else "X" if person.all_events else "x" for person in person_row))
+            " ".join(("-" if not person.is_complete else "X" if person.all_events else "x" for person in person_row))
             for person_row in self.people_matrix
         )
         print("\n".join((title, *grid_generator)),)
@@ -153,7 +153,7 @@ class Matrix(ABC):
     groups: DefaultDict[str, DefaultDict[str, Dict[str, Any]]]
     distinct_id_to_person: Dict[str, SimPerson]
     clusters: List[Cluster]
-    complete: Optional[bool]
+    is_complete: Optional[bool]
     server_client: SimServerClient
 
     random: mimesis.random.Random
@@ -196,7 +196,7 @@ class Matrix(ABC):
         self.distinct_id_to_person = {}
         self.clusters = [self.CLUSTER_CLASS(index=i, matrix=self) for i in range(n_clusters)]
         self.server_client = SimServerClient(self)
-        self.complete = None
+        self.is_complete = None
 
     @property
     def people(self) -> List[SimPerson]:
@@ -208,12 +208,12 @@ class Matrix(ABC):
         team.name = self.PRODUCT_NAME
 
     def simulate(self):
-        if self.complete is not None:
+        if self.is_complete is not None:
             raise RuntimeError("Simulation can only be started once!")
-        self.complete = False
+        self.is_complete = False
         for cluster in self.clusters:
             cluster.simulate()
-        self.complete = True
+        self.is_complete = True
 
     def _update_group(self, group_type: str, group_key: str, set_properties: Dict[str, Any]):
         if len(self.groups) == GROUP_TYPES_LIMIT and group_type not in self.groups:

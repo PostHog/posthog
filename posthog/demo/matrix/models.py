@@ -284,7 +284,7 @@ class SimPerson(ABC):
     properties_at_now: Properties
 
     # Internal state
-    finito: bool  # Whether this person has been simulated to completion
+    is_complete: bool  # Whether this person has been simulated to completion
     active_client: SimBrowserClient  # Client being used by person
     all_time_pageview_counts: DefaultDict[str, int]  # Pageview count per URL across all time
     session_pageview_counts: DefaultDict[str, int]  # Pageview count per URL across the ongoing session
@@ -304,7 +304,7 @@ class SimPerson(ABC):
         self.cluster = cluster
         self.x = x
         self.y = y
-        self.finito = False
+        self.is_complete = False
         self.active_client = SimBrowserClient(self)
         self.all_time_pageview_counts = defaultdict(int)
         self.session_pageview_counts = defaultdict(int)
@@ -348,7 +348,7 @@ class SimPerson(ABC):
             self.session_pageview_counts.clear()
             with self.active_client:
                 self.simulate_session()
-        self.finito = True
+        self.is_complete = True
 
     def schedule_effect(self, timestamp: dt.datetime, effect: Effect):
         """Schedule an effect to apply at a given time.
