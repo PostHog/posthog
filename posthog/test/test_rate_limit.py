@@ -14,12 +14,12 @@ from posthog.test.base import APIBaseTest
 
 class TestUserAPI(APIBaseTest):
     def setUp(self):
-        # prevent throttling of user requests to pass on from one test
-        # to the next
+        # ensure the rate limit is reset for each test
         cache.clear()
         return super().setUp()
 
     def tearDown(self):
+        # ensure the rate limit is reset for any subsequent non-rate-limit tests
         cache.clear()
         return super().tearDown()
 
