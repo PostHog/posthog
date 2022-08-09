@@ -5,7 +5,8 @@
     right: 0;
     bottom: 0;
 
-    transition: background-color 250ms ease-out, backdrop-filter 250ms ease-out;
+    transition: background-color var(--modal-transition-time) ease-out,
+        backdrop-filter var(--modal-transition-time) ease-out;
     z-index: var(--z-modal);
 
     display: flex;
@@ -13,8 +14,8 @@
     justify-content: center;
 
     &.ReactModal__Overlay--after-open {
-        background-color: rgba(0, 0, 0, 0.4);
-        backdrop-filter: blur(5px);
+        background-color: rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(var(--modal-backdrop-blur));
     }
 
     &.ReactModal__Overlay--before-close {
@@ -34,14 +35,14 @@
     background-color: #fff;
     box-shadow: 0 16px 16px -16px rgba(0, 0, 0, 0.35);
 
-    transition: opacity 250ms ease-out, transform 250ms ease-out;
+    transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     display: flex;
     flex-direction: col;
     max-height: 90%;
 
     // Transition properties
     will-change: transform;
-    transform: scale(0.85) translateY(25%);
+    transform: scale(0.85) translateY(10%);
     opacity: 0;
 
     &.ReactModal__Content--after-open {
@@ -50,7 +51,7 @@
     }
 
     &.ReactModal__Content--before-close {
-        transform: scale(0.85);
+        transform: scale(0.85) translateY(10%);
         opacity: 0;
     }
 
