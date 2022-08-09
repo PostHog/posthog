@@ -30,6 +30,7 @@ const propertyFilters = [
 const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.EventFeatureFlags,
     TaxonomicFilterGroupType.Cohorts,
     TaxonomicFilterGroupType.Elements,
 ]

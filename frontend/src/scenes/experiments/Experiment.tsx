@@ -503,6 +503,7 @@ export function Experiment(): JSX.Element {
                                                     propertiesTaxonomicGroupTypes={[
                                                         TaxonomicFilterGroupType.EventProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.EventFeatureFlags,
                                                         TaxonomicFilterGroupType.Cohorts,
                                                         TaxonomicFilterGroupType.Elements,
                                                     ]}
@@ -524,6 +525,7 @@ export function Experiment(): JSX.Element {
                                                     propertiesTaxonomicGroupTypes={[
                                                         TaxonomicFilterGroupType.EventProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.EventFeatureFlags,
                                                         TaxonomicFilterGroupType.Cohorts,
                                                         TaxonomicFilterGroupType.Elements,
                                                     ]}

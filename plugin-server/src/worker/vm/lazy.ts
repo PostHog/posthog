@@ -2,6 +2,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { VM } from 'vm2'
 
+import { runInSpan } from '../../sentry'
 import {
     Hub,
     PluginConfig,
@@ -181,7 +182,13 @@ export class LazyPluginVM {
         if (!this.ready) {
             const vm = (await this.resolveInternalVm)?.vm
             try {
-                await this._setupPlugin(vm)
+                await runInSpan(
+                    {
+                        op: 'vm.setup',
+                        description: this.pluginConfig.plugin?.name || '?',
+                    },
+                    () => this._setupPlugin(vm)
+                )
             } catch (error) {
                 status.warn('⚠️', error.message)
                 return false
@@ -197,7 +204,13 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         const timer = new Date()
         try {
-            await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            await runInSpan(
+                {
+                    op: 'plugin.setupPlugin',
+                    description: this.pluginConfig.plugin?.name || '?',
+                },
+                () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            )
             this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.ready = true
