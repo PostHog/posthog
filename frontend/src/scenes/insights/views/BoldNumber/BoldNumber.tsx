@@ -52,6 +52,7 @@ function useBoldNumberTooltip({
                     },
                 ]}
                 showHeader={false}
+                renderSeries={(value: React.ReactNode) => <span className="font-semibold">{value}</span>}
                 hideColorCol
                 hideInspectActorsSection={!showPersonsModal}
                 groupTypeLabel={aggregationLabel(toLocalFilters(filters)[0].math_group_type_index).plural}
