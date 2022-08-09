@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
@@ -41,24 +41,22 @@ logger = structlog.get_logger(__name__)
 # 5. We save the final blob output and update the ExportedAsset
 
 
-def add_limit(url: str, limit: int) -> str:
+def add_limit(url: str, params: Dict[str, str]) -> str:
     """
     Uses parse_qsl because parse_qs turns all values into lists but doesn't unbox them when re-encoded
     """
     parsed = urlparse(url)
     query_params = parse_qsl(parsed.query, keep_blank_values=True)
 
-    has_limit = False
     update_params: List[Tuple[str, Any]] = []
     for param, value in query_params:
-        if param == "limit":
-            update_params.append(("limit", str(limit)))
-            has_limit = True
+        if param in params:
+            update_params.append((param, params.pop(param)))
         else:
             update_params.append((param, value))
 
-    if not has_limit:
-        update_params.append(("limit", str(limit)))
+    for key, value in params.items():
+        update_params.append((key, value))
 
     # mypy bug ? https://github.com/python/typeshed/issues/4234
     encodedQueryParams = urlencode(update_params, quote_via=quote)  # type: ignore
@@ -168,7 +166,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     all_csv_rows: List[Any] = []
 
     while len(all_csv_rows) < max_limit:
-        url = add_limit(next_url or absolute_uri(path), limit)
+        url = add_limit(next_url or absolute_uri(path), {"limit": str(limit)})
 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
