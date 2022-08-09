@@ -19,8 +19,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonInput, LemonInputWidths, LemonSearchInput } from '@posthog/lemon-ui'
-import { IconMagnifier } from 'lib/components/icons'
+import { LemonSearchInput } from '@posthog/lemon-ui'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)

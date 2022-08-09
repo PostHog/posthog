@@ -5,10 +5,6 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose, IconMagnifier } from 'lib/components/icons'
 
-export enum LemonInputWidths {
-    Search = 340,
-}
-
 interface LemonInputPropsBase
     extends Omit<
         React.InputHTMLAttributes<HTMLInputElement>,
