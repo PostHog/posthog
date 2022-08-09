@@ -31,7 +31,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 setPageMode(DefinitionPageMode.View)
                             }}
-                            style={{ marginRight: 8 }}
                             disabled={definitionLoading}
                         >
                             Cancel
@@ -42,7 +41,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             onClick={() => {
                                 saveDefinition({})
                             }}
-                            style={{ marginRight: 8 }}
                             disabled={definitionLoading}
                         >
                             Save
@@ -62,7 +60,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 </Col>
             </Row>
             {hasTaxonomyFeatures && (
-                <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
+                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
                     <Col span={24}>
                         <Field name="description" label="Description" data-attr="definition-description">
                             <LemonTextArea value={definition.description} />
@@ -71,7 +69,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 </Row>
             )}
             {hasTaxonomyFeatures && isEvent && !isPostHogProp(definition.name) && 'verified' in definition && (
-                <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
+                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
                     <Col span={24}>
                         <Field name="verified" data-attr="definition-verified">
                             {({ value, onChange }) => (
@@ -87,7 +85,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 </Row>
             )}
             {hasTaxonomyFeatures && 'tags' in definition && (
-                <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
+                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
                     <Col span={24}>
                         <Field name="tags" label="Tags" data-attr="definition-tags">
                             {({ value, onChange }) => (
@@ -104,14 +102,14 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 </Row>
             )}
             {hasTaxonomyFeatures && !isEvent && (
-                <Row gutter={[16, 24]} className="mt ph-ignore-input" style={{ maxWidth: 640 }}>
+                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
                     <Col span={24}>
                         <Field name="property_type" label="Property Type" data-attr="property-type">
                             {({ value, onChange }) => (
                                 <LemonSelect
                                     onChange={(val) => onChange(val)}
                                     value={value}
-                                    bordered
+                                    type="secondary"
                                     options={{
                                         DateTime: {
                                             label: 'DateTime',

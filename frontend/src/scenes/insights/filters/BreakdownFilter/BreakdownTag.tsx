@@ -43,7 +43,8 @@ export function BreakdownTag({
                             onClick={() => {
                                 setUseHistogram(true)
                             }}
-                            type={useHistogram ? 'highlighted' : 'stealth'}
+                            status="stealth"
+                            active={useHistogram}
                             fullWidth
                         >
                             Use{' '}
@@ -63,8 +64,9 @@ export function BreakdownTag({
                             onClick={() => {
                                 setUseHistogram(false)
                             }}
-                            type={!useHistogram ? 'highlighted' : 'stealth'}
-                            className="mt-05"
+                            status="stealth"
+                            active={!useHistogram}
+                            className="mt-2"
                             fullWidth
                         >
                             Do not bin numeric values

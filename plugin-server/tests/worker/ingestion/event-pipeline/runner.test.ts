@@ -215,7 +215,6 @@ describe('EventPipelineRunner', () => {
                 'createEventStep',
                 'runAsyncHandlersStep',
             ])
-            expect(runner.stepsWithArgs).toMatchSnapshot()
         })
     })
 
@@ -226,7 +225,6 @@ describe('EventPipelineRunner', () => {
             await runner.runAsyncHandlersEventPipeline(preIngestionEvent)
 
             expect(runner.steps).toEqual(['runAsyncHandlersStep'])
-            expect(runner.stepsWithArgs).toMatchSnapshot()
         })
     })
 })

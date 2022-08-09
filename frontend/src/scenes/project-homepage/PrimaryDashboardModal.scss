@@ -16,19 +16,19 @@
             padding: 0.5rem;
             margin-bottom: 0.25rem;
             .dashboard-label-container {
-                color: var(--text-default);
+                color: var(--default);
                 flex: 1;
             }
             .dashboard-description {
                 margin-bottom: 0;
                 max-width: 300px;
-                color: var(--text-muted);
+                color: var(--muted);
             }
             .set-default-text {
                 color: var(--primary);
             }
             .default-indicator {
-                color: var(--text-default);
+                color: var(--default);
                 display: flex;
                 align-items: center;
             }

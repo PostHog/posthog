@@ -987,6 +987,16 @@ class TestFeatureFlag(APIBaseTest):
             filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
             created_by=self.user,
         )
+        # and inactive flag
+        FeatureFlag.objects.create(
+            name="Inactive feature",
+            key="inactive-flag",
+            team=self.team,
+            active=False,
+            rollout_percentage=100,
+            filters={"properties": []},
+            created_by=self.user,
+        )
 
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
@@ -1009,7 +1019,7 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
-        self.assertEqual(len(response_data["flags"]), 3)
+        self.assertEqual(len(response_data["flags"]), 4)
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
@@ -1067,6 +1077,20 @@ class TestFeatureFlag(APIBaseTest):
                 "experiment_set": [],
             },
             sorted_flags[2],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Inactive feature",
+                "key": "inactive-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "deleted": False,
+                "active": False,
+                "is_simple_flag": True,
+                "rollout_percentage": 100,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[3],
         )
 
         self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company",})

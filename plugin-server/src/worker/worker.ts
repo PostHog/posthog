@@ -2,31 +2,39 @@ import * as Sentry from '@sentry/node'
 
 import { initApp } from '../init'
 import { runInTransaction } from '../sentry'
-import { Hub, PluginsServerConfig } from '../types'
+import { Hub, PluginConfig, PluginsServerConfig } from '../types'
 import { processError } from '../utils/db/error'
 import { createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { cloneObject, pluginConfigIdFromStack } from '../utils/utils'
 import { setupPlugins } from './plugins/setup'
 import { workerTasks } from './tasks'
+import { TimeoutError } from './vm/vm'
 
 export type PiscinaTaskWorker = ({ task, args }: { task: string; args: any }) => Promise<any>
 
 export async function createWorker(config: PluginsServerConfig, threadId: number): Promise<PiscinaTaskWorker> {
     initApp(config)
 
-    status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
+    return runInTransaction(
+        {
+            name: 'createWorker',
+        },
+        async () => {
+            status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
-    const [hub, closeHub] = await createHub(config, threadId)
-    await setupPlugins(hub)
+            const [hub, closeHub] = await createHub(config, threadId)
+            await setupPlugins(hub)
 
-    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, closeHub)
-    }
+            for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+                process.on(signal, closeHub)
+            }
 
-    process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
+            process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
 
-    return createTaskRunner(hub)
+            return createTaskRunner(hub)
+        }
+    )
 }
 
 export const createTaskRunner =
@@ -66,12 +74,29 @@ export const createTaskRunner =
                     })
                 }
                 return response
+            },
+            (transactionDuration: number) => {
+                if (
+                    task === 'runEventPipeline' ||
+                    task === 'runBufferEventPipeline' ||
+                    task === 'runAsyncHandlersEventPipeline'
+                ) {
+                    return transactionDuration > 0.5 ? 1 : 0.01
+                } else {
+                    return 1
+                }
             }
         )
 
 export function processUnhandledRejections(error: Error, server: Hub): void {
-    const pluginConfigId = pluginConfigIdFromStack(error.stack || '', server.pluginConfigSecretLookup)
-    const pluginConfig = pluginConfigId ? server.pluginConfigs.get(pluginConfigId) : null
+    let pluginConfig: PluginConfig | undefined = undefined
+
+    if (error instanceof TimeoutError) {
+        pluginConfig = error.pluginConfig
+    } else {
+        const pluginConfigId = pluginConfigIdFromStack(error.stack || '', server.pluginConfigSecretLookup)
+        pluginConfig = pluginConfigId ? server.pluginConfigs.get(pluginConfigId) : undefined
+    }
 
     if (pluginConfig) {
         void processError(server, pluginConfig, error)

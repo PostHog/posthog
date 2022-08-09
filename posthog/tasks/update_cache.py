@@ -78,6 +78,8 @@ def active_teams() -> List[int]:
             ORDER BY age;
         """
         )
+        if not teams_by_recency:
+            return []
         redis.zadd(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, {team: score for team, score in teams_by_recency})
         redis.expire(RECENTLY_ACCESSED_TEAMS_REDIS_KEY, IN_A_DAY)
         all_teams = teams_by_recency
@@ -105,10 +107,10 @@ def update_cached_items() -> Tuple[int, int]:
         .exclude(dashboard__deleted=True)
         .exclude(insight__deleted=True)
         .exclude(insight__filters={})
-        .exclude(Q(insight__refreshing=True) | Q(refreshing=True))
-        .exclude(Q(insight__refresh_attempt__gt=2) | Q(refresh_attempt__gt=2))
+        .exclude(refreshing=True)
+        .exclude(refresh_attempt__gt=2)
         .select_related("insight", "dashboard")
-        .order_by(F("last_refresh").asc(nulls_first=True), F("insight__last_refresh").asc(nulls_first=True))
+        .order_by(F("last_refresh").asc(nulls_first=True), F("refresh_attempt").asc())
     )
 
     for dashboard_tile in dashboard_tiles[0:PARALLEL_INSIGHT_CACHE]:
@@ -291,32 +293,47 @@ def update_filters_hash(cache_key: str, dashboard: Optional[Dashboard], insight:
     #    --> so set the dashboard tile and the insight's filters hash"""
 
     should_update_insight_filters_hash = False
-    should_update_dashboard_tile_filters_hash = False
+
     if not dashboard and insight.filters_hash and insight.filters_hash != cache_key:
+        logger.info(
+            "update_cache_shared_insight_incorrect_filters_hash",
+            current_cache_key=insight.filters_hash,
+            correct_cache_key=cache_key,
+        )
         should_update_insight_filters_hash = True
     if dashboard:
-        should_update_dashboard_tile_filters_hash = True
-        if not dashboard.filters or dashboard.filters == insight.filters:
-            should_update_insight_filters_hash = True
-    if should_update_dashboard_tile_filters_hash:
         dashboard_tiles = DashboardTile.objects.filter(insight=insight, dashboard=dashboard,).exclude(
             filters_hash=cache_key
         )
-        matching_tiles_with_no_hash = dashboard_tiles.filter(filters_hash=None).count()
-        statsd.incr("update_cache_queue.set_missing_filters_hash", matching_tiles_with_no_hash)
-        dashboard_tiles.update(filters_hash=cache_key)
+
+        count_of_updated_tiles = dashboard_tiles.update(filters_hash=cache_key)
+        if count_of_updated_tiles:
+            logger.info(
+                "update_cache_dashboard_tile_incorrect_filters_hash",
+                current_cache_keys=[dt.filters_hash for dt in dashboard_tiles],
+                correct_cache_key=cache_key,
+            )
+
+            if not dashboard.filters or dashboard.filters == insight.filters:
+                should_update_insight_filters_hash = True
+
+            statsd.incr(
+                "update_cache_item_set_new_cache_key_on_tile",
+                count=count_of_updated_tiles,
+                tags={
+                    "team": insight.team.id,
+                    "cache_key": cache_key,
+                    "insight_id": insight.id,
+                    "dashboard_id": dashboard.id,
+                },
+            )
     if should_update_insight_filters_hash:
         insight.filters_hash = cache_key
         insight.save()
-    if should_update_insight_filters_hash or should_update_dashboard_tile_filters_hash:
+
         statsd.incr(
-            "update_cache_item_set_new_cache_key",
-            tags={
-                "team": insight.team.id,
-                "cache_key": cache_key,
-                "insight_id": insight.id,
-                "dashboard_id": None if not dashboard else dashboard.id,
-            },
+            "update_cache_item_set_new_cache_key_on_shared_insight",
+            tags={"team": insight.team.id, "cache_key": cache_key, "insight_id": insight.id, "dashboard_id": None,},
         )
 
 

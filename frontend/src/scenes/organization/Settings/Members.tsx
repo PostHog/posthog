@@ -54,7 +54,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                     ) : (
                         allowedLevels.map((listLevel) => (
                             <LemonButton
-                                type="stealth"
+                                status="stealth"
                                 fullWidth
                                 key={`${member.user.uuid}-level-${listLevel}`}
                                 onClick={(event) => {
@@ -94,7 +94,6 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                         <>
                             <LemonDivider />
                             <LemonButton
-                                type="stealth"
                                 status="danger"
                                 data-attr="delete-org-membership"
                                 onClick={() => {
@@ -179,7 +178,7 @@ export function Members({ user }: MembersProps): JSX.Element {
             key: 'joined_at',
             render: function RenderJoinedAt(joinedAt) {
                 return (
-                    <div className="no-wrap">
+                    <div className="whitespace-nowrap">
                         <TZLabel time={joinedAt as string} />
                     </div>
                 )

@@ -1,14 +1,5 @@
 import { urls } from 'scenes/urls'
 
-function expandPropertiesList() {
-    cy.get('body').then(($body) => {
-        // sometimes the event list isn't expanded
-        if ($body.find('[data-attr="expand-list-event_properties"]')) {
-            cy.get('[data-attr="expand-list-event_properties"]').click()
-        }
-    })
-}
-
 describe('Trends', () => {
     beforeEach(() => {
         cy.visit(urls.insightNew())
@@ -61,8 +52,6 @@ describe('Trends', () => {
         // Apply a property filter
         cy.get('[data-attr=show-prop-filter-0]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
-
-        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
 
         cy.get('[data-attr=prop-val]').click({ force: true })
@@ -85,7 +74,6 @@ describe('Trends', () => {
         cy.get('[data-attr=insight-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
@@ -136,7 +124,6 @@ describe('Trends', () => {
 
     it('Apply property breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
-        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
@@ -153,7 +140,6 @@ describe('Trends', () => {
         cy.get('[data-attr=insight-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        expandPropertiesList()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
         cy.get('[data-attr=prop-val]').click({ force: true })
         // cypress is odd and even though when a human clicks this the right dropdown opens
@@ -166,8 +152,8 @@ describe('Trends', () => {
 
         cy.get('[data-attr=insight-save-button]').click()
         cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.get('.modal-row button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.get('.modal-row button').first().contains('Added')
+        cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
+        cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
 
         cy.wait(200)
         cy.get('[data-attr=success-toast]').contains('Insight added to dashboard').should('exist')

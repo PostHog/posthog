@@ -84,7 +84,7 @@ export function CohortCriteriaRowBuilder({
                 }}
             >
                 <>
-                    <Row align="middle" wrap={false} className="mb-025">
+                    <Row align="middle" wrap={false} className="mb-1">
                         <KeaField
                             name="value"
                             template={({ error, kids }) => {
@@ -118,13 +118,13 @@ export function CohortCriteriaRowBuilder({
                         <div className="CohortCriteriaRow__inline-divider" />
                         <LemonButton
                             icon={<IconCopy />}
-                            type="alt"
+                            status="primary-alt"
                             onClick={() => duplicateFilter(groupIndex, index)}
                         />
                         {!hideDeleteIcon && (
                             <LemonButton
                                 icon={<IconDelete />}
-                                type="alt"
+                                status="primary-alt"
                                 onClick={() => removeFilter(groupIndex, index)}
                             />
                         )}

@@ -67,15 +67,15 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     )
                                 )
                             }}
-                            label="Breakdown"
-                            rowProps={{ size: 'small', style: { padding: 0, marginLeft: '-0.5rem', font: 'inherit' } }}
+                            label={<span className="font-bold">Breakdown</span>}
+                            size="small"
                         />
                     ),
                     dataIndex: 'breakdown_value',
                     render: function RenderBreakdownValue(breakdownValue: BreakdownKeyType | undefined): JSX.Element {
                         const label = formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, breakdownValue)
                         return isOnlySeries ? (
-                            <span style={{ fontWeight: 500 }}>{label}</span>
+                            <span className="font-medium">{label}</span>
                         ) : (
                             <LemonCheckbox
                                 checked={
@@ -85,11 +85,6 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 } // assume visible status from first step's visibility
                                 onChange={() => toggleVisibilityByBreakdown(breakdownValue)}
                                 label={label}
-                                rowProps={{
-                                    size: 'small',
-                                    style: { padding: 0, marginLeft: '-0.5rem', maxWidth: '16rem' },
-                                    title: label,
-                                }}
                             />
                         )
                     },
@@ -103,7 +98,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                         </>
                     ),
                     render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                        percentage(breakdown?.conversionRates?.total ?? 0, 1, true),
+                        percentage(breakdown?.conversionRates?.total ?? 0, 2, true),
                     align: 'right',
                 },
             ],
@@ -192,10 +187,10 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 icon={<IconFlag />}
                                 size="small"
                             >
-                                {percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)}
+                                {percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 2, true)}
                             </LemonRow>
                         ) : (
-                            percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 1, true)
+                            percentage(breakdown.steps?.[step.order]?.conversionRates.total ?? 0, 2, true)
                         )
                     },
                     align: 'right',
@@ -226,14 +221,14 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       >
                                           {percentage(
                                               breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
-                                              1,
+                                              2,
                                               true
                                           )}
                                       </LemonRow>
                                   ) : (
                                       percentage(
                                           breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
-                                          1,
+                                          2,
                                           true
                                       )
                                   )
@@ -254,7 +249,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       : '–',
                               align: 'right',
                               width: 0,
-                              className: 'no-wrap',
+                              className: 'whitespace-nowrap',
                           },
                           {
                               title: (
@@ -270,7 +265,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       : '–',
                               align: 'right',
                               width: 0,
-                              className: 'no-wrap',
+                              className: 'whitespace-nowrap',
                           },
                       ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],

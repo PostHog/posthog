@@ -1,10 +1,10 @@
 import React, { Dispatch, SetStateAction, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { DeleteOutlined } from '@ant-design/icons'
-import { Button, Input, Modal } from 'antd'
+import { Input, Modal } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
-import Paragraph from 'antd/lib/typography/Paragraph'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconDelete } from 'lib/components/icons'
 
 export function DeleteProjectModal({
     isVisible,
@@ -64,27 +64,24 @@ export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Elem
 
     return (
         <>
-            <div style={{ color: 'var(--danger)' }}>
-                <h2 style={{ color: 'var(--danger)' }} className="subtitle">
-                    Danger Zone
-                </h2>
-                <div className="mt">
+            <div className="text-danger">
+                <h2 className="text-danger subtitle">Danger Zone</h2>
+                <div className="mt-4">
                     {!isRestricted && (
-                        <Paragraph type="danger">
+                        <p className="text-danger">
                             This is <b>irreversible</b>. Please be certain.
-                        </Paragraph>
+                        </p>
                     )}
-                    <Button
-                        type="default"
-                        danger
+                    <LemonButton
+                        status="danger"
+                        type="secondary"
                         onClick={() => setIsModalVisible(true)}
-                        className="mr-05"
                         data-attr="delete-project-button"
-                        icon={<DeleteOutlined />}
+                        icon={<IconDelete />}
                         disabled={isRestricted}
                     >
                         Delete {currentTeam?.name || 'the current project'}
-                    </Button>
+                    </LemonButton>
                 </div>
             </div>
             <DeleteProjectModal isVisible={isModalVisible} setIsVisible={setIsModalVisible} />

@@ -14,7 +14,7 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, caption, buttons, style, tabbedPage, delimited }: PageHeaderProps): JSX.Element {
     const row = (
-        <div className="page-title-row" style={{ justifyContent: buttons ? 'space-between' : 'start', ...style }}>
+        <div className="page-title-row flex justify-between" style={style}>
             <h1 className="page-title">{title}</h1>
             <div className="page-buttons">{buttons}</div>
         </div>
@@ -37,7 +37,7 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <Row className="subtitle-row" justify={buttons ? 'space-between' : 'start'} align="middle">
+        <Row className="mt-8" justify={buttons ? 'space-between' : 'start'} align="middle">
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
         </Row>

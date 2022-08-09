@@ -255,7 +255,7 @@ export function EventDefinitionsTable(): JSX.Element {
                                 options={eventTypeOptions}
                                 data-attr="event-type-filter"
                                 dropdownMatchSelectWidth={false}
-                                bordered
+                                type="secondary"
                                 onChange={(value) => {
                                     setFilters({ event_type: value as CombinedEventType })
                                 }}
@@ -269,6 +269,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 columns={columns}
                 className="events-definition-table"
                 data-attr="events-definition-table"
+                data-tooltip="data-management-table"
                 loading={eventDefinitionsLoading}
                 rowKey="id"
                 pagination={{

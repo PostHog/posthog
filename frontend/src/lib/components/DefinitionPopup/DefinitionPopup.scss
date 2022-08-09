@@ -46,7 +46,7 @@
                 font-weight: 600;
                 letter-spacing: 0.5px;
                 text-transform: uppercase;
-                color: var(--text-muted);
+                color: var(--muted);
             }
 
             .definition-popup-header-row-buttons {
@@ -60,7 +60,7 @@
                 }
 
                 .definition-popup-disabled-button {
-                    color: var(--text-muted);
+                    color: var(--muted);
                     cursor: not-allowed;
                 }
             }
@@ -79,15 +79,11 @@
                 flex-shrink: 0;
 
                 &.taxonomy-icon-muted {
-                    path {
-                        fill: var(--taxonomy-icon-muted);
-                    }
+                    color: var(--muted-alt);
                 }
 
                 &.taxonomy-icon-verified {
-                    path {
-                        fill: var(--success);
-                    }
+                    color: var(--success);
                 }
             }
 
@@ -119,7 +115,7 @@
 
         &.empty {
             font-style: italic;
-            color: var(--text-muted);
+            color: var(--muted);
         }
     }
 
@@ -163,7 +159,7 @@
                 font-weight: 600;
                 letter-spacing: 0.5px;
                 text-transform: uppercase;
-                color: var(--text-muted);
+                color: var(--muted);
                 margin-bottom: 4px;
             }
 

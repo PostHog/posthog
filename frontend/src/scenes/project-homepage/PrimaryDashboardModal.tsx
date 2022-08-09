@@ -30,7 +30,6 @@ export function PrimaryDashboardModal(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         data-attr="close-primary-dashboard-modal"
-                        style={{ marginRight: '0.5rem' }}
                         onClick={closePrimaryDashboardModal}
                     >
                         Close
@@ -52,14 +51,14 @@ export function PrimaryDashboardModal(): JSX.Element {
                                     <strong>{dashboard.name}</strong>
                                     <Typography.Paragraph
                                         ellipsis={{ rows: 1 }}
-                                        className="text-small dashboard-description"
+                                        className="text-xs dashboard-description"
                                     >
                                         {dashboard.description}
                                     </Typography.Paragraph>
                                 </div>
                                 {isPrimary ? (
                                     <div className="default-indicator">
-                                        <IconCottage className="mr-05 text-warning" style={{ fontSize: '1.5rem' }} />
+                                        <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
                                         <span>Default</span>
                                     </div>
                                 ) : (

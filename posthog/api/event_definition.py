@@ -70,7 +70,7 @@ class EventDefinitionViewSet(
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
         # Allows this endpoint to return lists of event definitions, actions, or both.
-        event_type = CombinedEventType(self.request.GET.get("event_type", CombinedEventType.ALL))
+        event_type = CombinedEventType(self.request.GET.get("event_type", CombinedEventType.EVENT))
 
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)

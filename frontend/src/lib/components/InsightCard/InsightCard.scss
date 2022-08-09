@@ -60,7 +60,7 @@
     z-index: 101; // Elevate above viz
     overflow: hidden;
     h5 {
-        color: var(--text-muted);
+        color: var(--muted);
         line-height: 1.5rem;
         margin-bottom: 0;
     }
@@ -106,7 +106,7 @@
     width: 0.375rem;
     margin: 0 0.75rem 0 -0.25rem;
     border-radius: var(--radius);
-    background: var(--text-muted); // Just a fallback value in case there's some unrecognized value
+    background: var(--muted); // Just a fallback value in case there's some unrecognized value
     &.blue {
         background: var(--blue);
     }
@@ -117,7 +117,7 @@
         background: var(--green);
     }
     &.black {
-        background: var(--text-default);
+        background: var(--default);
     }
 }
 
@@ -153,7 +153,7 @@
 }
 
 .InsightMeta__description {
-    color: var(--text-muted);
+    color: var(--muted);
     max-height: 7em; // Display at most 4.5 lines at once, then scroll
     overflow: auto;
 }

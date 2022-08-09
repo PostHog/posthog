@@ -95,6 +95,7 @@ def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
         await asyncio.wait(tasks)
 
     async def run_on_connection(connection_pool):
+        await asyncio.sleep(0)  # returning control to event loop to make parallelism possible
         with connection_pool.get_client() as connection:
             connection.execute(sql, args, settings=settings)
 

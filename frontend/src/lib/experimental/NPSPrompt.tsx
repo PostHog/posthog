@@ -172,7 +172,7 @@ export function NPSPrompt(): JSX.Element | null {
                                 onChange={(e) => setPayload({ feedback_score: e.target.value })}
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && setStep(2)}
                             />
-                            <div style={{ textAlign: 'left' }} className="mt">
+                            <div style={{ textAlign: 'left' }} className="mt-4">
                                 <Button type="link" style={{ paddingLeft: 0 }} onClick={() => submit(false)}>
                                     Finish
                                 </Button>
@@ -195,7 +195,7 @@ export function NPSPrompt(): JSX.Element | null {
                                 onChange={(e) => setPayload({ feedback_persona: e.target.value })}
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && submit(true)}
                             />
-                            <div style={{ textAlign: 'left' }} className="mt">
+                            <div style={{ textAlign: 'left' }} className="mt-4">
                                 <Button style={{ float: 'right' }} onClick={() => submit(true)}>
                                     Finish
                                 </Button>

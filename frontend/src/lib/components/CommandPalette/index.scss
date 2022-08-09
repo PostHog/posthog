@@ -19,9 +19,9 @@
     width: 36rem;
     max-width: 100%;
     max-height: 60%;
-    color: var(--text-light);
+    color: var(--light);
     border-radius: var(--radius);
-    background-color: var(--bg-menu);
+    background-color: var(--default);
     overflow: hidden;
 
     @media (max-width: 500px) {
@@ -83,7 +83,7 @@
 }
 
 .palette__result--focused {
-    background: var(--depr-darken-bg_menu-10);
+    background: var(--default-dark);
     &::before,
     &::after {
         content: '';

@@ -61,6 +61,7 @@ export class KafkaProducerWrapper {
         return runInSpan(
             {
                 op: 'kafka.queueMessage',
+                description: kafkaMessage.topic,
             },
             async () => {
                 const messageSize = this.estimateMessageSize(kafkaMessage)

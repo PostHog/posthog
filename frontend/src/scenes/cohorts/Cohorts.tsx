@@ -96,11 +96,11 @@ export function Cohorts(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.cohort(cohort.id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.cohort(cohort.id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={
                                         combineUrl(urls.sessionRecordings(), {
                                             filters: {
@@ -120,7 +120,7 @@ export function Cohorts(): JSX.Element {
                                     View session recordings
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
                                     fullWidth
@@ -128,12 +128,7 @@ export function Cohorts(): JSX.Element {
                                     Export users
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
-                                    onClick={() => deleteCohort(cohort)}
-                                    fullWidth
-                                >
+                                <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>
                                     Delete cohort
                                 </LemonButton>
                             </>
@@ -160,7 +155,7 @@ export function Cohorts(): JSX.Element {
                         setSearchTerm(e.target.value)
                     }}
                 />
-                <div className="mb float-right">
+                <div className="mb-4 float-right">
                     <LemonButton
                         type="primary"
                         data-attr="create-cohort"
@@ -177,6 +172,7 @@ export function Cohorts(): JSX.Element {
                     pagination={{ pageSize: 100 }}
                     dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                     nouns={['cohort', 'cohorts']}
+                    data-tooltip="cohorts-table"
                 />
             </div>
         </div>

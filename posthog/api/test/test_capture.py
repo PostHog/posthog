@@ -5,6 +5,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from datetime import timezone as tz
 from typing import Any, Dict, List, Union
+from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
@@ -52,6 +53,7 @@ class TestCapture(BaseTest):
         args = patch_process_event_with_plugins.call_args[1]["data"]
 
         return {
+            "uuid": args["uuid"],
             "distinct_id": args["distinct_id"],
             "ip": args["ip"],
             "site_url": args["site_url"],
@@ -267,6 +269,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -304,6 +307,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "94b03e599131fd5026b",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -471,6 +475,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -492,12 +497,14 @@ class TestCapture(BaseTest):
             "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json",
         )
 
-        # We should return a 200 but not process the invalid event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(kafka_produce.call_count, 4)
-
-        events_processed = [json.loads(call.kwargs["data"]["data"])["event"] for call in kafka_produce.call_args_list]
-        self.assertEqual(events_processed, ["event1", "event3", "event4", "event5"])  # event2 not processed
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_header(self, kafka_produce):
@@ -520,6 +527,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -548,6 +556,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -577,6 +586,7 @@ class TestCapture(BaseTest):
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -642,9 +652,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + missing ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -678,7 +692,13 @@ class TestCapture(BaseTest):
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
-            {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
+            {
+                "uuid": mock.ANY,
+                "distinct_id": "3",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "team_id": self.team.pk,
+            },
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -814,9 +834,13 @@ class TestCapture(BaseTest):
             },
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + invalid ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -833,9 +857,13 @@ class TestCapture(BaseTest):
             content_type="application/json",
         )
 
-        # An invalid distinct ID will not return an error code, instead we will capture an exception
-        # and will not ingest the event
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
+            ),
+        )
 
         # endpoint success metric + invalid ID metric
         self.assertEqual(statsd_incr.call_count, 2)
@@ -862,6 +890,42 @@ class TestCapture(BaseTest):
         statsd_incr_first_call = statsd_incr.call_args_list[0]
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_event_name"}})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_custom_uuid(self, kafka_produce) -> None:
+        uuid = "01823e89-f75d-0000-0d4d-3d43e54f6de5"
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": uuid},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        arguments = self._to_arguments(kafka_produce)
+        self.assertEqual(arguments["uuid"], uuid)
+        self.assertEqual(arguments["data"]["uuid"], uuid)
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_custom_uuid_invalid(self, statsd_incr) -> None:
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": "invalid_uuid"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "uuid" is not a valid UUID!', code="invalid_payload",
+            ),
+        )
+
+        # endpoint success metric + invalid UUID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event_uuid")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_if_missing(self, kafka_produce) -> None:

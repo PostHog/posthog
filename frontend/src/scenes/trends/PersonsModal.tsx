@@ -339,7 +339,7 @@ export function ActorRow({ actor }: ActorRowProps): JSX.Element {
                     explicitValue={actor.distinct_ids[0]}
                     iconStyle={{ color: 'var(--primary)' }}
                     iconPosition="end"
-                    className="text-small text-muted-alt"
+                    className="text-xs text-muted-alt"
                 >
                     {midEllipsis(actor.distinct_ids[0], 32)}
                 </CopyToClipboardInline>

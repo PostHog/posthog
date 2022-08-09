@@ -90,8 +90,6 @@ class HedgeboxPerson(SimPerson):
             seconds=self.cluster.random.betavariate(2.5, 1 + self.need) * (36_000 if self.plan is not None else 172_800)
             + 24
         )
-        if self._simulation_time >= self.cluster.end:
-            return
         if not 5 < self._simulation_time.hour < 23 and self.cluster.random.random() < 0.9:
             return  # Not likely to be active at night
         if (
@@ -228,12 +226,10 @@ class HedgeboxMatrix(Matrix):
     new_signup_page_experiment_start: timezone.datetime
     new_signup_page_experiment_end: timezone.datetime
 
-    def __init__(
-        self, seed: Optional[str] = None, *, start: timezone.datetime, end: timezone.datetime, n_clusters: int
-    ):
-        super().__init__(seed, start=start, end=end, n_clusters=n_clusters)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         # Start new signup page experiment roughly halfway through the simulation, end late into it
-        self.new_signup_page_experiment_end = self.end - timezone.timedelta(days=2, hours=3, seconds=43)
+        self.new_signup_page_experiment_end = self.now - timezone.timedelta(days=2, hours=3, seconds=43)
         self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2
 
     def set_project_up(self, team, user):
@@ -439,7 +435,7 @@ class HedgeboxMatrix(Matrix):
                 ]
             },
             created_by=user,
-            created_at=self.end - timezone.timedelta(days=15),
+            created_at=self.now - timezone.timedelta(days=15),
         )
 
         # Experiments

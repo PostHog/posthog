@@ -17,7 +17,8 @@ import { IconHandClick } from 'lib/components/icons'
 import { shortTimeZone } from 'lib/utils'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useValues } from 'kea'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatAggregationValue } from 'scenes/insights/utils'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -41,6 +42,19 @@ export function ClickToInspectActors({
     )
 }
 
+function renderDatumToTableCell(
+    datumMathProperty: string | undefined,
+    datumValue: number,
+    formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
+    renderCount: (value: number) => React.ReactNode
+): ReactNode {
+    return (
+        <div className="series-data-cell">
+            {formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)}
+        </div>
+    )
+}
+
 export function InsightTooltip({
     date,
     timezone = 'UTC',
@@ -49,12 +63,12 @@ export function InsightTooltip({
     altRightTitle,
     renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
         <>
-            <SeriesLetter className="mr-05" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
+            <SeriesLetter className="mr-2" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
         </>
     ),
     renderCount = (value: number) => {
-        return <>{typeof value === 'number' ? humanFriendlyNumber(value) : value}</>
+        return <>{humanFriendlyNumber(value)}</>
     },
     hideColorCol = false,
     hideInspectActorsSection = false,
@@ -123,14 +137,12 @@ export function InsightTooltip({
                                     colIdx
                                 )),
                         render: function renderSeriesColumnData(_, datum) {
-                            const innerValue = datum.seriesData?.[colIdx]?.action?.math_property
-                                ? formatPropertyValueForDisplay(
-                                      datum.seriesData?.[colIdx]?.action?.math_property,
-                                      datum.seriesData?.[colIdx]?.count
-                                  )
-                                : renderCount(datum.seriesData?.[colIdx]?.count ?? 0)
-
-                            return <div className="series-data-cell">{innerValue}</div>
+                            return renderDatumToTableCell(
+                                datum.seriesData?.[colIdx]?.action?.math_property,
+                                datum.seriesData?.[colIdx]?.count,
+                                formatPropertyValueForDisplay,
+                                renderCount
+                            )
                         },
                     })
                 })
@@ -163,7 +175,7 @@ export function InsightTooltip({
             key: 'datum',
             className: 'datum-label-column',
             width: 120,
-            title: <span className="no-wrap">{title}</span>,
+            title: <span className="whitespace-nowrap">{title}</span>,
             sticky: true,
             render: function renderDatum(_, datum, rowIdx) {
                 return renderSeries(
@@ -186,14 +198,15 @@ export function InsightTooltip({
             key: 'counts',
             className: 'datum-counts-column',
             width: 50,
-            title: <span style={{ whiteSpace: 'nowrap' }}>{rightTitle ?? undefined}</span>,
+            title: <span className="whitespace-nowrap">{rightTitle ?? undefined}</span>,
             align: 'right',
             render: function renderDatum(_, datum) {
-                const innerValue = datum.action?.math_property
-                    ? formatPropertyValueForDisplay(datum.action?.math_property, datum.count)
-                    : renderCount(datum.count ?? 0)
-
-                return <div className="series-data-cell">{innerValue}</div>
+                return renderDatumToTableCell(
+                    datum.action?.math_property,
+                    datum.count,
+                    formatPropertyValueForDisplay,
+                    renderCount
+                )
             },
         })
 

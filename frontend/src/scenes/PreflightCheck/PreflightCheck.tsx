@@ -26,19 +26,15 @@ export const scene: SceneExport = {
 }
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
-    const size = {
-        height: '20px',
-        width: '20px',
-    }
     if (loading) {
         return <LoadingOutlined style={{ color: 'var(--primary)' }} />
     }
     if (status === 'validated') {
-        return <IconCheckCircleOutline {...size} />
+        return <IconCheckCircleOutline />
     } else if (status === 'warning' || status === 'optional') {
-        return <IconWarningAmber {...size} />
+        return <IconWarningAmber />
     }
-    return <IconErrorOutline {...size} />
+    return <IconErrorOutline />
 }
 
 function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element {
@@ -90,7 +86,7 @@ export function PreflightCheck(): JSX.Element {
                                 fullWidth
                                 center
                                 type="primary"
-                                className="mt-05"
+                                className="mt-2"
                                 size="large"
                                 data-attr="preflight-live"
                                 onClick={() => setPreflightMode('live')}
@@ -101,7 +97,7 @@ export function PreflightCheck(): JSX.Element {
                                 type="secondary"
                                 fullWidth
                                 center
-                                className="mt-05"
+                                className="mt-2"
                                 size="large"
                                 data-attr="preflight-experimentation"
                                 onClick={() => setPreflightMode('experimentation')}
@@ -189,10 +185,9 @@ export function PreflightCheck(): JSX.Element {
                                     data-attr="preflight-refresh"
                                     onClick={() => revalidatePreflight()}
                                     disabled={preflightLoading || !preflight}
-                                    style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
                                     icon={<IconRefresh />}
                                 >
-                                    <span style={{ paddingLeft: 8 }}>Validate requirements</span>
+                                    Validate requirements
                                 </LemonButton>
                             </div>
                             <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
@@ -201,7 +196,7 @@ export function PreflightCheck(): JSX.Element {
                                     fullWidth
                                     center
                                     type="primary"
-                                    className="mt-05"
+                                    className="mt-2"
                                     size="large"
                                     data-attr="preflight-complete"
                                     onClick={handlePreflightFinished}
@@ -209,14 +204,14 @@ export function PreflightCheck(): JSX.Element {
                                     Continue
                                 </LemonButton>
                             ) : (
-                                <LemonRow fullWidth center className="mt-05 Preflight__cannot-continue" size="large">
+                                <LemonRow fullWidth center className="mt-2 Preflight__cannot-continue" size="large">
                                     <p className="text-center text-muted">
                                         All required checks must pass before you can continue
                                     </p>
                                 </LemonRow>
                             )}
 
-                            <p className="text-center mt mb-0">
+                            <p className="text-center mt-4 mb-0">
                                 Need help? Take a look at our{' '}
                                 <a href="https://posthog.com/docs/self-host/deploy/troubleshooting" target="_blank">
                                     documentation

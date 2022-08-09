@@ -107,7 +107,7 @@ export function BreakdownFilter({
         : undefined
 
     return (
-        <div className="flex flex-wrap gap-05 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
             {tags}
             {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
                 <TaxonomicBreakdownButton

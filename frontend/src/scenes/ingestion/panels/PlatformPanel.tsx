@@ -1,16 +1,13 @@
 import React from 'react'
-import { useActions, useValues } from 'kea'
-import { Col } from 'antd'
+import { useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { THIRD_PARTY, BOOKMARKLET, platforms } from 'scenes/ingestion/constants'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
-import { PanelSupport } from './PanelComponents'
 import { LemonDivider } from 'lib/components/LemonDivider'
 
 export function PlatformPanel(): JSX.Element {
     const { setPlatform } = useActions(ingestionLogic)
-    const { onboardingSidebarEnabled } = useValues(ingestionLogic)
 
     return (
         <div className="welcome-panel">
@@ -18,8 +15,8 @@ export function PlatformPanel(): JSX.Element {
             <p>
                 First things first, where do you want to send events from? You can always instrument more sources later.
             </p>
-            <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
-            <Col style={{ marginBottom: 16 }}>
+            <LemonDivider thick dashed className="my-6" />
+            <div className="flex flex-col mb-6">
                 {platforms.map((platform) => (
                     <LemonButton
                         key={platform}
@@ -27,7 +24,7 @@ export function PlatformPanel(): JSX.Element {
                         center
                         size="large"
                         type="primary"
-                        className="mb-05"
+                        className="mb-2"
                         onClick={() => setPlatform(platform)}
                     >
                         {platform}
@@ -38,7 +35,7 @@ export function PlatformPanel(): JSX.Element {
                     fullWidth
                     center
                     size="large"
-                    className="mb-05"
+                    className="mb-2"
                     type="primary"
                 >
                     {THIRD_PARTY}
@@ -46,8 +43,7 @@ export function PlatformPanel(): JSX.Element {
                 <LemonButton type="secondary" size="large" fullWidth center onClick={() => setPlatform(BOOKMARKLET)}>
                     {BOOKMARKLET}
                 </LemonButton>
-            </Col>
-            {!onboardingSidebarEnabled && <PanelSupport />}
+            </div>
         </div>
     )
 }

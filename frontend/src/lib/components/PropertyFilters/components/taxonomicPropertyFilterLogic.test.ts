@@ -18,6 +18,7 @@ describe('the taxonomic property filter', () => {
             taxonomicGroupTypes: [
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.Elements,
             ],

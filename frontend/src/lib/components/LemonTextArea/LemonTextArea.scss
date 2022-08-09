@@ -1,9 +1,9 @@
 .LemonTextArea {
-    color: var(--text-default);
+    color: var(--default);
     cursor: text;
 
     &:not(.LemonTextArea):not(.LemonTextArea--disabled):hover {
-        border: 1px solid var(--primary-hover);
+        border: 1px solid var(--primary-light);
     }
 
     &.LemonTextArea--disabled {
@@ -30,7 +30,7 @@
 .LemonRow__icon:first-child {
     .LemonTextArea & {
         font-size: 18px;
-        color: var(--text-muted);
+        color: var(--muted);
     }
 
     .LemonTextArea.LemonTextArea--with-input & {
@@ -39,7 +39,7 @@
 }
 
 .LemonTextArea--embedded {
-    color: var(--text-default);
+    color: var(--default);
     font-weight: 400;
     border: none !important;
 

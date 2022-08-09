@@ -82,8 +82,8 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </div>
             )}
             {_filters.breakdown && loadMoreBreakdownUrl && (
-                <div className="mt text-center">
-                    <div className="text-muted mb">
+                <div className="mt-4 text-center">
+                    <div className="text-muted mb-4">
                         For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
                     </div>
                     <div>

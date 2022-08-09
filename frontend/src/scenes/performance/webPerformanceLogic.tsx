@@ -336,7 +336,7 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
             (eventToDisplay, currentPage): Breadcrumb[] => {
                 const baseCrumb = [
                     {
-                        name: 'WebPerformance',
+                        name: 'Web Performance',
                         path: urls.webPerformance(),
                     },
                 ]
