@@ -1,10 +1,10 @@
 import { reportA11y } from '../support/accessibility'
 
 describe('a11y', () => {
-    it('home should have no accessibility violations', () => {
+    it.only('home should have no accessibility violations', () => {
         cy.get('[data-attr="menu-item-projecthomepage"]').click()
         cy.injectAxe()
-        reportA11y({ includedImpacts: ['serious', 'critical'] }, 'home-page')
+        reportA11y({ includedImpacts: ['serious', 'critical'] }, 'home-page', false)
     })
 
     const sidebarItems = [
