@@ -22,6 +22,7 @@ export interface SharingModalProps {
     insight?: Partial<InsightModel>
     visible: boolean
     closeModal: () => void
+    inline?: boolean
 }
 
 export function SharingModal({
@@ -30,6 +31,7 @@ export function SharingModal({
     insight,
     closeModal,
     visible,
+    inline,
 }: SharingModalProps): JSX.Element {
     const logicProps = {
         dashboardId,
@@ -66,6 +68,7 @@ export function SharingModal({
                     Done
                 </LemonButton>
             }
+            inline={inline}
         >
             <div className="space-y-4">
                 {dashboardId ? <DashboardCollaboration dashboardId={dashboardId} /> : undefined}
