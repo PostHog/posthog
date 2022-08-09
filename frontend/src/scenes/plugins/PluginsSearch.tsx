@@ -1,24 +1,23 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
 import { IconMagnifier } from 'lib/components/icons'
 
 export function PluginsSearch(): JSX.Element {
     const { searchTerm, rearranging } = useValues(pluginsLogic)
     const { setSearchTerm } = useActions(pluginsLogic)
     return (
-        <div style={{ width: 360 }}>
-            <LemonInput
-                icon={<IconMagnifier />}
-                allowClear
-                data-attr="plugins-search"
-                placeholder="Start typing to search for an app"
-                autoFocus
-                value={searchTerm || ''}
-                onChange={setSearchTerm}
-                disabled={rearranging}
-            />
-        </div>
+        <LemonInput
+            width={LemonInputWidths.Search}
+            icon={<IconMagnifier />}
+            allowClear
+            data-attr="plugins-search"
+            placeholder="Start typing to search for an app"
+            autoFocus
+            value={searchTerm || ''}
+            onChange={setSearchTerm}
+            disabled={rearranging}
+        />
     )
 }

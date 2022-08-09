@@ -4,7 +4,7 @@ describe('Person Visualization Check', () => {
         cy.location('pathname').should('eq', '/persons')
         cy.get('.ant-spin-spinning').should('not.exist') // Wait until initial table load to be able to use the search
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
-        cy.wait(1000)
+        cy.contains('deborah.fernandez@gmail.com').should('not.exist')
         cy.contains('deborah.fernandez@gmail.com').click()
         cy.wait(1000)
     })
@@ -27,7 +27,7 @@ describe('Merge person', () => {
     beforeEach(() => {
         cy.clickNavMenu('persons')
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
-        cy.wait(1000)
+        cy.contains('deborah.fernandez@gmail.com').should('not.exist')
         cy.contains('deborah.fernandez@gmail.com').click()
         cy.wait(1000)
     })

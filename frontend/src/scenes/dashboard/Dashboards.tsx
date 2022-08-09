@@ -26,7 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -212,15 +212,14 @@ export function Dashboards(): JSX.Element {
                 <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
             </Tabs>
             <div className="flex">
-                <div style={{ width: 360 }}>
-                    <LemonInput
-                        icon={<IconMagnifier />}
-                        allowClear
-                        placeholder="Search for dashboards"
-                        onChange={setSearchTerm}
-                        value={searchTerm}
-                    />
-                </div>
+                <LemonInput
+                    width={LemonInputWidths.Search}
+                    icon={<IconMagnifier />}
+                    allowClear
+                    placeholder="Search for dashboards"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
                 <div />
             </div>
             <LemonDivider large />

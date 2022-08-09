@@ -5,6 +5,10 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
+export enum LemonInputWidths {
+    Search = 340,
+}
+
 interface LemonInputPropsBase
     extends Omit<
         React.InputHTMLAttributes<HTMLInputElement>,
@@ -60,6 +64,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         sideIcon,
         type,
         value,
+        width,
         ...textProps
     },
     ref
@@ -120,6 +125,9 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             focus()
         },
         outlined: !embedded,
+        style: {
+            width: width,
+        },
     }
     const props: React.InputHTMLAttributes<HTMLInputElement> = {
         ...textProps,

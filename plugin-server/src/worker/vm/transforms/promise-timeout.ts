@@ -19,7 +19,10 @@ export const promiseTimeout: PluginGen =
                         !node[REPLACED]
                     ) {
                         const newCall = t.memberExpression(
-                            t.callExpression(t.identifier('__asyncGuard'), [node.object]),
+                            t.callExpression(t.identifier('__asyncGuard'), [
+                                node.object,
+                                t.stringLiteral('Promise.then'),
+                            ]),
                             t.identifier('then')
                         )
                         ;(newCall as any)[REPLACED] = true
@@ -34,10 +37,7 @@ export const promiseTimeout: PluginGen =
                     const { node } = path
                     if (node && !node[REPLACED]) {
                         const newAwait = t.awaitExpression(
-                            t.callExpression(t.identifier('__asyncGuard'), [
-                                node.argument,
-                                node.argument.callee || node.argument,
-                            ])
+                            t.callExpression(t.identifier('__asyncGuard'), [node.argument, t.stringLiteral('await')])
                         )
                         ;(newAwait as any)[REPLACED] = true
                         path.replaceWith(newAwait)

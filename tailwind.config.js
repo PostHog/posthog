@@ -101,7 +101,7 @@ module.exports = {
         // 'container', // The container component
         // 'content', // The content utilities like content-none
         // 'contrast', // The contrast utilities like contrast-100
-        // 'cursor', // The cursor utilities like cursor-grab
+        'cursor', // The cursor utilities like cursor-grab
         // 'display', // The display utilities like table-column-group
         // 'divideColor', // The between elements border-color utilities like divide-slate-500
         // 'divideOpacity', // The divide-opacity utilities like divide-opacity-50
