@@ -1,17 +1,17 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { convertPropertyGroupToProperties, fromParamsGivenUrl, isGroupType, toParams } from 'lib/utils'
+import { convertPropertiesToPropertyGroup, fromParamsGivenUrl, isGroupType, toParams } from 'lib/utils'
 import {
     ActionFilter,
     FilterType,
     InsightType,
     FunnelVizType,
-    PropertyFilter,
     FunnelCorrelationResultsType,
     ActorType,
     GraphDataset,
     ChartDisplayType,
+    FilterLogicalOperator,
 } from '~/types'
 import type { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -75,17 +75,15 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
         params.date_to = date_to as string
     }
 
-    // If breakdown type is cohort, we use breakdown_value
-    // If breakdown type is event, we just set another filter
-    const flattenedPropertyGroup = convertPropertyGroupToProperties(params.properties)
-    if (breakdown_value && filters.breakdown_type != 'cohort' && filters.breakdown_type != 'person') {
-        params.properties = [
-            ...(flattenedPropertyGroup || []),
-            { key: params.breakdown, value: breakdown_value, type: 'event' } as PropertyFilter,
-        ]
-    }
-    if (action?.properties && (action.properties?.length ?? 0) > 0) {
-        params.properties = [...(flattenedPropertyGroup || []), ...action.properties]
+    // Ensure properties are property groups
+    params.properties = convertPropertiesToPropertyGroup(params.properties)
+
+    // Merge action property group
+    if (action?.properties?.values && (action.properties.values?.length ?? 0) > 0) {
+        params.properties = {
+            type: FilterLogicalOperator.And,
+            values: [params.properties, convertPropertiesToPropertyGroup(action.properties)],
+        }
     }
 
     return toParams({ ...params, ...restParams })
