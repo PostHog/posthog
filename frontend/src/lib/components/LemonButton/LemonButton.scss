@@ -17,6 +17,7 @@
     line-height: 1.5rem;
     font-weight: 500;
     cursor: pointer;
+    -webkit-appearance: none;
 
     &:disabled {
         opacity: var(--opacity-disabled);
