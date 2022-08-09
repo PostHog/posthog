@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
-import { LemonInput } from './LemonInput'
+import { LemonInput, LemonSearchInput } from './LemonInput'
 import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
 import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 
@@ -47,3 +47,8 @@ Clearable.args = { allowClear: true }
 
 export const Numeric = Template.bind({})
 Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
+
+export const Search = (): JSX.Element => {
+    const [value, setValue] = useState('')
+    return <LemonSearchInput placeholder="Search your soul" value={value} onChange={(e) => setValue(e)} />
+}

@@ -24,8 +24,7 @@ import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
-import { IconMagnifier } from 'lib/components/icons'
+import { LemonSearchInput } from '@posthog/lemon-ui'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -213,14 +212,7 @@ export function ActionsTable(): JSX.Element {
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
 
-            <LemonInput
-                width={LemonInputWidths.Search}
-                icon={<IconMagnifier />}
-                allowClear
-                placeholder="Search for actions"
-                onChange={setSearchTerm}
-                value={searchTerm}
-            />
+            <LemonSearchInput placeholder="Search for actions" onChange={setSearchTerm} value={searchTerm} />
 
             <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
                 <Radio.Button value={false}>All actions</Radio.Button>

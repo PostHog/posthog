@@ -15,7 +15,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
-    IconMagnifier,
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
@@ -42,7 +41,7 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { CalendarOutlined } from '@ant-design/icons'
-import { LemonInput, LemonInputWidths, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSearchInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const { TabPane } = Tabs
 
@@ -360,11 +359,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
-                        <LemonInput
-                            icon={<IconMagnifier />}
-                            allowClear
+                        <LemonSearchInput
                             placeholder="Search for insights"
-                            width={LemonInputWidths.Search}
                             onChange={(value) => setSavedInsightsFilters({ search: value })}
                             value={search || ''}
                         />

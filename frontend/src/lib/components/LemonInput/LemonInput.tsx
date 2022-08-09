@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react'
 import { LemonRow, LemonRowProps } from 'lib/components/LemonRow'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconClose } from 'lib/components/icons'
+import { IconClose, IconMagnifier } from 'lib/components/icons'
 
 export enum LemonInputWidths {
     Search = 340,
@@ -32,7 +32,7 @@ interface LemonInputPropsBase
 }
 
 interface LemonInputPropsText extends LemonInputPropsBase {
-    type?: 'text' | 'email'
+    type?: 'text' | 'email' | 'search'
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
@@ -157,3 +157,16 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         </LemonRow>
     )
 })
+
+export const LemonSearchInput = (props: LemonInputProps): JSX.Element => {
+    return (
+        <LemonInput
+            className="LemonSearchInput"
+            icon={<IconMagnifier />}
+            allowClear
+            fullWidth={false}
+            type="search"
+            {...props}
+        />
+    )
+}

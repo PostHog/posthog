@@ -7,10 +7,10 @@ import { Popconfirm } from 'antd'
 import { authorizedUrlsLogic } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
-import { IconDelete, IconEdit, IconMagnifier, IconOpenInApp, IconPlus } from 'lib/components/icons'
+import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
-import { LemonInput, LemonInputWidths } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput, LemonSearchInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
 import Typography from 'antd/lib/typography'
 
@@ -89,13 +89,10 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
     return (
         <div>
             <div className="flex items-center mb-4 gap-2 justify-between">
-                <LemonInput
-                    icon={<IconMagnifier />}
-                    allowClear
+                <LemonSearchInput
                     autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     placeholder="Search for authorized URLs"
                     onChange={setSearchTerm}
-                    width={LemonInputWidths.Search}
                     value={searchTerm}
                 />
                 <LemonButton onClick={newUrl} type="secondary" icon={<IconPlus />} data-attr="toolbar-add-url">

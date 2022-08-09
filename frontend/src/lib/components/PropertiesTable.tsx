@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
-import { IconDeleteForever, IconMagnifier, IconOpenInNew } from 'lib/components/icons'
+import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
 import { LemonTable, LemonTableColumns } from './LemonTable'
 import { CopyToClipboardInline } from './CopyToClipboard'
@@ -11,7 +11,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from './LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
-import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
+import { LemonSearchInput } from '@posthog/lemon-ui'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -276,10 +276,7 @@ export function PropertiesTable({
             <>
                 {searchable && (
                     <div className="flex justify-between gap-4">
-                        <LemonInput
-                            icon={<IconMagnifier />}
-                            width={LemonInputWidths.Search}
-                            allowClear
+                        <LemonSearchInput
                             placeholder="Search for property keys and values"
                             autoFocus
                             value={searchTerm || ''}
