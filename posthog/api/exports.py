@@ -69,7 +69,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             # If the rendering times out - fine, the frontend will poll instead for the response
             pass
         except NotImplementedError as ex:
-            logger.error("exporters.unsupported_export_type", exception=ex)
+            logger.error("exporters.unsupported_export_type", exception=ex, exc_info=True)
             raise serializers.ValidationError(
                 {"export_format": ["This type of export is not supported for this resource."]}
             )
