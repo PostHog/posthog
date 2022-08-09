@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Field } from 'lib/forms/FieldV2'
+import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 

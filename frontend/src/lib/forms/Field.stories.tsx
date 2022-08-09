@@ -1,6 +1,6 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
-import { Field, PureField } from './FieldV2'
+import { Field, PureField } from './Field'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { kea, path, useAllValues } from 'kea'
 import { Form, forms } from 'kea-forms'
@@ -35,7 +35,7 @@ export const _PureFields = (): JSX.Element => {
                         Text input label <span>(Optional)</span>
                     </>
                 }
-                hint={
+                help={
                     <>
                         Optional descriptive or supportive text for the preceeding form element. This content can wrap
                         to multiple lines.

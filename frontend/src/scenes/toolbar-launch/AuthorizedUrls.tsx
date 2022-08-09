@@ -11,7 +11,7 @@ import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/ic
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { Field } from 'lib/forms/FieldV2'
+import { Field } from 'lib/forms/Field'
 import Typography from 'antd/lib/typography'
 
 interface AuthorizedUrlsTableInterface {

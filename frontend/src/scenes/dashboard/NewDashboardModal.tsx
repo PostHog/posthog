@@ -1,6 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Field } from 'lib/forms/FieldV2'
+import { Field } from 'lib/forms/Field'
 import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { AvailableFeature } from '~/types'
