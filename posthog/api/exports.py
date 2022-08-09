@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
 import celery
+import requests.exceptions
 import structlog
 from django.http import HttpResponse
 from rest_framework import mixins, serializers, viewsets
@@ -67,6 +68,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             instance.refresh_from_db()
         except celery.exceptions.TimeoutError:
             # If the rendering times out - fine, the frontend will poll instead for the response
+            pass
+        except requests.exceptions.MissingSchema:
+            # regression test see https://github.com/PostHog/posthog/issues/11204
             pass
         except NotImplementedError as ex:
             logger.error("exporters.unsupported_export_type", exception=ex, exc_info=True)

@@ -156,8 +156,14 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
+
         if response.status_code != 200:
-            raise Exception(f"export API call failed with status_code: {response.status_code}")
+            # noinspection PyBroadException
+            try:
+                response_json = response.json()
+            except Exception:
+                response_json = "no response json to parse"
+            raise Exception(f"export API call failed with status_code: {response.status_code}. {response_json}")
 
         # Figure out how to handle funnel polling....
         data = response.json()
