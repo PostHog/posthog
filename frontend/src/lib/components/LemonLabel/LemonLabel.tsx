@@ -5,7 +5,7 @@ import { IconInfo } from '../icons'
 
 export interface LemonLabelProps
     extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'htmlFor' | 'form' | 'children'> {
-    info?: string | JSX.Element
+    info?: React.ReactNode
 }
 
 export function LemonLabel({ children, info, ...props }: LemonLabelProps): JSX.Element {

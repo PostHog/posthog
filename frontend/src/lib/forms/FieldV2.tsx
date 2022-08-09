@@ -1,22 +1,21 @@
 import { IconErrorOutline } from 'lib/components/icons'
 import React from 'react'
 import { LemonLabel } from '../components/LemonLabel/LemonLabel'
+import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
 
-export interface FieldV2Props {
-    /** The name of the form field */
-    name?: string | number
+export type PureFieldProps = {
     /** The label name to be displayed */
-    label?: string | JSX.Element | null
+    label?: React.ReactNode
     /** Info tooltip to be displayed next to the label */
-    info?: string | JSX.Element
+    info?: React.ReactNode
     /** Help text to be shown directly beneath the input */
-    help?: string | JSX.Element
+    help?: React.ReactNode
     /** Error message to be displayed */
-    error?: string
+    error?: React.ReactNode
     children?: React.ReactNode
 }
 
-export const FieldV2 = ({ label, info, error, help, children }: FieldV2Props): JSX.Element => {
+export const PureField = ({ label, info, error, help, children }: PureFieldProps): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
             {label ? <LemonLabel info={info}>{label}</LemonLabel> : null}
@@ -29,62 +28,19 @@ export const FieldV2 = ({ label, info, error, help, children }: FieldV2Props): J
             ) : null}
         </div>
     )
-    // /** Drop-in replacement antd template for kea forms */
-    // const template: FieldV2Props['template'] = noStyle
-    //     ? ({ kids }) => <>{kids}</>
-    //     : ({ label, kids, hint, error }) => {
-    //           return (
-    //               <div
-    //                   className={clsx(
-    //                       'ant-row',
-    //                       'ant-form-item',
-    //                       help || hint || error ? 'ant-form-item-with-help' : '',
-    //                       error ? `ant-form-item-has-error` : '',
-    //                       className
-    //                   )}
-    //                   style={style}
-    //               >
-    //                   {label ? (
-    //                       <div className="ant-col ant-form-item-label">
-    //                           <label htmlFor={String(name)} title={typeof label === 'string' ? label : undefined}>
-    //                               {showOptional ? (
-    //                                   <>
-    //                                       {label}
-    //                                       {showOptional ? (
-    //                                           <span className="ant-form-item-optional" title="">
-    //                                               (optional)
-    //                                           </span>
-    //                                       ) : null}
-    //                                   </>
-    //                               ) : (
-    //                                   label
-    //                               )}
-    //                           </label>
-    //                       </div>
-    //                   ) : null}
-    //                   <div className="ant-col ant-form-item-control">
-    //                       <div className="ant-form-item-control-input">
-    //                           <div className="ant-form-item-control-input-content">{kids}</div>
-    //                       </div>
-    //                       {hint || error || help ? (
-    //                           <div className="ant-form-item-explain ant-form-item-explain-connected">
-    //                               {error ? (
-    //                                   <div role="alert" className="ant-form-item-explain-error">
-    //                                       {error}
-    //                                   </div>
-    //                               ) : null}
-    //                               {hint ? (
-    //                                   <div role="alert" className="ant-form-item-explain-warning">
-    //                                       {hint}
-    //                                   </div>
-    //                               ) : null}
-    //                               {help ? <div className="ant-form-item-explain">{help}</div> : null}
-    //                           </div>
-    //                       ) : null}
-    //                   </div>
-    //               </div>
-    //           )
-    //       }
+}
 
-    // return <KeaField {...keaFieldProps} name={name} template={template} />
+export type FieldProps = Omit<PureFieldProps, 'children' | 'error'> & KeaFieldProps
+
+export const Field = ({ name, ...keaFieldProps }: FieldProps): JSX.Element => {
+    /** Drop-in replacement antd template for kea forms */
+    const template: FieldProps['template'] = ({ label, kids, error }) => {
+        console.log({ label, kids, error })
+        return (
+            <PureField label={label} error={error}>
+                {kids}
+            </PureField>
+        )
+    }
+    return <KeaField {...keaFieldProps} name={name} template={template} />
 }

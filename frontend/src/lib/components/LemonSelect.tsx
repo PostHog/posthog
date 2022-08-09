@@ -135,6 +135,8 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 }}
                 icon={localValue && allOptions[localValue]?.icon}
                 sideIcon={isClearButtonShown ? <div /> : undefined}
+                type="secondary"
+                status="stealth"
                 {...buttonProps}
             >
                 <span>

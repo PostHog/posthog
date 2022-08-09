@@ -1,14 +1,18 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
-import { FieldV2 } from './FieldV2'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { Field, PureField } from './FieldV2'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { kea, path, useAllValues } from 'kea'
+import { Form, forms } from 'kea-forms'
+import { formLogicType } from './Field.storiesType'
 
 export default {
     title: 'Forms/FieldV2',
-    component: FieldV2,
-    docs: {
-        description: {
-            component: `
+    component: PureField,
+    parameters: {
+        docs: {
+            description: {
+                component: `
 
 [Related Figma area](https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=3139%3A1388)
 
@@ -16,23 +20,15 @@ Fields are a wrapping component that take care of rendering a label, input and e
 
 They can be used in a kea-forms controlled way via \`Field\` or a pure way via \`PureField\`.
 `,
+            },
         },
     },
-} as ComponentMeta<typeof FieldV2>
+} as ComponentMeta<typeof PureField>
 
-// const Template: ComponentStory<typeof FieldV2> = (props: FieldV2Props) => {
-//     return <FieldV2 {...props} />
-// }
-
-// export const Basic = Template.bind({})
-// Basic.args = {
-//     label: 'Check this out',
-// }
-
-export const Overview = (): JSX.Element => {
+export const _PureFields = (): JSX.Element => {
     return (
         <div className="space-y-4">
-            <FieldV2
+            <PureField
                 label={
                     <>
                         Text input label <span>(Optional)</span>
@@ -46,18 +42,18 @@ export const Overview = (): JSX.Element => {
                 }
             >
                 <LemonInput placeholder="Optional descriptive placeholder text" />
-            </FieldV2>
+            </PureField>
 
-            <FieldV2 label={'Select Label'} info={<>With info!</>}>
-                <LemonSelect options={{ foo: { label: 'bar' } }} />
-            </FieldV2>
+            <PureField label={'Select label'} info={<>With info!</>}>
+                <LemonSelect options={{ foo: { label: 'bar' } }} fullWidth />
+            </PureField>
 
-            <FieldV2 label="Textarea Label" error="This field has an error">
+            <PureField label="Textarea label" error="This field has an error">
                 <LemonTextArea />
-            </FieldV2>
-            <FieldV2>
-                <LemonCheckbox bordered label="Checkbox labels are set differently" />
-            </FieldV2>
+            </PureField>
+            <PureField>
+                <LemonCheckbox bordered label="Checkbox labels are set differently" fullWidth />
+            </PureField>
 
             <div className="flex justify-end gap-2 border-t mt-4 pt-4">
                 <LemonButton type="secondary">Cancel</LemonButton>
@@ -66,5 +62,98 @@ export const Overview = (): JSX.Element => {
                 </LemonButton>
             </div>
         </div>
+    )
+}
+
+const formLogic = kea<formLogicType>([
+    path(['lib', 'forms', 'Field', 'stories']),
+    forms(({ actions }) => ({
+        myForm: {
+            defaults: {
+                name: '',
+                email: '',
+                pineappleOnPizza: false,
+            },
+            errors: ({ name, email, pineappleOnPizza }) => ({
+                name: !name ? 'Please enter your name' : null,
+                email: !email ? 'Please enter your email' : !email.includes('@') ? 'not a valid email' : null,
+                pineappleOnPizza: pineappleOnPizza ? 'I think you meant to leave this unchecked...' : null,
+            }),
+            submit: async (_, breakpoint) => {
+                await breakpoint(3000)
+                console.log('Form Submitted')
+                actions.resetMyForm()
+            },
+        },
+        simpleForm: {
+            defaults: {
+                name: '',
+            },
+            errors: ({ name }) => ({
+                name: !name ? 'Please enter your name' : undefined,
+            }),
+            submit: async (_, breakpoint) => {
+                await breakpoint(3000)
+                console.log('Form Submitted')
+                actions.resetSimpleForm()
+            },
+        },
+    })),
+])
+
+function useSpecificFormValues(formKey: string): Record<string, any> {
+    const allValues = useAllValues(formLogic)
+    return Object.fromEntries(
+        Object.entries(allValues).filter(([key]) => key.toLowerCase().includes(formKey.toLowerCase()))
+    )
+}
+
+export const _FieldsWithKeaForm = (): JSX.Element => {
+    const formKey = 'myForm'
+    const formValues = useSpecificFormValues(formKey)
+
+    return (
+        <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
+            <div className="space-y-4">
+                <Field
+                    name="name"
+                    label={
+                        <>
+                            Name <span>(What should we call you?)</span>
+                        </>
+                    }
+                    help={
+                        <>
+                            Optional descriptive or supportive text for the preceeding form element. This content can
+                            wrap to multiple lines.
+                        </>
+                    }
+                >
+                    <LemonInput placeholder="Jon Snow" />
+                </Field>
+
+                <Field name="select" label={'Select label'} info={<>With info!</>}>
+                    <LemonSelect options={{ foo: { label: 'bar' } }} fullWidth />
+                </Field>
+
+                <Field name="email" label="Email address">
+                    <LemonInput type="email" />
+                </Field>
+                <Field name="pineappleOnPizza">
+                    <LemonCheckbox bordered label="Checkbox labels are set differently" fullWidth />
+                </Field>
+
+                <div className="flex justify-end gap-2 border-t mt-4 pt-4">
+                    <LemonButton type="secondary">Cancel</LemonButton>
+                    <LemonButton htmlType="submit" type="primary">
+                        Submit
+                    </LemonButton>
+                </div>
+
+                <pre className="rounded-lg text-white bg-default p-2 m-2">
+                    formLogic.values = {JSON.stringify(formValues, null, 2)}
+                </pre>
+            </div>
+        </Form>
     )
 }
