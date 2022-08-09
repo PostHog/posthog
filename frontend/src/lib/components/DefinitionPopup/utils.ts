@@ -58,6 +58,8 @@ export function getSingularType(type: TaxonomicFilterGroupType, shouldSimplifyAc
         case TaxonomicFilterGroupType.PersonProperties:
         case TaxonomicFilterGroupType.GroupsPrefix: // Group properties
             return 'property'
+        case TaxonomicFilterGroupType.EventFeatureFlags:
+            return 'feature'
         case TaxonomicFilterGroupType.PageviewUrls:
             return 'pageview url'
         case TaxonomicFilterGroupType.Screens:

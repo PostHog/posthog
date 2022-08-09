@@ -12,7 +12,7 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
 }
 export interface LemonButtonPropsBase
     // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
-    extends Pick<React.ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
+    extends Pick<React.ButtonHTMLAttributes<HTMLElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     status?: 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
@@ -68,19 +68,18 @@ function LemonButtonInternal(
         noPadding,
         ...buttonProps
     }: LemonButtonProps,
-    ref: React.Ref<HTMLButtonElement>
+    ref: React.Ref<HTMLElement>
 ): JSX.Element {
-    // if (popup && (children2 || !buttonProps.icon) && !rowProps.sideIcon) {
-    //     rowProps.sideIcon = <IconArrowDropDown />
-    // }
-
     if (loading) {
         icon = <Spinner size="sm" />
     }
+
+    const ButtonComponent = to || href ? Link : 'button'
+
     let workingButton = (
-        <button
+        <ButtonComponent
             type={htmlType}
-            ref={ref}
+            ref={ref as any}
             className={clsx(
                 'LemonButton',
                 `LemonButton--${type}`,
@@ -97,27 +96,17 @@ function LemonButtonInternal(
                 className
             )}
             disabled={disabled || loading}
+            to={to}
+            href={href}
+            target={href ? '_blank' : undefined}
+            rel={href ? 'noopener noreferrer' : undefined}
             {...buttonProps}
         >
             {icon}
             {children ? <span className="LemonButton__content flex items-center">{children}</span> : null}
             {sideIcon}
-        </button>
+        </ButtonComponent>
     )
-    if (to) {
-        workingButton = (
-            <Link to={to} style={{ display: 'contents' }}>
-                {workingButton}
-            </Link>
-        )
-    }
-    if (href) {
-        workingButton = (
-            <a href={href} style={{ display: 'contents' }} target="_blank" rel="noopener noreferrer">
-                {workingButton}
-            </a>
-        )
-    }
 
     if (tooltip) {
         workingButton = <Tooltip title={tooltip}>{workingButton}</Tooltip>

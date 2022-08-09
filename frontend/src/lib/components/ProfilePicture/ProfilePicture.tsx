@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import md5 from 'md5'
 import React, { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+import { Lettermark } from '../Lettermark/Lettermark'
 import './ProfilePicture.scss'
 
 export interface ProfilePictureProps {
@@ -13,6 +14,7 @@ export interface ProfilePictureProps {
     style?: React.CSSProperties
     className?: string
     title?: string
+    index?: number
 }
 
 export function ProfilePicture({
@@ -22,6 +24,7 @@ export function ProfilePicture({
     showName,
     style,
     className,
+    index,
     title,
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
@@ -43,11 +46,10 @@ export function ProfilePicture({
             />
         )
     } else {
-        const initialLetter = name ? name[0]?.toUpperCase() : email ? email[0]?.toUpperCase() : '?'
         pictureComponent = (
-            <div className={pictureClass} style={style} title={title}>
-                {initialLetter}
-            </div>
+            <span className={pictureClass}>
+                <Lettermark name={name || email} index={index} rounded />
+            </span>
         )
     }
     return !showName ? (
