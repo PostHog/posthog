@@ -10,7 +10,7 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 3940, format: 'percentage', expected: '3,940%' },
         { candidate: 34, format: 'numeric', expected: '34' },
         { candidate: 394, format: 'numeric', expected: '394' },
-        { candidate: 3940, format: 'numeric', expected: '3.94K' },
+        { candidate: 3940, format: 'numeric', expected: '3,940' },
     ]
     formatTestcases.forEach((testcase) => {
         it(`correctly formats "${testcase.candidate}" as ${testcase.expected} when it is a ${testcase.format}`, () => {
