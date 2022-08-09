@@ -1,29 +1,35 @@
+from django.urls.base import resolve
 from rest_framework.throttling import UserRateThrottle
+from sentry_sdk.api import capture_exception
 
 from posthog.internal_metrics import incr
 
 
-class PassThroughMixin:
+class PassThroughMixin(UserRateThrottle):
     def allow_request(self, request, view):
         request_would_be_allowed = super().allow_request(request, view)
         if not request_would_be_allowed:
-            scope = getattr(self, "scope", None)
-            rate = self.get_rate() if scope else None
-            history = getattr(self, "history", None)
-            count_reqeusts_made = len(history) if history else None
-            team_id = request.GET.get("project_id")
-            incr(
-                "rate_limit_exceeded",
-                tags={
-                    "class": view.__class__.__name__,
-                    "view": getattr(view, "name", None),
-                    "user_id": request.user.id,
-                    "team_id": team_id,
-                    "scope": scope,
-                    "rate": rate,
-                    "count_reqeusts_made": count_reqeusts_made,
-                },
-            )
+            try:
+                route = resolve(request.path)
+                route_id = f"{route.route} ({route.func.__name__})"
+                scope = getattr(self, "scope", None)
+                rate = self.get_rate() if scope else None
+                user_id = request.user.pk if request.user.is_authenticated else None
+                incr(
+                    "rate_limit_exceeded",
+                    tags={
+                        "class": route_id,
+                        "action": getattr(view, "action", None),
+                        "method": request.method,
+                        "user_id": user_id,
+                        "team_id": getattr(view, "team_id", None),
+                        "organization_id": getattr(view, "organization_id", None),
+                        "scope": scope,
+                        "rate": rate,
+                    },
+                )
+            except Exception as e:
+                capture_exception(e)
         return True
 
 

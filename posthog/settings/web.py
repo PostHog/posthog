@@ -218,7 +218,7 @@ REST_FRAMEWORK = {
         "posthog.rate_limit.PassThroughBurstRateThrottle",
         "posthog.rate_limit.PassThroughSustainedRateThrottle",
     ],
-    "DEFAULT_THROTTLE_RATES": {"burst": "120/minute", "sustained": "1000/hour",},
+    "DEFAULT_THROTTLE_RATES": {"burst": "120/minute", "sustained": "1000/hour"},
 }
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
