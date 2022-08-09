@@ -246,6 +246,33 @@ export class DB {
         })
     }
 
+    public async postgresBulkInsert<T extends Array<any>>(
+        // Should have {VALUES} as a placeholder
+        queryWithPlaceholder: string,
+        values: Array<T>,
+        tag: string,
+        client?: PoolClient
+    ): Promise<void> {
+        if (values.length === 0) {
+            return
+        }
+
+        const valuesWithPlaceholders = values
+            .map((array, index) => {
+                const len = array.length
+                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
+                return `(${valuesWithIndexes.join(', ')})`
+            })
+            .join(', ')
+
+        await this.postgresQuery(
+            queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders),
+            values.flat(),
+            tag,
+            client
+        )
+    }
+
     // ClickHouse
 
     public clickhouseQuery(
