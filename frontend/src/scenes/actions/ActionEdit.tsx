@@ -15,12 +15,12 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ActionStepType, AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { VerticalForm } from 'lib/forms/VerticalForm'
-import { Field } from 'lib/forms/Field'
+import { Field } from 'lib/forms/FieldV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { lemonToast } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -65,7 +65,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 
     return (
         <div className="action-edit-container">
-            <VerticalForm logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
+            <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
                     title={
                         <Field name="name">
@@ -95,13 +95,13 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     }
                     caption={
                         <>
-                            <Field name="description" showOptional={true}>
+                            <Field name="description">
                                 {({ value, onChange }) => (
                                     <EditableField
                                         multiline
                                         name="description"
                                         value={value || ''}
-                                        placeholder="Description (optional)"
+                                        placeholder="Description (optional wehwuehfuewhfu)"
                                         onChange={
                                             !id
                                                 ? onChange
@@ -126,7 +126,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     />
                                 )}
                             </Field>
-                            <Field name="tags" showOptional={true}>
+                            <Field name="tags">
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
@@ -292,7 +292,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         Save
                     </LemonButton>
                 </div>
-            </VerticalForm>
+            </Form>
         </div>
     )
 }

@@ -123,7 +123,7 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                             Name <span>(What should we call you?)</span>
                         </>
                     }
-                    hint={
+                    help={
                         <>
                             Optional descriptive or supportive text for the preceeding form element. This content can
                             wrap to multiple lines.

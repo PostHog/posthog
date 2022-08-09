@@ -23,7 +23,7 @@ export const PureField = ({ label, info, error, help, children }: PureFieldProps
             {children}
             {help ? <div className="text-muted text-xs">{help}</div> : null}
             {error ? (
-                <div className="text-danger flex items-center gap-1">
+                <div className="text-danger flex items-center gap-1 text-sm">
                     <IconErrorOutline className="text-xl" /> {error}
                 </div>
             ) : null}
