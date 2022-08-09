@@ -81,28 +81,28 @@ export class TeamManager {
             return
         }
 
-        const startTime = DateTime.now()
-        const team: Team | null = await this.fetchTeam(teamId)
-
-        if (!team) {
-            return
-        }
-
+        const timer = new Date()
         const timeout = timeoutGuard('Still running "updateEventNamesAndProperties". Timeout warning after 30 sec!', {
             event: event,
-            ingested: team.ingested_event,
         })
 
-        await this.cacheEventNamesAndProperties(team.id, event)
-        await this.syncEventDefinitions(team, event)
-        await this.syncEventProperties(team, event, properties)
-        await this.syncPropertyDefinitions(properties, team)
-        await this.setTeamIngestedEvent(team, properties)
+        try {
+            const team: Team | null = await this.fetchTeam(teamId)
 
-        clearTimeout(timeout)
-
-        const statsDEvent = 'updateEventNamesAndProperties'
-        this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).as('milliseconds'))
+            if (!team) {
+                return
+            }
+            await this.cacheEventNamesAndProperties(team.id, event)
+            await Promise.all([
+                this.syncEventDefinitions(team, event),
+                this.syncEventProperties(team, event, properties),
+                this.syncPropertyDefinitions(properties, team),
+                this.setTeamIngestedEvent(team, properties),
+            ])
+        } finally {
+            clearTimeout(timeout)
+            this.statsd?.timing('updateEventNamesAndProperties', timer)
+        }
     }
 
     private async syncEventDefinitions(team: Team, event: string) {
