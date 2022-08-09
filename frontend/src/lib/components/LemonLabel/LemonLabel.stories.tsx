@@ -44,18 +44,3 @@ export const Overview = (): JSX.Element => {
         </div>
     )
 }
-
-// export const Disabled = Template.bind({})
-// Disabled.args = {
-//     label: "You can't check this out",
-//     disabled: true,
-// }
-
-// export const NoLabel = Template.bind({})
-// NoLabel.args = {}
-
-// export const Bordered = Template.bind({})
-// Bordered.args = {
-//     label: 'Look at my lovely border',
-//     bordered: true,
-// }
