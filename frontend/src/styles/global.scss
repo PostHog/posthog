@@ -191,7 +191,7 @@ $_lifecycle_dormant: #f86234;
     --lettermark-8-text: #35416b;
 
     // Modals
-    --modal-backdrop-blur: 5px;
+    --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
     --modal-transition-time: 200ms;
 }
 
