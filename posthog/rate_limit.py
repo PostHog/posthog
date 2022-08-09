@@ -5,7 +5,7 @@ from sentry_sdk.api import capture_exception
 from posthog.internal_metrics import incr
 
 
-class PassThroughMixin(UserRateThrottle):
+class PassThroughThrottle(UserRateThrottle):
     def allow_request(self, request, view):
         request_would_be_allowed = super().allow_request(request, view)
         if not request_would_be_allowed:
@@ -33,9 +33,9 @@ class PassThroughMixin(UserRateThrottle):
         return True
 
 
-class PassThroughBurstRateThrottle(PassThroughMixin, UserRateThrottle):
+class PassThroughBurstRateThrottle(PassThroughThrottle):
     scope = "burst"
 
 
-class PassThroughSustainedRateThrottle(PassThroughMixin, UserRateThrottle):
+class PassThroughSustainedRateThrottle(PassThroughThrottle):
     scope = "sustained"
