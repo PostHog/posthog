@@ -1,5 +1,6 @@
 import 'givens/setup'
 import './commands'
+import 'cypress-axe'
 import { decideResponse } from 'cypress/fixtures/api/decide'
 
 try {
