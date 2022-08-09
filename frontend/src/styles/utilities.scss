@@ -581,3 +581,9 @@
 .pointer-events-auto {
     pointer-events: auto;
 }
+
+@each $cursor in $cursors {
+    .cursor-#{$cursor} {
+        cursor: #{$cursor};
+    }
+}
