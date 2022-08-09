@@ -164,7 +164,7 @@ INSERT INTO posthog_propertydefinition
 (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
 VALUES ($1, $2, $3, NULL, NULL, $4, $5)
 ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS NULL`,
+DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL`,
                     [new UUIDT().toString(), key, isNumerical, team.id, propertyType],
                     'insertPropertyDefinition'
                 )
