@@ -1,7 +1,7 @@
 .LemonButton {
     position: relative;
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
-    display: inline-flex;
+    display: flex;
     flex-direction: row;
     flex-shrink: 0;
     align-items: center;
@@ -17,6 +17,7 @@
     line-height: 1.5rem;
     font-weight: 500;
     cursor: pointer;
+    -webkit-appearance: none !important; // Important as this gets overridden by Antd styles...
 
     &:disabled {
         opacity: var(--opacity-disabled);
@@ -95,9 +96,50 @@
         transition: color 200ms ease;
     }
 
-    @each $status
-        in ('default', 'primary', 'success', 'warning', 'danger', 'primary-alt', 'muted', 'muted-alt', 'stealth')
-    {
+    // LemonStealth has some specific styles
+    &.LemonButton--status-stealth {
+        font-weight: 400;
+        color: var(--default);
+
+        &:not(:disabled):hover,
+        &.LemonButton--active {
+            background: var(--primary-highlight);
+        }
+
+        &.LemonButton--active {
+            font-weight: 500;
+
+            // These buttons keep their font-weight when actve
+            &.LemonButtonWithSideAction,
+            &.LemonButtonWithPopup {
+                font-weight: 400;
+            }
+        }
+
+        .LemonIcon,
+        .spinner {
+            color: var(--muted-alt);
+        }
+
+        // Secondary - outlined color style
+        &.LemonButton--secondary {
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+
+            &:not(:disabled):hover,
+            &.LemonButton--active,
+            &:not(:disabled):active {
+                background: var(--primary-highlight);
+                border-color: var(--primary);
+            }
+
+            &:not(:disabled):active {
+                border-color: var(--primary-dark);
+            }
+        }
+    }
+
+    @each $status in ('default', 'primary', 'success', 'warning', 'danger', 'primary-alt', 'muted', 'muted-alt') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -155,48 +197,6 @@
 
                 &:not(:disabled):active {
                     border-color: var(--#{$status}-dark, var(--status));
-                }
-            }
-        }
-
-        &.LemonButton--status-stealth {
-            font-weight: 400;
-            color: var(--default);
-
-            &:not(:disabled):hover,
-            &.LemonButton--active {
-                background: var(--primary-highlight);
-            }
-
-            &.LemonButton--active {
-                font-weight: 500;
-
-                // These buttons keep their font-weight when actve
-                &.LemonButtonWithSideAction,
-                &.LemonButtonWithPopup {
-                    font-weight: 400;
-                }
-            }
-
-            .LemonIcon,
-            .spinner {
-                color: var(--muted-alt);
-            }
-
-            // Secondary - outlined color style
-            &.LemonButton--secondary {
-                background: var(--bg-light);
-                border: 1px solid var(--border);
-
-                &:not(:disabled):hover,
-                &.LemonButton--active,
-                &:not(:disabled):active {
-                    background: var(--primary-highlight);
-                    border-color: var(--primary);
-                }
-
-                &:not(:disabled):active {
-                    border-color: var(--primary-dark);
                 }
             }
         }
