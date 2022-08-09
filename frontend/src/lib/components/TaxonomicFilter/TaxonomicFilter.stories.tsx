@@ -20,6 +20,7 @@ export function TaxonomicFilter_(): JSX.Element {
             taxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.Cohorts,
             ]}
         />

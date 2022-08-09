@@ -26,8 +26,15 @@ export function ProfileBubbles({ people, tooltip, limit = 6, ...divProps }: Prof
     return (
         <Tooltip title={tooltip} overlayStyle={{ maxWidth: 'none' }}>
             <div className={clsx('ProfileBubbles', !!divProps.onClick && 'cursor-pointer')} {...divProps}>
-                {shownPeople.map(({ email, name, title }) => (
-                    <ProfilePicture key={email} name={name} email={email} title={title || name || email} size="md" />
+                {shownPeople.map(({ email, name, title }, index) => (
+                    <ProfilePicture
+                        key={email}
+                        name={name}
+                        email={email}
+                        title={title || name || email}
+                        size="md"
+                        index={index}
+                    />
                 ))}
                 {overflowing && (
                     <div className="ProfileBubbles__more" title={restTitle}>

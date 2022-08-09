@@ -67,6 +67,7 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             propertiesTaxonomicGroupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
                 ...groupsTaxonomicTypes,
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.Elements,
