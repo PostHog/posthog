@@ -10,13 +10,13 @@ import { LemonRow } from 'lib/components/LemonRow'
 import { LemonModal } from 'lib/components/LemonModal'
 
 export function PrimaryDashboardModal(): JSX.Element {
-    const { visible, primaryDashboardId } = useValues(primaryDashboardModalLogic)
+    const { isOpen, primaryDashboardId } = useValues(primaryDashboardModalLogic)
     const { closePrimaryDashboardModal, setPrimaryDashboard } = useActions(primaryDashboardModalLogic)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <LemonModal
-            isOpen={visible}
+            isOpen={isOpen}
             onClose={closePrimaryDashboardModal}
             title="Select a default dashboard for the project"
             footer={

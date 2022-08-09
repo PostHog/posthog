@@ -27,7 +27,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/components/LemonModal'
 
 export interface PersonsModalProps {
-    visible: boolean
+    isOpen: boolean
     view: InsightType
     filters: Partial<FilterType>
     onSaveCohort: () => void
@@ -36,7 +36,7 @@ export interface PersonsModalProps {
 }
 
 export function PersonsModal({
-    visible,
+    isOpen,
     view,
     filters,
     onSaveCohort,
@@ -121,7 +121,7 @@ export function PersonsModal({
             {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
             <LemonModal
                 title={title}
-                isOpen={visible}
+                isOpen={isOpen}
                 onClose={hidePeople}
                 footer={
                     people &&

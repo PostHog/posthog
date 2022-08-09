@@ -71,7 +71,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                 <SharingModal
                     {...(props as SharingModalProps)}
                     closeModal={() => console.log('close')}
-                    visible={true}
+                    isOpen={true}
                     inline
                 />
             </div>
@@ -82,11 +82,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                 </LemonButton>
             </div>
 
-            <SharingModal
-                {...(props as SharingModalProps)}
-                closeModal={() => setModalOpen(false)}
-                visible={modalOpen}
-            />
+            <SharingModal {...(props as SharingModalProps)} closeModal={() => setModalOpen(false)} isOpen={modalOpen} />
         </div>
     )
 }

@@ -101,7 +101,7 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
     )
 }
 
-export function InviteModal({ visible, onClose }: { visible: boolean; onClose: () => void }): JSX.Element {
+export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, canSubmit, invites } = useValues(inviteLogic)
@@ -114,7 +114,7 @@ export function InviteModal({ visible, onClose }: { visible: boolean; onClose: (
     return (
         <div className="InviteModal">
             <LemonModal
-                isOpen={visible}
+                isOpen={isOpen}
                 onClose={() => {
                     resetInviteRows()
                     onClose()

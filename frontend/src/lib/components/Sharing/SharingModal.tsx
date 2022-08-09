@@ -20,7 +20,7 @@ export interface SharingModalProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     insight?: Partial<InsightModel>
-    visible: boolean
+    isOpen: boolean
     closeModal: () => void
     inline?: boolean
 }
@@ -30,7 +30,7 @@ export function SharingModal({
     insightShortId,
     insight,
     closeModal,
-    visible,
+    isOpen,
     inline,
 }: SharingModalProps): JSX.Element {
     const logicProps = {
@@ -60,7 +60,7 @@ export function SharingModal({
     return (
         <LemonModal
             onClose={closeModal}
-            isOpen={visible}
+            isOpen={isOpen}
             width={480}
             title={`${dashboardId ? 'Dashboard' : 'Insight'} permissions`}
             footer={

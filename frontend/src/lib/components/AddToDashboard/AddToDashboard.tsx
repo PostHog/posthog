@@ -20,7 +20,7 @@ export function AddToDashboard({ insight, canEditInsight }: SaveToDashboardProps
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">
             <AddToDashboardModal
-                visible={openModal}
+                isOpen={openModal}
                 closeModal={() => setOpenModal(false)}
                 insight={insight}
                 canEditInsight={canEditInsight}

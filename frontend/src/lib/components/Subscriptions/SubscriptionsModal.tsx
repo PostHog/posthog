@@ -12,14 +12,14 @@ import { Spinner } from '../Spinner/Spinner'
 import { LemonModal } from '../LemonModal'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
-    visible: boolean
+    isOpen: boolean
     closeModal: () => void
     subscriptionId: number | 'new' | null
     inline?: boolean
 }
 
 export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const { closeModal, dashboardId, insightShortId, subscriptionId, visible, inline } = props
+    const { closeModal, dashboardId, insightShortId, subscriptionId, isOpen, inline } = props
     const { push } = useActions(router)
     const { hasAvailableFeature, userLoading } = useValues(userLogic)
 
@@ -27,7 +27,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         return <Spinner />
     }
     return (
-        <LemonModal onClose={closeModal} isOpen={visible} width={600} simple title="" inline={inline}>
+        <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
             {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) ? (
                 !subscriptionId ? (
                     <ManageSubscriptions

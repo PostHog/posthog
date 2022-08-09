@@ -13,11 +13,11 @@ import { AlertMessage } from '../AlertMessage'
 import { IconPlus } from '../icons'
 
 function CreateKeyModal({
-    isVisible,
-    setIsVisible,
+    isOpen,
+    setIsOpen,
 }: {
-    isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    isOpen: boolean
+    setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { createKey } = useActions(personalAPIKeysLogic)
 
@@ -26,14 +26,14 @@ function CreateKeyModal({
 
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
-        setIsVisible(false)
-    }, [setIsVisible])
+        setIsOpen(false)
+    }, [setIsOpen])
 
     return (
         <LemonModal
             title="Creating a Personal API Key"
             onClose={closeModal}
-            isOpen={isVisible}
+            isOpen={isOpen}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeModal}>
@@ -149,7 +149,7 @@ function PersonalAPIKeysTable(): JSX.Element {
 }
 
 export function PersonalAPIKeys(): JSX.Element {
-    const [isCreateKeyModalVisible, setIsCreateKeyModalVisible] = useState(false)
+    const [modalIsOpen, setModalIsOpen] = useState(false)
 
     return (
         <>
@@ -168,13 +168,13 @@ export function PersonalAPIKeys(): JSX.Element {
             <LemonButton
                 type="primary"
                 onClick={() => {
-                    setIsCreateKeyModalVisible(true)
+                    setModalIsOpen(true)
                 }}
                 icon={<IconPlus />}
             >
                 Create personal API key
             </LemonButton>
-            <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
+            <CreateKeyModal isOpen={modalIsOpen} setIsOpen={setModalIsOpen} />
             <PersonalAPIKeysTable />
         </>
     )

@@ -271,7 +271,7 @@ export function Paths(): JSX.Element {
     return (
         <>
             <PersonsModal
-                visible={showingPeople && !cohortModalVisible}
+                isOpen={showingPeople && !cohortModalVisible}
                 view={InsightType.PATHS}
                 filters={filter}
                 onSaveCohort={() => {

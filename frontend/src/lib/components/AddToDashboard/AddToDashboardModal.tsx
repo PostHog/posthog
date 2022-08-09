@@ -17,7 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LemonModal } from '../LemonModal'
 
 interface SaveToDashboardModalProps {
-    visible: boolean
+    isOpen: boolean
     closeModal: () => void
     insight: Partial<InsightModel>
     canEditInsight: boolean
@@ -81,7 +81,7 @@ const DashboardRelationRow = ({
 }
 
 export function AddToDashboardModal({
-    visible,
+    isOpen,
     closeModal,
     insight,
     canEditInsight,
@@ -113,7 +113,7 @@ export function AddToDashboardModal({
     return (
         <LemonModal
             onClose={closeModal}
-            isOpen={visible}
+            isOpen={isOpen}
             title="Add to dashboard"
             footer={
                 <>

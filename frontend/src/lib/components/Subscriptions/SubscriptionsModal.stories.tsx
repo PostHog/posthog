@@ -62,19 +62,15 @@ const Template = (
 
     return (
         <div>
-            {/* <div className="LemonModal"> */}
-            {/* <div className="rounded border ant-modal-body" style={{ width: 650, margin: '20px auto' }}> */}
             <div className="p-4 bg-default">
                 <SubscriptionsModal
                     {...(props as SubscriptionsModalProps)}
                     closeModal={() => console.log('close')}
                     insightShortId={insightShortIdRef.current}
-                    visible={true}
+                    isOpen={true}
                     inline
                 />
             </div>
-            {/* </div> */}
-            {/* </div> */}
 
             <div className="flex justify-center mt-4">
                 <LemonButton onClick={() => setModalOpen(true)} type="primary">
@@ -86,7 +82,7 @@ const Template = (
                 {...(props as SubscriptionsModalProps)}
                 closeModal={() => setModalOpen(false)}
                 insightShortId={insightShortIdRef.current}
-                visible={modalOpen}
+                isOpen={modalOpen}
             />
         </div>
     )
