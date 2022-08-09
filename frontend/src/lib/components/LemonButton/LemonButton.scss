@@ -17,7 +17,7 @@
     line-height: 1.5rem;
     font-weight: 500;
     cursor: pointer;
-    -webkit-appearance: none;
+    -webkit-appearance: none !important; // Important as this gets overridden by Antd styles...
 
     &:disabled {
         opacity: var(--opacity-disabled);
