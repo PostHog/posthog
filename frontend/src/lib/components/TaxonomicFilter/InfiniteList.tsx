@@ -103,13 +103,15 @@ const renderItemContents = ({
 
     const isUnusedEventProperty =
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
-            listGroupType === TaxonomicFilterGroupType.EventProperties) &&
+            listGroupType === TaxonomicFilterGroupType.EventProperties ||
+            listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
         (item as PropertyDefinition).is_event_property !== null &&
         !(item as PropertyDefinition).is_event_property
 
     const icon = <div className="taxonomic-list-row-contents-icon">{group.getIcon?.(item)}</div>
 
     return listGroupType === TaxonomicFilterGroupType.EventProperties ||
+        listGroupType === TaxonomicFilterGroupType.EventFeatureFlags ||
         listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
         listGroupType === TaxonomicFilterGroupType.PersonProperties ||
         listGroupType === TaxonomicFilterGroupType.Events ||
@@ -153,6 +155,7 @@ const selectedItemHasPopup = (
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.CustomEvents,
             TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.EventFeatureFlags,
             TaxonomicFilterGroupType.NumericalEventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.Cohorts,
