@@ -10,10 +10,7 @@ export const reportA11y = (options, tag) => {
         (violations) => {
             cy.log(`${violations.length} violation(s) detected`)
 
-            cy.writeFile(
-                `a11y/${tag}${new Date().toISOString()}-accessibility-violations.json`,
-                JSON.stringify(violations)
-            )
+            cy.writeFile(`a11y/${tag}accessibility-violations.json`, JSON.stringify(violations))
         },
         true
     )
