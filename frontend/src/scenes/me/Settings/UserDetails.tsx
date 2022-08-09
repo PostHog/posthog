@@ -2,18 +2,19 @@ import React from 'react'
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Field } from 'lib/forms/Field'
-import { VerticalForm } from 'lib/forms/VerticalForm'
+import { Field } from 'lib/forms/FieldV2'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { Form } from 'kea-forms'
 
 export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting } = useValues(userLogic)
 
     return (
-        <VerticalForm
+        <Form
             logic={userLogic}
             formKey="userDetails"
             enableFormOnSubmit
+            className="space-y-4"
             style={{
                 maxWidth: 400,
             }}
@@ -36,6 +37,6 @@ export function UserDetails(): JSX.Element {
             >
                 Save name
             </LemonButton>
-        </VerticalForm>
+        </Form>
     )
 }

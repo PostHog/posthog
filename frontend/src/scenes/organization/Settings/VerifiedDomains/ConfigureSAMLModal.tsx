@@ -4,7 +4,7 @@ import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
+import { Field } from 'lib/forms/FieldV2'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
@@ -25,11 +25,7 @@ export function ConfigureSAMLModal(): JSX.Element {
             <section>
                 <h5>Configure SAML authentication and provisioning</h5>
 
-                <Form
-                    logic={verifiedDomainsLogic}
-                    formKey="samlConfig"
-                    className="ant-form-vertical ant-form-hide-required-mark"
-                >
+                <Form logic={verifiedDomainsLogic} formKey="samlConfig" className="space-y-2">
                     <Field name="saml_acs_url" label="SAML ACS URL">
                         <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />
                     </Field>

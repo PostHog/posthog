@@ -1,13 +1,12 @@
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { Col, Divider, Row } from 'antd'
+import { Divider } from 'antd'
 import { Field } from 'lib/forms/FieldV2'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -25,6 +24,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Persons } from 'scenes/persons/Persons'
 import React from 'react'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { Form } from 'kea-forms'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -36,7 +36,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
     return (
         <div className="cohort">
-            <VerticalForm logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
+            <Form logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <PageHeader
                     title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
@@ -208,7 +208,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     </>
                 )}
-            </VerticalForm>
+            </Form>
         </div>
     )
 }
