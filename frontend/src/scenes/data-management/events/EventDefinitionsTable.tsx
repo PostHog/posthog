@@ -25,7 +25,7 @@ import { ActionEvent, IconMagnifier, IconWebhook, UnverifiedEvent } from 'lib/co
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputWidths, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const eventTypeOptions: LemonSelectOptions = {
     [CombinedEventType.All]: {
@@ -227,15 +227,14 @@ export function EventDefinitionsTable(): JSX.Element {
             )}
 
             <div className="flex justify-between items-center gap-2 mb-4">
-                <div style={{ width: 360 }}>
-                    <LemonInput
-                        icon={<IconMagnifier />}
-                        allowClear
-                        placeholder="Search for events"
-                        onChange={(v) => setFilters({ event: v || '' })}
-                        value={filters.event}
-                    />
-                </div>
+                <LemonInput
+                    width={LemonInputWidths.Search}
+                    icon={<IconMagnifier />}
+                    allowClear
+                    placeholder="Search for events"
+                    onChange={(v) => setFilters({ event: v || '' })}
+                    value={filters.event}
+                />
                 {shouldSimplifyActions && (
                     <div className="flex items-center gap-2">
                         <span>Type:</span>

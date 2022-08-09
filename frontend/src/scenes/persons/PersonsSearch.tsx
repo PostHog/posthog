@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { personsLogic } from './personsLogic'
 import { IconInfo, IconMagnifier } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
 import { useDebouncedCallback } from 'use-debounce'
 
 export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
@@ -23,18 +23,17 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
     }, [searchTerm])
 
     return (
-        <div className="flex items-center gap-2" style={{ width: 'min(100%, 24rem)' }}>
-            <div style={{ width: 360 }}>
-                <LemonInput
-                    icon={<IconMagnifier />}
-                    autoFocus={autoFocus}
-                    allowClear
-                    placeholder="Search for persons"
-                    onChange={setSearchTerm}
-                    value={searchTerm}
-                    data-attr="persons-search"
-                />
-            </div>
+        <div className="flex items-center gap-2">
+            <LemonInput
+                width={LemonInputWidths.Search}
+                icon={<IconMagnifier />}
+                autoFocus={autoFocus}
+                allowClear
+                placeholder="Search for persons"
+                onChange={setSearchTerm}
+                value={searchTerm}
+                data-attr="persons-search"
+            />
             <Tooltip
                 title={
                     <>
@@ -43,7 +42,7 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                     </>
                 }
             >
-                <IconInfo className="text-2xl text-muted-alt" />
+                <IconInfo className="text-2xl text-muted-alt shrink-0" />
             </Tooltip>
         </div>
     )
