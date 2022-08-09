@@ -45,16 +45,10 @@
     transform: scale(0.85) translateY(10%);
     opacity: 0;
 
-    &.ReactModal__Content--after-open {
+    &.ReactModal__Content--after-open:not(.ReactModal__Content--before-close) {
         transform: scale(1) translateY(0);
         opacity: 1;
     }
-
-    &.ReactModal__Content--before-close {
-        transform: scale(0.85) translateY(10%);
-        opacity: 0;
-    }
-
     .LemonModal__closebutton {
         position: absolute;
         top: 1.25rem;
