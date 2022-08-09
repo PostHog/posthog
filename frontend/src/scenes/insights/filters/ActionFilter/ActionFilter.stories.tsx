@@ -5,11 +5,12 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { useMountedLogic, useValues } from 'kea'
-import { ChartDisplayType, FilterType, InsightType } from '~/types'
+import { FilterType, InsightType } from '~/types'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
 import { groupsModel } from '~/models/groupsModel'
 import { alphabet, uuid } from 'lib/utils'
 import { ComponentStory } from '@storybook/react'
+import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 export default {
     title: 'Filters/Action Filter',
@@ -51,7 +52,8 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             buttonCopy="Add graph series"
             showSeriesIndicator
             entitiesLimit={
-                filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
+                filters.insight === InsightType.LIFECYCLE ||
+                (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
                     ? 1
                     : alphabet.length
             }

@@ -478,6 +478,18 @@ export function InsightViz({
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
 
+    useEffect(() => {
+        // If displaying a BoldNumber Trends insight, we need to fire the window resize event
+        // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
+        // With this, autosizing runs again after `metaPrimaryHeight` is ready
+        if (
+            (!!insight.filters.insight || insight.filters.insight === InsightType.TRENDS) &&
+            insight.filters.display === ChartDisplayType.BoldNumber
+        ) {
+            window.dispatchEvent(new Event('resize'))
+        }
+    }, [style?.height])
+
     return (
         <div
             className="InsightViz"

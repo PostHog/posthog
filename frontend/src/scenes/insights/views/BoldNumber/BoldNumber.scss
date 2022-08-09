@@ -1,12 +1,26 @@
+@import '../../../../styles/mixins';
+
 .BoldNumber {
-    display: flex;
-    justify-content: center;
-    align-items: center;
     width: 100%;
-    padding: 4rem 6rem 6rem;
+}
+
+.BoldNumber__value {
+    width: 100%;
+    text-align: center;
+    padding: 2rem 2rem 3rem;
+    margin: 0 auto;
     line-height: 1;
     font-weight: 700;
-    min-height: 16rem;
-    letter-spacing: -0.05em;
-    cursor: default;
+    letter-spacing: -0.025em;
+
+    .InsightCard & {
+        padding: 1rem;
+    }
+
+    @include screen($md) {
+        padding: 3rem 5rem 5rem;
+        .InsightCard & {
+            padding: 2rem;
+        }
+    }
 }

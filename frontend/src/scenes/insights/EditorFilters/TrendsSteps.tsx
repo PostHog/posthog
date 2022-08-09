@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { ChartDisplayType, EditorFilterProps, FilterType, InsightType } from '~/types'
+import { EditorFilterProps, FilterType, InsightType } from '~/types'
 import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React from 'react'
+import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
 export function TrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
@@ -36,7 +37,8 @@ export function TrendsSteps({ insightProps }: EditorFilterProps): JSX.Element {
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
-                    filters.insight === InsightType.LIFECYCLE || filters.display === ChartDisplayType.WorldMap
+                    filters.insight === InsightType.LIFECYCLE ||
+                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
                         ? 1
                         : alphabet.length
                 }

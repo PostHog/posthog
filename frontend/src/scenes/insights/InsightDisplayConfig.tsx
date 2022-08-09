@@ -77,8 +77,6 @@ const showComparePrevious = {
     [`${InsightType.PATHS}`]: false,
 }
 
-const BOLD_NUMBER_FONTS: string[] = ['Comic Sans MS', 'Times New Roman', 'Courier New', 'Impact', '-system']
-
 const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
@@ -158,38 +156,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
             <div className="flex items-center space-x-4 flex-wrap my-2">
                 {showChartFilter(activeView) && (
                     <>
-                        {activeView === InsightType.TRENDS && filters.display === ChartDisplayType.BoldNumber && (
-                            <ConfigFilter>
-                                <span>Font</span>
-                                <LemonSelect
-                                    value={filters.font || BOLD_NUMBER_FONTS[0]}
-                                    onChange={(value) => {
-                                        if (value) {
-                                            setFilters({ ...filters, font: value })
-                                        }
-                                    }}
-                                    type="secondary"
-                                    status="stealth"
-                                    dropdownPlacement={'bottom-end'}
-                                    dropdownMatchSelectWidth={false}
-                                    data-attr="chart-aggregation-axis-format"
-                                    options={Object.fromEntries(
-                                        BOLD_NUMBER_FONTS.map((font) => [
-                                            font,
-                                            {
-                                                label:
-                                                    font !== '-system' ? (
-                                                        <b style={{ fontFamily: font }}>{font}</b>
-                                                    ) : (
-                                                        <span>System default</span>
-                                                    ),
-                                            },
-                                        ])
-                                    )}
-                                    size="small"
-                                />
-                            </ConfigFilter>
-                        )}
                         {activeView === InsightType.TRENDS && (
                             <ConfigFilter>
                                 <span>{axisLabel(filters.display)}</span>

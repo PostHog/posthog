@@ -33,7 +33,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         const svgRect = svgRef.current?.getBoundingClientRect()
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-        const tooltipRect = tooltipEl.getBoundingClientRect()
+
         if (tooltipCoordinates) {
             ReactDOM.render(
                 <>
@@ -44,7 +44,6 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     dataIndex: 1,
                                     datasetIndex: 1,
                                     id: 1,
-                                    filter: {},
                                     breakdown_value: currentTooltip[0],
                                     count: currentTooltip[1]?.aggregated_value || 0,
                                 },
@@ -71,21 +70,27 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                         />
                     )}
                 </>,
-                tooltipEl
+                tooltipEl,
+                () => {
+                    const tooltipRect = tooltipEl.getBoundingClientRect()
+                    // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
+                    let xOffset: number
+                    if (
+                        svgRect &&
+                        tooltipRect &&
+                        tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX >
+                            svgRect.x + svgRect.width
+                    ) {
+                        xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
+                    } else {
+                        xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
+                    }
+                    tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
+                    tooltipEl.style.top = `${
+                        window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX
+                    }px`
+                }
             )
-            // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
-            let xOffset: number
-            if (
-                svgRect &&
-                tooltipRect &&
-                tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
-            ) {
-                xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
-            } else {
-                xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
-            }
-            tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
         } else {
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
