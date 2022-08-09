@@ -31,14 +31,16 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
 
     const seriesCount = toLocalFilters(filters).length
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
+    const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const worldMapDisabled: boolean =
-        filters.insight === InsightType.RETENTION ||
         filters.insight === InsightType.STICKINESS ||
-        (!!filters.breakdown &&
+        (filters.insight === InsightType.RETENTION &&
+            !!filters.breakdown &&
             filters.breakdown !== '$geoip_country_code' &&
             filters.breakdown !== '$geoip_country_name') ||
         seriesCount > 1 // World map only works with one series
-    const boldNumberDisabled: boolean = cumulativeDisabled || seriesCount > 1 // Bold number only works with one series
+    const boldNumberDisabled: boolean =
+        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || seriesCount > 1 // Bold number only works with one series
     const barDisabled: boolean = filters.insight === InsightType.RETENTION
     const barValueDisabled: boolean =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
@@ -129,7 +131,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                           },
                           [ChartDisplayType.ActionsPie]: {
                               label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                              disabled: cumulativeDisabled,
+                              disabled: pieDisabled,
                           },
                           [ChartDisplayType.WorldMap]: {
                               label: (
