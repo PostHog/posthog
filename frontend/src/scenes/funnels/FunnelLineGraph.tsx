@@ -39,7 +39,7 @@ export function FunnelLineGraph({
                     return (
                         getFormattedDate(steps[0].days?.[datum.dataIndex], filters.interval) +
                         ' ' +
-                        shortTimeZone(insight.timezone)
+                        (insight.timezone ? shortTimeZone(insight.timezone) : 'UTC')
                     )
                 },
                 renderCount: (count) => {
