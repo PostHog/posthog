@@ -127,6 +127,7 @@
         "@babel/preset-typescript": "^7.16.7",
         "@cypress/webpack-preprocessor": "^5.12.0",
         "@hot-loader/react-dom": "^16.13.0",
+        "@storybook/addon-a11y": "^6.5.10",
         "@storybook/addon-actions": "^6.5.9",
         "@storybook/addon-essentials": "^6.5.9",
         "@storybook/addon-links": "^6.5.9",

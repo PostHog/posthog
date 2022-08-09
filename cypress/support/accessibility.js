@@ -1,4 +1,4 @@
-export const reportA11y = (options, tag) => {
+export const reportA11y = (options, tag, skipFailures = true) => {
     if (typeof tag !== undefined) {
         tag += '-'
     }
@@ -12,6 +12,6 @@ export const reportA11y = (options, tag) => {
 
             cy.writeFile(`a11y/${tag}accessibility-violations.json`, JSON.stringify(violations))
         },
-        true
+        skipFailures
     )
 }
