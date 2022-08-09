@@ -26,6 +26,7 @@ WithSearchIconAndSideAction.args = {
     icon: <IconMagnifier />,
     sideIcon: (
         <LemonButtonWithPopup
+            noPadding
             popup={{
                 overlay: 'Surprise! 😱',
             }}
