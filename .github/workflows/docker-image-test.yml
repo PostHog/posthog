@@ -194,6 +194,7 @@ jobs:
               with:
                   name: accessibility-violations
                   path: '**/a11y/'
+                  if-no-files-found: 'ignore'
 
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
