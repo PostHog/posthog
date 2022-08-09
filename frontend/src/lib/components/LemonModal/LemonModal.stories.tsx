@@ -108,3 +108,34 @@ export const Inline: ComponentStory<typeof LemonModal> = () => {
         </div>
     )
 }
+
+export const WithCustomContent: ComponentStory<typeof LemonModal> = () => {
+    const [isOpen, setIsOpen] = useState(false)
+    return (
+        <div className="bg-default p-4">
+            <LemonModal
+                isOpen={isOpen}
+                onClose={() => setIsOpen(false)}
+                title="Inline Modals"
+                description="You can display modal inline (i.e. just the content, no actual modal. This is mostly useful for creating Storybooks of modals"
+                inline
+                simple
+            >
+                <div className="bg-muted-alt rounded">
+                    <LemonModal.Header>
+                        <h3>I am a custom header</h3>
+                    </LemonModal.Header>
+                    <LemonModal.Content>
+                        In some situations it may be necessary to have greater control over the modal contents. The most
+                        common use case is <b>Forms with submit buttons in the footer</b>. Using the <code>simple</code>{' '}
+                        property on the modal you can implement the Header, Footer and Content components yourself. See
+                        this story's code for the example
+                    </LemonModal.Content>
+                    <LemonModal.Footer>
+                        <p>I am a custom footer</p>
+                    </LemonModal.Footer>
+                </div>
+            </LemonModal>
+        </div>
+    )
+}
