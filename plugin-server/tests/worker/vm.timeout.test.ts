@@ -4,6 +4,8 @@ import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
+jest.mock('../../src/utils/status')
+
 const defaultEvent = {
     distinct_id: 'my_id',
     ip: '127.0.0.1',
@@ -246,7 +248,9 @@ describe('vm timeout tests', () => {
         }
         expect(new Date().valueOf() - date.valueOf()).toBeGreaterThanOrEqual(1000)
         expect(new Date().valueOf() - date.valueOf()).toBeLessThan(4000)
-        expect(errorMessage!).toEqual('Script execution timed out after promise waited for 1 second')
+        expect(errorMessage!).toEqual(
+            expect.stringContaining('Script execution timed out after promise waited for 1 second')
+        )
         expect(caller).toEqual('processEvent')
     })
 
@@ -279,7 +283,9 @@ describe('vm timeout tests', () => {
         }
         expect(new Date().valueOf() - date.valueOf()).toBeGreaterThanOrEqual(1000)
         expect(new Date().valueOf() - date.valueOf()).toBeLessThan(4000)
-        expect(errorMessage!).toEqual('Script execution timed out after promise waited for 1 second')
+        expect(errorMessage!).toEqual(
+            expect.stringContaining('Script execution timed out after promise waited for 1 second')
+        )
     })
 
     test('long promise', async () => {
@@ -298,6 +304,8 @@ describe('vm timeout tests', () => {
         } catch (e) {
             errorMessage = e.message
         }
-        expect(errorMessage!).toEqual('Script execution timed out after promise waited for 1 second')
+        expect(errorMessage!).toEqual(
+            expect.stringContaining('Script execution timed out after promise waited for 1 second')
+        )
     })
 })
