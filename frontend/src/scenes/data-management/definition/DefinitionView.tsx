@@ -57,7 +57,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 minLength={1}
                                 maxLength={400} // Sync with action model
                                 data-attr="definition-name-view"
-                                className="definition-name"
                             />
                         }
                         caption={
