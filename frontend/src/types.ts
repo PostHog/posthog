@@ -985,6 +985,7 @@ export enum ChartDisplayType {
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
     WorldMap = 'WorldMap',
+    BoldNumber = 'BoldNumber',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'

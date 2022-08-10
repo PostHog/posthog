@@ -1,5 +1,5 @@
 import { LemonSelectOption } from 'lib/components/LemonSelect'
-import { compactNumber, humanFriendlyDuration, percentage } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ChartDisplayType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
@@ -39,7 +39,7 @@ export const formatAggregationAxisValue = (
             return percentage(value)
         case 'numeric': // numeric is default
         default:
-            return compactNumber(value)
+            return humanFriendlyNumber(value)
     }
 }
 
@@ -51,9 +51,6 @@ export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): strin
             return 'Y-axis unit'
         case ChartDisplayType.ActionsBarValue:
             return 'X-axis unit'
-        case ChartDisplayType.ActionsTable:
-        case ChartDisplayType.ActionsPie:
-        case ChartDisplayType.WorldMap:
         default:
             return 'Unit'
     }
