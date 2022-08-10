@@ -55,6 +55,7 @@
 
         &.LemonButton--no-content {
             padding: 0.125rem;
+            min-height: 1rem;
         }
 
         > .LemonIcon {
@@ -139,7 +140,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'success', 'warning', 'danger', 'primary-alt', 'muted', 'muted-alt') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted-alt') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -223,4 +224,13 @@
     top: 50%;
     right: 0.5rem;
     transform: translateY(-50%);
+
+    .LemonButton {
+        &.LemonButton--status-primary {
+            &:hover {
+                // NOTE: this is a rare case so we are hardcoding the value. Only primary status is supported
+                background: #d2dbff;
+            }
+        }
+    }
 }
