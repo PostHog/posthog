@@ -17,7 +17,7 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance): Serv
             // and rather use `isHealthy` for the readiness check.
             const healthy = await serverInstance.queue?.isHealthy()
             res.statusCode = healthy ? 200 : 503
-            return res.end({ status: healthy ? 'ok' : 'error' })
+            return res.end(JSON.stringify({ status: healthy ? 'ok' : 'error' }))
         } else if (req.url === '/_ready' && req.method === 'GET') {
             // Check that, if the server should have a kafka queue,
             // the Kafka consumer is ready to consume messages
