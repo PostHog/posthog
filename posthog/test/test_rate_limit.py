@@ -35,17 +35,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(incr_mock.call_count, 1)
         incr_mock.assert_called_with(
-            "rate_limit_exceeded",
-            tags={
-                "route_id": "api/projects/(?P<parent_lookup_team_id>[^/.]+)/insights/?$ (ClickhouseInsightsViewSet)",
-                "action": "list",
-                "method": "GET",
-                "user_id": self.user.pk,
-                "team_id": self.team.pk,
-                "organization_id": str(self.organization.pk),
-                "scope": "burst",
-                "rate": "5/minute",
-            },
+            "rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "burst"},
         )
 
     @patch("posthog.rate_limit.PassThroughSustainedRateThrottle.get_rate", return_value="5/hour")
@@ -64,17 +54,7 @@ class TestUserAPI(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(incr_mock.call_count, 1)
             incr_mock.assert_called_with(
-                "rate_limit_exceeded",
-                tags={
-                    "route_id": "api/projects/(?P<parent_lookup_team_id>[^/.]+)/insights/?$ (ClickhouseInsightsViewSet)",
-                    "action": "list",
-                    "method": "GET",
-                    "user_id": self.user.pk,
-                    "team_id": self.team.pk,
-                    "organization_id": str(self.organization.pk),
-                    "scope": "sustained",
-                    "rate": "5/hour",
-                },
+                "rate_limit_exceeded", tags={"team_id": self.team.pk, "scope": "sustained",},
             )
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.get_rate", return_value="5/minute")
@@ -91,17 +71,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(incr_mock.call_count, 1)
         incr_mock.assert_called_with(
-            "rate_limit_exceeded",
-            tags={
-                "route_id": "api/login/?$ (LoginViewSet)",
-                "action": "create",
-                "method": "POST",
-                "user_id": None,
-                "team_id": None,
-                "organization_id": None,
-                "scope": "burst",
-                "rate": "5/minute",
-            },
+            "rate_limit_exceeded", tags={"team_id": None, "scope": "burst",},
         )
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.get_rate", return_value="5/minute")
