@@ -845,6 +845,30 @@ export function IconTrendingFlatDown(props: SvgIconProps): JSX.Element {
     )
 }
 
+/** Material Design Trending Down icon. */
+export function IconTrendingDown(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m16 18 2.29-2.29-4.88-4.88-4 4-7.41-7.42 1.41-1.41 6 6 4-4 6.3 6.29 2.29-2.29v6z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Trending Up icon. */
+export function IconTrendingUp(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m16 6 2.29 2.29-4.88 4.88-4-4-7.41 7.42 1.41 1.41 6-6 4 4 6.3-6.29 2.29 2.29v-6z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
 /** Material Design Schedule (clock) icon. */
 export function IconSchedule(props: SvgIconProps): JSX.Element {
     return (

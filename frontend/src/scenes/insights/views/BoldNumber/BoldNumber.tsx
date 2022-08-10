@@ -14,9 +14,12 @@ import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/components/icons'
+import { LemonRow } from '@posthog/lemon-ui'
+import { percentage } from 'lib/utils'
 
-/** The effect of the value's padding is reduced by the offset. */
-const BOLD_NUMBER_TOOLTIP_OFFSET_PX = -16
+/** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
+const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
 
 function useBoldNumberTooltip({
     showPersonsModal,
@@ -80,11 +83,12 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
+    const showComparison = filters.compare && insight.result.length > 1
     const resultSeries = insight.result[0] as TrendResult
 
     return (
         <div className="BoldNumber">
-            <Textfit mode="single" min={32} max={160}>
+            <Textfit mode="single" min={32} max={120}>
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={
@@ -109,6 +113,46 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     {formatAggregationAxisValue(filters.aggregation_axis_format, resultSeries.aggregated_value)}
                 </div>
             </Textfit>
+            {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}
         </div>
+    )
+}
+
+function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element {
+    const { insight, filters } = useValues(insightLogic)
+    const { loadPeople } = useActions(personsModalLogic)
+
+    const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
+
+    const percentageDiff = currentPeriodSeries.aggregated_value / previousPeriodSeries.aggregated_value - 1
+    const percentageDiffDisplay = percentageDiff !== 0 ? percentage(Math.abs(percentageDiff)) : 'No change'
+    const Icon = percentageDiff > 0 ? IconTrendingUp : percentageDiff < 0 ? IconTrendingDown : IconTrendingFlat
+    const status = percentageDiff > 0 ? 'success' : percentageDiff < 0 ? 'danger' : undefined
+
+    return (
+        <LemonRow icon={<Icon />} status={status} className="BoldNumber__comparison" fullWidth center>
+            <span>
+                <span className={status ? `text-${status}` : undefined}>{percentageDiffDisplay}</span> from{' '}
+                {showPersonsModal ? (
+                    <a
+                        onClick={() => {
+                            loadPeople({
+                                action: previousPeriodSeries.action,
+                                label: previousPeriodSeries.label,
+                                date_from: previousPeriodSeries.filter?.date_from as string,
+                                date_to: previousPeriodSeries.filter?.date_to as string,
+                                filters,
+                                saveOriginal: true,
+                                pointValue: previousPeriodSeries.aggregated_value,
+                            })
+                        }}
+                    >
+                        previous period
+                    </a>
+                ) : (
+                    'previous period'
+                )}
+            </span>
+        </LemonRow>
     )
 }
