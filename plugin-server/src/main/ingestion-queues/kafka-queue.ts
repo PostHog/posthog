@@ -39,12 +39,6 @@ export class KafkaQueue {
         this.kafka = pluginsServer.kafka!
         this.consumerConfig = consumerConfig
         this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId(), consumerConfig)
-
-        // Record when the last heartbeat was, so we can check how alive the
-        // `KafkaQueue` is
-        this.lastHeartbeat = undefined
-        this.consumer.on(this.consumer.events.HEARTBEAT, ({ timestamp }) => (this.lastHeartbeat = timestamp))
-
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.consumerGroupMemberId = null
@@ -93,6 +87,11 @@ export class KafkaQueue {
 
         const startPromise = new Promise<void>(async (resolve, reject) => {
             addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
+
+            // Record when the last heartbeat was, so we can check how alive the
+            // `KafkaQueue` is
+            this.lastHeartbeat = undefined
+            this.consumer.on(this.consumer.events.HEARTBEAT, ({ timestamp }) => (this.lastHeartbeat = timestamp))
 
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
                 status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
