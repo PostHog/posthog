@@ -8,7 +8,7 @@ import { Form, forms } from 'kea-forms'
 import type { formLogicType } from './Field.storiesType'
 
 export default {
-    title: 'Forms/Field',
+    title: 'Lemon UI/Forms and Fields',
     component: PureField,
     parameters: {
         docs: {
