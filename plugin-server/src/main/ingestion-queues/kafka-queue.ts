@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, ConsumerConfig,ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, ConsumerConfig, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -200,9 +200,7 @@ export class KafkaQueue {
         // Consumer has no heartbeat, but maybe it's because the group is currently rebalancing
         try {
             const { state } = await this.consumer.describeGroup()
-
-            const ready = ['CompletingRebalance', 'PreparingRebalance'].includes(state)
-            return !ready
+            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
         } catch (err) {
             return false
         }
