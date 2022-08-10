@@ -18,6 +18,10 @@
             cursor: not-allowed;
         }
     }
+
+    &.LemonRow {
+        padding: 0.25rem 0.5rem;
+    }
 }
 
 .LemonRow__icon:first-child {
