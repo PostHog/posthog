@@ -201,7 +201,8 @@ export class KafkaQueue {
         try {
             const { state } = await this.consumer.describeGroup()
             return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
-        } catch (err) {
+        } catch (error) {
+            status.error('💥', 'Failed to retrieve kafka group details\n', error)
             return false
         }
     }
