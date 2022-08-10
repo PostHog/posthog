@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Client } from 'pg'
 
-import { Element, Event, TimestampFormat } from '../../../../types'
+import { ClickHouseEvent, Element, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
 
@@ -126,13 +126,13 @@ export const fetchEventsForInterval = async (
 
     return clickhouseFetchEventsResult.data.map((event) =>
         convertClickhouseEventToPluginEvent({
-            ...(event as Event),
+            ...(event as ClickHouseEvent),
             properties: JSON.parse(event.properties || '{}'),
         })
     )
 }
 
-export const convertClickhouseEventToPluginEvent = (event: Event): HistoricalExportEvent => {
+export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
     const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
     if (eventName === '$autocapture' && elements_chain) {
         properties['$elements'] = convertDatabaseElementsToRawElements(elements_chain)

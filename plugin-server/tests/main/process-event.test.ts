@@ -12,8 +12,8 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
+    ClickHouseEvent,
     Database,
-    Event,
     Hub,
     LogLevel,
     Person,
@@ -70,7 +70,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
             return [
                 distinctIds,
-                (events as Event[])
+                (events as ClickHouseEvent[])
                     .filter((event) => distinctIds.includes(event.distinct_id))
                     .sort((e1, e2) => new Date(e1.timestamp).getTime() - new Date(e2.timestamp).getTime())
                     .map((event) => event.event),
@@ -407,7 +407,7 @@ test('capture new person', async () => {
     const [person] = persons
     const distinctIds = await hub.db.fetchDistinctIdValues(person)
 
-    const [event] = events as Event[]
+    const [event] = events as ClickHouseEvent[]
     expect(event.distinct_id).toEqual('2')
     expect(distinctIds).toEqual(['2'])
     expect(event.event).toEqual('$autocapture')

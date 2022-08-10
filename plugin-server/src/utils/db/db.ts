@@ -18,6 +18,7 @@ import {
 import {
     Action,
     ActionStep,
+    ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId,
@@ -26,7 +27,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    Event,
     EventDefinitionType,
     EventPropertyType,
     Group,
@@ -48,7 +48,7 @@ import {
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
     RawAction,
-    RawClickhouseEvent,
+    RawClickHouseEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
@@ -1311,8 +1311,8 @@ export class DB {
 
     // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
 
-    public async fetchEvents(): Promise<Event[]> {
-        const queryResult = await this.clickhouseQuery<RawClickhouseEvent>(
+    public async fetchEvents(): Promise<ClickHouseEvent[]> {
+        const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
             `SELECT * FROM events ORDER BY timestamp ASC`
         )
         return queryResult.data.map(convertToParsedEvent)

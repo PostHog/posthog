@@ -9,7 +9,7 @@ import {
     IngestionPersonData,
     PostIngestionEvent,
     PreIngestionEvent,
-    RawClickhouseEvent,
+    RawClickHouseEvent,
     RawSessionRecordingEvent,
     Team,
     TimestampFormat,
@@ -217,7 +217,7 @@ export class EventsProcessor {
             created_at: castTimestampOrNow(null, timestampFormat),
         }
 
-        const rawEvent: RawClickhouseEvent = {
+        const rawEvent: RawClickHouseEvent = {
             ...eventPayload,
             person_id: personInfo?.uuid,
             person_properties: eventPersonProperties ?? undefined,
