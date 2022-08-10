@@ -41,7 +41,7 @@ logger = structlog.get_logger(__name__)
 # 5. We save the final blob output and update the ExportedAsset
 
 
-def add_limit(url: str, params: Dict[str, str]) -> str:
+def add_query_params(url: str, params: Dict[str, str]) -> str:
     """
     Uses parse_qsl because parse_qs turns all values into lists but doesn't unbox them when re-encoded
     """
@@ -203,11 +203,9 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 def make_api_call(
     access_token: str, body: Any, limit: int, method: str, next_url: Optional[str], path: str
 ) -> requests.models.Response:
-    context_uri: Optional[str] = None
+    uri: str = next_url or absolute_uri(path)
     try:
-        if not next_url:
-            context_uri = absolute_uri(path)
-        url = add_limit(next_url or context_uri, {"limit": str(limit)})
+        url = add_query_params(uri, {"limit": str(limit)})
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
@@ -218,7 +216,7 @@ def make_api_call(
             exc=ex,
             exc_info=True,
             next_url=next_url,
-            context_uri=context_uri,
+            uri_used=uri,
             path=path,
             limit=limit,
         )
