@@ -1,5 +1,3 @@
-import { DateTime } from 'luxon'
-
 import { PostIngestionEvent } from '../../../../src/types'
 import { convertToProcessedPluginEvent } from '../../../../src/utils/event'
 import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/6-runAsyncHandlersStep'
@@ -14,7 +12,7 @@ const ingestionEvent: PostIngestionEvent = {
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }),
+    timestamp: '2020-02-23T02:15:00.000Z',
     event: '$pageview',
     properties: {},
     elementsList: testElements,

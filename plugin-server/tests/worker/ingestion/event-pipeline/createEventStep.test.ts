@@ -1,5 +1,3 @@
-import { DateTime } from 'luxon'
-
 import { PreIngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-createEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
@@ -11,7 +9,7 @@ const preIngestionEvent: PreIngestionEvent = {
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }),
+    timestamp: '2020-02-23T02:15:00.000Z',
     event: '$pageview',
     properties: {},
     elementsList: [],
