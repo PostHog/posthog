@@ -125,14 +125,30 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
     const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
 
     const percentageDiff = currentPeriodSeries.aggregated_value / previousPeriodSeries.aggregated_value - 1
-    const percentageDiffDisplay = percentageDiff !== 0 ? percentage(Math.abs(percentageDiff)) : 'No change'
-    const Icon = percentageDiff > 0 ? IconTrendingUp : percentageDiff < 0 ? IconTrendingDown : IconTrendingFlat
-    const status = percentageDiff > 0 ? 'success' : percentageDiff < 0 ? 'danger' : undefined
+    const percentageDiffDisplay =
+        percentageDiff > 0
+            ? `Up ${percentage(percentageDiff)}`
+            : percentageDiff < 0
+            ? `Down ${percentage(-percentageDiff)}`
+            : 'No change'
 
     return (
-        <LemonRow icon={<Icon />} status={status} className="BoldNumber__comparison" fullWidth center>
+        <LemonRow
+            icon={
+                percentageDiff > 0 ? (
+                    <IconTrendingUp />
+                ) : percentageDiff < 0 ? (
+                    <IconTrendingDown />
+                ) : (
+                    <IconTrendingFlat />
+                )
+            }
+            className="BoldNumber__comparison"
+            fullWidth
+            center
+        >
             <span>
-                <span className={status ? `text-${status}` : undefined}>{percentageDiffDisplay}</span> from{' '}
+                {percentageDiffDisplay} from{' '}
                 {showPersonsModal ? (
                     <a
                         onClick={() => {
