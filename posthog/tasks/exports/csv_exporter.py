@@ -4,7 +4,6 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
-from rest_framework.response import Response
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
@@ -201,7 +200,9 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     save_content(exported_asset, rendered_csv_content)
 
 
-def make_api_call(access_token, body, limit, method, next_url, path) -> Response:
+def make_api_call(
+    access_token: str, body: Any, limit: int, method: str, next_url: Optional[str], path: str
+) -> requests.models.Response:
     context_uri: Optional[str] = None
     try:
         context_uri = absolute_uri(path)
