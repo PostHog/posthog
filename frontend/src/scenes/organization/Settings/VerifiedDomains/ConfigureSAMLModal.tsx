@@ -25,11 +25,7 @@ export function ConfigureSAMLModal(): JSX.Element {
             <section>
                 <h5>Configure SAML authentication and provisioning</h5>
 
-                <Form
-                    logic={verifiedDomainsLogic}
-                    formKey="samlConfig"
-                    className="ant-form-vertical ant-form-hide-required-mark"
-                >
+                <Form logic={verifiedDomainsLogic} formKey="samlConfig" className="space-y-2">
                     <Field name="saml_acs_url" label="SAML ACS URL">
                         <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />
                     </Field>

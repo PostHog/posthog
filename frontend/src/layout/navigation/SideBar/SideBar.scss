@@ -55,8 +55,15 @@
     max-height: calc(100vh - 3.5rem);
     overflow: auto;
     padding: 0.5rem;
-    > div {
-        margin: 0.5rem 0;
+
+    > ul {
+        margin-top: 0.5rem;
+        list-style: none;
+        padding: 0px;
+
+        li {
+            margin-top: 1px;
+        }
     }
 }
 

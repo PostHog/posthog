@@ -72,7 +72,9 @@ export function PersonsModal({
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
                 </>
-            ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
+            ) : filters.display === ChartDisplayType.ActionsBarValue ||
+              filters.display === ChartDisplayType.ActionsPie ||
+              filters.display === ChartDisplayType.BoldNumber ? (
                 <PropertyKeyInfo value={people?.label || ''} disablePopover />
             ) : filters.insight === InsightType.FUNNELS ? (
                 <>

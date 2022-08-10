@@ -53,7 +53,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             props={{ actionId }}
             formKey="proposedUrl"
             enableFormOnSubmit
-            className="AuthorizedURLForm w-full"
+            className="w-full space-y-2"
         >
             <Field name="url">
                 <LemonInput
@@ -62,17 +62,11 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                     data-attr="url-input"
                 />
             </Field>
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
                 <LemonButton type="secondary" onClick={cancelProposingUrl}>
                     Cancel
                 </LemonButton>
-                <LemonButton
-                    htmlType="submit"
-                    type="primary"
-                    className="form-submit ml-4"
-                    disabled={isProposedUrlSubmitting}
-                    data-attr="url-save"
-                >
+                <LemonButton htmlType="submit" type="primary" disabled={isProposedUrlSubmitting} data-attr="url-save">
                     Save
                 </LemonButton>
             </div>

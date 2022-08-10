@@ -10,7 +10,7 @@ import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { UUIDT } from '../../utils/utils'
+import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
 
@@ -188,7 +188,22 @@ export class PersonState {
         )
     }
 
-    private async updatePersonProperties(): Promise<Person> {
+    private async updatePersonProperties(): Promise<Person | null> {
+        try {
+            return await this.tryUpdatePerson()
+        } catch (error) {
+            // :TRICKY: Handle race where user might have been merged between start of processing and now
+            //      As we only allow anonymous -> identified merges, only need to do this once.
+            if (error instanceof NoRowsUpdatedError) {
+                this.personContainer = this.personContainer.reset()
+                return await this.tryUpdatePerson()
+            } else {
+                throw error
+            }
+        }
+    }
+
+    private async tryUpdatePerson(): Promise<Person | null> {
         // Note: In majority of cases person has been found already here!
         const personFound = await this.personContainer.get()
         if (!personFound) {
@@ -197,6 +212,7 @@ export class PersonState {
                 `Could not find person with distinct id "${this.distinctId}" in team "${this.teamId}" to update properties`
             )
         }
+
         const update: Partial<Person> = {}
         const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
 
@@ -211,7 +227,7 @@ export class PersonState {
             const [updatedPerson] = await this.db.updatePersonDeprecated(personFound, update)
             return updatedPerson
         } else {
-            return personFound
+            return null
         }
     }
 

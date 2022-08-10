@@ -127,7 +127,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                         )}
                                     </div>
                                 )}
-                                <Field name="whitelabel" noStyle>
+                                <Field name="whitelabel">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
                                             fullWidth
@@ -151,7 +151,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                     )}
                                 </Field>
                                 {insight && (
-                                    <Field name="noHeader" noStyle>
+                                    <Field name="noHeader">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
@@ -164,7 +164,7 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
                                     </Field>
                                 )}
                                 {showLegendCheckbox && (
-                                    <Field name="legend" noStyle>
+                                    <Field name="legend">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth

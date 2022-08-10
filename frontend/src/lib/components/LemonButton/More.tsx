@@ -11,6 +11,7 @@ export interface MoreProps extends Partial<Pick<PopupProps, 'overlay' | 'placeme
 export function More({ overlay, placement = 'bottom-end', 'data-tooltip': dataTooltip }: MoreProps): JSX.Element {
     return (
         <LemonButtonWithPopup
+            aria-label="more"
             data-attr="more-button"
             data-tooltip={dataTooltip}
             icon={<IconEllipsis />}
