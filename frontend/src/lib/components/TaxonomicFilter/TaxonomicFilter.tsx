@@ -74,10 +74,10 @@ export function TaxonomicFilter({
                 <div style={{ position: 'relative' }}>
                     <LemonInput
                         data-attr="taxonomic-filter-searchfield"
-                        placeholder={`Search ${searchPlaceholder}`}
+                        type="search"
+                        fullWidth
+                        placeholder={`Search ${searchPlaceholder} foo`}
                         value={searchQuery}
-                        className={searchQuery && 'LemonInput--with-input'}
-                        icon={<IconMagnifier />}
                         sideIcon={
                             <Tooltip
                                 title={

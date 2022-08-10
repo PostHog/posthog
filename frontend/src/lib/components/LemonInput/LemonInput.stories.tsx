@@ -42,9 +42,6 @@ Search.args = { type: 'search', placeholder: 'Search your soul' }
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
 
-export const Embedded = Template.bind({})
-Embedded.args = { embedded: true }
-
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }
 

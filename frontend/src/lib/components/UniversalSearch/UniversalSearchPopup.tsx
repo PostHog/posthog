@@ -194,9 +194,9 @@ export function UniversalSearchPopup({
                     {!visible && (
                         <LemonInput
                             data-attr="universal-search-field"
+                            type="search"
                             placeholder={'Search...'}
                             value={searchQuery}
-                            icon={<IconMagnifier />}
                         />
                     )}
                 </div>

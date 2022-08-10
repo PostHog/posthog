@@ -13,8 +13,6 @@ interface LemonInputPropsBase
     ref?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
-    /** An embedded input has no border around it and no background. This way it blends better into other components. */
-    embedded?: boolean
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
     allowClear?: boolean
     /** Icon to prefix input field */
@@ -53,7 +51,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onFocus,
         onBlur,
         onPressEnter,
-        embedded = false,
         allowClear,
         fullWidth,
         icon,
@@ -77,17 +74,17 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     }
 
     // Type=search has some special overrides
-    allowClear = allowClear ?? type === 'search' ? true : false
-    fullWidth = fullWidth ?? type === 'search' ? false : true
-    icon = icon ?? type === 'search' ? <IconMagnifier /> : undefined
-    width = width ?? type === 'search' ? 240 : undefined
+    allowClear = allowClear ?? (type === 'search' ? true : false)
+    fullWidth = fullWidth ?? (type === 'search' ? false : true)
+    icon = icon ?? (type === 'search' ? <IconMagnifier /> : undefined)
+    width = width ?? (type === 'search' && !fullWidth ? 240 : undefined)
 
     const rowProps: LemonRowProps<'span'> = {
         tag: 'span',
         className: clsx(
             'LemonInput',
             !textProps.disabled && focused && 'LemonInput--focused',
-            embedded && 'LemonInput--embedded',
+            value && 'LemonInput--hasContent',
             className
         ),
         disabled: textProps.disabled,
@@ -126,7 +123,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onClick: () => {
             focus()
         },
-        outlined: !embedded,
+        outlined: true,
         style: {
             width: width,
         },

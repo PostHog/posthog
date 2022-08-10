@@ -30,20 +30,14 @@
 
 .LemonRow__icon:first-child {
     .LemonInput & {
-        color: var(--muted);
+        .LemonIcon {
+            color: var(--muted-alt);
+        }
     }
-    .LemonInput.LemonInput--with-input & {
-        color: var(--primary);
-    }
-}
-
-.LemonInput--embedded {
-    color: var(--default);
-    font-weight: 400;
-    border: none !important;
-
-    .LemonRow__icon {
-        color: var(--muted-alt);
+    .LemonInput.LemonInput--hasContent & {
+        .LemonIcon {
+            color: var(--primary);
+        }
     }
 }
 

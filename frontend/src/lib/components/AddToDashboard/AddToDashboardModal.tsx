@@ -125,10 +125,9 @@ export function AddToDashboardModal({
                 <h5>Add to dashboard</h5>
                 <LemonInput
                     data-attr="dashboard-searchfield"
+                    type="search"
                     placeholder={`Search for dashboards...`}
                     value={searchQuery}
-                    className={searchQuery && 'LemonInput--with-input'}
-                    icon={<IconMagnifier />}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className={'existing-links-info'}>
