@@ -485,7 +485,6 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
-        loadingStartTime: [(s) => [s.insightLoading], (insightLoading) => (insightLoading ? now() : null)],
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
