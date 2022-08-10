@@ -628,10 +628,18 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     listeners: ({ actions, selectors, values }) => ({
-        insightLoading: (insightLoading) => {
-            if (insightLoading && values.loadingStartTime && values.insight.short_id) {
+        loadInsightFailure: () => {
+            debugger
+            if (values.loadingStartTime && values.insight.short_id) {
                 const loadingSeconds = now().diff(values.loadingStartTime, 'seconds')
-                eventUsageLogic.actions.reportInsightLoadingTime(loadingSeconds, values.insight.short_id)
+                eventUsageLogic.actions.reportInsightLoadingTime(loadingSeconds, values.insight.short_id, false)
+            }
+        },
+        loadInsightSuccess: () => {
+            debugger
+            if (values.loadingStartTime && values.insight.short_id) {
+                const loadingSeconds = now().diff(values.loadingStartTime, 'seconds')
+                eventUsageLogic.actions.reportInsightLoadingTime(loadingSeconds, values.insight.short_id, true)
             }
         },
         setFilters: async ({ filters }, _, __, previousState) => {

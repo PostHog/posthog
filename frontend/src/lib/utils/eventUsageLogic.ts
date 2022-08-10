@@ -440,8 +440,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadTime,
             error,
         }),
-        reportInsightLoadingTime: (loadingSeconds: number, insightShortId: InsightShortId) => ({
-            loadingSeconds,
+        reportInsightRefreshTime: (loadingMilliseconds: number, insightShortId: InsightShortId) => ({
+            loadingMilliseconds,
             insightShortId,
         }),
         reportInsightOpenedFromRecentInsightList: true,
@@ -461,8 +461,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
     },
     listeners: ({ values }) => ({
-        reportInsightLoadingTime: async ({ loadingSeconds, insightShortId }) => {
-            posthog.capture('insight loading time', { loadingSeconds, insightShortId })
+        reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
+            posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
         },
         reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
             posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })

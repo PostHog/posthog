@@ -2,7 +2,7 @@ import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
-import { dayjs, now } from 'lib/dayjs'
+import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
@@ -42,6 +42,13 @@ export interface DashboardLogicProps {
     id?: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
+}
+
+interface RefreshStatus {
+    loading?: boolean
+    refreshed?: boolean
+    error?: boolean
+    timer?: Dayjs | null
 }
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
@@ -253,33 +260,26 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         refreshStatus: [
-            {} as Record<
-                string,
-                {
-                    loading?: boolean
-                    refreshed?: boolean
-                    error?: boolean
-                }
-            >,
+            {} as Record<string, RefreshStatus>,
             {
                 setRefreshStatus: (state, { shortId, loading }) => ({
                     ...state,
-                    [shortId]: loading ? { loading: true } : { refreshed: true },
+                    [shortId]: loading
+                        ? { loading: true, timer: now() }
+                        : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
-                setRefreshStatuses: (_, { shortIds, loading }) =>
+                setRefreshStatuses: (state, { shortIds, loading }) =>
                     Object.fromEntries(
-                        shortIds.map((shortId) => [shortId, loading ? { loading: true } : { refreshed: true }])
-                    ) as Record<
-                        string,
-                        {
-                            loading?: boolean
-                            refreshed?: boolean
-                            error?: boolean
-                        }
-                    >,
+                        shortIds.map((shortId) => [
+                            shortId,
+                            loading
+                                ? { loading: true, timer: now() }
+                                : { refreshed: true, timer: state[shortId]?.timer || null },
+                        ])
+                    ) as Record<string, RefreshStatus>,
                 setRefreshError: (state, { shortId }) => ({
                     ...state,
-                    [shortId]: { error: true },
+                    [shortId]: { error: true, timer: state[shortId]?.timer || null },
                 }),
                 refreshAllDashboardItems: () => ({}),
             },
@@ -562,7 +562,21 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
         },
     }),
-    listeners: ({ actions, values, cache, props }) => ({
+    sharedListeners: ({ values }) => ({
+        reportRefreshTiming: ({ shortId, loading }) => {
+            const refreshStatus = values.refreshStatus[shortId]
+
+            console.log({ shortId, loading })
+            if (refreshStatus?.timer) {
+                const loadingMilliseconds = now().diff(refreshStatus.timer)
+                eventUsageLogic.actions.reportInsightRefreshTime(loadingMilliseconds, shortId)
+            }
+        },
+    }),
+    listeners: ({ actions, values, cache, props, sharedListeners }) => ({
+        setRefreshError: sharedListeners.reportRefreshTiming,
+        setRefreshStatuses: sharedListeners.reportRefreshTiming,
+        setRefreshStatus: sharedListeners.reportRefreshTiming,
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
