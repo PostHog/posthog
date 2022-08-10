@@ -24,7 +24,6 @@ import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingBu
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { LemonModal } from 'lib/components/LemonModal'
 
 export interface PersonsModalProps {
     isOpen: boolean
