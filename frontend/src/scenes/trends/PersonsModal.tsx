@@ -14,7 +14,7 @@ import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconMagnifier, IconPersonFilled, IconSave } from 'lib/components/icons'
+import { IconPersonFilled, IconSave } from 'lib/components/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -178,9 +178,9 @@ export function PersonsModal({
                         <>
                             <div className="p-4">
                                 <LemonInput
-                                    icon={<IconMagnifier />}
-                                    allowClear
+                                    type="search"
                                     placeholder="Search for persons by email, name, or ID"
+                                    fullWidth
                                     onChange={(value) => {
                                         setSearchTerm(value)
                                         if (!value) {

@@ -5,7 +5,7 @@ import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDas
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
-import { IconMagnifier, IconCottage } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -125,10 +125,9 @@ export function AddToDashboardModal({
                 <h5>Add to dashboard</h5>
                 <LemonInput
                     data-attr="dashboard-searchfield"
+                    type="search"
                     placeholder={`Search for dashboards...`}
                     value={searchQuery}
-                    className={searchQuery && 'LemonInput--with-input'}
-                    icon={<IconMagnifier />}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className={'existing-links-info'}>

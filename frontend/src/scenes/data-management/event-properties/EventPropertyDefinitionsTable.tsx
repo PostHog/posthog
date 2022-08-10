@@ -16,8 +16,7 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
-import { IconMagnifier } from 'lib/components/icons'
+import { LemonInput } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {
@@ -103,9 +102,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
 
             <div className="mb-4">
                 <LemonInput
-                    icon={<IconMagnifier />}
-                    width={LemonInputWidths.Search}
-                    allowClear
+                    type="search"
                     placeholder="Search for properties"
                     onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
