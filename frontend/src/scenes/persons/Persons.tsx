@@ -39,7 +39,7 @@ export function PersonsScene(): JSX.Element {
         <div className="persons-list">
             {!cohortId && <PersonPageHeader />}
             <div className="space-y-2">
-                <div className="flex justify-between" style={{ gap: '0.75rem' }}>
+                <div className="flex justify-between items-center gap-2">
                     <PersonsSearch autoFocus={!cohortId} />
 
                     <Popconfirm
