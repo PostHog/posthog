@@ -78,6 +78,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
     """
     if not url:
         return settings.SITE_URL
+
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 

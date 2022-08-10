@@ -35,6 +35,12 @@ class TestAbsoluteUrls(TestCase):
             ("api/path", "https://my-amazing.site/base_url/", "https://my-amazing.site/base_url/api/path"),
             ("/api/path", "https://my-amazing.site/base_url", "https://my-amazing.site/base_url/api/path"),
             (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}",),
+            ("https://app.posthog.com", "https://app.posthog.com", "https://app.posthog.com"),
+            (
+                "https://app.posthog.com/some/path?=something",
+                "https://app.posthog.com",
+                "https://app.posthog.com/some/path?=something",
+            ),
         ]
         for url, site_url, expected in absolute_urls_test_cases:
             with self.subTest():
