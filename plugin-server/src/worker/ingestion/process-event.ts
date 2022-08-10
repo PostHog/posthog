@@ -146,7 +146,7 @@ export class EventsProcessor {
             ip,
             distinctId,
             properties,
-            timestamp,
+            timestamp: timestamp.toISO(),
             elementsList,
             teamId: team.id,
         }
@@ -275,7 +275,7 @@ export class EventsProcessor {
             ip,
             distinctId: distinct_id,
             properties,
-            timestamp,
+            timestamp: timestamp.toISO(),
             elementsList: [],
             teamId: team_id,
         }

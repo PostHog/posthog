@@ -1,21 +1,19 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { KafkaMessage } from 'kafkajs'
 
-import { ClonableIngestionEvent, Event, PostIngestionEvent, RawEvent } from '../types'
+import { Event, PostIngestionEvent, RawEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToDateTime } from './utils'
 
-export function convertToProcessedPluginEvent(
-    event: PostIngestionEvent | ClonableIngestionEvent
-): ProcessedPluginEvent {
+export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
         distinct_id: event.distinctId,
         ip: event.ip,
         team_id: event.teamId,
         event: event.event,
         properties: event.properties,
-        timestamp: typeof event.timestamp === 'string' ? event.timestamp : event.timestamp.toISO(),
+        timestamp: event.timestamp,
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
@@ -52,7 +50,7 @@ export function convertToIngestionEvent(event: RawEvent): PostIngestionEvent {
         teamId: event.team_id,
         distinctId: event.distinct_id,
         properties,
-        timestamp: clickHouseTimestampToDateTime(event.timestamp),
+        timestamp: event.timestamp,
         elementsList: event.elements_chain ? chainToElements(event.elements_chain) : [],
     }
 }

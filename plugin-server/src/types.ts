@@ -562,7 +562,7 @@ interface BaseIngestionEvent {
     teamId: TeamId
     distinctId: string
     properties: Properties
-    timestamp: DateTime
+    timestamp: string
     elementsList: Element[]
 }
 
@@ -571,11 +571,6 @@ export type PreIngestionEvent = BaseIngestionEvent
 
 /** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
 export type PostIngestionEvent = BaseIngestionEvent
-
-/** Ingestion event that can be cloned by Piscina - only for communication between threads. */
-export interface ClonableIngestionEvent extends Omit<PostIngestionEvent, 'timestamp'> {
-    timestamp: string
-}
 
 export interface DeadLetterQueueEvent {
     id: string
