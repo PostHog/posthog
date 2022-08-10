@@ -21,11 +21,11 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
-import { ActionEvent, IconMagnifier, IconWebhook, UnverifiedEvent } from 'lib/components/icons'
+import { ActionEvent, IconWebhook, UnverifiedEvent } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput, LemonInputWidths, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const eventTypeOptions: LemonSelectOptions = {
     [CombinedEventType.All]: {
@@ -228,9 +228,7 @@ export function EventDefinitionsTable(): JSX.Element {
 
             <div className="flex justify-between items-center gap-2 mb-4">
                 <LemonInput
-                    width={LemonInputWidths.Search}
-                    icon={<IconMagnifier />}
-                    allowClear
+                    type="search"
                     placeholder="Search for events"
                     onChange={(v) => setFilters({ event: v || '' })}
                     value={filters.event}

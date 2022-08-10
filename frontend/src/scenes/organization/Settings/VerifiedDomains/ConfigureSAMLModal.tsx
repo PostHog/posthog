@@ -7,7 +7,7 @@ import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonModal } from 'lib/components/LemonModal'
-import { VerticalForm } from 'lib/forms/VerticalForm'
+import { Form } from 'kea-forms'
 
 export function ConfigureSAMLModal(): JSX.Element {
     const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
@@ -22,16 +22,11 @@ export function ConfigureSAMLModal(): JSX.Element {
 
     return (
         <LemonModal onClose={handleClose} isOpen={!!configureSAMLModalId} title="" simple>
-            <VerticalForm
-                logic={verifiedDomainsLogic}
-                formKey="samlConfig"
-                enableFormOnSubmit
-                className="LemonModal__layout"
-            >
+            <Form logic={verifiedDomainsLogic} formKey="samlConfig" enableFormOnSubmit className="LemonModal__layout ">
                 <LemonModal.Header>
                     <h3>Configure SAML authentication and provisioning</h3>
                 </LemonModal.Header>
-                <LemonModal.Content>
+                <LemonModal.Content className="space-y-2">
                     <Field name="saml_acs_url" label="SAML ACS URL">
                         <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />
                     </Field>
@@ -59,7 +54,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                         Save settings
                     </LemonButton>
                 </LemonModal.Footer>
-            </VerticalForm>
+            </Form>
         </LemonModal>
     )
 }

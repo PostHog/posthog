@@ -5,12 +5,12 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { AvailableFeature } from '~/types'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { LemonModal } from 'lib/components/LemonModal'
+import { Form } from 'kea-forms'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
@@ -56,7 +56,14 @@ export function NewDashboardModal(): JSX.Element {
                 </>
             }
         >
-            <VerticalForm logic={newDashboardLogic} formKey="newDashboard" id="new-dashboard-form" enableFormOnSubmit>
+            <Form
+                logic={newDashboardLogic}
+                formKey="newDashboard"
+                id="new-dashboard-form"
+                enableFormOnSubmit
+                className="space-y-2"
+            >
+                <p>Use dashboards to compose multiple insights into a single view.</p>
                 <Field name="name" label="Name">
                     <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
                 </Field>
@@ -94,7 +101,7 @@ export function NewDashboardModal(): JSX.Element {
                         </PayGateMini>
                     )}
                 </Field>
-            </VerticalForm>
+            </Form>
         </LemonModal>
     )
 }

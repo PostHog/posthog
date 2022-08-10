@@ -14,7 +14,7 @@ import { PersonHeader } from '../persons/PersonHeader'
 import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconMagnifier, IconPersonFilled, IconSave } from 'lib/components/icons'
+import { IconPersonFilled, IconSave } from 'lib/components/icons'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -73,7 +73,9 @@ export function PersonsModal({
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
                 </>
-            ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
+            ) : filters.display === ChartDisplayType.ActionsBarValue ||
+              filters.display === ChartDisplayType.ActionsPie ||
+              filters.display === ChartDisplayType.BoldNumber ? (
                 <PropertyKeyInfo value={people?.label || ''} disablePopover />
             ) : filters.insight === InsightType.FUNNELS ? (
                 <>
@@ -115,6 +117,13 @@ export function PersonsModal({
 
     const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
+
+    const filterSearchResults = (): void => {
+        if (!searchTerm) {
+            setFirstLoadedActors(firstLoadedPeople)
+        }
+        people && setPersonsModalFilters(searchTerm, people, filters)
+    }
 
     return (
         <>
@@ -169,29 +178,28 @@ export function PersonsModal({
                 }
                 width={600}
             >
-                <div className="persons-modal space-y-2">
-                    {isInitialLoad ? (
-                        <div className="p-4">
-                            <Skeleton active />
-                        </div>
-                    ) : (
-                        people && (
+                <div className="p-4">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for persons by email, name, or ID"
+                        fullWidth
+                        onChange={(value) => {
+                            setSearchTerm(value)
+                        }}
+                        onBlur={() => filterSearchResults()}
+                        onPressEnter={() => filterSearchResults()}
+                        value={searchTerm}
+                        disabled={isInitialLoad}
+                    />
+                </div>
+                {isInitialLoad ? (
+                    <div className="p-4">
+                        <Skeleton active />
+                    </div>
+                ) : (
+                    <>
+                        {people && (
                             <>
-                                <div className="mb-4">
-                                    <LemonInput
-                                        icon={<IconMagnifier />}
-                                        allowClear
-                                        placeholder="Search for persons by email, name, or ID"
-                                        onChange={(value) => {
-                                            setSearchTerm(value)
-                                            if (!value) {
-                                                setFirstLoadedActors(firstLoadedPeople)
-                                            }
-                                            setPersonsModalFilters(value, people, filters)
-                                        }}
-                                        value={searchTerm}
-                                    />
-                                </div>
                                 {!!people.crossDataset?.length && people.seriesId !== undefined && (
                                     <div className="data-point-selector">
                                         <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
@@ -305,9 +313,9 @@ export function PersonsModal({
                                     </div>
                                 )}
                             </>
-                        )
-                    )}
-                </div>
+                        )}
+                    </>
+                )}
             </LemonModal>
         </>
     )

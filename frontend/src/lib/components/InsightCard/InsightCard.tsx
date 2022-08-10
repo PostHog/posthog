@@ -53,6 +53,7 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../AlertMessage'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -105,6 +106,10 @@ const displayMap: Record<
     WorldMap: {
         className: 'world-map',
         element: WorldMap,
+    },
+    BoldNumber: {
+        className: 'bold-number',
+        element: BoldNumber,
     },
 }
 
@@ -472,6 +477,19 @@ export function InsightViz({
 }: InsightVizProps): JSX.Element {
     const displayedType = getDisplayedType(insight.filters)
     const VizComponent = displayMap[displayedType]?.element || VizComponentFallback
+
+    useEffect(() => {
+        // If displaying a BoldNumber Trends insight, we need to fire the window resize event
+        // Without this, the value is only autosized before `metaPrimaryHeight` is determined, so it's wrong
+        // With this, autosizing runs again after `metaPrimaryHeight` is ready
+        if (
+            // `display` should be ignored in non-Trends insight
+            (!!insight.filters.insight || insight.filters.insight === InsightType.TRENDS) &&
+            insight.filters.display === ChartDisplayType.BoldNumber
+        ) {
+            window.dispatchEvent(new Event('resize'))
+        }
+    }, [style?.height])
 
     return (
         <div

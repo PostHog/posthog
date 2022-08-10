@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
-import { IconMagnifier, IconCottage } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -131,10 +131,9 @@ export function AddToDashboardModal({
             <div className="space-y-2">
                 <LemonInput
                     data-attr="dashboard-searchfield"
+                    type="search"
                     placeholder={`Search for dashboards...`}
                     value={searchQuery}
-                    className={searchQuery && 'LemonInput--with-input'}
-                    icon={<IconMagnifier />}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className="text-muted-alt">

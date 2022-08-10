@@ -3,9 +3,8 @@ import { useActions } from 'kea'
 import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { asyncMigrationParameterFormLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationParameterFormLogic'
-import { Field } from 'kea-forms'
+import { Field, Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonModal } from 'lib/components/LemonModal'
 
@@ -16,7 +15,7 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
 
     return (
         <LemonModal title="" onClose={closeAsyncMigrationsModal} isOpen={true} simple>
-            <VerticalForm
+            <Form
                 logic={asyncMigrationParameterFormLogic}
                 props={props}
                 formKey="parameters"
@@ -71,7 +70,7 @@ export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): 
                         Run migration
                     </LemonButton>
                 </LemonModal.Footer>
-            </VerticalForm>
+            </Form>
         </LemonModal>
     )
 }

@@ -3,11 +3,7 @@ import React, { useRef, useState } from 'react'
 import { LemonRow, LemonRowProps } from 'lib/components/LemonRow'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconClose } from 'lib/components/icons'
-
-export enum LemonInputWidths {
-    Search = 340,
-}
+import { IconClose, IconMagnifier } from 'lib/components/icons'
 
 interface LemonInputPropsBase
     extends Omit<
@@ -17,8 +13,6 @@ interface LemonInputPropsBase
     ref?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
-    /** An embedded input has no border around it and no background. This way it blends better into other components. */
-    embedded?: boolean
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
     allowClear?: boolean
     /** Icon to prefix input field */
@@ -32,7 +26,7 @@ interface LemonInputPropsBase
 }
 
 interface LemonInputPropsText extends LemonInputPropsBase {
-    type?: 'text' | 'email'
+    type?: 'text' | 'email' | 'search'
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
@@ -57,9 +51,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onFocus,
         onBlur,
         onPressEnter,
-        embedded = false,
-        allowClear = false,
-        fullWidth = true,
+        allowClear,
+        fullWidth,
         icon,
         sideIcon,
         type,
@@ -80,12 +73,18 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         setFocused(true)
     }
 
+    // Type=search has some special overrides
+    allowClear = allowClear ?? (type === 'search' ? true : false)
+    fullWidth = fullWidth ?? (type === 'search' ? false : true)
+    icon = icon ?? (type === 'search' ? <IconMagnifier /> : undefined)
+    width = width ?? (type === 'search' && !fullWidth ? 240 : undefined)
+
     const rowProps: LemonRowProps<'span'> = {
         tag: 'span',
         className: clsx(
             'LemonInput',
             !textProps.disabled && focused && 'LemonInput--focused',
-            embedded && 'LemonInput--embedded',
+            value && 'LemonInput--hasContent',
             className
         ),
         disabled: textProps.disabled,
@@ -124,7 +123,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onClick: () => {
             focus()
         },
-        outlined: !embedded,
+        outlined: true,
         style: {
             width: width,
         },

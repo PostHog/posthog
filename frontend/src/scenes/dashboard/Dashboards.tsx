@@ -21,12 +21,12 @@ import { dashboardLogic } from './dashboardLogic'
 import { LemonRow } from 'lib/components/LemonRow'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Tooltip } from 'lib/components/Tooltip'
-import { IconCottage, IconLock, IconMagnifier } from 'lib/components/icons'
+import { IconCottage, IconLock } from 'lib/components/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -213,9 +213,7 @@ export function Dashboards(): JSX.Element {
             </Tabs>
             <div className="flex">
                 <LemonInput
-                    width={LemonInputWidths.Search}
-                    icon={<IconMagnifier />}
-                    allowClear
+                    type="search"
                     placeholder="Search for dashboards"
                     onChange={setSearchTerm}
                     value={searchTerm}

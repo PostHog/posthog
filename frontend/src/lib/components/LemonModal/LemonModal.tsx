@@ -3,9 +3,11 @@ import { IconClose } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import Modal from 'react-modal'
 import './LemonModal.scss'
+import clsx from 'clsx'
 
-export type LemonModalHeaderProps = {
+export type LemonModalContentProps = {
     children?: React.ReactNode
+    className?: string
 }
 
 export type LemonModalFooterProps = {
@@ -25,16 +27,16 @@ export interface LemonModalProps {
     simple?: boolean
 }
 
-export const LemonModalHeader = ({ children }: LemonModalHeaderProps): JSX.Element => {
-    return <header className="LemonModal__header">{children}</header>
+export const LemonModalHeader = ({ children, className }: LemonModalContentProps): JSX.Element => {
+    return <header className={clsx('LemonModal__header', className)}>{children}</header>
 }
 
-export const LemonModalFooter = ({ children }: LemonModalFooterProps): JSX.Element => {
-    return <footer className="LemonModal__footer">{children}</footer>
+export const LemonModalFooter = ({ children, className }: LemonModalContentProps): JSX.Element => {
+    return <footer className={clsx('LemonModal__footer', className)}>{children}</footer>
 }
 
-export const LemonModalContent = ({ children }: LemonModalFooterProps): JSX.Element => {
-    return <section className="LemonModal__content">{children}</section>
+export const LemonModalContent = ({ children, className }: LemonModalContentProps): JSX.Element => {
+    return <section className={clsx('LemonModal__content', className)}>{children}</section>
 }
 
 /** A lightweight wrapper over Ant's Modal for matching Lemon style. */

@@ -104,7 +104,8 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           },
                           hasPathsAdvanced && {
                               key: 'wildcard-groups',
-                              label: 'Wildcard Groups (optional)',
+                              label: 'Wildcard Groups',
+                              showOptional: true,
                               component: PathsWildcardGroups,
                               tooltip: (
                                   <>

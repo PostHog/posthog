@@ -149,7 +149,7 @@ export function SharingModal({
                                             )}
                                         </div>
                                     )}
-                                    <Field name="whitelabel" noStyle>
+                                    <Field name="whitelabel">
                                         {({ value, onChange }) => (
                                             <LemonSwitch
                                                 fullWidth
@@ -173,7 +173,7 @@ export function SharingModal({
                                         )}
                                     </Field>
                                     {insight && (
-                                        <Field name="noHeader" noStyle>
+                                        <Field name="noHeader">
                                             {({ value, onChange }) => (
                                                 <LemonSwitch
                                                     fullWidth
@@ -186,7 +186,7 @@ export function SharingModal({
                                         </Field>
                                     )}
                                     {showLegendCheckbox && (
-                                        <Field name="legend" noStyle>
+                                        <Field name="legend">
                                             {({ value, onChange }) => (
                                                 <LemonSwitch
                                                     fullWidth

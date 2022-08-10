@@ -33,7 +33,7 @@ describe('transforms', () => {
             "use strict";
 
             async function x() {
-              await __asyncGuard(console.log(), "await");
+              await __asyncGuard(console.log(), "await on line 2:2");
             }
         `)
         })
@@ -51,7 +51,7 @@ describe('transforms', () => {
             "use strict";
 
             async function x() {
-              await __asyncGuard(anotherAsyncFunction('arg1', 'arg2'), "await");
+              await __asyncGuard(anotherAsyncFunction('arg1', 'arg2'), "await on line 2:2");
             }
         `)
         })
@@ -71,7 +71,7 @@ describe('transforms', () => {
             async function x() {
               await __asyncGuard(async () => {
                 console.log();
-              }, "await");
+              }, "await on line 2:2");
             }
         `)
         })
@@ -89,7 +89,7 @@ describe('transforms', () => {
 
             async function x() {}
 
-            __asyncGuard(x, "Promise.then").then(() => null);
+            __asyncGuard(x, "Promise.then on line 2:0").then(() => null);
         `)
         })
 

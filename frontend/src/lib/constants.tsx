@@ -1,13 +1,16 @@
 import { urls } from 'scenes/urls'
 import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
-// Sync with backend NON_TIME_SERIES_DISPLAY_TYPES
+/** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
 ]
+/** Display types which only work with a single series. */
+export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 
 export enum OrganizationMembershipLevel {
     Member = 1,

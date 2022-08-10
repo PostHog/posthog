@@ -21,8 +21,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { IconMagnifier } from 'lib/components/icons'
-import { LemonInput, LemonInputWidths } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -142,9 +141,7 @@ function OverViewTab(): JSX.Element {
             <div>
                 <div className="mb-4">
                     <LemonInput
-                        icon={<IconMagnifier />}
-                        width={LemonInputWidths.Search}
-                        allowClear
+                        type="search"
                         placeholder="Search for feature flags"
                         onChange={setSearchTerm}
                         value={searchTerm}

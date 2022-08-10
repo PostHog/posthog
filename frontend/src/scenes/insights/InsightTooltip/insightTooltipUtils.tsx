@@ -19,7 +19,7 @@ export interface SeriesDatum {
     dotted?: boolean
     color?: string
     count: number
-    filter: FilterType
+    filter?: FilterType
 }
 
 // Describes the row-by-row data for insight tooltips in the situation where series
@@ -97,9 +97,9 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
                     cohorts,
                     formatPropertyValueForDisplay,
                     s.breakdown_value,
-                    s.filter.breakdown,
-                    s.filter.breakdown_type,
-                    s.filter.breakdown_histogram_bin_count !== undefined
+                    s.filter?.breakdown,
+                    s.filter?.breakdown_type,
+                    s.filter?.breakdown_histogram_bin_count !== undefined
                 )
             )
         }
