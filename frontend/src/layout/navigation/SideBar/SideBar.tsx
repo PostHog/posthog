@@ -63,7 +63,7 @@ function Pages(): JSX.Element {
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
 
     return (
-        <div>
+        <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
                 data-tooltip="project-button"
@@ -84,197 +84,187 @@ function Pages(): JSX.Element {
             {currentTeam && (
                 <>
                     <LemonDivider />
-                    <div className="Sidebar__buttons">
-                        <PageButton
-                            icon={<IconGauge />}
-                            identifier={Scene.Dashboards}
-                            to={urls.dashboards()}
-                            sideAction={{
-                                identifier: 'pinned-dashboards',
-                                tooltip: 'Pinned dashboards',
-                                onClick: () => setArePinnedDashboardsShown((state) => !state),
-                                popup: {
-                                    visible: arePinnedDashboardsShown,
-                                    onClickOutside: () => setArePinnedDashboardsShown(false),
-                                    onClickInside: hideSideBarMobile,
-                                    overlay: (
-                                        <div className="SideBar__side-actions" data-attr="sidebar-pinned-dashboards">
-                                            <h5>Pinned dashboards</h5>
-                                            <LemonDivider />
-                                            {pinnedDashboards.length > 0 ? (
-                                                pinnedDashboards.map((dashboard) => (
-                                                    <PageButton
-                                                        key={dashboard.id}
-                                                        title={dashboard.name || <i>Untitled</i>}
-                                                        identifier={dashboard.id}
-                                                        onClick={() => setArePinnedDashboardsShown(false)}
-                                                        to={urls.dashboard(dashboard.id)}
-                                                    />
-                                                ))
-                                            ) : (
-                                                <>
-                                                    <div className="mb-2 flex items-center gap-2">
-                                                        <IconPin className="text-2xl text-muted-alt" />
-                                                        <span>
-                                                            <Link
-                                                                onClick={() => setArePinnedDashboardsShown(false)}
-                                                                to={urls.dashboards()}
-                                                            >
-                                                                Pin some dashboards
-                                                            </Link>
-                                                            <br />
-                                                            for them to show up here
-                                                        </span>
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                    ),
-                                },
-                            }}
-                        />
-                        <PageButton
-                            icon={<IconBarChart />}
-                            identifier={Scene.SavedInsights}
-                            to={urls.savedInsights()}
-                            sideAction={{
-                                icon: <IconPlus />,
-                                to: urls.insightNew(),
-                                tooltip: 'New insight',
-                                identifier: Scene.Insight,
-                                onClick: hideSideBarMobile,
-                            }}
-                        />
-                        <PageButton
-                            icon={<IconRecording />}
-                            identifier={Scene.SessionRecordings}
-                            to={urls.sessionRecordings()}
-                        />
-                        <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-                        {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                            !preflight?.instance_preferences?.disable_paid_fs) && (
-                            <PageButton
-                                icon={<IconExperiment />}
-                                identifier={Scene.Experiments}
-                                to={urls.experiments()}
-                            />
-                        )}
-                        {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
-                            <PageButton
-                                icon={<IconCoffee />}
-                                identifier={Scene.WebPerformance}
-                                to={urls.webPerformance()}
-                            />
-                        )}
-                        {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
-                            <div className="SideBar__heading">Data</div>
-                        ) : (
-                            <LemonDivider />
-                        )}
-
-                        <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
-                        <PageButton
-                            icon={<UnverifiedEvent />}
-                            identifier={Scene.DataManagement}
-                            to={urls.eventDefinitions()}
-                        />
-                        <PageButton
-                            icon={<IconPerson />}
-                            identifier={Scene.Persons}
-                            to={urls.persons()}
-                            title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
-                        />
-                        <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-                        <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                        {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
-                            <>
-                                {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
-                                    <>
-                                        <div className="SideBar__heading">Apps</div>
-                                        {canViewPlugins(currentOrganization) && (
-                                            <PageButton
-                                                title="Browse Apps"
-                                                icon={<IconApps />}
-                                                identifier={Scene.Plugins}
-                                                to={urls.projectApps()}
-                                            />
+                    <PageButton
+                        icon={<IconGauge />}
+                        identifier={Scene.Dashboards}
+                        to={urls.dashboards()}
+                        sideAction={{
+                            identifier: 'pinned-dashboards',
+                            tooltip: 'Pinned dashboards',
+                            onClick: () => setArePinnedDashboardsShown((state) => !state),
+                            popup: {
+                                visible: arePinnedDashboardsShown,
+                                onClickOutside: () => setArePinnedDashboardsShown(false),
+                                onClickInside: hideSideBarMobile,
+                                overlay: (
+                                    <div className="SideBar__side-actions" data-attr="sidebar-pinned-dashboards">
+                                        <h5>Pinned dashboards</h5>
+                                        <LemonDivider />
+                                        {pinnedDashboards.length > 0 ? (
+                                            pinnedDashboards.map((dashboard) => (
+                                                <PageButton
+                                                    key={dashboard.id}
+                                                    title={dashboard.name || <i>Untitled</i>}
+                                                    identifier={dashboard.id}
+                                                    onClick={() => setArePinnedDashboardsShown(false)}
+                                                    to={urls.dashboard(dashboard.id)}
+                                                />
+                                            ))
+                                        ) : (
+                                            <>
+                                                <div className="mb-2 flex items-center gap-2">
+                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <span>
+                                                        <Link
+                                                            onClick={() => setArePinnedDashboardsShown(false)}
+                                                            to={urls.dashboards()}
+                                                        >
+                                                            Pin some dashboards
+                                                        </Link>
+                                                        <br />
+                                                        for them to show up here
+                                                    </span>
+                                                </div>
+                                            </>
                                         )}
-                                        {Object.keys(frontendApps).length > 0 && <SideBarApps />}
-                                    </>
-                                ) : null}
-                                <div className="SideBar__heading">Configuration</div>
-                            </>
-                        ) : (
-                            <>
-                                <LemonDivider />
-                                {canViewPlugins(currentOrganization) && (
-                                    <PageButton
-                                        icon={<IconApps />}
-                                        identifier={Scene.Plugins}
-                                        to={urls.projectApps()}
-                                    />
-                                )}
-                            </>
-                        )}
+                                    </div>
+                                ),
+                            },
+                        }}
+                    />
+                    <PageButton
+                        icon={<IconBarChart />}
+                        identifier={Scene.SavedInsights}
+                        to={urls.savedInsights()}
+                        sideAction={{
+                            icon: <IconPlus />,
+                            to: urls.insightNew(),
+                            tooltip: 'New insight',
+                            identifier: Scene.Insight,
+                            onClick: hideSideBarMobile,
+                        }}
+                    />
+                    <PageButton
+                        icon={<IconRecording />}
+                        identifier={Scene.SessionRecordings}
+                        to={urls.sessionRecordings()}
+                    />
+                    <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
+                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
+                        !preflight?.instance_preferences?.disable_paid_fs) && (
+                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
+                    )}
+                    {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
+                        <PageButton
+                            icon={<IconCoffee />}
+                            identifier={Scene.WebPerformance}
+                            to={urls.webPerformance()}
+                        />
+                    )}
+                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                        <div className="SideBar__heading">Data</div>
+                    ) : (
+                        <LemonDivider />
+                    )}
 
-                        <PageButton
-                            icon={<IconTools />}
-                            identifier={Scene.ToolbarLaunch}
-                            to={urls.toolbarLaunch()}
-                            sideAction={{
-                                identifier: 'toolbar-launch',
-                                tooltip: 'Launch toolbar',
-                                onClick: () => setIsToolbarLaunchShown((state) => !state),
-                                popup: {
-                                    visible: isToolbarLaunchShown,
-                                    onClickOutside: () => setIsToolbarLaunchShown(false),
-                                    onClickInside: hideSideBarMobile,
-                                    overlay: (
-                                        <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
-                                            <h5>TOOLBAR URLS</h5>
-                                            <LemonDivider />
-                                            {appUrls.map((appUrl, index) => (
-                                                <LemonButton
-                                                    className="LaunchToolbarButton"
-                                                    status="stealth"
-                                                    fullWidth
-                                                    key={index}
-                                                    onClick={() => setIsToolbarLaunchShown(false)}
-                                                    href={launchUrl(appUrl)}
-                                                    sideIcon={
-                                                        <Tooltip title="Launch toolbar">
-                                                            <IconOpenInApp />
-                                                        </Tooltip>
-                                                    }
-                                                >
-                                                    <Typography.Text ellipsis={true} title={appUrl}>
-                                                        {appUrl}
-                                                    </Typography.Text>
-                                                </LemonButton>
-                                            ))}
+                    <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
+                    <PageButton
+                        icon={<UnverifiedEvent />}
+                        identifier={Scene.DataManagement}
+                        to={urls.eventDefinitions()}
+                    />
+                    <PageButton
+                        icon={<IconPerson />}
+                        identifier={Scene.Persons}
+                        to={urls.persons()}
+                        title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
+                    />
+                    <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
+                    <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
+                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                        <>
+                            {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
+                                <>
+                                    <div className="SideBar__heading">Apps</div>
+                                    {canViewPlugins(currentOrganization) && (
+                                        <PageButton
+                                            title="Browse Apps"
+                                            icon={<IconApps />}
+                                            identifier={Scene.Plugins}
+                                            to={urls.projectApps()}
+                                        />
+                                    )}
+                                    {Object.keys(frontendApps).length > 0 && <SideBarApps />}
+                                </>
+                            ) : null}
+                            <div className="SideBar__heading">Configuration</div>
+                        </>
+                    ) : (
+                        <>
+                            <LemonDivider />
+                            {canViewPlugins(currentOrganization) && (
+                                <PageButton icon={<IconApps />} identifier={Scene.Plugins} to={urls.projectApps()} />
+                            )}
+                        </>
+                    )}
+
+                    <PageButton
+                        icon={<IconTools />}
+                        identifier={Scene.ToolbarLaunch}
+                        to={urls.toolbarLaunch()}
+                        sideAction={{
+                            identifier: 'toolbar-launch',
+                            tooltip: 'Launch toolbar',
+                            onClick: () => setIsToolbarLaunchShown((state) => !state),
+                            popup: {
+                                visible: isToolbarLaunchShown,
+                                onClickOutside: () => setIsToolbarLaunchShown(false),
+                                onClickInside: hideSideBarMobile,
+                                overlay: (
+                                    <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
+                                        <h5>TOOLBAR URLS</h5>
+                                        <LemonDivider />
+                                        {appUrls.map((appUrl, index) => (
                                             <LemonButton
+                                                className="LaunchToolbarButton"
                                                 status="stealth"
-                                                data-attr="sidebar-launch-toolbar-add-new-url"
                                                 fullWidth
-                                                to={`${urls.toolbarLaunch()}?addNew=true`}
+                                                key={index}
                                                 onClick={() => setIsToolbarLaunchShown(false)}
+                                                href={launchUrl(appUrl)}
+                                                sideIcon={
+                                                    <Tooltip title="Launch toolbar">
+                                                        <IconOpenInApp />
+                                                    </Tooltip>
+                                                }
                                             >
-                                                Add toolbar URL
+                                                <Typography.Text ellipsis={true} title={appUrl}>
+                                                    {appUrl}
+                                                </Typography.Text>
                                             </LemonButton>
-                                        </div>
-                                    ),
-                                },
-                            }}
-                        />
-                        <PageButton
-                            icon={<IconSettings />}
-                            identifier={Scene.ProjectSettings}
-                            to={urls.projectSettings()}
-                        />
-                    </div>
+                                        ))}
+                                        <LemonButton
+                                            status="stealth"
+                                            data-attr="sidebar-launch-toolbar-add-new-url"
+                                            fullWidth
+                                            to={`${urls.toolbarLaunch()}?addNew=true`}
+                                            onClick={() => setIsToolbarLaunchShown(false)}
+                                        >
+                                            Add toolbar URL
+                                        </LemonButton>
+                                    </div>
+                                ),
+                            },
+                        }}
+                    />
+                    <PageButton
+                        icon={<IconSettings />}
+                        identifier={Scene.ProjectSettings}
+                        to={urls.projectSettings()}
+                    />
                 </>
             )}
-        </div>
+        </ul>
     )
 }
 
