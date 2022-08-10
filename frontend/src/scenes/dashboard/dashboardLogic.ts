@@ -44,7 +44,7 @@ export interface DashboardLogicProps {
     placement?: DashboardPlacement
 }
 
-interface RefreshStatus {
+export interface RefreshStatus {
     loading?: boolean
     refreshed?: boolean
     error?: boolean
@@ -259,6 +259,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 },
             },
         ],
+        loadTimer: [null as Dayjs | null, { loadDashboardItems: () => now() }],
         refreshStatus: [
             {} as Record<string, RefreshStatus>,
             {
@@ -562,21 +563,29 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
         },
     }),
-    sharedListeners: ({ values }) => ({
-        reportRefreshTiming: ({ shortId, loading }) => {
+    sharedListeners: ({ values, props }) => ({
+        reportRefreshTiming: ({ shortId }) => {
             const refreshStatus = values.refreshStatus[shortId]
 
-            console.log({ shortId, loading })
             if (refreshStatus?.timer) {
                 const loadingMilliseconds = now().diff(refreshStatus.timer)
                 eventUsageLogic.actions.reportInsightRefreshTime(loadingMilliseconds, shortId)
             }
+        },
+        reportLoadTiming: () => {
+            if (!props.id) {
+                // what even is loading?!
+                return
+            }
+            const loadingMilliseconds = now().diff(values.loadTimer)
+            eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
         },
     }),
     listeners: ({ actions, values, cache, props, sharedListeners }) => ({
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
+        loadDashboardItemsFailure: sharedListeners.reportLoadTiming,
         triggerDashboardUpdate: ({ payload }) => {
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
@@ -744,6 +753,9 @@ export const dashboardLogic = kea<dashboardLogicType>({
             }
         },
         loadDashboardItemsSuccess: () => {
+            // I didn't want any parameters but kea does :)
+            sharedListeners.reportLoadTiming(null, async () => {}, {} as { type: string; payload: any }, null)
+
             // Initial load of actual data for dashboard items after general dashboard is fetched
             if (values.lastRefreshed && values.lastRefreshed.isBefore(now().subtract(3, 'hours'))) {
                 actions.refreshAllDashboardItems()

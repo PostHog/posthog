@@ -459,8 +459,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportInviteMembersButtonClicked: true,
         reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
+        reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
+            loadingMilliseconds,
+            dashboardId,
+        }),
     },
     listeners: ({ values }) => ({
+        reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
+            posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
+        },
         reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
             posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
         },
