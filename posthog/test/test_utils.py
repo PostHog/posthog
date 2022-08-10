@@ -43,6 +43,12 @@ class TestAbsoluteUrls(TestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/some/path?=something",
             ),
+            ("/api/path", "", "/api/path"),  # current behavior whether correct or not
+            (
+                "/api/path",
+                "some-internal-dns-value",
+                "some-internal-dns-value/api/path",
+            ),  # current behavior whether correct or not
         ]
         for url, site_url, expected in absolute_urls_test_cases:
             with self.subTest():
@@ -55,6 +61,11 @@ class TestAbsoluteUrls(TestCase):
 
     def test_absolute_uri_can_not_escape_out_host(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
+
+    def test_absolute_uri_can_not_escape_out_host_when_site_url_is_the_empty_string(self) -> None:
+        with self.settings(SITE_URL=""):
             with pytest.raises(PotentialSecurityProblemException):
                 absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
 

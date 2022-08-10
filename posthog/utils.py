@@ -98,8 +98,6 @@ def absolute_uri(url: Optional[str] = None) -> str:
         provided_url = provided_url
         if site_url.hostname != provided_url.hostname:
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
-        else:
-            return url
 
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
