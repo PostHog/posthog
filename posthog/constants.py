@@ -73,6 +73,7 @@ DISPLAY_TYPES = Literal[
     "ActionsBar",
     "ActionsBarValue",
     "WorldMap",
+    "BoldNumber",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
