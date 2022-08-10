@@ -209,7 +209,7 @@ export function EditSubscription({
                                         )}
                                     </Field>
 
-                                    <Field name={'invite_message'} label={'Message (optional)'}>
+                                    <Field name={'invite_message'} label={'Message'} showOptional>
                                         <LemonTextArea placeholder="Your message to new subscribers (optional)" />
                                     </Field>
                                 </>

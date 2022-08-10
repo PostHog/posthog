@@ -25,11 +25,8 @@ const Template: ComponentStory<typeof LemonLabel> = (props: LemonLabelProps) => 
 export const Basic = Template.bind({})
 Basic.args = {
     info: 'This field is optional',
-    children: (
-        <>
-            Label <span>(Optional)</span>
-        </>
-    ),
+    showOptional: true,
+    children: 'Label',
 }
 
 export const Overview = (): JSX.Element => {
@@ -38,8 +35,11 @@ export const Overview = (): JSX.Element => {
             <LemonLabel>Basic</LemonLabel>
             <LemonLabel info={'I am some extra info'}>Label with info</LemonLabel>
 
+            <LemonLabel info={'I am some extra info'} showOptional>
+                Pineapple on Pizza
+            </LemonLabel>
             <LemonLabel info={'I am some extra info'}>
-                Label with info <span>and subinfo</span>
+                Label with info <span>custom subtext</span>
             </LemonLabel>
         </div>
     )

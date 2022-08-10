@@ -6,6 +6,8 @@ import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/co
 export type PureFieldProps = {
     /** The label name to be displayed */
     label?: React.ReactNode
+    /** Will show a muted (optional) next to the label */
+    showOptional?: boolean
     /** Info tooltip to be displayed next to the label */
     info?: React.ReactNode
     /** Help text to be shown directly beneath the input */
@@ -16,10 +18,14 @@ export type PureFieldProps = {
 }
 
 /** A "Pure" field - used when you want the Field styles without the Kea form functionality */
-export const PureField = ({ label, info, error, help, children }: PureFieldProps): JSX.Element => {
+export const PureField = ({ label, info, error, help, showOptional, children }: PureFieldProps): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
-            {label ? <LemonLabel info={info}>{label}</LemonLabel> : null}
+            {label ? (
+                <LemonLabel info={info} showOptional={showOptional}>
+                    {label}
+                </LemonLabel>
+            ) : null}
             {children}
             {help ? <div className="text-muted text-xs">{help}</div> : null}
             {error ? (

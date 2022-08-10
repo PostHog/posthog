@@ -30,11 +30,8 @@ export const _PureFields = (): JSX.Element => {
     return (
         <div className="space-y-4">
             <PureField
-                label={
-                    <>
-                        Text input label <span>(Optional)</span>
-                    </>
-                }
+                label={'Text input label'}
+                showOptional
                 help={
                     <>
                         Optional descriptive or supportive text for the preceeding form element. This content can wrap

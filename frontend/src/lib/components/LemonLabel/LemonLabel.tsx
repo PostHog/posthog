@@ -7,12 +7,15 @@ import clsx from 'clsx'
 export interface LemonLabelProps
     extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'htmlFor' | 'form' | 'children' | 'className'> {
     info?: React.ReactNode
+    showOptional?: boolean
 }
 
-export function LemonLabel({ children, info, className, ...props }: LemonLabelProps): JSX.Element {
+export function LemonLabel({ children, info, className, showOptional, ...props }: LemonLabelProps): JSX.Element {
     return (
         <label className={clsx('LemonLabel', className)} {...props}>
             {children}
+
+            {showOptional ? <span>(optional)</span> : null}
 
             {info ? (
                 <Tooltip title={info}>

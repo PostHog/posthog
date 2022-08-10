@@ -67,24 +67,10 @@ export function NewDashboardModal(): JSX.Element {
                 <Field name="name" label="Name">
                     <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
                 </Field>
-                <Field
-                    name="description"
-                    label={
-                        <>
-                            Description <span>(Optional)</span>
-                        </>
-                    }
-                >
+                <Field name="description" label="Description" showOptional>
                     <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
                 </Field>
-                <Field
-                    name="useTemplate"
-                    label={
-                        <>
-                            Template <span>(Optional)</span>
-                        </>
-                    }
-                >
+                <Field name="useTemplate" label="Template" showOptional>
                     <LemonSelect
                         placeholder="Optionally start from template"
                         allowClear

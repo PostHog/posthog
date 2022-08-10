@@ -21,6 +21,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { lemonToast } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
+import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -258,7 +259,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             <Field name="slack_message_format">
                                 {({ value, onChange }) => (
                                     <>
-                                        <div className="mt-2">Message format (optional)</div>
+                                        <LemonLabel showOptional>Message format</LemonLabel>
                                         <LemonInput
                                             placeholder="Default: [action.name] triggered by [person]"
                                             value={value}
