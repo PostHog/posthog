@@ -4,9 +4,11 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
+    ClickHouseTimestamp,
     Element,
     Hub,
     IngestionPersonData,
+    ISOTimestamp,
     PostIngestionEvent,
     PreIngestionEvent,
     RawClickHouseEvent,
@@ -146,7 +148,7 @@ export class EventsProcessor {
             ip,
             distinctId,
             properties,
-            timestamp: timestamp.toISO(),
+            timestamp: timestamp.toISO() as ISOTimestamp,
             elementsList,
             teamId: team.id,
         }
@@ -177,9 +179,6 @@ export class EventsProcessor {
             elementsList: elements,
         } = preIngestionEvent
 
-        const timestampFormat = this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        const timestampString = castTimestampOrNow(timestamp, timestampFormat)
-
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
@@ -206,23 +205,22 @@ export class EventsProcessor {
             }
         }
 
-        const eventPayload = {
+        const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
-            timestamp: timestampString,
+            timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
             team_id: teamId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
-            created_at: castTimestampOrNow(null, timestampFormat),
-        }
-
-        const rawEvent: RawClickHouseEvent = {
-            ...eventPayload,
+            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
             person_id: personInfo?.uuid,
             person_properties: eventPersonProperties ?? undefined,
             person_created_at: personInfo
-                ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
+                ? (castTimestampOrNow(
+                      personInfo?.created_at,
+                      TimestampFormat.ClickHouseSecondPrecision
+                  ) as ClickHouseTimestamp)
                 : undefined,
             ...groupsColumns,
         }
@@ -275,7 +273,7 @@ export class EventsProcessor {
             ip,
             distinctId: distinct_id,
             properties,
-            timestamp: timestamp.toISO(),
+            timestamp: timestamp.toISO() as ISOTimestamp,
             elementsList: [],
             teamId: team_id,
         }

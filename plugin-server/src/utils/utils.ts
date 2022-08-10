@@ -6,7 +6,15 @@ import { DateTime } from 'luxon'
 import { Pool, PoolConfig } from 'pg'
 import { Readable } from 'stream'
 
-import { LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
+import {
+    ClickHouseTimestamp,
+    ISOTimestamp,
+    LogLevel,
+    Plugin,
+    PluginConfigId,
+    PluginsServerConfig,
+    TimestampFormat,
+} from '../types'
 import { Hub } from './../types'
 import { status } from './status'
 
@@ -256,12 +264,13 @@ export function castTimestampToClickhouseFormat(
     }
 }
 
-export function clickHouseTimestampToDateTime(timestamp: string): DateTime {
+// Used only when parsing clickhouse timestamps
+export function clickHouseTimestampToDateTime(timestamp: ClickHouseTimestamp): DateTime {
     return DateTime.fromFormat(timestamp, DATETIME_FORMAT_CLICKHOUSE, { zone: 'UTC' })
 }
 
-export function clickHouseTimestampToISO(timestamp: string): string {
-    return clickHouseTimestampToDateTime(timestamp).toISO()
+export function clickHouseTimestampToISO(timestamp: ClickHouseTimestamp): ISOTimestamp {
+    return clickHouseTimestampToDateTime(timestamp).toISO() as ISOTimestamp
 }
 
 export function delay(ms: number): Promise<void> {

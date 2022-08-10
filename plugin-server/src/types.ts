@@ -40,6 +40,8 @@ import { PromiseManager } from './worker/vm/promise-manager'
 /** Re-export Element from scaffolding, for backwards compat. */
 export { Element } from '@posthog/plugin-scaffold'
 
+type Brand<K, T> = K & { __brand: T }
+
 export enum LogLevel {
     None = 'none',
     Debug = 'debug',
@@ -522,13 +524,16 @@ interface BaseEvent {
     person_id?: string
 }
 
+export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
+export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
+
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
-    timestamp: string
-    created_at: string
+    timestamp: ClickHouseTimestamp
+    created_at: ClickHouseTimestamp
     properties?: string
     elements_chain: string
-    person_created_at?: string
+    person_created_at?: ClickHouseTimestamp
     person_properties?: string
     group0_properties?: string
     group1_properties?: string
@@ -562,7 +567,7 @@ interface BaseIngestionEvent {
     teamId: TeamId
     distinctId: string
     properties: Properties
-    timestamp: string
+    timestamp: ISOTimestamp
     elementsList: Element[]
 }
 
