@@ -1,49 +1,23 @@
-import * as Sentry from '@sentry/node'
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
 
 import { status } from '../../utils/status'
 import { ServerInstance } from '../pluginsServer'
-import { kafkaHealthcheck } from '../utils'
-import { Hub, PluginsServerConfig } from './../../types'
+import { Hub } from './../../types'
 
 export const HTTP_SERVER_PORT = 6738
 
-export function createHttpServer(hub: Hub, serverInstance: ServerInstance, serverConfig: PluginsServerConfig): Server {
+export function createHttpServer(hub: Hub, serverInstance: ServerInstance): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
-            let serverHealthy = true
-
-            if (serverInstance.kafkaHealthcheckConsumer) {
-                const [kafkaHealthy, error] = await kafkaHealthcheck(
-                    hub.kafkaProducer,
-                    serverInstance.kafkaHealthcheckConsumer,
-                    hub.statsd,
-                    serverConfig.KAFKA_HEALTHCHECK_SECONDS * 1000
-                )
-                if (kafkaHealthy) {
-                    status.info('💚', `Kafka healthcheck succeeded`)
-                } else {
-                    serverHealthy = false
-                    Sentry.captureException(error, { tags: { context: 'healthcheck' } })
-                    status.info('💔', `Kafka healthcheck failed with error: ${error?.message || 'unknown error'}.`)
-                }
-            }
-
-            if (serverHealthy) {
-                status.info('💚', 'Server healthcheck succeeded')
-                const responseBody = {
-                    status: 'ok',
-                }
-                res.statusCode = 200
-                res.end(JSON.stringify(responseBody))
-            } else {
-                status.info('💔', 'Server healthcheck failed')
-                const responseBody = {
-                    status: 'error',
-                }
-                res.statusCode = 503
-                res.end(JSON.stringify(responseBody))
-            }
+            // Check that the consumer is "healthy". See isHealthy for how we
+            // define this.
+            //
+            // NOTE: it might be too strong a check for a liveness check, in
+            // which case we can change to simply return 200 from this endpoint,
+            // and rather use `isHealthy` for the readiness check.
+            const healthy = await serverInstance.queue?.isHealthy()
+            res.statusCode = healthy ? 200 : 503
+            return res.end({ status: healthy ? 'ok' : 'error' })
         } else if (req.url === '/_ready' && req.method === 'GET') {
             // Check that, if the server should have a kafka queue,
             // the Kafka consumer is ready to consume messages

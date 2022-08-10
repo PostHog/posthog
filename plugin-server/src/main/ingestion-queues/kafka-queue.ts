@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node'
-import { Consumer, ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, ConsumerConfig,ConsumerSubscribeTopics, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -20,18 +20,27 @@ export class KafkaQueue {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
     public consumerReady: boolean
+    private lastHeartbeat: number | undefined
     private kafka: Kafka
     private consumer: Consumer
+    private consumerConfig: Partial<ConsumerConfig>
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
     private ingestionTopic: string
     private eventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
-    constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
+    constructor(pluginsServer: Hub, workerMethods: WorkerMethods, consumerConfig: { sessionTimeout: 30000 }) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
+        this.consumerConfig = consumerConfig
+        this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId(), consumerConfig)
+
+        // Record when the last heartbeat was, so we can check how alive the
+        // `KafkaQueue` is
+        this.lastHeartbeat = undefined
+        this.consumer.on(this.consumer.events.HEARTBEAT, ({ timestamp }) => (this.lastHeartbeat = timestamp))
+
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.consumerGroupMemberId = null
@@ -180,6 +189,25 @@ export class KafkaQueue {
             .some(({ topic, partitions }) => topic === targetTopic && (!partition || partitions.includes(partition)))
     }
 
+    async isHealthy(): Promise<boolean> {
+        // Uses the heartbeat and group description to decide if the consumer is
+        // in a recoverable state.
+        const sessionTimeout = this.consumerConfig?.sessionTimeout || 30000
+        if (this.lastHeartbeat && Date.now() - this.lastHeartbeat < sessionTimeout) {
+            return true
+        }
+
+        // Consumer has no heartbeat, but maybe it's because the group is currently rebalancing
+        try {
+            const { state } = await this.consumer.describeGroup()
+
+            const ready = ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+            return !ready
+        } catch (err) {
+            return false
+        }
+    }
+
     async stop(): Promise<void> {
         status.info('⏳', 'Stopping Kafka queue...')
         try {
@@ -199,11 +227,12 @@ export class KafkaQueue {
         return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
-    private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
+    private static buildConsumer(kafka: Kafka, groupId: string, consumerConfig: Partial<ConsumerConfig>): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
             groupId,
             readUncommitted: false,
+            ...consumerConfig,
         })
         const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT } = consumer.events
         consumer.on(GROUP_JOIN, ({ payload: { groupId } }) => {
