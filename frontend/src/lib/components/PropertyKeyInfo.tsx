@@ -365,7 +365,7 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['feature launch', 'discount'],
         },
         $initial_utm_name: {
-            label: 'UTM Name',
+            label: 'Initial UTM Name',
             description: 'UTM campaign tag, sent via Segment (first-touch).',
             examples: ['feature launch', 'discount'],
         },
