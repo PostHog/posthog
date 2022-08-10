@@ -63,7 +63,7 @@ function Pages(): JSX.Element {
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
 
     return (
-        <div className="Pages">
+        <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
                 data-tooltip="project-button"
@@ -265,7 +265,7 @@ function Pages(): JSX.Element {
                     />
                 </>
             )}
-        </div>
+        </ul>
     )
 }
 
