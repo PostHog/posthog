@@ -224,4 +224,13 @@
     top: 50%;
     right: 0.5rem;
     transform: translateY(-50%);
+
+    .LemonButton {
+        &.LemonButton--status-primary {
+            &:hover {
+                // NOTE: this is a rare case so we are hardcoding the value. Only primary status is supported
+                background: #d2dbff;
+            }
+        }
+    }
 }

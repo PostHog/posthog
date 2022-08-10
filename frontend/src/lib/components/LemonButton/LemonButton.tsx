@@ -168,7 +168,6 @@ export function LemonButtonWithSideAction({
                     // We don't want secondary style as it creates double borders
                     type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
                     status={buttonProps.status}
-                    active={buttonProps.active}
                     popup={sidePopup as LemonButtonPopup}
                     noPadding
                     {...sideActionRest}
