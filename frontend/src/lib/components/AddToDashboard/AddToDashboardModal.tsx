@@ -5,7 +5,7 @@ import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDas
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
-import { IconMagnifier, IconCottage } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'

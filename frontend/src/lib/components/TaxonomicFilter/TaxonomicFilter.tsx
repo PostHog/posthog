@@ -5,7 +5,7 @@ import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { IconKeyboard, IconMagnifier } from '../icons'
+import { IconKeyboard } from '../icons'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 
