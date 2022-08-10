@@ -205,7 +205,8 @@ def make_api_call(
 ) -> requests.models.Response:
     context_uri: Optional[str] = None
     try:
-        context_uri = absolute_uri(path)
+        if not next_url:
+            context_uri = absolute_uri(path)
         url = add_limit(next_url or context_uri, {"limit": str(limit)})
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
