@@ -64,6 +64,7 @@ import {
     castTimestampOrNow,
     clickHouseTimestampToISO,
     escapeClickHouseString,
+    NoRowsUpdatedError,
     RaceConditionError,
     sanitizeSqlIdentifier,
     tryTwice,
@@ -980,7 +981,9 @@ export class DB {
 
         const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
         if (updateResult.rows.length == 0) {
-            throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
+            throw new NoRowsUpdatedError(
+                `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
+            )
         }
         const updatedPersonRaw = updateResult.rows[0] as RawPerson
         const updatedPerson = {
