@@ -101,6 +101,8 @@ export async function setupKafkaHealthcheckConsumer(kafka: Kafka): Promise<Consu
     const consumer = kafka.consumer({
         groupId: `${KAFKA_PREFIX}healthcheck-group`,
         maxWaitTimeInMs: 100,
+        sessionTimeout: 15000,
+        rebalanceTimeout: 30000,
     })
 
     await consumer.subscribe({ topic: KAFKA_HEALTHCHECK })
