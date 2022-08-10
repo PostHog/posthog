@@ -4,6 +4,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
+from rest_framework.response import Response
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
@@ -166,11 +167,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     all_csv_rows: List[Any] = []
 
     while len(all_csv_rows) < max_limit:
-        url = add_limit(next_url or absolute_uri(path), {"limit": str(limit)})
-
-        response = requests.request(
-            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
-        )
+        response = make_api_call(access_token, body, limit, method, next_url, path)
 
         if response.status_code != 200:
             # noinspection PyBroadException
@@ -202,6 +199,28 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 
     rendered_csv_content = renderer.render(all_csv_rows)
     save_content(exported_asset, rendered_csv_content)
+
+
+def make_api_call(access_token, body, limit, method, next_url, path) -> Response:
+    context_uri: Optional[str] = None
+    try:
+        context_uri = absolute_uri(path)
+        url = add_limit(next_url or context_uri, {"limit": str(limit)})
+        response = requests.request(
+            method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
+        )
+        return response
+    except Exception as ex:
+        logger.error(
+            "csv_exporter.error_making_api_call",
+            exc=ex,
+            exc_info=True,
+            next_url=next_url,
+            context_uri=context_uri,
+            path=path,
+            limit=limit,
+        )
+        raise ex
 
 
 @timed("csv_exporter")
