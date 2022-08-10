@@ -41,7 +41,6 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { now } from 'lib/dayjs'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -628,20 +627,6 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     listeners: ({ actions, selectors, values }) => ({
-        loadInsightFailure: () => {
-            debugger
-            if (values.loadingStartTime && values.insight.short_id) {
-                const loadingSeconds = now().diff(values.loadingStartTime, 'seconds')
-                eventUsageLogic.actions.reportInsightLoadingTime(loadingSeconds, values.insight.short_id, false)
-            }
-        },
-        loadInsightSuccess: () => {
-            debugger
-            if (values.loadingStartTime && values.insight.short_id) {
-                const loadingSeconds = now().diff(values.loadingStartTime, 'seconds')
-                eventUsageLogic.actions.reportInsightLoadingTime(loadingSeconds, values.insight.short_id, true)
-            }
-        },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {
