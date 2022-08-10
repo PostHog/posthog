@@ -41,6 +41,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
+import { now } from 'lib/dayjs'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -485,6 +486,7 @@ export const insightLogic = kea<insightLogicType>({
         ],
     }),
     selectors: {
+        loadingStartTime: [(s) => [s.insightLoading], (insightLoading) => (insightLoading ? now() : null)],
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
@@ -626,6 +628,12 @@ export const insightLogic = kea<insightLogicType>({
         ],
     },
     listeners: ({ actions, selectors, values }) => ({
+        insightLoading: (insightLoading) => {
+            if (insightLoading && values.loadingStartTime && values.insight.short_id) {
+                const loadingSeconds = now().diff(values.loadingStartTime, 'seconds')
+                eventUsageLogic.actions.reportInsightLoadingTime(loadingSeconds, values.insight.short_id)
+            }
+        },
         setFilters: async ({ filters }, _, __, previousState) => {
             const previousFilters = selectors.filters(previousState)
             if (objectsEqual(previousFilters, filters)) {

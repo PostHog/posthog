@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     FilterLogicalOperator,
     PropertyFilterValue,
+    InsightShortId,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -439,6 +440,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadTime,
             error,
         }),
+        reportInsightLoadingTime: (loadingSeconds: number, insightShortId: InsightShortId) => ({
+            loadingSeconds,
+            insightShortId,
+        }),
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
@@ -456,6 +461,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
     },
     listeners: ({ values }) => ({
+        reportInsightLoadingTime: async ({ loadingSeconds, insightShortId }) => {
+            posthog.capture('insight loading time', { loadingSeconds, insightShortId })
+        },
         reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
             posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })
         },
