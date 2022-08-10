@@ -22,7 +22,7 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
 }
 
 /** Parse an event row SELECTed from ClickHouse into a more malleable form. */
-export function convertToParsedEvent(rawEvent: RawClickHouseEvent): ClickHouseEvent {
+export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHouseEvent {
     return {
         ...rawEvent,
         timestamp: clickHouseTimestampToDateTime(rawEvent.timestamp),

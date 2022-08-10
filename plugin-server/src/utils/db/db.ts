@@ -57,7 +57,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
-import { convertToParsedEvent } from '../event'
+import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
 import {
     castTimestampOrNow,
@@ -1315,7 +1315,7 @@ export class DB {
         const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
             `SELECT * FROM events ORDER BY timestamp ASC`
         )
-        return queryResult.data.map(convertToParsedEvent)
+        return queryResult.data.map(parseRawClickHouseEvent)
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
