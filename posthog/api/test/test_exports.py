@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 from unittest.mock import patch
 
 import celery
+import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
 from django.http import HttpResponse
@@ -84,6 +85,25 @@ class TestExports(APIBaseTest):
             },
         )
 
+        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+
+    @patch("posthog.api.exports.exporter")
+    def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
+        # regression test see https://github.com/PostHog/posthog/issues/11204
+
+        mock_exporter_task.get.side_effect = requests.exceptions.MissingSchema("why is this raised?")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "text/csv",
+                "export_context": {
+                    "path": f"api/projects/{self.team.id}/insights/trend/?insight=TRENDS&events=%5B%7B%22id%22%3A%22search%20filtered%22%2C%22name%22%3A%22search%20filtered%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&interval=day&breakdown=filters&new_entity=%5B%5D&properties=%5B%5D&breakdown_type=event&filter_test_accounts=false&date_from=-14d",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=f"was not HTTP 201 😱 - {response.json()}")
+        data = response.json()
         mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
@@ -274,46 +294,47 @@ class TestExports(APIBaseTest):
 
         after = (datetime.datetime.now() - datetime.timedelta(minutes=10)).isoformat()
 
-        instance = ExportedAsset.objects.create(
-            team=self.team,
-            dashboard=None,
-            insight=None,
-            export_format=ExportedAsset.ExportFormat.CSV,
-            # has to have after param to allow paging to be tested
-            export_context={
-                "path": "&".join(
-                    [
-                        f"/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D",
-                        "properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D",
-                        f"after={after}",
-                    ]
-                )
-            },
-            created_by=self.user,
-        )
-
         def requests_side_effect(*args, **kwargs):
             return self.client.get(kwargs["url"], kwargs["json"], **kwargs["headers"])
 
         patched_request.side_effect = requests_side_effect
 
-        # pass the root in because django/celery refused to override it otherwise
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "text/csv",
+                "export_context": {
+                    "path": "&".join(
+                        [
+                            f"/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D",
+                            "properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D",
+                            f"after={after}",
+                        ]
+                    ),
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, msg=f"was not HTTP 201 😱 - {response.json()}")
+        instance = response.json()
+
         # limit the query to force it to page against the API
         with self.settings(OBJECT_STORAGE_ENABLED=False):
-            exporter.export_asset(instance.id, limit=1)
+            exporter.export_asset(instance["id"], limit=1)
 
-        response: Optional[HttpResponse] = None
+        download_response: Optional[HttpResponse] = None
         attempt_count = 0
-        while attempt_count < 10 and not response:
-            response = self.client.get(f"/api/projects/{self.team.id}/exports/{instance.id}/content?download=true")
+        while attempt_count < 10 and not download_response:
+            download_response = self.client.get(
+                f"/api/projects/{self.team.id}/exports/{instance['id']}/content?download=true"
+            )
             attempt_count += 1
 
-        if not response:
+        if not download_response:
             self.fail("must have a response by this point")  # hi mypy
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.content)
-        file_content = response.content.decode("utf-8")
+        self.assertEqual(download_response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(download_response.content)
+        file_content = download_response.content.decode("utf-8")
         file_lines = file_content.split("\n")
         # has a header row and at least two other rows
         # don't care if the DB hasn't been reset before the test

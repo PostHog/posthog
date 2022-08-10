@@ -1,3 +1,4 @@
+from typing import Any, Dict
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -14,9 +15,14 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
+from posthog.tasks.exports.csv_exporter import add_limit
 from posthog.test.base import APIBaseTest
+from posthog.utils import absolute_uri
 
 TEST_BUCKET = "Test-Exports"
+
+# see GitHub issue #11204
+regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
 
 
 class TestCSVExporter(APIBaseTest):
@@ -160,3 +166,24 @@ class TestCSVExporter(APIBaseTest):
 
             with pytest.raises(Exception, match="export API call failed with status_code: 403"):
                 csv_exporter.export_csv(exported_asset)
+
+    def test_limiting_query_as_expected(self) -> None:
+
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            modified_url = add_limit(absolute_uri(regression_11204), {"limit": "3500"})
+            actual_bits = self._split_to_dict(modified_url)
+            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            assert expected_bits == actual_bits
+
+    def test_limiting_existing_limit_query_as_expected(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            url_with_existing_limit = regression_11204 + "&limit=100000"
+            modified_url = add_limit(absolute_uri(url_with_existing_limit), {"limit": "3500"})
+            actual_bits = self._split_to_dict(modified_url)
+            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            assert expected_bits == actual_bits
+
+    def _split_to_dict(self, url: str) -> Dict[str, Any]:
+        first_split_parts = url.split("?")
+        assert len(first_split_parts) == 2
+        return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}
