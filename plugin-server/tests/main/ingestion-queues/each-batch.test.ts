@@ -1,6 +1,7 @@
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
+import { ClickHouseTimestamp, ISOTimestamp } from '../../../src/types'
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
 
@@ -11,7 +12,7 @@ const event: PostIngestionEvent = {
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: '2020-02-23T02:15:00.000Z',
+    timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
     elementsList: [],
@@ -24,10 +25,10 @@ const clickhouseEvent: RawClickHouseEvent = {
     }),
     uuid: 'uuid1',
     elements_chain: '',
-    timestamp: '2020-02-23 02:15:00.00',
+    timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     team_id: 2,
     distinct_id: 'my_id',
-    created_at: '2020-02-23T02:15:00Z',
+    created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
 }
 
 const captureEndpointEvent = {
