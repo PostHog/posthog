@@ -4,7 +4,7 @@ import { KafkaMessage } from 'kafkajs'
 import { ClickHouseEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
-import { clickHouseTimestampToDateTime } from './utils'
+import { clickHouseTimestampToDateTime, clickHouseTimestampToISO } from './utils'
 
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -50,7 +50,7 @@ export function convertToIngestionEvent(event: RawClickHouseEvent): PostIngestio
         teamId: event.team_id,
         distinctId: event.distinct_id,
         properties,
-        timestamp: event.timestamp,
+        timestamp: clickHouseTimestampToISO(event.timestamp),
         elementsList: event.elements_chain ? chainToElements(event.elements_chain) : [],
     }
 }
