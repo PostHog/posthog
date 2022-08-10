@@ -15,7 +15,7 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
-from posthog.tasks.exports.csv_exporter import add_limit
+from posthog.tasks.exports.csv_exporter import add_query_params
 from posthog.test.base import APIBaseTest
 from posthog.utils import absolute_uri
 
@@ -170,7 +170,7 @@ class TestCSVExporter(APIBaseTest):
     def test_limiting_query_as_expected(self) -> None:
 
         with self.settings(SITE_URL="https://app.posthog.com"):
-            modified_url = add_limit(absolute_uri(regression_11204), {"limit": "3500"})
+            modified_url = add_query_params(absolute_uri(regression_11204), {"limit": "3500"})
             actual_bits = self._split_to_dict(modified_url)
             expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
             assert expected_bits == actual_bits
@@ -178,7 +178,7 @@ class TestCSVExporter(APIBaseTest):
     def test_limiting_existing_limit_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             url_with_existing_limit = regression_11204 + "&limit=100000"
-            modified_url = add_limit(absolute_uri(url_with_existing_limit), {"limit": "3500"})
+            modified_url = add_query_params(absolute_uri(url_with_existing_limit), {"limit": "3500"})
             actual_bits = self._split_to_dict(modified_url)
             expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
             assert expected_bits == actual_bits
