@@ -23,7 +23,7 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 export interface PersonsModalProps {
     isOpen: boolean
