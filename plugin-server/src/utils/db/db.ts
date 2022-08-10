@@ -48,7 +48,7 @@ import {
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
     RawAction,
-    RawEvent,
+    RawClickhouseEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
@@ -1312,7 +1312,9 @@ export class DB {
     // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
 
     public async fetchEvents(): Promise<Event[]> {
-        const queryResult = await this.clickhouseQuery<RawEvent>(`SELECT * FROM events ORDER BY timestamp ASC`)
+        const queryResult = await this.clickhouseQuery<RawClickhouseEvent>(
+            `SELECT * FROM events ORDER BY timestamp ASC`
+        )
         return queryResult.data.map(convertToParsedEvent)
     }
 

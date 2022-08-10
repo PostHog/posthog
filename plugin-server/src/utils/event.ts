@@ -1,7 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { KafkaMessage } from 'kafkajs'
 
-import { Event, PostIngestionEvent, RawEvent } from '../types'
+import { Event, PostIngestionEvent, RawClickhouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToDateTime } from './utils'
@@ -22,7 +22,7 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
 }
 
 /** Parse an event row SELECTed from ClickHouse into a more malleable form. */
-export function convertToParsedEvent(rawEvent: RawEvent): Event {
+export function convertToParsedEvent(rawEvent: RawClickhouseEvent): Event {
     return {
         ...rawEvent,
         timestamp: clickHouseTimestampToDateTime(rawEvent.timestamp),
@@ -41,7 +41,7 @@ export function convertToParsedEvent(rawEvent: RawEvent): Event {
     }
 }
 
-export function convertToIngestionEvent(event: RawEvent): PostIngestionEvent {
+export function convertToIngestionEvent(event: RawClickhouseEvent): PostIngestionEvent {
     const properties = event.properties ? JSON.parse(event.properties) : {}
     return {
         eventUuid: event.uuid,

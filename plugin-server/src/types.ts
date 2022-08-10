@@ -512,7 +512,7 @@ export interface EventMessage extends BaseEventMessage {
     sent_at: DateTime | null
 }
 
-/** Properties shared by RawEvent and Event. */
+/** Properties shared by RawClickHouseEvent and Event. */
 interface BaseEvent {
     uuid: string
     event: string
@@ -523,7 +523,7 @@ interface BaseEvent {
 }
 
 /** Raw event row from ClickHouse. */
-export interface RawEvent extends BaseEvent {
+export interface RawClickHouseEvent extends BaseEvent {
     timestamp: string
     created_at: string
     properties?: string

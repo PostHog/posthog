@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { PostIngestionEvent, RawEvent } from '../../../src/types'
+import { PostIngestionEvent, RawClickHouseEvent } from '../../../src/types'
 import { groupIntoBatches } from '../../../src/utils/utils'
 
 jest.mock('../../../src/utils/status')
@@ -19,7 +19,7 @@ const event: PostIngestionEvent = {
     elementsList: [],
 }
 
-const clickhouseEvent: RawEvent = {
+const clickhouseEvent: RawClickHouseEvent = {
     event: '$pageview',
     properties: JSON.stringify({
         $ip: '127.0.0.1',
