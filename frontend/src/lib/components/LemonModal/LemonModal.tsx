@@ -18,7 +18,8 @@ export interface LemonModalProps {
     children?: React.ReactNode
     isOpen: boolean
     onClose: () => void
-    width?: number
+    onAfterClose?: () => void
+    width?: number | string
     inline?: boolean
     title: string | JSX.Element
     description?: string | JSX.Element
@@ -39,12 +40,12 @@ export const LemonModalContent = ({ children, className }: LemonModalContentProp
     return <section className={clsx('LemonModal__content', className)}>{children}</section>
 }
 
-/** A lightweight wrapper over Ant's Modal for matching Lemon style. */
 export function LemonModal({
     width,
     children,
     isOpen,
     onClose,
+    onAfterClose,
     title,
     description,
     footer,
@@ -82,6 +83,7 @@ export function LemonModal({
         <Modal
             isOpen={isOpen}
             onRequestClose={onClose}
+            onAfterClose={onAfterClose}
             closeTimeoutMS={250}
             className="LemonModal"
             overlayClassName="LemonModal__overlay"
