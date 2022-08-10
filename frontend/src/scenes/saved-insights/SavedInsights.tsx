@@ -41,7 +41,7 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { CalendarOutlined } from '@ant-design/icons'
-import { LemonSearchInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const { TabPane } = Tabs
 
@@ -359,7 +359,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
-                        <LemonSearchInput
+                        <LemonInput
+                            type="search"
                             placeholder="Search for insights"
                             onChange={(value) => setSavedInsightsFilters({ search: value })}
                             value={search || ''}

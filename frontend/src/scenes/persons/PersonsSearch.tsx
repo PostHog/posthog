@@ -3,7 +3,7 @@ import { useValues, useActions } from 'kea'
 import { personsLogic } from './personsLogic'
 import { IconInfo } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { LemonSearchInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useDebouncedCallback } from 'use-debounce'
 
 export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
@@ -24,7 +24,8 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
 
     return (
         <div className="flex items-center gap-2">
-            <LemonSearchInput
+            <LemonInput
+                type="search"
                 autoFocus={autoFocus}
                 placeholder="Search for persons"
                 onChange={setSearchTerm}

@@ -10,7 +10,7 @@ import { LemonRow } from 'lib/components/LemonRow'
 import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
-import { LemonInput, LemonSearchInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
 import Typography from 'antd/lib/typography'
 
@@ -89,7 +89,8 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
     return (
         <div>
             <div className="flex items-center mb-4 gap-2 justify-between">
-                <LemonSearchInput
+                <LemonInput
+                    type="search"
                     autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     placeholder="Search for authorized URLs"
                     onChange={setSearchTerm}

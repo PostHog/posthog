@@ -25,7 +25,7 @@ import { ActionEvent, IconWebhook, UnverifiedEvent } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonSearchInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const eventTypeOptions: LemonSelectOptions = {
     [CombinedEventType.All]: {
@@ -227,7 +227,8 @@ export function EventDefinitionsTable(): JSX.Element {
             )}
 
             <div className="flex justify-between items-center gap-2 mb-4">
-                <LemonSearchInput
+                <LemonInput
+                    type="search"
                     placeholder="Search for events"
                     onChange={(v) => setFilters({ event: v || '' })}
                     value={filters.event}

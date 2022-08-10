@@ -19,7 +19,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
-import { LemonSearchInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -146,7 +146,12 @@ export function Cohorts(): JSX.Element {
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
             <div className="flex justify-between items-center mb-4 gap-2">
-                <LemonSearchInput placeholder="Search for cohorts" onChange={setSearchTerm} value={searchTerm} />
+                <LemonInput
+                    type="search"
+                    placeholder="Search for cohorts"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
                 <LemonButton
                     type="primary"
                     data-attr="create-cohort"

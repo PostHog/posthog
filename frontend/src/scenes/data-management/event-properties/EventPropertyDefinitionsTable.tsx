@@ -16,7 +16,7 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonSearchInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {
@@ -101,7 +101,8 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             )}
 
             <div className="mb-4">
-                <LemonSearchInput
+                <LemonInput
+                    type="search"
                     placeholder="Search for properties"
                     onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}

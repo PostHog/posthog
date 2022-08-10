@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
-import { LemonInput, LemonSearchInput } from './LemonInput'
+import { LemonInput } from './LemonInput'
 import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
 import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 
@@ -50,5 +50,5 @@ Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
 
 export const Search = (): JSX.Element => {
     const [value, setValue] = useState('')
-    return <LemonSearchInput placeholder="Search your soul" value={value} onChange={(e) => setValue(e)} />
+    return <LemonInput type="search" placeholder="Search your soul" value={value} onChange={(e) => setValue(e)} />
 }

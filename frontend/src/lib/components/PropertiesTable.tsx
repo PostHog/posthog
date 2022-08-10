@@ -11,7 +11,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from './LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
-import { LemonSearchInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -276,7 +276,8 @@ export function PropertiesTable({
             <>
                 {searchable && (
                     <div className="flex justify-between gap-4">
-                        <LemonSearchInput
+                        <LemonInput
+                            type="search"
                             placeholder="Search for property keys and values"
                             autoFocus
                             value={searchTerm || ''}

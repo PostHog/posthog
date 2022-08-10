@@ -54,8 +54,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onBlur,
         onPressEnter,
         embedded = false,
-        allowClear = false,
-        fullWidth = true,
+        allowClear,
+        fullWidth,
         icon,
         sideIcon,
         type,
@@ -75,6 +75,12 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         }
         setFocused(true)
     }
+
+    // Type=search has some special overrides
+    allowClear = allowClear ?? type === 'search' ? true : false
+    fullWidth = fullWidth ?? type === 'search' ? false : true
+    icon = icon ?? type === 'search' ? <IconMagnifier /> : undefined
+    width = width ?? type === 'search' ? 240 : undefined
 
     const rowProps: LemonRowProps<'span'> = {
         tag: 'span',
@@ -153,16 +159,3 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         </LemonRow>
     )
 })
-
-export const LemonSearchInput = (props: LemonInputProps): JSX.Element => {
-    return (
-        <LemonInput
-            className="LemonSearchInput"
-            icon={<IconMagnifier />}
-            allowClear
-            fullWidth={false}
-            type="search"
-            {...props}
-        />
-    )
-}
