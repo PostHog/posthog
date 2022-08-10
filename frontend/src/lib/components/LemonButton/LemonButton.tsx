@@ -15,7 +15,8 @@ export interface LemonButtonPropsBase
     extends Pick<React.ButtonHTMLAttributes<HTMLElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
-    status?: 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
+    /** What color scheme the button should follow */
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
