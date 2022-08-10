@@ -135,7 +135,6 @@ export function PropertyGroupFilters({
                 type="secondary"
                 onClick={() => addFilterGroup()}
                 icon={<IconPlusMini color="var(--primary)" />}
-                fullWidth
             >
                 Add filter group
             </LemonButton>

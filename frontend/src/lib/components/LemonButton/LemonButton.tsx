@@ -40,6 +40,7 @@ export interface LemonButtonPropsBase
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
     'data-tooltip'?: string
+    'aria-label'?: string
 }
 
 export interface LemonButtonProps extends LemonButtonPropsBase {
@@ -75,6 +76,10 @@ function LemonButtonInternal(
     }
 
     const ButtonComponent = to || href ? Link : 'button'
+
+    if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
+        buttonProps['aria-label'] = tooltip
+    }
 
     let workingButton = (
         <ButtonComponent
@@ -119,7 +124,7 @@ export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr'
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label'
 > & {
     popup?: LemonButtonPopup
 }

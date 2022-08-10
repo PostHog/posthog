@@ -5,16 +5,20 @@ const interceptPropertyDefinitions = () => {
         fixture: 'api/event/property_definitions',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?search=&*', {
+    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=&*', {
         fixture: 'api/event/property_definitions',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?search=%24time*', {
+    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=%24time*', {
         fixture: 'api/event/only_time_property_definition',
     })
 
-    cy.intercept('/api/projects/1/property_definitions?search=%24browser*', {
+    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=false&search=%24browser*', {
         fixture: 'api/event/only_browser_version_property_definition',
+    })
+
+    cy.intercept('/api/projects/1/property_definitions?is_feature_flag=true*', {
+        fixture: 'api/event/feature_flag_property_definition',
     })
 }
 
@@ -69,6 +73,12 @@ describe('Events', () => {
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
         cy.get('[data-attr=events-table]').should('exist')
+    })
+
+    it('separates feature flag properties into their own tab', () => {
+        cy.get('[data-attr=new-prop-filter-EventsTable]').click()
+        cy.get('[data-attr="taxonomic-tab-event_feature_flags"]').should('contain.text', 'Feature flags: 2').click()
+        cy.get('.taxonomic-list-row').should('have.length', 2)
     })
 
     it('use before and after with a DateTime property', () => {

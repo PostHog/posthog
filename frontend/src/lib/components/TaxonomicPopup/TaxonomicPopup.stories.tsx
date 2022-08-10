@@ -46,6 +46,7 @@ export function MultipleCategories(): JSX.Element {
             groupTypes={[
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.Cohorts,
             ]}
         />

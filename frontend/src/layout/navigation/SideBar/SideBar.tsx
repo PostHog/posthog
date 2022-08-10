@@ -72,6 +72,7 @@ function Pages(): JSX.Element {
                 identifier={Scene.ProjectHomepage}
                 to={urls.projectHomepage()}
                 sideAction={{
+                    'aria-label': 'switch project',
                     onClick: () => toggleProjectSwitcher(),
                     popup: {
                         visible: isProjectSwitcherShown,
