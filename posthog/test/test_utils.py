@@ -69,6 +69,11 @@ class TestAbsoluteUrls(TestCase):
             with pytest.raises(PotentialSecurityProblemException):
                 absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
 
+    def test_absolute_uri_can_not_escape_out_host_on_different_scheme(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("ftp://an.attackers.domain.com/bitcoin-miner.exe"),
+
     def test_absolute_uri_can_not_escape_out_host_when_site_url_is_the_empty_string(self) -> None:
         with self.settings(SITE_URL=""):
             with pytest.raises(PotentialSecurityProblemException):
