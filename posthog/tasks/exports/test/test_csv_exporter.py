@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from boto3 import resource
 from botocore.client import Config
+from django.test import override_settings
 
 from posthog.models import ExportedAsset
 from posthog.settings import (
@@ -25,6 +26,7 @@ TEST_BUCKET = "Test-Exports"
 regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
 
 
+@override_settings(SITE_URL="http://testserver")
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
     def patched_request(self):
