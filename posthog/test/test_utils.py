@@ -43,6 +43,11 @@ class TestAbsoluteUrls(TestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/some/path?=something",
             ),
+            (
+                "an.attackers.domain.com/bitcoin-miner.exe",
+                "https://app.posthog.com",
+                "https://app.posthog.com/an.attackers.domain.com/bitcoin-miner.exe",
+            ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
                 "/api/path",
