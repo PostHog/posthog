@@ -1,17 +1,18 @@
 import React, { useState } from 'react'
 import { Group } from 'kea-forms'
-import { Button, Slider, Card, Row, Col, Collapse, Radio, InputNumber, Popconfirm, Select } from 'antd'
+import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Loading } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, ApiFilled, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
+import { DeleteOutlined, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconJavascript, IconPython, IconCopy, IconDelete } from 'lib/components/icons'
+import { IconOpenInNew, IconCopy, IconDelete } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
-import { APISnippet, JSSnippet, PythonSnippet, UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
+import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
@@ -90,12 +91,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     props={props}
                     formKey="featureFlag"
                     enableFormOnSubmit
-                    className="space-y"
+                    className="space-y-4"
                 >
                     <PageHeader
                         title="Feature Flag"
                         buttons={
-                            <div className="flex-center">
+                            <div className="flex items-center gap-2">
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
@@ -120,7 +121,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         onClick={() => {
                                             deleteFeatureFlag(featureFlag)
                                         }}
-                                        style={{ marginRight: 16 }}
                                     >
                                         Delete
                                     </LemonButton>
@@ -146,8 +146,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </AlertMessage>
                     )}
                     <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
-                    <h3 className="l3 mt">General configuration</h3>
-                    <div className="text-muted mb">
+                    <h3 className="l3 mt-4">General configuration</h3>
+                    <div className="text-muted mb-4">
                         General settings for your feature flag and integration instructions.
                     </div>
                     <Row gutter={16} style={{ marginBottom: 32 }}>
@@ -202,7 +202,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </Field>
                             <Field name="ensure_experience_continuity">
                                 {({ value, onChange }) => (
-                                    <div style={{ border: '1px solid var(--border)', borderRadius: 4 }}>
+                                    <div className="border rounded p-4">
                                         <LemonCheckbox
                                             id="continuity-checkbox"
                                             label={
@@ -212,18 +212,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 </div>
                                             }
                                             onChange={() => onChange(!value)}
-                                            rowProps={{ fullWidth: true }}
+                                            fullWidth
                                             checked={value}
                                         />
-                                        <div
-                                            className="text-muted"
-                                            style={{
-                                                fontSize: 13,
-                                                marginLeft: '2.5rem',
-                                                paddingBottom: '.75rem',
-                                                paddingRight: '.75rem',
-                                            }}
-                                        >
+                                        <div className="text-muted text-sm pl-7">
                                             If your feature flag is applied prior to an identify or authentication
                                             event, use this to ensure that feature flags are not reset after a person is
                                             identified. This ensures the experience for the anonymous person is carried
@@ -234,46 +226,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 )}
                             </Field>
                         </Col>
-                        <Col span={12} style={{ paddingTop: 31 }}>
-                            <Collapse>
-                                <Collapse.Panel
-                                    header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
-                                            <IconJavascript style={{ marginRight: 6 }} /> Javascript integration
-                                            instructions
-                                        </div>
-                                    }
-                                    key="js"
-                                >
-                                    <JSSnippet flagKey={featureFlag.key || 'my-flag'} />
-                                </Collapse.Panel>
-                                <Collapse.Panel
-                                    header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
-                                            <IconPython style={{ marginRight: 6 }} /> Python integration instructions
-                                        </div>
-                                    }
-                                    key="python"
-                                >
-                                    <PythonSnippet flagKey={featureFlag.key || 'my-flag'} />
-                                </Collapse.Panel>
-                                <Collapse.Panel
-                                    header={
-                                        <div style={{ display: 'flex', fontWeight: 'bold', alignItems: 'center' }}>
-                                            <ApiFilled style={{ marginRight: 6 }} /> API integration instructions
-                                        </div>
-                                    }
-                                    key="api"
-                                >
-                                    <APISnippet />
-                                </Collapse.Panel>
-                            </Collapse>
+                        <Col span={12}>
+                            <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                         </Col>
                     </Row>
 
-                    <div className="mb-2">
+                    <div className="mb-8">
                         <h3 className="l3">Served value</h3>
-                        <div className="mb-05">
+                        <div className="mb-2">
                             <Popconfirm
                                 placement="top"
                                 title="Change value type? The variants below will be lost."
@@ -332,7 +292,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 />
                             </Popconfirm>
                         </div>
-                        <div className="text-muted mb">
+                        <div className="text-muted mb-4">
                             {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
                             {multivariateEnabled ? (
                                 <>
@@ -346,7 +306,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             if they match one or more release condition groups.
                         </div>
                         {multivariateEnabled && (
-                            <div className="variant-form-list space-y-05">
+                            <div className="variant-form-list space-y-2">
                                 <Row gutter={8} className="label-row">
                                     <Col span={7}>Variant key</Col>
                                     <Col span={7}>Description</Col>
@@ -450,7 +410,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         addVariant()
                                         focusVariantKeyField(newIndex)
                                     }}
-                                    style={{ margin: '1rem 0' }}
                                     fullWidth
                                     center
                                 >
@@ -463,7 +422,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <div className="feature-flag-form-row">
                         <div data-tooltip="feature-flag-release-conditions">
                             <h3 className="l3">Release conditions</h3>
-                            <div className="text-muted mb">
+                            <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that
                                 condition sets are rolled out independently of each other.
                             </div>
@@ -510,7 +469,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                                 {index > 0 && (
                                     <div style={{ display: 'flex', marginLeft: 16 }}>
-                                        <div className="stateful-badge or-light-grey mb">OR</div>
+                                        <div className="stateful-badge or-light-grey mb-4">OR</div>
                                     </div>
                                 )}
                                 <Card style={{ marginBottom: 16 }}>
@@ -550,7 +509,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </div>
 
                                     <LemonDivider large />
-                                    <div className="ml">
+                                    <div className="ml-4">
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${
                                                 featureFlag.filters.groups.length
@@ -559,7 +518,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             showConditionBadge
-                                            useLemonButton
                                         />
                                     </div>
 

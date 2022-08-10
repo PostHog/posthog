@@ -48,20 +48,21 @@ function ToolbarLaunch(): JSX.Element {
             <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
             <LemonDivider />
 
-            <LemonSwitch
-                data-tooltip="toolbar-authorized-toggle"
-                label="Enable the PostHog toolbar"
-                onChange={() =>
-                    updateUser({
-                        toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
-                    })
-                }
-                checked={user?.toolbar_mode !== 'disabled'}
-                disabled={userLoading}
-                loading={userLoading}
-                type="primary"
-                className="EnableToolbarSwitch mt mb pt pb full-width"
-            />
+            <div className="my-4">
+                <LemonSwitch
+                    data-tooltip="toolbar-authorized-toggle"
+                    label="Enable the PostHog toolbar"
+                    onChange={() =>
+                        updateUser({
+                            toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
+                        })
+                    }
+                    checked={user?.toolbar_mode !== 'disabled'}
+                    disabled={userLoading}
+                    loading={userLoading}
+                    bordered
+                />
+            </div>
 
             <h2 className="subtitle" id="urls">
                 Authorized URLs for Toolbar
@@ -72,12 +73,12 @@ function ToolbarLaunch(): JSX.Element {
             </p>
             <AuthorizedUrls pageKey="toolbar-launch" />
 
-            <div className="footer-caption text-muted mt text-center">
+            <div className="footer-caption text-muted mt-4 text-center">
                 Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>
 
-            <div className="feature-highlight-list mt-2 mx-auto mb-0 flex flex-wrap flex-center justify-center">
+            <div className="feature-highlight-list mt-8 mx-auto mb-0 flex flex-wrap items-center justify-center">
                 {features.map((feature) => (
                     <FeatureHighlight key={feature.title} {...feature} />
                 ))}
@@ -94,8 +95,8 @@ interface FeatureHighlightProps {
 
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
-        <div className="fh-item flex flex-center mt">
-            <div className="fh-icon mr text-muted-alt">{icon}</div>
+        <div className="fh-item flex items-center mt-4">
+            <div className="fh-icon mr-4 text-muted-alt">{icon}</div>
             <div>
                 <h4 className="mb-0 text-muted-alt">{title}</h4>
                 <div className="caption">{caption}</div>

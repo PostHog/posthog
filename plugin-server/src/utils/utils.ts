@@ -15,6 +15,8 @@ const GRACEFUL_EXIT_PERIOD_SECONDS = 5
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 
+export class NoRowsUpdatedError extends Error {}
+
 export function killGracefully(): void {
     status.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
     process.kill(process.pid, 'SIGTERM')

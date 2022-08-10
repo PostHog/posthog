@@ -144,11 +144,6 @@ CONSTANCE_CONFIG = {
         "user to determine how many insight cache updates to run at a time",
         int,
     ),
-    "UPDATE_CACHE_ITEM_TASK_RATE_LIMIT": (
-        get_from_env("UPDATE_CACHE_ITEM_TASK_RATE_LIMIT", default="6/m"),
-        "A celery rate limit string to apply to the update cache item task",
-        str,
-    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -177,7 +172,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
-    "UPDATE_CACHE_ITEM_TASK_RATE_LIMIT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

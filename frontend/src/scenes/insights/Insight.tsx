@@ -125,21 +125,21 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     />
                 }
                 buttons={
-                    <div className="space-between-items items-center gap-05">
+                    <div className="flex justify-between items-center gap-2">
                         {insightMode !== ItemMode.Edit && (
                             <>
                                 <More
                                     overlay={
                                         <>
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
                                             >
                                                 Duplicate
                                             </LemonButton>
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() =>
                                                     setInsightMetadata({
                                                         favorited: !insight.favorited,
@@ -152,7 +152,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             <LemonDivider />
 
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() =>
                                                     insight.short_id
                                                         ? push(urls.insightSharing(insight.short_id))
@@ -185,7 +185,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             )}
 
                                             <LemonButton
-                                                type="stealth"
                                                 status="danger"
                                                 onClick={() =>
                                                     deleteWithUndo({
@@ -274,7 +273,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         <UserActivityIndicator
                             at={insight.last_modified_at}
                             by={insight.last_modified_by}
-                            className="mt-05"
+                            className="mt-2"
                         />
                     </>
                 }

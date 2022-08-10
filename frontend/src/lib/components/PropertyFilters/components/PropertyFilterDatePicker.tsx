@@ -87,6 +87,7 @@ export function PropertyFilterDatePicker({
                     onChange={(active) => {
                         setIncludeTimeInFilter(active)
                     }}
+                    bordered
                 />
             )}
         />

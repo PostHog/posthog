@@ -8,7 +8,7 @@ import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
 import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
-import { CalendarOutlined } from '@ant-design/icons'
+import { IconCalendar } from '../icons'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -16,7 +16,6 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     className?: string
-    style?: React.CSSProperties
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: () => HTMLElement
@@ -32,7 +31,6 @@ export function DateFilter({
     defaultValue,
     showCustom,
     showRollingRangePicker = true,
-    style,
     className,
     disabled,
     makeLabel,
@@ -90,7 +88,7 @@ export function DateFilter({
                     return null
                 }
 
-                const isHighlighted = dateFrom === values[0] && dateTo === values[1]
+                const isActive = dateFrom === values[0] && dateTo === values[1]
                 const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
 
                 return (
@@ -101,7 +99,8 @@ export function DateFilter({
                                 setDate(values[0], values[1])
                                 close()
                             }}
-                            type={isHighlighted ? 'highlighted' : 'stealth'}
+                            active={isActive}
+                            status="stealth"
                             fullWidth
                         >
                             {key}
@@ -124,7 +123,7 @@ export function DateFilter({
                 />
             )}
             <LemonDivider />
-            <LemonButton onClick={openDateRange} type={isFixedDateRange ? 'highlighted' : 'stealth'} fullWidth>
+            <LemonButton onClick={openDateRange} active={isFixedDateRange} status="stealth" fullWidth>
                 {'Custom fixed time period'}
             </LemonButton>
         </div>
@@ -135,13 +134,11 @@ export function DateFilter({
             data-attr="date-filter"
             id="daterange_selector"
             onClick={isOpen ? close : open}
-            value={value}
             disabled={disabled}
             className={className}
-            style={style}
-            bordered={true}
             size={'small'}
-            type={'stealth'}
+            type={'secondary'}
+            status="stealth"
             popup={{
                 onClickOutside: close,
                 visible: isOpen || isDateRangeOpen,
@@ -152,7 +149,7 @@ export function DateFilter({
                 additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
                 getPopupContainer,
             }}
-            icon={<CalendarOutlined />}
+            icon={<IconCalendar />}
         >
             {value}
         </LemonButtonWithPopup>

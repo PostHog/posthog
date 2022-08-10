@@ -24,18 +24,18 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
             <div>
                 <code>{metricKey}</code>
             </div>
-            <div style={{ color: 'var(--text-muted)' }}>
+            <div style={{ color: 'var(--muted)' }}>
                 Value will be changed
                 {!isSecret && (
                     <>
                         {' from '}
-                        <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
+                        <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
                             {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
                         </span>
                     </>
                 )}
                 {' to '}
-                <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
+                <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
                     {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (
@@ -92,7 +92,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                 />
             ))}
             {loading && (
-                <div className="mt text-success">
+                <div className="mt-4 text-success">
                     <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
                 </div>
             )}

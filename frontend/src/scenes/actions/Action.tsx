@@ -66,7 +66,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                 ) : (
                     <div>
                         <h2 className="subtitle">Matching events</h2>
-                        <div className="flex-center">
+                        <div className="flex items-center">
                             <Spinner style={{ marginRight: 12 }} />
                             Calculating action, please hold on.
                         </div>

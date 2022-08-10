@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PreIngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-createEventStep'
+import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -14,7 +15,6 @@ const preIngestionEvent: PreIngestionEvent = {
     event: '$pageview',
     properties: {},
     elementsList: [],
-    person: { id: 'testid' } as any,
 }
 
 describe('createEventStep()', () => {
@@ -32,8 +32,9 @@ describe('createEventStep()', () => {
     })
 
     it('calls `createEvent` and forwards to `runAsyncHandlersStep`', async () => {
-        const response = await createEventStep(runner, preIngestionEvent)
+        const personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
+        const response = await createEventStep(runner, preIngestionEvent, personContainer)
 
-        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent])
+        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, personContainer])
     })
 })

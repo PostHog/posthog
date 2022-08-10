@@ -56,7 +56,7 @@ function NewPasswordForm(): JSX.Element {
 
     return (
         <>
-            <div className="text-center mb">Please enter a new password for your account.</div>
+            <div className="text-center mb-4">Please enter a new password for your account.</div>
             {!newPasswordResponseLoading && newPasswordResponse?.errorCode && (
                 <InlineMessage style={{ marginBottom: 16 }} type="danger">
                     {newPasswordResponse.errorDetail ||
@@ -108,7 +108,7 @@ function ResetInvalid(): JSX.Element {
     return (
         <div className="text-center">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
-            <div className="mt">
+            <div className="mt-4">
                 <Button className="btn-bridge" data-attr="back-to-login" block onClick={() => push('/reset')}>
                     Request new link
                 </Button>

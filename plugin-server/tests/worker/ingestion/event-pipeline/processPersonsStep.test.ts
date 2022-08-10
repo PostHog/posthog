@@ -1,9 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Person } from '../../../../src/types'
-import { UUIDT } from '../../../../src/utils/utils'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/3-processPersonsStep'
+import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { updatePersonState } from '../../../../src/worker/ingestion/person-state'
 
 jest.mock('../../../../src/utils/status')
@@ -21,21 +20,9 @@ const pluginEvent: PluginEvent = {
     uuid: '017ef865-19da-0000-3b60-1506093bf40f',
 }
 
-const person: Person = {
-    id: 123,
-    team_id: 2,
-    properties: {},
-    is_user_id: 0,
-    is_identified: true,
-    uuid: new UUIDT().toString(),
-    properties_last_updated_at: {},
-    properties_last_operation: {},
-    created_at: DateTime.now(),
-    version: 0,
-}
-
 describe('processPersonsStep()', () => {
     let runner: any
+    let personContainer: any
 
     beforeEach(() => {
         runner = {
@@ -46,21 +33,18 @@ describe('processPersonsStep()', () => {
                 personManager: 'hub.personManager',
             },
         }
+        personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
 
-        jest.mocked(updatePersonState).mockResolvedValue(person)
+        jest.mocked(updatePersonState).mockResolvedValue(personContainer)
     })
 
     it('forwards event to `prepareEventStep`', async () => {
-        const response = await processPersonsStep(runner, pluginEvent, person)
+        const response = await processPersonsStep(runner, pluginEvent, personContainer)
 
-        expect(response).toEqual(['prepareEventStep', pluginEvent, person])
+        expect(response).toEqual(['prepareEventStep', pluginEvent, personContainer])
     })
 
     it('re-normalizes the event with properties set by plugins', async () => {
-        const updatedPerson = {
-            ...person,
-            properties: { personProp: 'value ' },
-        }
         const event = {
             ...pluginEvent,
             properties: {
@@ -70,9 +54,10 @@ describe('processPersonsStep()', () => {
                 someProp: 'value',
             },
         }
-        jest.mocked(updatePersonState).mockResolvedValue(updatedPerson)
+        const updatedContainer = new LazyPersonContainer(2, 'my_id2', runner.hub)
+        jest.mocked(updatePersonState).mockResolvedValue(updatedContainer)
 
-        const response = await processPersonsStep(runner, event, person)
+        const response = await processPersonsStep(runner, event, personContainer)
 
         expect(response).toEqual([
             'prepareEventStep',
@@ -88,18 +73,15 @@ describe('processPersonsStep()', () => {
                     },
                 },
             },
-            updatedPerson,
+            updatedContainer,
         ])
     })
 
     it('updates person', async () => {
-        const updatedPerson = {
-            ...person,
-            properties: { personProp: 'value ' },
-        }
-        jest.mocked(updatePersonState).mockResolvedValue(updatedPerson)
+        const updatedContainer = new LazyPersonContainer(2, 'my_id2', runner.hub)
+        jest.mocked(updatePersonState).mockResolvedValue(updatedContainer)
 
-        const response = await processPersonsStep(runner, pluginEvent, person)
+        const response = await processPersonsStep(runner, pluginEvent, personContainer)
 
         expect(updatePersonState).toHaveBeenCalledWith(
             pluginEvent,
@@ -109,8 +91,8 @@ describe('processPersonsStep()', () => {
             'hub.db',
             'hub.statsd',
             'hub.personManager',
-            person
+            personContainer
         )
-        expect(response).toEqual(['prepareEventStep', pluginEvent, updatedPerson])
+        expect(response).toEqual(['prepareEventStep', pluginEvent, updatedContainer])
     })
 })

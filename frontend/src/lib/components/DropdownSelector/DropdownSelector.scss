@@ -7,7 +7,7 @@
     cursor: pointer;
 
     &.disabled {
-        color: var(--text-muted);
+        color: var(--muted);
         cursor: not-allowed;
     }
 
@@ -20,6 +20,6 @@
         align-items: center;
         padding-left: 4px;
         font-size: 1.2em;
-        color: var(--text-muted-alt);
+        color: var(--muted-alt);
     }
 }

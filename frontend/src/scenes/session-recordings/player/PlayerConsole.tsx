@@ -1,15 +1,15 @@
+import './PlayerConsole.scss'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import './Console.scss'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { RecordingConsoleLog } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 
-export function Console(): JSX.Element | null {
+export function PlayerConsole(): JSX.Element | null {
     const { orderedConsoleLogs, areAllSnapshotsLoaded } = useValues(sessionRecordingLogic)
     const { reportRecordingConsoleFeedback } = useActions(eventUsageLogic)
     const { seek } = useActions(sessionRecordingPlayerLogic)
@@ -76,7 +76,7 @@ export function Console(): JSX.Element | null {
                             </p>
                             <LemonButton
                                 type="secondary"
-                                style={{ margin: '0 8px' }}
+                                className="my-2"
                                 href="https://posthog.com/docs/user-guides/recordings?utm_campaign=session-recording&utm_medium=in-product"
                             >
                                 Learn more
@@ -90,13 +90,11 @@ export function Console(): JSX.Element | null {
                 )}
             </div>
             <div className="console-feedback-container">
-                <p style={{ marginBottom: 8, textAlign: 'center' }}>Are you finding the console log feature useful?</p>
+                <p className="mb-2 text-center">Are you finding the console log feature useful?</p>
                 {feedbackSubmitted ? (
-                    <p className="text-muted" style={{ marginBottom: 8, textAlign: 'center' }}>
-                        Thanks for the input!
-                    </p>
+                    <p className="text-muted mb-2 text-center">Thanks for the input!</p>
                 ) : (
-                    <div style={{ display: 'flex', width: '100%', justifyContent: 'center' }}>
+                    <div className="flex justify-center gap-2">
                         {(
                             [
                                 ['Yes', '👍 Yes!'],
@@ -106,7 +104,6 @@ export function Console(): JSX.Element | null {
                             <LemonButton
                                 type="secondary"
                                 key={index}
-                                style={{ margin: '0 8px' }}
                                 onClick={() => {
                                     setFeedbackSubmitted(true)
                                     reportRecordingConsoleFeedback(

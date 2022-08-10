@@ -1,4 +1,4 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 @import '../../../styles/mixins';
 
 .EditorFiltersWrapper {
@@ -13,7 +13,7 @@
         > * + * {
             margin-top: 1rem;
         }
-        @media screen and (min-width: $md) {
+        @include screen($md) {
             display: flex;
             gap: 2rem;
             .EditorFilterGroup {
@@ -43,7 +43,7 @@
         border: none;
         padding: 0px;
 
-        @media screen and (min-width: $xl) {
+        @include screen($xl) {
             --editor-panel-width: max(25vw, 28rem);
 
             .EditorFilters {

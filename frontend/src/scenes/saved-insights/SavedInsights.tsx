@@ -37,8 +37,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
@@ -120,7 +118,7 @@ function NewInsightButton(): JSX.Element {
                             listedInsightTypeMetadata.inMenu && (
                                 <LemonButton
                                     key={listedInsightType}
-                                    type="stealth"
+                                    status="stealth"
                                     icon={
                                         listedInsightTypeMetadata.icon && (
                                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
@@ -133,9 +131,11 @@ function NewInsightButton(): JSX.Element {
                                         eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
                                     }}
                                     fullWidth
-                                    extendedContent={listedInsightTypeMetadata.description}
                                 >
-                                    <strong>{listedInsightTypeMetadata.name}</strong>
+                                    <div className="text-default flex flex-col text-sm py-1">
+                                        <strong>{listedInsightTypeMetadata.name}</strong>
+                                        <span className="text-xs">{listedInsightTypeMetadata.description}</span>
+                                    </div>
                                 </LemonButton>
                             )
                     ),
@@ -279,15 +279,15 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -295,7 +295,7 @@ export function SavedInsights(): JSX.Element {
                                     Rename
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-duplicate`}
                                     fullWidth
@@ -304,8 +304,7 @@ export function SavedInsights(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() =>
                                         deleteWithUndo({
                                             object: insight,
@@ -326,9 +325,6 @@ export function SavedInsights(): JSX.Element {
         },
     ]
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showActivityLog = featureFlags[FEATURE_FLAGS.INSIGHT_ACTIVITY_LOG]
-
     return (
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton />} />
@@ -341,10 +337,10 @@ export function SavedInsights(): JSX.Element {
                 <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
                 <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
                 <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
-                {showActivityLog ? <TabPane tab="History" key={SavedInsightsTabs.History} /> : null}
+                <TabPane tab="History" key={SavedInsightsTabs.History} />
             </Tabs>
 
-            {tab === SavedInsightsTabs.History && showActivityLog ? (
+            {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
             ) : (
                 <>
@@ -396,7 +392,7 @@ export function SavedInsights(): JSX.Element {
                                     ))}
                                 </Select>
                             </Col>
-                            <div className="flex-center gap-05">
+                            <div className="flex items-center gap-2">
                                 <span>Last modified:</span>
                                 <DateFilter
                                     defaultValue="All time"
@@ -448,11 +444,11 @@ export function SavedInsights(): JSX.Element {
                                 buttonStyle="solid"
                             >
                                 <Radio.Button value={LayoutView.List}>
-                                    <UnorderedListOutlined className="mr-05" />
+                                    <UnorderedListOutlined className="mr-2" />
                                     List
                                 </Radio.Button>
                                 <Radio.Button value={LayoutView.Card}>
-                                    <AppstoreFilled className="mr-05" />
+                                    <AppstoreFilled className="mr-2" />
                                     Cards
                                 </Radio.Button>
                             </Radio.Group>

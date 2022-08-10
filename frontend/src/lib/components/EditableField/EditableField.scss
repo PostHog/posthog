@@ -6,11 +6,11 @@
         line-height: 2rem;
     }
     i {
-        color: var(--text-muted);
+        color: var(--muted);
     }
     .EditableField__notice {
         font-size: 1.5rem;
-        color: var(--text-muted);
+        color: var(--muted);
         margin-left: 0.5rem;
     }
     .EditableField--highlight {
@@ -42,7 +42,7 @@
         border: none;
         background: transparent;
         font: inherit;
-        color: var(--text-default);
+        color: var(--default);
         outline: none;
         padding: 0;
     }

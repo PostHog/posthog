@@ -25,7 +25,7 @@ Default.args = {
 export const ComplexContent = BasicTemplate.bind({})
 ComplexContent.args = {
     children: (
-        <span className="flex gap-05 items-center">
+        <span className="flex gap-2 items-center">
             <ProfilePicture email="ben@posthog.com" size="sm" />
             <span>
                 Look at me I'm <b>bold!</b>

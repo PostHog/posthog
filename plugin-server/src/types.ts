@@ -134,8 +134,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
-    EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
-    EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
@@ -566,7 +564,6 @@ interface BaseIngestionEvent {
     properties: Properties
     timestamp: DateTime
     elementsList: Element[]
-    person?: IngestionPersonData | undefined
 }
 
 /** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */

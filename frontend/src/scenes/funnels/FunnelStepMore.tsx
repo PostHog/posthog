@@ -25,7 +25,7 @@ export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Elemen
                 <>
                     {stepNumber > 1 && (
                         <LemonButton
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber },
@@ -40,7 +40,7 @@ export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Elemen
                     )}
                     {stepNumber > 1 && (
                         <LemonButton
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber },
@@ -54,7 +54,7 @@ export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Elemen
                         </LemonButton>
                     )}
                     <LemonButton
-                        type="stealth"
+                        status="stealth"
                         fullWidth
                         to={urls.insightNew({
                             funnel_filter: { ...filterProps, funnel_step: stepNumber },
@@ -68,7 +68,7 @@ export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Elemen
                     </LemonButton>
                     {stepNumber > 1 && (
                         <LemonButton
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber * -1 },
@@ -83,7 +83,7 @@ export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Elemen
                     )}
                     {stepNumber > 1 && (
                         <LemonButton
-                            type="stealth"
+                            status="stealth"
                             fullWidth
                             to={urls.insightNew({
                                 funnel_filter: { ...filterProps, funnel_step: stepNumber * -1 },

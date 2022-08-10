@@ -40,7 +40,7 @@ export function Experiments(): JSX.Element {
                 return (
                     <>
                         <Link to={experiment.id ? urls.experiment(experiment.id) : undefined}>
-                            <h4 className="row-name">{stringWithWBR(experiment.name, 17)}</h4>
+                            <span className="row-name">{stringWithWBR(experiment.name, 17)}</span>
                         </Link>
                         {experiment.description && <span className="row-description">{experiment.description}</span>}
                     </>
@@ -88,7 +88,7 @@ export function Experiments(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.experiment(`${experiment.id}`)}
                                     size="small"
                                     fullWidth
@@ -97,8 +97,7 @@ export function Experiments(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() => deleteExperiment(experiment.id as number)}
                                     data-attr={`experiment-${experiment.id}-dropdown-remove`}
                                     fullWidth
@@ -117,7 +116,7 @@ export function Experiments(): JSX.Element {
         <div>
             <PageHeader
                 title={
-                    <div className="flex-center">
+                    <div className="flex items-center">
                         Experiments
                         <LemonTag type="warning" style={{ marginLeft: 6, lineHeight: '1.4em' }}>
                             BETA
@@ -134,7 +133,7 @@ export function Experiments(): JSX.Element {
             />
             {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                 <>
-                    <div className="mb">
+                    <div className="mb-4">
                         Check out our
                         <a
                             data-attr="experiment-help"

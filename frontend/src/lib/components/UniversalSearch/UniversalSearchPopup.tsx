@@ -116,7 +116,6 @@ export function UniversalSearchPopup({
     onChange,
     groupTypes,
     dataAttr,
-    style,
     fullWidth = true,
 }: UniversalSearchPopupProps): JSX.Element {
     // Ensure some logics are mounted
@@ -186,12 +185,11 @@ export function UniversalSearchPopup({
                         setVisible(!visible)
                     }}
                     className={clsx(
-                        { 'full-width': fullWidth },
+                        { 'w-full': fullWidth },
                         '',
                         'universal-search-box',
                         isSideBarShown && 'universal-search-box--sidebar-shown'
                     )}
-                    style={style}
                 >
                     {!visible && (
                         <LemonInput

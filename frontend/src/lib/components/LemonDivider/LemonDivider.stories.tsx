@@ -27,7 +27,7 @@ const HorizontalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDiv
 
 const VerticalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDividerProps) => {
     return (
-        <div className="flex-center">
+        <div className="flex items-center">
             <ProfileBubbles
                 people={[
                     {

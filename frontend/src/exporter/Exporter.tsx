@@ -33,10 +33,10 @@ export function Exporter(props: ExportedData): JSX.Element {
                 type === ExportType.Scene ? (
                     <div className="SharedDashboard-header">
                         <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
-                            <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                            <FriendlyLogo className="text-lg" />
                         </a>
                         <div className="SharedDashboard-header-title">
-                            <h1 className="mb-05" data-attr="dashboard-item-title">
+                            <h1 className="mb-2" data-attr="dashboard-item-title">
                                 {dashboard.name}
                             </h1>
                             <span>{dashboard.description}</span>
@@ -44,17 +44,12 @@ export function Exporter(props: ExportedData): JSX.Element {
                         <span className="SharedDashboard-header-team">{team?.name}</span>
                     </div>
                 ) : type === ExportType.Embed ? (
-                    <a
-                        href="https://posthog.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ display: 'block', marginBottom: '-2.5rem' }}
-                    >
-                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                    <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
+                        <FriendlyLogo className="text-lg" />
                     </a>
                 ) : type === ExportType.Image ? (
                     <>
-                        <h1 className="mb-05">{dashboard.name}</h1>
+                        <h1 className="mb-2">{dashboard.name}</h1>
                         <p>{dashboard.description}</p>
                     </>
                 ) : null
@@ -69,12 +64,12 @@ export function Exporter(props: ExportedData): JSX.Element {
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
                 />
             ) : (
-                <h1 className="text-center pa">Something went wrong...</h1>
+                <h1 className="text-center p-4">Something went wrong...</h1>
             )}
 
             {!whitelabel && dashboard && (
-                <div className="text-center pb">
-                    {type === ExportType.Image ? <FriendlyLogo style={{ fontSize: '1.125rem' }} /> : null}
+                <div className="text-center pb-4">
+                    {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
                     <div>
                         Made with{' '}
                         <a

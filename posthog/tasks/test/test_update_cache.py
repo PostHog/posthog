@@ -102,8 +102,7 @@ class TestSynchronousCacheUpdate(APIBaseTest):
 
             yield [i for i, _ in recent_teams]
 
-    @patch("posthog.tasks.update_cache.statsd.incr")
-    def test_update_insight_cache_reports_on_updating_tiles_with_no_hash(self, statsd_incr: MagicMock) -> None:
+    def test_update_insight_cache_updates_tiles_with_no_hash(self) -> None:
         tile = _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None)
         # can't set filters_hash=None on a route that triggers save
         DashboardTile.objects.filter(id=tile.id).update(filters_hash=None)
@@ -111,8 +110,6 @@ class TestSynchronousCacheUpdate(APIBaseTest):
         assert tile.filters_hash is None
 
         synchronously_update_insight_cache(tile.insight, tile.dashboard)
-
-        statsd_incr.assert_any_call("update_cache_queue.set_missing_filters_hash", 1)
 
         tile.refresh_from_db()
         assert tile.filters_hash is not None
@@ -179,6 +176,22 @@ class TestUpdateCache(APIBaseTest):
             mock_redis_get_client.return_value.zrange.return_value = recent_teams
 
             yield [i for i, _ in recent_teams]
+
+    def test_not_all_filters_affect_the_filters_hash(self) -> None:
+        insight_one = create_shared_insight(self.team, is_enabled=True, filters={"events": [{"id": "$pageview"}]},)
+        insight_two = create_shared_insight(
+            self.team,
+            is_enabled=True,
+            filters={"events": [{"id": "$pageview"}], "aggregation_axis_format": "percentage"},
+        )
+        insight_three = create_shared_insight(
+            self.team,
+            is_enabled=True,
+            filters={"events": [{"id": "$pageview"}], "aggregation_axis_format": "duration"},
+        )
+
+        assert insight_one.filters_hash == insight_two.filters_hash
+        assert insight_two.filters_hash == insight_three.filters_hash
 
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
@@ -932,7 +945,7 @@ class TestUpdateCache(APIBaseTest):
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
     @patch("posthog.tasks.update_cache.statsd.incr")
-    def test_update_insight_cache_reports_on_updating_tiles_with_no_hash(
+    def test_update_insight_cache_reports_zero_filters_hashes_updated_when_tile_has_correct_filters_hash(
         self,
         statsd_incr: MagicMock,
         patch_update_cache_item: MagicMock,
@@ -940,29 +953,29 @@ class TestUpdateCache(APIBaseTest):
         _patch_generate_results: MagicMock,
         _patched_cache_set: MagicMock,
     ) -> None:
-        tile = _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None)
-        # can't set filters_hash=None on a route that triggers save
-        DashboardTile.objects.filter(id=tile.id).update(filters_hash=None)
-        tile.refresh_from_db()
-        assert tile.filters_hash is None
+        # a tile with the correct filters hash
+        _a_dashboard_tile_with_known_last_refresh(self.team, last_refresh_date=None, filters={"date_from": "-90d"})
 
         run_cache_update(patch_update_cache_item)
 
-        statsd_incr.assert_any_call("update_cache_queue.set_missing_filters_hash", 1)
-
-        tile.refresh_from_db()
-        assert tile.filters_hash is not None
+        # received update_cache_item_success and did not receive update_cache_item_set_new_cache_key_on_tile
+        assert [mock_call.args[0] for mock_call in statsd_incr.mock_calls] == ["update_cache_item_success"]
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.tasks.update_cache._calculate_by_filter", return_value={"not", "an empty result"})
     @patch("posthog.tasks.update_cache.group.apply_async")
     @patch("posthog.celery.update_cache_item_task.s")
+    @patch("posthog.tasks.update_cache.statsd.incr")
     def test_update_insight_filters_hash(
-        self, patch_update_cache_item: MagicMock, _patch_apply_async: MagicMock, _patch_generate_results: MagicMock,
+        self,
+        statsd_incr: MagicMock,
+        patch_update_cache_item: MagicMock,
+        _patch_apply_async: MagicMock,
+        _patch_generate_results: MagicMock,
     ) -> None:
         test_hash = "rongi rattad ragisevad"
         insight = _create_insight_with_known_cache_key(self.team, test_hash)
-        dashboard, tile = _create_dashboard_tile_with_known_cache_key(
+        _create_dashboard_tile_with_known_cache_key(
             self.team, insight, test_hash, last_accessed_at=datetime.now(pytz.utc) - timedelta(days=1)
         )
 
@@ -971,6 +984,8 @@ class TestUpdateCache(APIBaseTest):
         insight.refresh_from_db()
         assert insight.filters_hash != test_hash
         assert insight.last_refresh.isoformat(), "2021-08-25T22:09:14.252000+00:00"
+        statsd_incr.assert_any_call("update_cache_item_set_new_cache_key_on_tile", count=1, tags=ANY)
+        statsd_incr.assert_any_call("update_cache_item_success", tags=ANY)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.tasks.update_cache.cache.set")
@@ -1091,10 +1106,15 @@ class TestCacheTeamRecency(APIBaseTest):
         mock_redis_get_client.return_value.zrange.return_value = recent_teams
         mock_redis_get_client.return_value.zadd.return_value = MagicMock
 
+    @patch("posthog.tasks.update_cache.sync_execute")
     @patch("posthog.tasks.update_cache.get_client")
-    def test_queries_clickhouse_if_no_recent_teams(self, mock_redis_get_client: MagicMock) -> None:
+    def test_queries_clickhouse_if_no_recent_teams(
+        self, mock_redis_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
         recent_teams: List[Tuple[bytes, float]] = []
         self._mock_redis_team_recency(mock_redis_get_client, recent_teams)
+
+        mock_sync_execute.return_value = [("1", "results")]
 
         update_cached_items()
 

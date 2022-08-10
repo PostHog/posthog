@@ -12,6 +12,7 @@ export interface LemonDividerProps {
     /** Whether the divider should be a dashed line. */
     dashed?: boolean
     style?: React.CSSProperties
+    className?: string
 }
 
 /** A separator, ideal for being sandwiched between `LemonRow`s.
@@ -24,6 +25,7 @@ export function LemonDivider({
     dashed = false,
     thick = false,
     style,
+    className,
 }: LemonDividerProps): JSX.Element {
     return (
         <div
@@ -32,7 +34,8 @@ export function LemonDivider({
                 large && 'LemonDivider--large',
                 vertical && 'LemonDivider--vertical',
                 thick && 'LemonDivider--thick',
-                dashed && 'LemonDivider--dashed'
+                dashed && 'LemonDivider--dashed',
+                className
             )}
             style={style}
         />

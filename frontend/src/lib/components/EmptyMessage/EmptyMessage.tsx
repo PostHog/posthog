@@ -13,20 +13,11 @@ export interface EmptyMessageProps {
 export function EmptyMessage({ title, description, buttonText, buttonTo, buttonHref }: EmptyMessageProps): JSX.Element {
     return (
         <div className="empty-message">
-            <div
-                style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    height: '100%',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    margin: 20,
-                }}
-            >
+            <div className="flex flex-col h-full items-center justify-center m-5">
                 <h3 className="title">{title}</h3>
 
                 <p className="text-muted description">{description}</p>
-                <LemonButton type="secondary" style={{ margin: '0 8px' }} to={buttonTo} href={buttonHref}>
+                <LemonButton type="secondary" to={buttonTo} href={buttonHref}>
                     {buttonText}
                 </LemonButton>
             </div>

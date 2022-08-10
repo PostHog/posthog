@@ -71,7 +71,9 @@ export function PersonsModal({
                 <>
                     <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
                 </>
-            ) : filters.display === 'ActionsBarValue' || filters.display === 'ActionsPie' ? (
+            ) : filters.display === ChartDisplayType.ActionsBarValue ||
+              filters.display === ChartDisplayType.ActionsPie ||
+              filters.display === ChartDisplayType.BoldNumber ? (
                 <PropertyKeyInfo value={people?.label || ''} disablePopover />
             ) : filters.insight === InsightType.FUNNELS ? (
                 <>
@@ -339,7 +341,7 @@ export function ActorRow({ actor }: ActorRowProps): JSX.Element {
                     explicitValue={actor.distinct_ids[0]}
                     iconStyle={{ color: 'var(--primary)' }}
                     iconPosition="end"
-                    className="text-small text-muted-alt"
+                    className="text-xs text-muted-alt"
                 >
                     {midEllipsis(actor.distinct_ids[0], 32)}
                 </CopyToClipboardInline>

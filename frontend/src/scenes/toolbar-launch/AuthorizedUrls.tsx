@@ -1,5 +1,4 @@
 import React from 'react'
-import './AuthorizedUrls.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
@@ -54,7 +53,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             props={{ actionId }}
             formKey="proposedUrl"
             enableFormOnSubmit
-            className="AuthorizedURLForm full-width"
+            className="AuthorizedURLForm w-full"
         >
             <Field name="url">
                 <LemonInput
@@ -70,7 +69,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                 <LemonButton
                     htmlType="submit"
                     type="primary"
-                    className="form-submit ml"
+                    className="form-submit ml-4"
                     disabled={isProposedUrlSubmitting}
                     data-attr="url-save"
                 >
@@ -89,8 +88,8 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
 
     return (
         <div>
-            <div className="flex-center mb">
-                <div className="flex-grow">
+            <div className="flex items-center mb-4 gap-2">
+                <div className="flex grow">
                     <Input.Search
                         allowClear
                         enterButton
@@ -103,16 +102,16 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                         autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
                     />
                 </div>
-                <LemonButton onClick={newUrl} outlined={true} icon={<IconPlus />} data-attr="toolbar-add-url">
+                <LemonButton onClick={newUrl} type="secondary" icon={<IconPlus />} data-attr="toolbar-add-url">
                     Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>
             </div>
             {suggestionsLoading ? (
-                <LemonRow outlined fullWidth size="large" key={-1} className={clsx('AuthorizedUrlRow')}>
+                <LemonRow outlined fullWidth size="large" key={-1}>
                     <Spinner size="md" />
                 </LemonRow>
             ) : (
-                <div className="space-y-05">
+                <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <LemonRow outlined fullWidth size="large">
                             <AuthorizedUrlForm actionId={actionId} />
@@ -125,42 +124,27 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     />
                     {appUrlsKeyed.map((keyedAppURL, index) => {
                         return (
-                            <LemonRow
-                                outlined
-                                fullWidth
-                                size="tall"
-                                key={index}
-                                className={clsx(
-                                    'AuthorizedUrlRow',
-                                    keyedAppURL.type,
-                                    'flex-center',
-                                    'mr',
-                                    editUrlIndex !== index && 'highlight-on-hover'
-                                )}
-                            >
+                            <div key={index} className={clsx('border rounded flex items-center py-2 px-4 min-h-14')}>
                                 {editUrlIndex === index ? (
                                     <AuthorizedUrlForm actionId={actionId} />
                                 ) : (
                                     <>
-                                        <div className="Url flex-grow">
-                                            {keyedAppURL.type === 'suggestion' && (
-                                                <LemonTag type="highlight" className="mr">
-                                                    Suggestion
-                                                </LemonTag>
-                                            )}
-                                            <Typography.Text
-                                                ellipsis={{ tooltip: keyedAppURL.url }}
-                                                className="text-muted-alt"
-                                            >
-                                                {keyedAppURL.url}
-                                            </Typography.Text>
-                                        </div>
-                                        <div className="Actions flex flex-row space-x">
+                                        {keyedAppURL.type === 'suggestion' && (
+                                            <LemonTag type="highlight" className="mr-4">
+                                                Suggestion
+                                            </LemonTag>
+                                        )}
+                                        <Typography.Text
+                                            ellipsis={{ tooltip: keyedAppURL.url }}
+                                            className="text-muted-alt flex-1"
+                                        >
+                                            {keyedAppURL.url}
+                                        </Typography.Text>
+                                        <div className="Actions flex space-x-2 shrink-0">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
                                                     onClick={() => addUrl(keyedAppURL.url)}
                                                     icon={<IconPlus />}
-                                                    outlined={false}
                                                     data-attr="toolbar-apply-suggestion"
                                                 >
                                                     Apply suggestion
@@ -202,7 +186,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                         </div>
                                     </>
                                 )}
-                            </LemonRow>
+                            </div>
                         )
                     })}
                 </div>

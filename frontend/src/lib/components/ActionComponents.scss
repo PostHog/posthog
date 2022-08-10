@@ -4,7 +4,7 @@
     width: 100%;
 
     .caption {
-        color: var(--text-muted);
+        color: var(--muted);
         font-size: 0.75rem;
         line-height: 1rem;
         padding-bottom: 16px;
@@ -49,7 +49,7 @@
 
         &.active {
             background-color: var(--primary) !important;
-            color: var(--text-light);
+            color: var(--light);
         }
     }
 }

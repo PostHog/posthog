@@ -13,16 +13,16 @@ function SkeletonCardOne({ active }: Pick<SkeletonProps, 'active'>): JSX.Element
             <Row>
                 <Col span={12}>
                     <Skeleton paragraph={{ rows: 1 }} active={active} />
-                    <div className="mt">
-                        <div className="mt">
+                    <div className="mt-4">
+                        <div className="mt-4">
                             <Skeleton.Button active={active} />
                             <Skeleton.Button active={active} style={{ marginLeft: 4, width: 140 }} />
                         </div>
-                        <div className="mt">
+                        <div className="mt-4">
                             <Skeleton.Button active={active} />
                             <Skeleton.Button active={active} style={{ marginLeft: 4, width: 140 }} />
                         </div>
-                        <div className="mt">
+                        <div className="mt-4">
                             <Skeleton.Button active={active} />
                             <Skeleton.Button active={active} style={{ marginLeft: 4, width: 140 }} />
                         </div>
@@ -86,7 +86,7 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
                     <Card className="card-elevated">
                         <h3 className="l3">Dashboard empty</h3>
                         <p>This dashboard sure would look better with some graphs!</p>
-                        <div className="mt text-center">
+                        <div className="mt-4 text-center">
                             <Link to={urls.insightNew(undefined, dashboard?.id)}>
                                 <LemonButton data-attr="dashboard-add-graph-header">Add insight</LemonButton>
                             </Link>

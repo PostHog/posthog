@@ -41,7 +41,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                     <Field name="saml_x509_cert" label="SAML X.509 Certificate">
                         <LemonTextArea
                             className="ph-ignore-input"
-                            style={{ minHeight: 150 }}
+                            minRows={10}
                             placeholder={`Enter the public certificate of your IdP. Keep all line breaks.\n-----BEGIN CERTIFICATE-----\nMIICVjCCAb+gAwIBAgIBADANBgkqhkiG9w0BAQ0FADBIMQswCQYDVQQGEwJ1czEL\n-----END CERTIFICATE-----`}
                         />
                     </Field>
@@ -51,7 +51,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                             settings as draft.
                         </AlertMessage>
                     )}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <div className="flex justify-end">
                         <LemonButton loading={isSamlConfigSubmitting} type="primary" htmlType="submit">
                             Save settings
                         </LemonButton>

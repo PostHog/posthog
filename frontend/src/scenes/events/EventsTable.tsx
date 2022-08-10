@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
-import { Button, Popconfirm } from 'antd'
+import { Popconfirm } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -138,13 +138,7 @@ export function EventsTable({
             children:
                 date_break ||
                 (new_events ? (
-                    <LemonButton
-                        icon={<IconSync />}
-                        style={{ borderRadius: 0 }}
-                        onClick={() => prependNewEvents()}
-                        center
-                        fullWidth
-                    >
+                    <LemonButton icon={<IconSync />} onClick={() => prependNewEvents()} center fullWidth>
                         There are new events. Click here to load them
                     </LemonButton>
                 ) : (
@@ -364,7 +358,7 @@ export function EventsTable({
                                 <>
                                     {currentTeam && (
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             onClick={() =>
                                                 createActionFromEvent(
                                                     currentTeam.id,
@@ -381,7 +375,7 @@ export function EventsTable({
                                     )}
                                     {insightParams && (
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             to={urls.insightNew(insightParams)}
                                             fullWidth
                                             data-attr="events-table-usage"
@@ -403,7 +397,7 @@ export function EventsTable({
         <div data-attr="manage-events-table">
             <div className="events" data-attr="events-table">
                 {(showEventFilter || showPropertyFilter) && (
-                    <div className="flex pt pb space-x border-top">
+                    <div className="flex py-4 space-x-4 border-t">
                         {showEventFilter && (
                             <LemonEventName
                                 value={eventFilter}
@@ -419,7 +413,6 @@ export function EventsTable({
                                 pageKey={pageKey}
                                 style={{ marginBottom: 0, marginTop: 0 }}
                                 eventNames={eventFilter ? [eventFilter] : []}
-                                useLemonButton
                             />
                         )}
                     </div>
@@ -428,13 +421,13 @@ export function EventsTable({
                 {showAutoload || showCustomizeColumns || showExport ? (
                     <div
                         className={clsx(
-                            'space-between-items pt mb',
-                            (showEventFilter || showPropertyFilter) && 'border-top'
+                            'flex justify-between pt-4 mb-4',
+                            (showEventFilter || showPropertyFilter) && 'border-t'
                         )}
                     >
                         {showAutoload && (
                             <LemonSwitch
-                                type="primary"
+                                bordered
                                 data-tooltip="live-events-refresh-toggle"
                                 id="autoload-switch"
                                 label="Automatically load new events"
@@ -442,7 +435,7 @@ export function EventsTable({
                                 onChange={toggleAutomaticLoad}
                             />
                         )}
-                        <div className="flex space-x-05">
+                        <div className="flex space-x-2">
                             {showCustomizeColumns && (
                                 <LemonTableConfig
                                     immutableColumns={['event', 'person']}
@@ -521,17 +514,16 @@ export function EventsTable({
                             : undefined
                     }
                 />
-                <Button
-                    type="primary"
-                    onClick={fetchNextEvents}
-                    loading={isLoadingNext}
-                    style={{
-                        display: hasNext || isLoadingNext ? 'block' : 'none',
-                        margin: '2rem auto 1rem',
-                    }}
-                >
-                    Load more events
-                </Button>
+                {hasNext || isLoadingNext ? (
+                    <LemonButton
+                        type="primary"
+                        onClick={fetchNextEvents}
+                        loading={isLoadingNext}
+                        className="my-8 mx-auto"
+                    >
+                        Load more events
+                    </LemonButton>
+                ) : null}
             </div>
         </div>
     )

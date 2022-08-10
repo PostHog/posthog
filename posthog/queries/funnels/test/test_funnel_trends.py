@@ -1,5 +1,4 @@
 from datetime import date, datetime, timedelta
-from unittest.mock import patch
 
 import pytz
 from freezegun.api import freeze_time
@@ -1215,8 +1214,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["data"], [100.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     @snapshot_clickhouse_queries
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_timezones_trends(self, patch_feature_enabled):
+    def test_timezones_trends(self):
         journeys_for(
             {
                 "user_one": [

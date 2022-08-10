@@ -18,9 +18,9 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
             title={<span className="card-secondary">Feature flag usage and implementation</span>}
             className="experiment-implementation-details"
         >
-            <Row justify="space-between" className="mb-05">
+            <Row justify="space-between" className="mb-2">
                 <div>
-                    <span className="mr-05">Variant group</span>
+                    <span className="mr-2">Variant group</span>
                     <Select onChange={setCurrentVariant} defaultValue={'control'} suffixIcon={<CaretDownOutlined />}>
                         {experiment?.parameters?.feature_flag_variants?.map(
                             (variant: MultivariateFlagVariant, idx: number) => (
@@ -48,7 +48,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
             <a target="_blank" rel="noopener noreferrer" href="https://posthog.com/docs/user-guides/feature-flags">
                 <Row align="middle">
                     Experiment implementation guide
-                    <IconOpenInNew className="ml-05" />
+                    <IconOpenInNew className="ml-2" />
                 </Row>
             </a>
         </Card>

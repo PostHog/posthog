@@ -10,6 +10,7 @@ import { TooltipPlacement } from 'antd/lib/tooltip'
 import { teamLogic } from '../../../scenes/teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import clsx from 'clsx'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY HH:mm'
 
@@ -32,11 +33,13 @@ function TZLabelRaw({
     showSeconds,
     formatDate,
     formatTime,
+    showPopover = true,
 }: {
     time: string | dayjs.Dayjs
     showSeconds?: boolean
     formatDate?: string
     formatTime?: string
+    showPopover?: boolean
 }): JSX.Element {
     usePeriodicRerender(1000)
 
@@ -48,61 +51,69 @@ function TZLabelRaw({
 
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
-    const handleVisibleChange = (visible: boolean): void => {
-        if (visible) {
-            reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
+    const innerContent = (
+        <span className={clsx('tz-label', showPopover && 'tz-label--hoverable')}>
+            {formatDate || formatTime
+                ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
+                : parsedTime.fromNow()}
+        </span>
+    )
+
+    if (showPopover) {
+        const handleVisibleChange = (visible: boolean): void => {
+            if (visible) {
+                reportTimezoneComponentViewed('label', currentTeam?.timezone, shortTimeZone())
+            }
         }
+
+        const PopoverContent = (
+            <div className="tz-label-popover">
+                <TZConversionHeader />
+                <div className="divider" />
+                <div className="timezones">
+                    <Row className="timezone">
+                        <Col className="name">
+                            <LaptopOutlined /> {shortTimeZone(undefined, parsedTime.toDate())}
+                        </Col>
+                        <Col className="scope">Your device</Col>
+                        <Col className="time" style={timeStyle}>
+                            {parsedTime.format(DATE_OUTPUT_FORMAT)}
+                        </Col>
+                    </Row>
+                    {currentTeam && (
+                        <Row className="timezone">
+                            <Col className="name">
+                                <ProjectOutlined /> {shortTimeZone(currentTeam.timezone, parsedTime.toDate())}
+                            </Col>
+                            <Col className="scope">Project</Col>
+                            <Col className="time" style={timeStyle}>
+                                {parsedTime.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
+                            </Col>
+                        </Row>
+                    )}
+                    {currentTeam?.timezone !== 'UTC' && (
+                        <Row className="timezone">
+                            <Col className="name">
+                                <GlobalOutlined /> UTC
+                            </Col>
+                            <Col className="scope" />
+                            <Col className="time" style={timeStyle}>
+                                {parsedTime.tz('UTC').format(DATE_OUTPUT_FORMAT)}
+                            </Col>
+                        </Row>
+                    )}
+                </div>
+            </div>
+        )
+
+        return (
+            <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
+                {innerContent}
+            </Popover>
+        )
     }
 
-    const PopoverContent = (
-        <div className="tz-label-popover">
-            <TZConversionHeader />
-            <div className="divider" />
-            <div className="timezones">
-                <Row className="timezone">
-                    <Col className="name">
-                        <LaptopOutlined /> {shortTimeZone(undefined, parsedTime.toDate())}
-                    </Col>
-                    <Col className="scope">Your device</Col>
-                    <Col className="time" style={timeStyle}>
-                        {parsedTime.format(DATE_OUTPUT_FORMAT)}
-                    </Col>
-                </Row>
-                {currentTeam && (
-                    <Row className="timezone">
-                        <Col className="name">
-                            <ProjectOutlined /> {shortTimeZone(currentTeam.timezone, parsedTime.toDate())}
-                        </Col>
-                        <Col className="scope">Project</Col>
-                        <Col className="time" style={timeStyle}>
-                            {parsedTime.tz(currentTeam.timezone).format(DATE_OUTPUT_FORMAT)}
-                        </Col>
-                    </Row>
-                )}
-                {currentTeam?.timezone !== 'UTC' && (
-                    <Row className="timezone">
-                        <Col className="name">
-                            <GlobalOutlined /> UTC
-                        </Col>
-                        <Col className="scope" />
-                        <Col className="time" style={timeStyle}>
-                            {parsedTime.tz('UTC').format(DATE_OUTPUT_FORMAT)}
-                        </Col>
-                    </Row>
-                )}
-            </div>
-        </div>
-    )
-
-    return (
-        <Popover content={PopoverContent} onVisibleChange={handleVisibleChange}>
-            <span className="tz-label">
-                {formatDate || formatTime
-                    ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
-                    : parsedTime.fromNow()}
-            </span>
-        </Popover>
-    )
+    return innerContent
 }
 // Timezone calculations are quite expensive, so the component is memoized to reduce them.
 export const TZLabel = React.memo(TZLabelRaw) as typeof TZLabelRaw

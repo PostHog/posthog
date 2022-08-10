@@ -21,7 +21,7 @@ export function SaveCohortModal({ onOk, onCancel, visible }: Props): JSX.Element
             onCancel={onCancel}
             visible={visible}
         >
-            <div className="mb">
+            <div className="mb-4">
                 <Input
                     required
                     autoFocus

@@ -1,4 +1,4 @@
-@import '../styles/breakpoints';
+@import '../styles/mixins';
 
 html.export-type-image {
     // We don't want scrollbars to show in image captures
@@ -36,7 +36,7 @@ html.export-type-embed {
             display: none;
         }
 
-        @media screen and (min-width: $md) {
+        @include screen($md) {
             display: flex;
             justify-content: space-between;
             align-items: center;
