@@ -115,6 +115,6 @@ class Command(BaseCommand):
                         print_steps=True,
                     )
                 except exceptions.ValidationError as e:
-                    print(f"Error: {e.message}")
+                    print(f"Error: {e}")
                 else:
                     print(f"Demo data ready! Log in as {email} with password {password}.")
