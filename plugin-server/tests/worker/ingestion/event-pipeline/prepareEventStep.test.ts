@@ -77,7 +77,7 @@ describe('prepareEventStep()', () => {
                     $ip: '127.0.0.1',
                 },
                 teamId: 2,
-                timestamp: expect.any(DateTime),
+                timestamp: '2020-02-23T02:15:00.000Z',
             },
             personContainer,
         ])
@@ -99,7 +99,7 @@ describe('prepareEventStep()', () => {
                     $ip: '127.0.0.1',
                 },
                 teamId: 2,
-                timestamp: expect.any(DateTime),
+                timestamp: '2020-02-23T02:15:00.000Z',
             },
             personContainer,
         ])
