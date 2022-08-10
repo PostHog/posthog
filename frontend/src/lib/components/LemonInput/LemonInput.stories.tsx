@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonInput } from './LemonInput'
-import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
+import { IconArrowDropDown, IconCalendar } from 'lib/components/icons'
 import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 
 export default {
@@ -21,9 +21,9 @@ const Template: ComponentStory<typeof LemonInput> = (props) => {
 
 export const Basic = Template.bind({})
 
-export const WithSearchIconAndSideAction = Template.bind({})
-WithSearchIconAndSideAction.args = {
-    icon: <IconMagnifier />,
+export const WithIconAndSideAction = Template.bind({})
+WithIconAndSideAction.args = {
+    icon: <IconCalendar />,
     sideIcon: (
         <LemonButtonWithPopup
             noPadding
@@ -36,6 +36,9 @@ WithSearchIconAndSideAction.args = {
     ),
 }
 
+export const Search = Template.bind({})
+Search.args = { type: 'search', placeholder: 'Search your soul' }
+
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
 
@@ -47,8 +50,3 @@ Clearable.args = { allowClear: true }
 
 export const Numeric = Template.bind({})
 Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
-
-export const Search = (): JSX.Element => {
-    const [value, setValue] = useState('')
-    return <LemonInput type="search" placeholder="Search your soul" value={value} onChange={(e) => setValue(e)} />
-}
