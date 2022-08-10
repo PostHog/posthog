@@ -53,6 +53,8 @@ $cursors: (
     'zoom-in',
     'zoom-out'
 );
+// CSS list style types from https://tailwindcss.com/docs/list-style-type
+$list_style_types: 'none', 'disc', 'decimal';
 
 // See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
 // NOTE: Currently this has to be manually synced wit `tailwind.config.j` to allow IDE auto-completion
