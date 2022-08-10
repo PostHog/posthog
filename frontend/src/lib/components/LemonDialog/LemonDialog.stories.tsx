@@ -3,6 +3,7 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonDialog, LemonDialogProps } from './LemonDialog'
 import { LemonButton } from '../LemonButton'
 import { Link } from '@posthog/lemon-ui'
+import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 
 export default {
     title: 'Lemon UI/Lemon Dialog',
@@ -31,6 +32,8 @@ export default {
         docs: {
             description: {
                 component: `
+[Related Figma area](https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=3139%3A1388)
+                
 Dialogs are blocking prompts that force a user decision or action. 
 When a dialog presents a desctructive choice, the actions should align with that destructive / warning color palette options.
 
@@ -54,6 +57,11 @@ export const Template: ComponentStory<typeof LemonDialog> = (props: LemonDialogP
             <LemonButton type="primary" onClick={() => onClick()} className="mx-auto mt-2">
                 Open as Dialog
             </LemonButton>
+
+            <h3>Usage</h3>
+            <CodeSnippet language={Language.JavaScript}>
+                {`LemonDialog.open(${JSON.stringify(props, null, 2)})`}
+            </CodeSnippet>
         </div>
     )
 }
