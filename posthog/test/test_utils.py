@@ -1,5 +1,6 @@
 from unittest.mock import call, patch
 
+import pytest
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
@@ -13,6 +14,7 @@ from posthog.models import EventDefinition
 from posthog.settings.utils import get_from_env
 from posthog.test.base import BaseTest
 from posthog.utils import (
+    PotentialSecurityProblemException,
     absolute_uri,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
@@ -50,6 +52,11 @@ class TestAbsoluteUrls(TestCase):
                         absolute_uri(url),
                         msg=f"with URL='{url}' & site_url setting='{site_url}' actual did not equal {expected}",
                     )
+
+    def test_absolute_uri_can_not_escape_out_host(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
 
 
 class TestFormatUrls(TestCase):
