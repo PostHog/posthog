@@ -30,7 +30,11 @@ export class KafkaQueue {
     private eventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
-    constructor(pluginsServer: Hub, workerMethods: WorkerMethods, consumerConfig: { sessionTimeout: 30000 }) {
+    constructor(
+        pluginsServer: Hub,
+        workerMethods: WorkerMethods,
+        consumerConfig: Partial<ConsumerConfig> = { sessionTimeout: 30000 }
+    ) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
         this.consumerConfig = consumerConfig
