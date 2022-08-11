@@ -14,6 +14,8 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
     redis:
         image: redis:6.2.7-alpine
         restart: on-failure
@@ -33,6 +35,7 @@ services:
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - clickhouse-data:/var/lib/clickhouse
     zookeeper:
         image: zookeeper:3.7.0
         restart: on-failure
@@ -134,3 +137,5 @@ volumes:
     zookeeper-datalog:
     zookeeper-logs:
     object_storage:
+    postgres-data:
+    clickhouse-data:
