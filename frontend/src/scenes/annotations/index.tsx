@@ -1,6 +1,6 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Tag, Button, Modal, Input, Row, Menu, Dropdown } from 'antd'
+import { Tag, Button, Modal, Row, Menu, Dropdown } from 'antd'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
@@ -16,8 +16,6 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DatePicker } from 'lib/components/DatePicker'
 import { LemonTextArea } from '@posthog/lemon-ui'
-
-const { TextArea } = Input
 
 export const scene: SceneExport = {
     component: Annotations,

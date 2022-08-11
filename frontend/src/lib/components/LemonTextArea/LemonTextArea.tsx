@@ -4,7 +4,10 @@ import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
 
 export interface LemonTextAreaProps
-    extends Pick<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onFocus' | 'onBlur' | 'maxLength' | 'autoFocus'> {
+    extends Pick<
+        React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+        'onFocus' | 'onBlur' | 'maxLength' | 'autoFocus' | 'onKeyDown'
+    > {
     id?: string
     value?: string
     defaultValue?: string
@@ -16,12 +19,13 @@ export interface LemonTextAreaProps
     onChange?: (newValue: string) => void
     onPressEnter?: (newValue: string) => void
     minRows?: number
+    maxRows?: number
     rows?: number
 }
 
 /** A `LemonRow`-based `textarea` component for multi-line text. */
 export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
-    { className, onChange, onFocus, onBlur, onPressEnter, minRows = 3, ...textProps },
+    { className, onChange, onFocus, onBlur, onPressEnter, minRows = 3, onKeyDown, ...textProps },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLTextAreaElement | null>(null)
@@ -36,6 +40,8 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                 if (onPressEnter && e.key === 'Enter') {
                     onPressEnter(textProps.value?.toString() ?? '')
                 }
+
+                onKeyDown?.(e)
             }}
             onChange={(event) => {
                 onChange?.(event.currentTarget.value ?? '')
