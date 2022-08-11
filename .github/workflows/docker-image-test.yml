@@ -79,7 +79,7 @@ jobs:
             - name: Push (if PostHog/posthog)
               if: ${{ github.repository == 'PostHog/posthog' }}
               run: |
-                  docker load /tmp/posthog-image.tar
+                  docker load < /tmp/posthog-image.tar
                   docker push ${{ steps.meta.outputs.tags }}
 
             - name: Upload docker image
@@ -173,7 +173,7 @@ jobs:
               run: |
                   mkdir -p /tmp/logs
 
-                  docker load /tmp/posthog-image.tar
+                  docker load < /tmp/posthog-image.tar
                   DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env $DOCKER_IMAGE"
 
                   $DOCKER_RUN ./bin/migrate
