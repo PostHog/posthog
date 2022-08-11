@@ -39,6 +39,9 @@ WithIconAndSideAction.args = {
 export const Search = Template.bind({})
 Search.args = { type: 'search', placeholder: 'Search your soul' }
 
+export const Password = Template.bind({})
+Password.args = { type: 'password', placeholder: 'Enter your password' }
+
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
 

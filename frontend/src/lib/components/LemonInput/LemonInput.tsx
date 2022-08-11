@@ -3,7 +3,7 @@ import React, { useRef, useState } from 'react'
 import { LemonRow, LemonRowProps } from 'lib/components/LemonRow'
 import clsx from 'clsx'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconClose, IconMagnifier } from 'lib/components/icons'
+import { IconClose, IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/components/icons'
 
 interface LemonInputPropsBase
     extends Omit<
@@ -26,7 +26,7 @@ interface LemonInputPropsBase
 }
 
 interface LemonInputPropsText extends LemonInputPropsBase {
-    type?: 'text' | 'email' | 'search'
+    type?: 'text' | 'email' | 'search' | 'password'
     value?: string
     defaultValue?: string
     onChange?: (newValue: string) => void
@@ -65,6 +65,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     const _ref = useRef<HTMLInputElement | null>(null)
     const inputRef = ref || _ref
     const [focused, setFocused] = useState<boolean>(Boolean(textProps.autoFocus))
+    const [passwordVisible, setPasswordVisible] = useState<boolean>(false)
 
     const focus = (): void => {
         if (inputRef && 'current' in inputRef) {
@@ -78,6 +79,24 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     fullWidth = fullWidth ?? (type === 'search' ? false : true)
     icon = icon ?? (type === 'search' ? <IconMagnifier /> : undefined)
     width = width ?? (type === 'search' && !fullWidth ? 240 : undefined)
+
+    // Type=password has some special overrides
+    sideIcon =
+        sideIcon ??
+        (type === 'password' ? (
+            <LemonButton
+                size="small"
+                noPadding
+                icon={passwordVisible ? <IconEyeHidden /> : <IconEyeVisible />}
+                status="muted-alt"
+                tooltip={passwordVisible ? 'Hide password' : 'Show password'}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    focus()
+                    setPasswordVisible(!passwordVisible)
+                }}
+            />
+        ) : undefined)
 
     const rowProps: LemonRowProps<'span'> = {
         tag: 'span',
@@ -147,7 +166,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             onBlur?.(event)
         },
         value,
-        type: type || 'text',
+        type: (type === 'password' && passwordVisible ? 'text' : type) || 'text',
     }
 
     return (
