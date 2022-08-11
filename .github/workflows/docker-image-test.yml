@@ -65,7 +65,6 @@ jobs:
               id: docker_build
               uses: docker/build-push-action@v2
               with:
-                  push: ${{ github.repository == 'PostHog/posthog' }}
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
@@ -76,6 +75,12 @@ jobs:
                   # removing any layers, soooo, maybe it's fine.
                   cache-to: type=inline
                   outputs: type=oci,dest=/tmp/posthog-image.tar
+
+            - name: Push (if PostHog/posthog)
+              if: ${{ github.repository == 'PostHog/posthog' }}
+              run: |
+                  docker load /tmp/posthog-image.tar
+                  docker push ${{ steps.meta.outputs.tags }}
 
             - name: Upload docker image
               uses: actions/upload-artifact@v2
