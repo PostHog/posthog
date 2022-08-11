@@ -19,10 +19,6 @@ jobs:
             - name: Checkout PR branch
               uses: actions/checkout@v2
 
-            - name: Lowercase repository for docker compatability
-              # We need to lowercase the repository to be compat. with ghcr
-              run: export REPOSITORY_LOWERCASE=$("${{ github.repository }}/posthog" | tr '[:upper:]' '[:lower:]')
-
             # As ghcr.io complains if the image has upper case letters, we use
             # this action to ensure we get a lower case version. See
             # https://github.com/docker/build-push-action/issues/237#issuecomment-848673650
@@ -85,8 +81,8 @@ jobs:
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
 
-        outputs:
-            docker_image: $REPOSITORY_LOWERCASE@${{ steps.docker_build.outputs.digest }}
+                  export REPOSITORY_LOWERCASE=$("${{ github.repository }}/posthog" | tr "[:upper:]" "[:lower:]")'
+                  echo '::set-output name docker_image::$REPOSITORY_LOWERCASE@${{ steps.docker_build.outputs.digest }}'
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
