@@ -7,10 +7,9 @@ import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webP
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { EventsTable } from 'scenes/events'
-import { EyeOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
-import { IconPlay, IconPlayCircle } from 'lib/components/icons'
+import { IconPlay } from 'lib/components/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 /*
