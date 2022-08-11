@@ -75,7 +75,7 @@ jobs:
                   # It notes that it doesn't support mode=max, but we're not
                   # removing any layers, soooo, maybe it's fine.
                   cache-to: type=inline
-                  output: type=oci,dest=/tmp/posthog-image.tar
+                  outputs: type=oci,dest=/tmp/posthog-image.tar
 
             - name: Upload docker image
               uses: actions/upload-artifact@v2
