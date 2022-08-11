@@ -102,7 +102,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         multiline
                                         name="description"
                                         value={value || ''}
-                                        placeholder="Description (optional wehwuehfuewhfu)"
+                                        placeholder="Description (optional)"
                                         onChange={
                                             !id
                                                 ? onChange
