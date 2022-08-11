@@ -1,7 +1,5 @@
 import React from 'react'
-import { Modal } from 'antd'
 import { useValues, useActions } from 'kea'
-import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -12,6 +10,7 @@ import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/colu
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -37,15 +36,16 @@ function makeActionsComponent(
                 onClick={() => {
                     invite.is_expired
                         ? deleteInvite(invite)
-                        : Modal.confirm({
+                        : LemonDialog.open({
                               title: `Do you want to cancel the invite for ${invite.target_email}?`,
-                              icon: <ExclamationCircleOutlined />,
-                              okText: 'Yes, cancel invite',
-                              okType: 'danger',
-                              onOk() {
-                                  deleteInvite(invite)
+                              primaryButton: {
+                                  children: 'Yes, cancel invite',
+                                  status: 'danger',
+                                  onClick: () => deleteInvite(invite),
                               },
-                              cancelText: 'No, keep invite',
+                              secondaryButton: {
+                                  children: 'No, keep invite',
+                              },
                           })
                 }}
             />
@@ -64,7 +64,7 @@ export function Invites(): JSX.Element {
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-2">
                         <ProfilePicture
                             name={invite.first_name}
                             email={invite.target_email}
