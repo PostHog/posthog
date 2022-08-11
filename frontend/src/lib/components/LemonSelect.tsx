@@ -24,9 +24,22 @@ export interface LemonSelectSection<O> {
 export type LemonSelectSections<LemonSelectOptions> = Record<string, LemonSelectSection<LemonSelectOptions>>
 
 export interface LemonSelectProps<O extends LemonSelectOptions>
-    extends Omit<
+    extends Pick<
         LemonButtonWithPopupProps,
-        'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange' | 'type' | 'status' | 'size' | 'active'
+        | 'id'
+        | 'className'
+        | 'icon'
+        | 'sideIcon'
+        | 'loading'
+        | 'tooltip'
+        | 'fullWidth'
+        | 'disabled'
+        | 'noPadding'
+        | 'data-attr'
+        | 'data-tooltip'
+        | 'aria-label'
+        | 'onClick'
+        | 'tabIndex'
     > {
     options: O | LemonSelectSection<O>[]
     value?: keyof O | null
