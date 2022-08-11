@@ -80,8 +80,6 @@ export function NewDashboardModal(): JSX.Element {
                                 'data-attr': 'dashboard-select-default-app',
                             },
                         }}
-                        status="stealth"
-                        type="secondary"
                         fullWidth
                         data-attr="copy-from-template"
                     />
@@ -94,8 +92,6 @@ export function NewDashboardModal(): JSX.Element {
                                 onChange={onChange}
                                 options={DASHBOARD_RESTRICTION_OPTIONS}
                                 loading={isNewDashboardSubmitting}
-                                status="stealth"
-                                type="secondary"
                                 fullWidth
                             />
                         </PayGateMini>
