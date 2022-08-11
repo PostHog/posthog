@@ -10,13 +10,25 @@ import './LemonButton.scss'
 export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
-export interface LemonButtonPropsBase
-    // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+
+interface PrimaryLemonButtonProps {
+    type: 'primary'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+}
+interface SecondaryLemonButtonProps {
+    type: 'secondary'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
+}
+interface TertiaryLemonButtonProps {
+    type: 'tertiary'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+}
+
+type LemonButtonColorSchemeProps = PrimaryLemonButtonProps | SecondaryLemonButtonProps | TertiaryLemonButtonProps
+
+interface LemonButtonCommon
     extends Pick<React.ButtonHTMLAttributes<HTMLElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
     children?: React.ReactNode
-    type?: 'primary' | 'secondary' | 'tertiary'
-    /** What color scheme the button should follow */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -44,7 +56,9 @@ export interface LemonButtonPropsBase
     'aria-label'?: string
 }
 
-export interface LemonButtonProps extends LemonButtonPropsBase {
+export type LemonButtonPropsBase = LemonButtonColorSchemeProps & LemonButtonCommon
+
+export type LemonButtonProps = LemonButtonPropsBase & {
     sideIcon?: React.ReactElement | null
 }
 
@@ -131,7 +145,7 @@ export type SideAction = Pick<
 }
 
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
-export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
+export type LemonButtonWithSideActionProps = LemonButtonPropsBase & {
     sideAction: SideAction
 }
 
@@ -166,8 +180,8 @@ export function LemonButtonWithSideAction({
             <div className="LemonButtonWithSideAction--side-button">
                 <SideComponent
                     // We don't want secondary style as it creates double borders
-                    type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
-                    status={buttonProps.status}
+                    // TODO actually remove the style
+                    className="LemonButton--remove-secondary"
                     popup={sidePopup as LemonButtonPopup}
                     noPadding
                     {...sideActionRest}
@@ -177,7 +191,7 @@ export function LemonButtonWithSideAction({
     )
 }
 
-export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
+export type LemonButtonWithPopupProps = LemonButtonPropsBase & {
     popup: LemonButtonPopup
     sideIcon?: React.ReactElement | null
 }
