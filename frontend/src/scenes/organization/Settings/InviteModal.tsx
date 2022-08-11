@@ -1,4 +1,3 @@
-import { Alert, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import './InviteModal.scss'
@@ -13,6 +12,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { OrganizationInviteType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { LemonModal } from 'lib/components/LemonModal'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -168,17 +168,10 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                 }
             >
                 {preflight?.licensed_users_available === 0 && (
-                    <Alert
-                        type="warning"
-                        showIcon
-                        message={
-                            <>
-                                You've hit the limit of team members you can invite to your PostHog instance given your
-                                license. Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to
-                                upgrade your license.
-                            </>
-                        }
-                    />
+                    <AlertMessage type="warning">
+                        You've hit the limit of team members you can invite to your PostHog instance given your license.
+                        Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> to upgrade your license.
+                    </AlertMessage>
                 )}
                 <div className="space-y-2">
                     <div className="flex gap-2">
@@ -231,14 +224,16 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                         onClick={() => {
                                             invite.is_expired
                                                 ? deleteInvite(invite)
-                                                : Modal.confirm({
+                                                : LemonDialog.open({
                                                       title: `Do you want to cancel the invite for ${invite.target_email}?`,
-                                                      okText: 'Yes, cancel invite',
-                                                      okType: 'danger',
-                                                      onOk() {
-                                                          deleteInvite(invite)
+                                                      primaryButton: {
+                                                          children: 'Yes, cancel invite',
+                                                          status: 'danger',
+                                                          onClick: () => deleteInvite(invite),
                                                       },
-                                                      cancelText: 'No, keep invite',
+                                                      secondaryButton: {
+                                                          children: 'No, keep invite',
+                                                      },
                                                   })
                                         }}
                                     />
