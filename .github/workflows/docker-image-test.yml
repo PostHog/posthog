@@ -75,14 +75,12 @@ jobs:
 
             - name: Output image info including size
               run: |
-                  export docker_image=$REPOSITORY_LOWERCASE@${{ steps.docker_build.outputs.digest }}
                   image_size_bytes=$(docker manifest inspect $docker_image | jq '[.layers[].size] | add')
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
 
-                  export REPOSITORY_LOWERCASE=$("${{ github.repository }}/posthog" | tr "[:upper:]" "[:lower:]")'
-                  echo '::set-output name docker_image::$REPOSITORY_LOWERCASE@${{ steps.docker_build.outputs.digest }}'
+                  echo "::set-output name=$REPOSITORY_LOWERCASE@${{ steps.docker_build.outputs.digest }}"
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
