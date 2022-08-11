@@ -382,7 +382,8 @@ class TestCapture(BaseTest):
         )
 
     @patch("gzip.decompress")
-    def test_invalid_js_gzip_zlib_error(self, gzip_decompress):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_invalid_js_gzip_zlib_error(self, kafka_produce, gzip_decompress):
         """
         This was prompted by an event request that was resulting in the zlib
         error "invalid distance too far back". I couldn't easily generate such a
@@ -404,6 +405,14 @@ class TestCapture(BaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Failed to decompress data. Error -3 while decompressing data: invalid distance too far back",
+                code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_js_gzip_with_no_content_type(self, kafka_produce):
