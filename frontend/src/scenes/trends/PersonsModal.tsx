@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined } from '@ant-design/icons'
-import { Button, Select, Skeleton } from 'antd'
+import { Skeleton } from 'antd'
 import { ActorType, ChartDisplayType, ExporterFormat, FilterType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
