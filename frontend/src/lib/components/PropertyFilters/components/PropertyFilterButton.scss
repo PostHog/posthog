@@ -3,7 +3,6 @@
     color: #2d2d2d;
     border-color: var(--dark-grey);
     background: var(--dark-grey);
-    display: inline-flex;
 
     &:hover,
     &:focus {
@@ -14,6 +13,8 @@
 
     text-shadow: none;
     box-shadow: none;
+
+    display: flex;
     align-items: center;
     gap: 0.5rem;
 

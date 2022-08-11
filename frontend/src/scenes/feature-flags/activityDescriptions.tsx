@@ -38,11 +38,7 @@ const featureFlagActionsMapping: Record<
         const describeChange: string = isActive ? 'enabled' : 'disabled'
 
         return {
-            description: [
-                <>
-                    <div className="mt-2">{describeChange}</div>
-                </>,
-            ],
+            description: [<>{describeChange}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
@@ -192,14 +188,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange
     }
 
     if (logItem.activity == 'created') {
-        return {
-            description: (
-                <>
-                    {' '}
-                    <div className="mt-2">created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</div>
-                </>
-            ),
-        }
+        return { description: <>created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</> }
     }
     if (logItem.activity == 'deleted') {
         return { description: <>deleted {logItem.detail.name}</> }

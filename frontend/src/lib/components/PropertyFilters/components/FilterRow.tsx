@@ -7,7 +7,7 @@ import { Popup } from 'lib/components/Popup/Popup'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import clsx from 'clsx'
-import { IconDelete, IconPlus } from 'lib/components/icons'
+import { IconCopy, IconDelete, IconPlus } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CloseButton } from 'lib/components/CloseButton'
 
@@ -22,6 +22,7 @@ interface FilterRowProps {
     filterComponent: (onComplete: () => void) => JSX.Element
     label: string
     onRemove: (index: number) => void
+    onCopy: (index: number) => void
     orFiltering?: boolean
 }
 
@@ -36,6 +37,7 @@ export const FilterRow = React.memo(function FilterRow({
     filterComponent,
     label,
     onRemove,
+    onCopy,
     orFiltering,
 }: FilterRowProps) {
     const [open, setOpen] = useState(false)
@@ -63,6 +65,14 @@ export const FilterRow = React.memo(function FilterRow({
             {disablePopover ? (
                 <>
                     {filterComponent(() => setOpen(false))}
+                    {!!Object.keys(filters[index]).length && (
+                        <LemonButton
+                            icon={<IconCopy />}
+                            status="primary-alt"
+                            onClick={() => onCopy(index)}
+                            size="small"
+                        />
+                    )}
                     {!!Object.keys(filters[index]).length &&
                         (orFiltering ? (
                             <LemonButton

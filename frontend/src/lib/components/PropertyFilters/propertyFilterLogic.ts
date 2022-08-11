@@ -22,6 +22,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         ) => ({ index, key, value, operator, type, group_type_index }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         remove: (index: number) => ({ index }),
+        duplicateFilter: (index: number) => ({ index }),
     }),
 
     reducers: ({ props }) => ({
@@ -44,6 +45,13 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                     }
                     return newState
                 },
+                duplicateFilter: (state, { index }) => {
+                    if (index < 0) {
+                        return state
+                    }
+                    const newState = [...state, state[index]]
+                    return newState
+                },
             },
         ],
     }),
@@ -54,6 +62,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
             value && actions.update()
         },
         remove: () => actions.update(),
+        duplicateFilter: () => actions.update(),
         update: () => {
             const cleanedFilters = [...values.filters].filter(isValidPropertyFilter)
 

@@ -38,7 +38,7 @@ export function PropertyFilters({
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew } = useValues(propertyFilterLogic(logicProps))
-    const { remove, setFilters } = useActions(propertyFilterLogic(logicProps))
+    const { remove, setFilters, duplicateFilter } = useActions(propertyFilterLogic(logicProps))
 
     // Update the logic's internal filters when the props change
     useEffect(() => {
@@ -63,6 +63,7 @@ export function PropertyFilters({
                                 disablePopover={disablePopover || orFiltering}
                                 label={'Add filter'}
                                 onRemove={remove}
+                                onCopy={duplicateFilter}
                                 orFiltering={orFiltering}
                                 filterComponent={(onComplete) => (
                                     <TaxonomicPropertyFilter

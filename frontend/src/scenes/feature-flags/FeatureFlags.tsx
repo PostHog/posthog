@@ -205,16 +205,13 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
         const { properties, rollout_percentage = null } = groups[0]
         if (properties?.length > 0 && rollout_percentage != null) {
             return (
-                <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
                     <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
-                    <PropertyFiltersDisplay
-                        filters={properties}
-                        style={{ margin: 0, width: '100%', flexDirection: 'row' }}
-                    />
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, width: '100%' }} />
                 </div>
             )
         } else if (properties?.length > 0) {
-            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'row' }} />
+            return <PropertyFiltersDisplay filters={properties} style={{ margin: 0 }} />
         } else if (rollout_percentage !== null) {
             return `${rollout_percentage}% of all users`
         } else {
