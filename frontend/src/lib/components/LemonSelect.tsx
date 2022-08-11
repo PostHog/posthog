@@ -26,7 +26,7 @@ export type LemonSelectSections<LemonSelectOptions> = Record<string, LemonSelect
 export interface LemonSelectProps<O extends LemonSelectOptions>
     extends Omit<
         LemonButtonWithPopupProps,
-        'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange' | 'type' | 'status' | 'size'
+        'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange' | 'type' | 'status' | 'size' | 'active'
     > {
     options: O | LemonSelectSection<O>[]
     value?: keyof O | null
