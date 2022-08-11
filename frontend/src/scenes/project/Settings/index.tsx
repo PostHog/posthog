@@ -287,9 +287,13 @@ export function ProjectSettings(): JSX.Element {
                 <IPCapture />
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle">PostHog Toolbar</h2>
+                <p>
+                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
+                    right there on your website!
+                </p>
                 <ToolbarSettings />
                 <LemonDivider className="my-6" />
-                <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
+                <h2 id="recordings" className="subtitle">
                     Recordings
                 </h2>
                 <p>
@@ -318,6 +322,7 @@ export function ProjectSettings(): JSX.Element {
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
+                <LemonDivider className="my-6" />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (

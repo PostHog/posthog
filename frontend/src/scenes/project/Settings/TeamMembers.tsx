@@ -195,7 +195,7 @@ export function TeamMembers({ user }: MembersProps): JSX.Element {
     ]
     return (
         <>
-            <h2 className="subtitle" id="members-with-project-access" style={{ justifyContent: 'space-between' }}>
+            <h2 className="subtitle flex justify-between items-center" id="members-with-project-access">
                 Members with Project Access
                 <RestrictedArea
                     Component={AddMembersModalWithButton}

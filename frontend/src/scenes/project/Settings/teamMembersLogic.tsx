@@ -155,6 +155,17 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                     }),
         ],
     }),
+    forms: ({ actions }) => ({
+        addMembers: {
+            defaults: { level: TeamMembershipLevel.Member } as { userUuids: string[]; level: TeamMembershipLevel },
+            errors: ({ userUuids }) => ({
+                userUuids: !userUuids || !userUuids.length ? 'Select at least one member to add.' : undefined,
+            }),
+            submit: ({ userUuids, level }) => {
+                actions.addMembers({ userUuids, level })
+            },
+        },
+    }),
     listeners: ({ actions }) => ({
         changeUserAccessLevel: async ({ user, newLevel }) => {
             await api.update(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/${user.uuid}/`, {

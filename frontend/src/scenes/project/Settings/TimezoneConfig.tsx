@@ -1,11 +1,11 @@
-import { Modal, Skeleton } from 'antd'
+import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -16,15 +16,19 @@ export function TimezoneConfig(): JSX.Element {
         return <Skeleton paragraph={{ rows: 0 }} active />
     }
     function onChange(val: string): void {
-        Modal.confirm({
+        console.log(val)
+        LemonDialog.open({
             title: `Do you want to change the timezone of this project?`,
-            content:
+            description:
                 'This will change how every graph in this project is calculated, which means your data will look different than it did before.',
-            icon: <ExclamationCircleOutlined />,
-            okText: 'Change timezone',
-            okType: 'danger',
-            onOk() {
-                updateCurrentTeam({ timezone: val })
+            // icon: <ExclamationCircleOutlined />,
+            primaryButton: {
+                children: 'Change timezone',
+                status: 'danger',
+                onClick: () => updateCurrentTeam({ timezone: val }),
+            },
+            secondaryButton: {
+                children: 'Cancel',
             },
         })
     }
@@ -44,7 +48,7 @@ export function TimezoneConfig(): JSX.Element {
             loading={currentTeamLoading}
             disabled={currentTeamLoading}
             value={[currentTeam.timezone]}
-            onChange={(vals) => onChange(vals[0])}
+            onChange={(val) => onChange(val as any)}
             options={options}
             data-attr="timezone-select"
         />

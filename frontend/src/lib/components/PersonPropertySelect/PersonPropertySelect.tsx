@@ -2,10 +2,12 @@ import React from 'react'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Button, Tag } from 'antd'
 import { Popup } from 'lib/components/Popup/Popup'
-import PlusCircleOutlined from '@ant-design/icons/lib/icons/PlusCircleOutlined'
 import { SortableContainer, SortableElement } from 'react-sortable-hoc'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconPlus } from '../icons'
+import { LemonSnack } from '../LemonSnack/LemonSnack'
+import clsx from 'clsx'
 
 interface PersonPropertySelectProps {
     addText: string
@@ -23,30 +25,22 @@ const PropertyTag = ({
     onRemove: (val: string) => void
     sortable?: boolean
 }): JSX.Element => (
-    <span style={{ display: 'inline-block' }}>
-        <Tag
-            closable
-            onClose={(): void => onRemove(name)}
-            style={{
-                display: 'inline-block',
-                margin: '0.25rem',
-                padding: '0.25rem 0.5em',
-                background: '#D9D9D9',
-                border: '1px solid #D9D9D9',
-                borderRadius: '40px',
-                fontSize: 'inherit',
-                cursor: sortable ? 'move' : 'auto',
+    <span className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}>
+        <LemonSnack
+            onClose={() => {
+                console.log('closed')
+                onRemove(name)
             }}
         >
             {name}
-        </Tag>
+        </LemonSnack>
     </span>
 )
 
 const SortableProperty = SortableElement(PropertyTag)
 
 const SortablePropertyList = SortableContainer(({ children }: { children: React.ReactNode }) => {
-    return <span>{children}</span>
+    return <span className="flex items-center gap-2">{children}</span>
 })
 
 export const PersonPropertySelect = ({
@@ -55,7 +49,7 @@ export const PersonPropertySelect = ({
     addText,
     sortable = false,
 }: PersonPropertySelectProps): JSX.Element => {
-    const { open, toggle, hide } = usePopup()
+    const [open, setOpen] = React.useState<boolean>(false)
 
     const handleChange = (name: string): void => {
         onChange(Array.from(new Set(selectedProperties.concat([name]))))
@@ -73,9 +67,9 @@ export const PersonPropertySelect = ({
     }
 
     return (
-        <div style={{ marginBottom: 16 }}>
+        <div className="flex items-center flex-wrap gap-2">
             {sortable ? (
-                <SortablePropertyList onSortEnd={handleSort} axis="x" lockAxis="x" lockToContainerEdges>
+                <SortablePropertyList onSortEnd={handleSort} axis="x" lockAxis="x" lockToContainerEdges distance={5}>
                     {selectedProperties.map((value, index) => (
                         <SortableProperty
                             key={`item-${value}`}
@@ -93,37 +87,21 @@ export const PersonPropertySelect = ({
             )}
             <Popup
                 visible={open}
-                onClickOutside={() => hide()}
+                onClickOutside={() => setOpen(false)}
                 overlay={
                     <TaxonomicFilter
                         onChange={(_, value) => {
                             handleChange(value as string)
-                            hide()
+                            setOpen(false)
                         }}
                         taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     />
                 }
             >
-                <Button onClick={() => toggle()} type="link" className="new-prop-filter" icon={<PlusCircleOutlined />}>
+                <LemonButton onClick={() => setOpen(!open)} type="secondary" size="small" icon={<IconPlus />}>
                     {addText}
-                </Button>
+                </LemonButton>
             </Popup>
         </div>
     )
-}
-
-const popupLogic = {
-    toggle: (open: boolean) => !open,
-    hide: () => false,
-}
-
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-const usePopup = () => {
-    const [open, setOpen] = React.useState<boolean>(false)
-
-    return {
-        open,
-        toggle: () => setOpen(popupLogic.toggle(open)),
-        hide: () => setOpen(popupLogic.hide()),
-    }
 }
