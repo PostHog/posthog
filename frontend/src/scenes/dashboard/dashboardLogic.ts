@@ -752,9 +752,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 }, values.autoRefresh.interval * 1000)
             }
         },
-        loadDashboardItemsSuccess: () => {
-            // I didn't want any parameters but kea does :)
-            sharedListeners.reportLoadTiming(null, async () => {}, {} as { type: string; payload: any }, null)
+        loadDashboardItemsSuccess: function (...args) {
+            sharedListeners.reportLoadTiming(...args)
 
             // Initial load of actual data for dashboard items after general dashboard is fetched
             if (values.lastRefreshed && values.lastRefreshed.isBefore(now().subtract(3, 'hours'))) {
