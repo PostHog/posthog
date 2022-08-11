@@ -1,7 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { Field } from 'lib/forms/Field'
-import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { AvailableFeature } from '~/types'
 import { LemonSelect } from 'lib/components/LemonSelect'
@@ -10,6 +9,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
+import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 
 export function NewDashboardModal(): JSX.Element {
@@ -19,11 +19,11 @@ export function NewDashboardModal(): JSX.Element {
     return (
         <LemonModal
             title="New dashboard"
-            destroyOnClose
-            onCancel={hideNewDashboardModal}
-            visible={newDashboardModalVisible}
+            description="Use dashboards to compose multiple insights into a single view."
+            onClose={hideNewDashboardModal}
+            isOpen={newDashboardModalVisible}
             footer={
-                <div className="flex justify-end space-x-2 w-full">
+                <>
                     <LemonButton
                         form="new-dashboard-form"
                         type="secondary"
@@ -53,7 +53,7 @@ export function NewDashboardModal(): JSX.Element {
                     >
                         Create
                     </LemonButton>
-                </div>
+                </>
             }
         >
             <Form
