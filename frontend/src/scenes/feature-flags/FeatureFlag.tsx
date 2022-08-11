@@ -506,7 +506,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </div>
 
-                                    <LemonDivider large />
+                                    <LemonDivider className="my-4" />
                                     <div className="ml-4">
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${
@@ -519,7 +519,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         />
                                     </div>
 
-                                    <LemonDivider large />
+                                    <LemonDivider className="my-4" />
 
                                     <div className="feature-flag-form-row">
                                         <div className="centered">

@@ -136,7 +136,7 @@ function DashboardScene(): JSX.Element {
                                     propertyFilters={dashboard?.filters.properties}
                                 />
                             </div>
-                            <LemonDivider large />
+                            <LemonDivider className="my-4" />
                         </>
                     )}
                     {placement !== DashboardPlacement.Export && (

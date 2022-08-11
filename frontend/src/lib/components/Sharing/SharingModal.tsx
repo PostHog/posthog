@@ -93,7 +93,7 @@ export function SharingModal({
 
                         {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
-                                <LemonDivider large />
+                                <LemonDivider className="my-4" />
                                 <div className="space-y-2">
                                     <div className="flex justify-between">
                                         <TitleWithIcon

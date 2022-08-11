@@ -16,7 +16,7 @@ export function PanelFooter(): JSX.Element {
 
     return (
         <div className="panel-footer">
-            <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
+            <LemonDivider thick dashed className="my-6" />
             {platform === BOOKMARKLET ? (
                 <div>
                     <LemonButton
