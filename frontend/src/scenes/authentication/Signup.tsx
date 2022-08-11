@@ -7,13 +7,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from './signupLogic'
 import { userLogic } from '../userLogic'
 import { WelcomeLogo } from './WelcomeLogo'
-import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export const scene: SceneExport = {
     component: Signup,
@@ -25,7 +25,7 @@ const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 export function Signup(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { isSignupSubmitting, signupManualErrors, signupAllErrors, signup } = useValues(signupLogic)
+    const { isSignupSubmitting, signupManualErrors, signup } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
     const passwordInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -43,14 +43,12 @@ export function Signup(): JSX.Element | null {
         ],
     }
 
-    console.log(signupAllErrors, signupManualErrors)
-
     return !user ? (
         <div className="bridge-page signup">
             <div className="auth-main-content">
-                <div className="inner-wrapper">
+                <div className="inner-wrapper ">
                     <WelcomeLogo view="signup" />
-                    <div className="inner">
+                    <div className="inner space-y-2">
                         <h2 className="subtitle justify-center">
                             {!preflight?.demo ? 'Get started' : 'Explore PostHog yourself'}
                         </h2>
@@ -66,10 +64,10 @@ export function Signup(): JSX.Element | null {
                             </div>
                         )}
                         {!isSignupSubmitting && signupManualErrors.generic && (
-                            <InlineMessage style={{ marginBottom: 16 }} type="danger">
+                            <AlertMessage type="error">
                                 {signupManualErrors.generic?.detail ||
                                     'Could not complete your signup. Please try again.'}
-                            </InlineMessage>
+                            </AlertMessage>
                         )}
                         <Form logic={signupLogic} formKey={'signup'} className="space-y-4" enableFormOnSubmit>
                             <Field name="email" label="Email">
@@ -108,7 +106,6 @@ export function Signup(): JSX.Element | null {
                             <Field name="first_name" label="Your name">
                                 <LemonInput
                                     className="ph-ignore-input"
-                                    autoFocus
                                     data-attr="signup-first-name"
                                     placeholder="Jane Doe"
                                     disabled={isSignupSubmitting}
