@@ -14,6 +14,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 /** The effect of the value's padding is reduced by the offset. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = -16
@@ -35,7 +36,7 @@ function useBoldNumberTooltip({
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
 
-        const seriesResult = insight.result[0]
+        const seriesResult = insight.result?.[0]
 
         ReactDOM.render(
             <InsightTooltip
@@ -47,8 +48,8 @@ function useBoldNumberTooltip({
                         dataIndex: 1,
                         datasetIndex: 1,
                         id: 1,
-                        label: seriesResult.label,
-                        count: seriesResult.aggregated_value,
+                        label: seriesResult?.label,
+                        count: seriesResult?.aggregated_value,
                     },
                 ]}
                 showHeader={false}
@@ -80,9 +81,9 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const resultSeries = insight.result[0] as TrendResult
+    const resultSeries = insight?.result?.[0] as TrendResult
 
-    return (
+    return resultSeries ? (
         <div className="BoldNumber">
             <Textfit mode="single" min={32} max={160}>
                 <div
@@ -110,5 +111,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                 </div>
             </Textfit>
         </div>
+    ) : (
+        <InsightEmptyState />
     )
 }

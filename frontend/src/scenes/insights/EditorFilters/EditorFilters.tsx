@@ -9,7 +9,7 @@ import {
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 import { TrendsSteps } from 'scenes/insights/EditorFilters/TrendsSteps'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
 import { TrendsFormula } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
@@ -64,7 +64,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
     const hasBreakdown =
-        isTrends ||
+        (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
         (isRetention &&
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
             filters.display !== ChartDisplayType.ActionsLineGraph) ||

@@ -54,12 +54,12 @@
     width: 100%;
     max-height: calc(100vh - 3.5rem);
     overflow: auto;
-    padding: 0.5rem;
+    padding: 1rem 0.5rem;
 
     > ul {
-        margin-top: 0.5rem;
         list-style: none;
-        padding: 0px;
+        margin: 0;
+        padding: 0;
 
         li {
             margin-top: 1px;

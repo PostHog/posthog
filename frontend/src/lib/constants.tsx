@@ -9,6 +9,8 @@ export const NON_TIME_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.WorldMap,
     ChartDisplayType.BoldNumber,
 ]
+/** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
+export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
 /** Display types which only work with a single series. */
 export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 

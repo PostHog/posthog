@@ -16,14 +16,9 @@ logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logs
 
 
 class Command(BaseCommand):
-    help = "Rehearse demo data simulation"
+    help = "Generate demo data using the Matrix"
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--save-as",
-            type=str,
-            help="Email of the account that should be created to save the results of the simulation (the password: 12345678)",
-        )
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
         parser.add_argument(
             "--now", type=dt.datetime.fromisoformat, help="Simulation 'now' datetime in ISO format (default: now)",
@@ -42,6 +37,13 @@ class Command(BaseCommand):
         )
         parser.add_argument("--n-clusters", type=int, default=50, help="Number of clusters (default: 50)")
         parser.add_argument("--list-events", action="store_true", help="Print events individually")
+        parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
+        parser.add_argument(
+            "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)",
+        )
+        parser.add_argument(
+            "--password", type=str, default="12345678", help="Password of the demo user (default: 12345678)",
+        )
 
     def handle(self, *args, **options):
         timer = time()
@@ -99,13 +101,20 @@ class Command(BaseCommand):
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'} (of which {future_event_count} {'is' if future_event_count == 1 else 'are'} in the future)."
         )
         print("\n".join(summary_lines))
-        if email := options["save_as"]:
-            print(f"Saving data as {email}…")
+        if not options["dry_run"]:
+            email = options["email"]
+            password = options["password"]
             with transaction.atomic():
                 try:
                     MatrixManager(matrix, use_pre_save=False).ensure_account_and_save(
-                        email, "Employee 427", "Hedgebox Inc.", password="12345678", disallow_collision=True
+                        email,
+                        "Employee 427",
+                        "Hedgebox Inc.",
+                        password=password,
+                        disallow_collision=True,
+                        print_steps=True,
                     )
-                except (exceptions.ValidationError, exceptions.PermissionDenied) as e:
-                    print(str(e))
-            print(f"{email} is ready!")
+                except exceptions.ValidationError as e:
+                    print(f"Error: {e}")
+                else:
+                    print(f"Demo data ready! Log in as {email} with password {password}.")
