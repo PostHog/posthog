@@ -80,7 +80,7 @@ jobs:
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
 
-                  echo "::set-output name=$REPOSITORY_LOWERCASE@${{ steps.docker_build.outputs.digest }}"
+                  echo "::set-output name=docker_image::$REPOSITORY_LOWERCASE@${{ steps.docker_build.outputs.digest }}"
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
