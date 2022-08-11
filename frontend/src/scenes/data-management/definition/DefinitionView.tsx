@@ -141,6 +141,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <p className="definition-matching-events-subtext">
                                     This is the list of recent events that match this definition.
                                 </p>
+                                <div className="pt-4 border-t" />
                                 <EventsTable
                                     sceneUrl={backDetailUrl}
                                     pageKey={`definition-page-${definition.id}`}
