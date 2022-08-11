@@ -1,5 +1,7 @@
 import React from 'react'
-import { kea } from 'kea'
+import { kea, path, actions, selectors, listeners, events } from 'kea'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import {
@@ -20,21 +22,26 @@ import { lemonToast } from 'lib/components/lemonToast'
 
 export const MINIMUM_IMPLICIT_ACCESS_LEVEL = OrganizationMembershipLevel.Admin
 
-export const teamMembersLogic = kea<teamMembersLogicType>({
-    path: ['scenes', 'project', 'Settings', 'teamMembersLogic'],
-    actions: {
+interface AddMembersFields {
+    userUuids: string[]
+    level: TeamMembershipLevel
+}
+
+export const teamMembersLogic = kea<teamMembersLogicType>([
+    path(['scenes', 'project', 'Settings', 'teamMembersLogic']),
+    actions({
         changeUserAccessLevel: (user: UserBasicType, newLevel: TeamMembershipLevel) => ({
             user,
             newLevel,
         }),
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values }) => ({
         explicitMembers: {
             __default: [] as ExplicitTeamMemberType[],
             loadMembers: async () => {
                 return await api.get(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/`)
             },
-            addMembers: async ({ userUuids, level }: { userUuids: string[]; level: TeamMembershipLevel }) => {
+            addMembers: async ({ userUuids, level }: AddMembersFields) => {
                 const newMembers: ExplicitTeamMemberType[] = await Promise.all(
                     userUuids.map((userUuid) =>
                         api.create(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/`, {
@@ -61,8 +68,8 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                 return values.explicitMembers.filter((thisMember) => thisMember.user.uuid !== member.user.uuid)
             },
         },
-    }),
-    selectors: ({ selectors }) => ({
+    })),
+    selectors(({ selectors }) => ({
         allMembers: [
             () => [
                 teamLogic.selectors.currentTeam,
@@ -154,19 +161,19 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
                         } as FusedTeamMemberType
                     }),
         ],
-    }),
-    forms: ({ actions }) => ({
+    })),
+    forms(({ actions }) => ({
         addMembers: {
-            defaults: { level: TeamMembershipLevel.Member } as { userUuids: string[]; level: TeamMembershipLevel },
+            defaults: { level: TeamMembershipLevel.Member, userUuids: [] } as AddMembersFields,
             errors: ({ userUuids }) => ({
-                userUuids: !userUuids || !userUuids.length ? 'Select at least one member to add.' : undefined,
+                userUuids: !userUuids || !userUuids.length ? ['Select at least one member to add.'] : undefined,
             }),
             submit: ({ userUuids, level }) => {
                 actions.addMembers({ userUuids, level })
             },
         },
-    }),
-    listeners: ({ actions }) => ({
+    })),
+    listeners(({ actions }) => ({
         changeUserAccessLevel: async ({ user, newLevel }) => {
             await api.update(`api/projects/${teamLogic.values.currentTeamId}/explicit_members/${user.uuid}/`, {
                 level: newLevel,
@@ -178,8 +185,8 @@ export const teamMembersLogic = kea<teamMembersLogicType>({
             )
             actions.loadMembers()
         },
-    }),
-    events: ({ actions }) => ({
+    })),
+    events(({ actions }) => ({
         afterMount: actions.loadMembers,
-    }),
-})
+    })),
+])
