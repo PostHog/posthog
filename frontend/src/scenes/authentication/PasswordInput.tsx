@@ -1,15 +1,13 @@
-import { Form, Input } from 'antd'
-import { FormItemProps } from 'antd/lib/form'
 import React, { lazy, Suspense } from 'react'
 import './PasswordInput.scss'
-import { ExclamationCircleFilled } from '@ant-design/icons'
+import { LemonInput } from '@posthog/lemon-ui'
+import { Field } from 'lib/forms/Field'
 
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
-interface PasswordInputProps extends FormItemProps {
+interface PasswordInputProps {
     showStrengthIndicator?: boolean
     label?: string
-    style?: React.CSSProperties
     validateMinLength?: boolean
     validationDisabled?: boolean
     disabled?: boolean
@@ -17,81 +15,34 @@ interface PasswordInputProps extends FormItemProps {
 }
 
 export const PasswordInput = React.forwardRef(function PasswordInputInternal(
-    {
-        label = 'Password',
-        showStrengthIndicator,
-        validateMinLength,
-        style,
-        validationDisabled,
-        disabled,
-        inputName = 'password',
-        ...props
-    }: PasswordInputProps,
-    ref: React.Ref<Input>
+    { label = 'Password', showStrengthIndicator, disabled, inputName = 'password' }: PasswordInputProps,
+    ref: React.Ref<HTMLInputElement>
 ): JSX.Element {
     return (
-        <div style={{ marginBottom: 24, ...style }} className="password-input">
-            <div style={{ display: 'flex', alignItems: 'center' }} className="ant-form-item-label">
-                <label htmlFor="password">{label}</label>
-                {showStrengthIndicator && (
-                    <Form.Item
-                        shouldUpdate={(prevValues, currentValues) => prevValues.password !== currentValues.password}
-                        className="password-input-strength-indicator"
-                    >
-                        {({ getFieldValue }) => (
+        <div className="password-input">
+            <Field name={inputName} label={label}>
+                {({ value, onChange }) => (
+                    <>
+                        {showStrengthIndicator && (
                             <Suspense fallback={<></>}>
-                                <div
-                                    style={{
-                                        display: 'flex',
-                                        overflow: 'hidden',
-                                        whiteSpace: 'nowrap',
-                                        paddingLeft: '60%',
-                                    }}
-                                >
-                                    <PasswordStrength password={getFieldValue('password')} />
+                                <div>
+                                    <PasswordStrength password={'TODO'} />
                                 </div>
                             </Suspense>
                         )}
-                    </Form.Item>
+                        <LemonInput
+                            type="password"
+                            ref={ref}
+                            className="ph-ignore-input"
+                            data-attr="password"
+                            placeholder="••••••••••"
+                            disabled={disabled}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    </>
                 )}
-            </div>
-            <Form.Item
-                name={inputName}
-                rules={
-                    !validationDisabled
-                        ? [
-                              {
-                                  required: true,
-                                  message: (
-                                      <>
-                                          <ExclamationCircleFilled style={{ marginRight: 4 }} /> Please enter your
-                                          password to continue
-                                      </>
-                                  ),
-                              },
-                              {
-                                  min: validateMinLength ? 8 : undefined,
-                                  message: (
-                                      <>
-                                          <ExclamationCircleFilled style={{ marginRight: 4 }} /> Password must be at
-                                          least 8 characters
-                                      </>
-                                  ),
-                              },
-                          ]
-                        : undefined
-                }
-                style={showStrengthIndicator ? { marginBottom: 0 } : undefined}
-                {...props}
-            >
-                <Input.Password
-                    ref={ref}
-                    className="ph-ignore-input"
-                    data-attr="password"
-                    placeholder="••••••••••"
-                    disabled={disabled}
-                />
-            </Form.Item>
+            </Field>
         </div>
     )
 })
