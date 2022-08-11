@@ -18,8 +18,9 @@ export default {
 
 const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<LemonSelectOptions>) => {
     return (
-        <div className="w-full border p-4">
+        <div className="flex flex-row items-center w-full border p-4 gap-2">
             <LemonSelect {...props} />
+            <LemonSelect {...props} size="small" />
         </div>
     )
 }
