@@ -10,7 +10,7 @@ export interface LinkProps extends React.HTMLProps<HTMLAnchorElement> {
     tag?: string | React.FunctionComponentElement<any>
 }
 
-export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
+export function Link({ to, href, preventClick = false, tag = 'a', ...props }: LinkProps): JSX.Element {
     const onClick = (event: React.MouseEvent<HTMLAnchorElement>): void => {
         if (event.metaKey || event.ctrlKey) {
             event.stopPropagation()
@@ -31,8 +31,8 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
     }
 
     const elProps = {
-        href: to || '#',
         ...props,
+        href: to || href || '#',
         onClick,
     }
 
