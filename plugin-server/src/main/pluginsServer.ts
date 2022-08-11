@@ -2,12 +2,11 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
-import { Consumer, KafkaJSProtocolError } from 'kafkajs'
+import { KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 
 import { defaultConfig } from '../config/config'
-import { KAFKA_HEALTHCHECK } from '../config/kafka-topics'
 import {
     Hub,
     JobQueueConsumerControl,
@@ -28,7 +27,6 @@ import { startJobQueueConsumer } from './job-queues/job-queue-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 import { startPluginSchedules } from './services/schedule'
-import { setupKafkaHealthcheckConsumer } from './utils'
 
 const { version } = require('../../package.json')
 
@@ -38,7 +36,6 @@ export type ServerInstance = {
     piscina: Piscina
     queue: KafkaQueue | null
     mmdb?: ReaderModel
-    kafkaHealthcheckConsumer?: Consumer
     mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
@@ -62,7 +59,6 @@ export async function startPluginsServer(
     let hub: Hub | undefined
     let piscina: Piscina | undefined
     let queue: KafkaQueue | undefined | null // ingestion queue
-    let healthCheckConsumer: Consumer | undefined
     let jobQueueConsumer: JobQueueConsumerControl | undefined
     let closeHub: () => Promise<void> | undefined
     let pluginScheduleControl: PluginScheduleControl | undefined
@@ -92,7 +88,6 @@ export async function startPluginsServer(
         await pubSub?.stop()
         await jobQueueConsumer?.stop()
         await pluginScheduleControl?.stopSchedule()
-        await healthCheckConsumer?.stop()
         await new Promise<void>((resolve, reject) =>
             !mmdbServer
                 ? resolve()
@@ -287,18 +282,6 @@ export async function startPluginsServer(
         serverInstance.piscina = piscina
         serverInstance.queue = queue
         serverInstance.stop = closeJobs
-
-        healthCheckConsumer = await setupKafkaHealthcheckConsumer(hub.kafka)
-        serverInstance.kafkaHealthcheckConsumer = healthCheckConsumer
-
-        await healthCheckConsumer.connect()
-
-        try {
-            healthCheckConsumer.pause([{ topic: KAFKA_HEALTHCHECK }])
-        } catch (err) {
-            // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
-            status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
-        }
 
         hub.statsd?.timing('total_setup_time', timer)
         status.info('🚀', 'All systems go')
