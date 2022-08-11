@@ -21,10 +21,10 @@ const Template: ComponentStory<typeof LemonInput> = (props) => {
 
 export const Basic = Template.bind({})
 
-export const WithIconAndSideAction = Template.bind({})
-WithIconAndSideAction.args = {
-    icon: <IconCalendar />,
-    sideIcon: (
+export const WithPrefixAndSuffixAction = Template.bind({})
+WithPrefixAndSuffixAction.args = {
+    prefix: <IconCalendar />,
+    suffix: (
         <LemonButtonWithPopup
             noPadding
             popup={{
