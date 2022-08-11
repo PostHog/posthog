@@ -6,8 +6,10 @@ import { IconLock } from 'lib/components/icons'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 
-type BaseMetricValue = Pick<SystemStatusRow, 'key' | 'value'> & Partial<Pick<InstanceSetting, 'value_type'>>
-export interface MetricValue extends BaseMetricValue {
+export interface MetricValue {
+    key: SystemStatusRow['key']
+    value?: SystemStatusRow['value']
+    value_type?: InstanceSetting['value_type']
     emptyNullLabel?: string
     isSecret?: boolean
 }
