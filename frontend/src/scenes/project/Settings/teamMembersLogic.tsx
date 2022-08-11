@@ -22,7 +22,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 
 export const MINIMUM_IMPLICIT_ACCESS_LEVEL = OrganizationMembershipLevel.Admin
 
-interface AddMembersFields {
+export type AddMembersFields = {
     userUuids: string[]
     level: TeamMembershipLevel
 }
