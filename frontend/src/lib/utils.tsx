@@ -325,6 +325,11 @@ export const durationOperatorMap: Record<string, string> = {
     lt: '< less than',
 }
 
+export const selectorOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -332,6 +337,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...genericOperatorMap,
     ...booleanOperatorMap,
     ...durationOperatorMap,
+    ...selectorOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -342,6 +348,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Numeric: numericOperatorMap,
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
+    Selector: selectorOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {

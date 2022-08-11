@@ -36,6 +36,7 @@ import {
     range,
     durationOperatorMap,
     isExternalLink,
+    selectorOperatorMap,
 } from './utils'
 import {
     ActionFilter,
@@ -580,6 +581,7 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
             { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
             { propertyType: PropertyType.Duration, expected: durationOperatorMap },
+            { propertyType: PropertyType.Selector, expected: selectorOperatorMap },
             { propertyType: undefined, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {

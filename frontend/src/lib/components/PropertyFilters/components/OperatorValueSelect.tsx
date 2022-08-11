@@ -79,9 +79,16 @@ export function OperatorValueSelect({
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
-        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyDefinition?.property_type)
+        const isAutocaptureElementProperty = propkey === 'selector'
+        const operatorMapping: Record<string, string> = chooseOperatorMap(
+            isAutocaptureElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
+        )
         setOperators(Object.keys(operatorMapping) as Array<PropertyOperator>)
-    }, [propertyDefinition])
+
+        if (isAutocaptureElementProperty) {
+            setCurrentOperator(PropertyOperator.Exact)
+        }
+    }, [propertyDefinition, propkey])
 
     return (
         <>
