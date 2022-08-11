@@ -2,7 +2,6 @@ import { isBreakpoint, kea } from 'kea'
 import api from 'lib/api'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { router } from 'kea-router'
-import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { clearDOMTextSelection, isUserLoggedIn, toParams } from 'lib/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
@@ -27,6 +26,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
+import { dayjs, now } from 'lib/dayjs'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -48,7 +48,7 @@ export interface RefreshStatus {
     loading?: boolean
     refreshed?: boolean
     error?: boolean
-    timer?: Dayjs | null
+    timer?: Date | null
 }
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
@@ -259,14 +259,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 },
             },
         ],
-        loadTimer: [null as Dayjs | null, { loadDashboardItems: () => now() }],
+        loadTimer: [null as Date | null, { loadDashboardItems: () => new Date() }],
         refreshStatus: [
             {} as Record<string, RefreshStatus>,
             {
                 setRefreshStatus: (state, { shortId, loading }) => ({
                     ...state,
                     [shortId]: loading
-                        ? { loading: true, timer: now() }
+                        ? { loading: true, timer: new Date() }
                         : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
                 setRefreshStatuses: (state, { shortIds, loading }) =>
@@ -274,7 +274,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                         shortIds.map((shortId) => [
                             shortId,
                             loading
-                                ? { loading: true, timer: now() }
+                                ? { loading: true, timer: new Date() }
                                 : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
@@ -568,7 +568,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             const refreshStatus = values.refreshStatus[shortId]
 
             if (refreshStatus?.timer) {
-                const loadingMilliseconds = now().diff(refreshStatus.timer)
+                const loadingMilliseconds = new Date().getTime() - refreshStatus.timer.getTime()
                 eventUsageLogic.actions.reportInsightRefreshTime(loadingMilliseconds, shortId)
             }
         },
@@ -577,8 +577,10 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // what even is loading?!
                 return
             }
-            const loadingMilliseconds = now().diff(values.loadTimer)
-            eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
+            if (values.loadTimer) {
+                const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
+                eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
+            }
         },
     }),
     listeners: ({ actions, values, cache, props, sharedListeners }) => ({
