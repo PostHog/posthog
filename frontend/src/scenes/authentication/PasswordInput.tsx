@@ -1,48 +1,27 @@
 import React, { lazy, Suspense } from 'react'
 import './PasswordInput.scss'
-import { LemonInput } from '@posthog/lemon-ui'
-import { Field } from 'lib/forms/Field'
+import { LemonInput, LemonInputProps } from '@posthog/lemon-ui'
 
-const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
-
-interface PasswordInputProps {
+export type PasswordInputProps = LemonInputProps & {
     showStrengthIndicator?: boolean
-    label?: string
-    validateMinLength?: boolean
-    validationDisabled?: boolean
-    disabled?: boolean
     inputName?: string
+    value?: string
 }
 
 export const PasswordInput = React.forwardRef(function PasswordInputInternal(
-    { label = 'Password', showStrengthIndicator, disabled, inputName = 'password' }: PasswordInputProps,
+    { showStrengthIndicator, ...inputProps }: PasswordInputProps,
     ref: React.Ref<HTMLInputElement>
 ): JSX.Element {
     return (
         <div className="password-input">
-            <Field name={inputName} label={label}>
-                {({ value, onChange }) => (
-                    <>
-                        {showStrengthIndicator && (
-                            <Suspense fallback={<></>}>
-                                <div>
-                                    <PasswordStrength password={'TODO'} />
-                                </div>
-                            </Suspense>
-                        )}
-                        <LemonInput
-                            type="password"
-                            ref={ref}
-                            className="ph-ignore-input"
-                            data-attr="password"
-                            placeholder="••••••••••"
-                            disabled={disabled}
-                            value={value}
-                            onChange={onChange}
-                        />
-                    </>
-                )}
-            </Field>
+            <LemonInput
+                type="password"
+                ref={ref}
+                className="ph-ignore-input"
+                data-attr="password"
+                placeholder="••••••••••"
+                {...inputProps}
+            />
         </div>
     )
 })

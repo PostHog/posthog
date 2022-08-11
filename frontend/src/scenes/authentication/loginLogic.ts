@@ -95,9 +95,6 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     listeners({
-        touchLoginFormField: (value) => {
-            console.log('touched', value)
-        },
         submitLoginFormSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.

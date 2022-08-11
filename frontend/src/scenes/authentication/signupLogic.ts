@@ -1,4 +1,6 @@
-import { kea } from 'kea'
+import { kea, path } from 'kea'
+import { urlToAction } from 'kea-router'
+import { forms } from 'kea-forms'
 import api from 'lib/api'
 import type { signupLogicType } from './signupLogicType'
 
@@ -10,54 +12,52 @@ export interface AccountResponse {
     errorAttribute?: string
 }
 
-export const signupLogic = kea<signupLogicType>({
-    path: ['scenes', 'authentication', 'signupLogic'],
-    actions: {
-        setInitialEmail: (email: string) => ({ email }),
-        setFormSubmitted: (submitted: boolean) => ({ submitted }),
-    },
-    reducers: {
-        initialEmail: [
-            '',
-            {
-                setInitialEmail: (_, { email }) => email,
+export interface SignupForm {
+    email: string
+    password: string
+    first_name: string
+    organization_name: string
+}
+
+export const signupLogic = kea<signupLogicType>([
+    path(['scenes', 'authentication', 'signupLogic']),
+    forms(({ actions }) => ({
+        signup: {
+            defaults: {} as unknown as SignupForm,
+            errors: ({ email, password, first_name, organization_name }) => ({
+                email: !email ? 'Please enter your email to continue' : undefined,
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : password.length < 8
+                    ? 'Password must be at least 8 characters'
+                    : undefined,
+                first_name: !first_name ? 'Please enter your name' : undefined,
+                organization_name: !organization_name ? 'Please enter your organization name' : undefined,
+            }),
+            submit: async (payload, breakpoint) => {
+                alert(JSON.stringify(payload))
+                await breakpoint()
+                try {
+                    const res = await api.create('api/signup/', payload)
+                    location.href = res.redirect_url || '/'
+                } catch (e) {
+                    console.log(e)
+                    actions.setSignupManualErrors({
+                        generic: {
+                            code: (e as Record<string, any>).code,
+                            detail: (e as Record<string, any>).detail,
+                        },
+                    })
+                    throw e
+                }
             },
-        ],
-        // Whether the user has attempted to submit the form; used to trigger validation only after initial submission
-        formSubmitted: [
-            false,
-            {
-                setFormSubmitted: (_, { submitted }) => submitted,
-            },
-        ],
-    },
-    loaders: () => ({
-        signupResponse: [
-            null as AccountResponse | null,
-            {
-                signup: async (payload) => {
-                    try {
-                        const response = await api.create('api/signup/', payload)
-                        return { success: true, ...response }
-                    } catch (e: any) {
-                        return { success: false, errorCode: e.code, errorDetail: e.detail, errorAttribute: e.attr }
-                    }
-                },
-            },
-        ],
-    }),
-    listeners: () => ({
-        signupSuccess: ({ signupResponse }) => {
-            if (signupResponse?.success) {
-                location.href = signupResponse.redirect_url || '/'
-            }
         },
-    }),
-    urlToAction: ({ actions }) => ({
+    })),
+    urlToAction(({ actions }) => ({
         '/signup': ({}, { email }) => {
             if (email) {
-                actions.setInitialEmail(email)
+                actions.setSignupValue('email', email)
             }
         },
-    }),
-})
+    })),
+])

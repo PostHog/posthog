@@ -5,7 +5,6 @@ import { loginLogic } from './loginLogic'
 import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
-import { PasswordInput } from './PasswordInput'
 import clsx from 'clsx'
 import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -113,7 +112,14 @@ export function Login(): JSX.Element {
                                 (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) && 'hidden'
                             )}
                         >
-                            <PasswordInput />
+                            <Field name="password" label="Password">
+                                <LemonInput
+                                    type="password"
+                                    className="ph-ignore-input"
+                                    data-attr="password"
+                                    placeholder="••••••••••"
+                                />
+                            </Field>
                         </div>
                         {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
                             <LemonButton
