@@ -124,7 +124,10 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
 
     const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
 
-    const percentageDiff = currentPeriodSeries.aggregated_value / previousPeriodSeries.aggregated_value - 1
+    const percentageDiff =
+        (currentPeriodSeries.aggregated_value - previousPeriodSeries.aggregated_value) /
+        Math.abs(previousPeriodSeries.aggregated_value)
+
     const percentageDiffDisplay =
         percentageDiff > 0
             ? `Up ${percentage(percentageDiff)}`
