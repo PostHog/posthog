@@ -65,7 +65,7 @@ jobs:
               id: docker_build
               uses: docker/build-push-action@v2
               with:
-                  push: true
+                  push: ${{ github.repository == 'PostHog/posthog' }}
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
@@ -75,8 +75,18 @@ jobs:
                   # It notes that it doesn't support mode=max, but we're not
                   # removing any layers, soooo, maybe it's fine.
                   cache-to: type=inline
+                  output: type=oci,dest=/tmp/posthog-image.tar
+
+            - name: Upload docker image
+              uses: actions/upload-artifact@v2
+              with:
+                  name: docker-image
+                  path: /tmp/posthog-image.tar
 
             - name: Output image info including size
+              # If we're in the posthog repo, we should be able to get the remove size.
+              # TODO: get the size of the local image
+              if: ${{ github.repository == 'PostHog/posthog' }}
               run: |
                   export docker_image=ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
                   image_size_bytes=$(docker manifest inspect $docker_image | jq '[.layers[].size] | add')
@@ -147,12 +157,18 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   EOT
 
+            - uses: actions/download-artifact@v3
+              with:
+                  name: docker-image
+                  path: /tmp/posthog-image.tar
+
             - name: Boot PostHog
               env:
                   DOCKER_IMAGE: ${{ needs.build.outputs.docker_image }}
               run: |
                   mkdir -p /tmp/logs
 
+                  docker load /tmp/posthog-image.tar
                   DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env $DOCKER_IMAGE"
 
                   $DOCKER_RUN ./bin/migrate
