@@ -29,6 +29,12 @@ export function PathCleaningFilter(): JSX.Element {
                         local_path_cleaning_filters: [...(filter.local_path_cleaning_filters || []), newItem],
                     })
                 }}
+                onCopy={(index) => {
+                    const newState = filter.local_path_cleaning_filters
+                        ? [...filter.local_path_cleaning_filters, filter.local_path_cleaning_filters[index]]
+                        : []
+                    setFilter({ local_path_cleaning_filters: newState })
+                }}
                 onRemove={(index) => {
                     const newState = (filter.local_path_cleaning_filters || []).filter((_, i) => i !== index)
                     setFilter({ local_path_cleaning_filters: newState })

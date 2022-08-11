@@ -15,6 +15,15 @@ export function PathCleaningFiltersConfig(): JSX.Element {
         const newState = (currentTeam?.path_cleaning_filters || []).filter((_, i) => i !== index)
         handleChange(newState)
     }
+    const onCopy = (index: number): void => {
+        const newState = currentTeam?.path_cleaning_filters
+            ? (currentTeam.path_cleaning_filters = [
+                  ...currentTeam.path_cleaning_filters,
+                  currentTeam.path_cleaning_filters[index],
+              ])
+            : []
+        handleChange(newState)
+    }
 
     return (
         <div style={{ marginBottom: 16 }}>
@@ -26,6 +35,7 @@ export function PathCleaningFiltersConfig(): JSX.Element {
                         handleChange([...(currentTeam?.path_cleaning_filters || []), newItem])
                     }}
                     onRemove={onRemove}
+                    onCopy={onCopy}
                 />
             )}
         </div>
