@@ -26,14 +26,7 @@ const PropertyTag = ({
     sortable?: boolean
 }): JSX.Element => (
     <span className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}>
-        <LemonSnack
-            onClose={() => {
-                console.log('closed')
-                onRemove(name)
-            }}
-        >
-            {name}
-        </LemonSnack>
+        <LemonSnack onClose={() => onRemove(name)}>{name}</LemonSnack>
     </span>
 )
 

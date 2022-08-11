@@ -16,12 +16,10 @@ export function TimezoneConfig(): JSX.Element {
         return <Skeleton paragraph={{ rows: 0 }} active />
     }
     function onChange(val: string): void {
-        console.log(val)
         LemonDialog.open({
             title: `Do you want to change the timezone of this project?`,
             description:
                 'This will change how every graph in this project is calculated, which means your data will look different than it did before.',
-            // icon: <ExclamationCircleOutlined />,
             primaryButton: {
                 children: 'Change timezone',
                 status: 'danger',
