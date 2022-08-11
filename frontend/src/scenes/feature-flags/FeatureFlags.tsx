@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
-import { Input, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -21,6 +21,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -138,16 +139,14 @@ function OverViewTab(): JSX.Element {
     return (
         <>
             <div>
-                <Input.Search
-                    placeholder="Search for feature flags"
-                    allowClear
-                    enterButton
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1, marginBottom: '1rem' }}
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
-                />
+                <div className="mb-4">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for feature flags"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                    />
+                </div>
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}

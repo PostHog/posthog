@@ -421,7 +421,7 @@ export function EventsTable({
                 {showAutoload || showCustomizeColumns || showExport ? (
                     <div
                         className={clsx(
-                            'flex justify-between pt-4 mb-4',
+                            'flex justify-between pt-4 mb-4 items-center',
                             (showEventFilter || showPropertyFilter) && 'border-t'
                         )}
                     >

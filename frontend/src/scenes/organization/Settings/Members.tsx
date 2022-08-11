@@ -1,5 +1,5 @@
 import React from 'react'
-import { Modal, Input } from 'antd'
+import { Modal } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
 import { ExclamationCircleOutlined, SwapOutlined } from '@ant-design/icons'
@@ -19,6 +19,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonInput } from '@posthog/lemon-ui'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -195,16 +196,7 @@ export function Members({ user }: MembersProps): JSX.Element {
     return (
         <>
             <h2 className="subtitle">Members</h2>
-            <Input.Search
-                placeholder="Search for members"
-                allowClear
-                enterButton
-                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
-                value={search}
-                onChange={(e) => {
-                    setSearch(e.target.value)
-                }}
-            />
+            <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
             <LemonTable
                 dataSource={filteredMembers}
                 columns={columns}

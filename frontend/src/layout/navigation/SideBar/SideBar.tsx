@@ -102,20 +102,22 @@ function Pages(): JSX.Element {
                                         <h5>Pinned dashboards</h5>
                                         <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
-                                            pinnedDashboards.map((dashboard) => (
-                                                <PageButton
-                                                    key={dashboard.id}
-                                                    title={dashboard.name || <i>Untitled</i>}
-                                                    identifier={dashboard.id}
-                                                    onClick={() => setArePinnedDashboardsShown(false)}
-                                                    to={urls.dashboard(dashboard.id)}
-                                                />
-                                            ))
+                                            <ul className="m-0 p-0 list-none">
+                                                {pinnedDashboards.map((dashboard) => (
+                                                    <PageButton
+                                                        key={dashboard.id}
+                                                        title={dashboard.name || <i>Untitled</i>}
+                                                        identifier={dashboard.id}
+                                                        onClick={() => setArePinnedDashboardsShown(false)}
+                                                        to={urls.dashboard(dashboard.id)}
+                                                    />
+                                                ))}
+                                            </ul>
                                         ) : (
                                             <>
-                                                <div className="mb-2 flex items-center gap-2">
+                                                <div className="flex items-center gap-2">
                                                     <IconPin className="text-2xl text-muted-alt" />
-                                                    <span>
+                                                    <div>
                                                         <Link
                                                             onClick={() => setArePinnedDashboardsShown(false)}
                                                             to={urls.dashboards()}
@@ -124,7 +126,7 @@ function Pages(): JSX.Element {
                                                         </Link>
                                                         <br />
                                                         for them to show up here
-                                                    </span>
+                                                    </div>
                                                 </div>
                                             </>
                                         )}

@@ -4,7 +4,6 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
-from rest_framework.response import Response
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
@@ -42,7 +41,7 @@ logger = structlog.get_logger(__name__)
 # 5. We save the final blob output and update the ExportedAsset
 
 
-def add_limit(url: str, params: Dict[str, str]) -> str:
+def add_query_params(url: str, params: Dict[str, str]) -> str:
     """
     Uses parse_qsl because parse_qs turns all values into lists but doesn't unbox them when re-encoded
     """
@@ -201,11 +200,12 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     save_content(exported_asset, rendered_csv_content)
 
 
-def make_api_call(access_token, body, limit, method, next_url, path) -> Response:
-    context_uri: Optional[str] = None
+def make_api_call(
+    access_token: str, body: Any, limit: int, method: str, next_url: Optional[str], path: str
+) -> requests.models.Response:
+    request_url: str = absolute_uri(next_url or path)
     try:
-        context_uri = absolute_uri(path)
-        url = add_limit(next_url or context_uri, {"limit": str(limit)})
+        url = add_query_params(request_url, {"limit": str(limit)})
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"},
         )
@@ -216,8 +216,8 @@ def make_api_call(access_token, body, limit, method, next_url, path) -> Response
             exc=ex,
             exc_info=True,
             next_url=next_url,
-            context_uri=context_uri,
             path=path,
+            request_url=request_url,
             limit=limit,
         )
         raise ex
