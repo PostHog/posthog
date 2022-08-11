@@ -56,7 +56,7 @@ function DisplayName(): JSX.Element {
     }
 
     return (
-        <div className="space-y-2" style={{ maxWidth: '40rem' }}>
+        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
@@ -176,7 +176,9 @@ export function ProjectSettings(): JSX.Element {
                     Set the timezone for your project. All charts will be based on this timezone, including how PostHog
                     buckets data in day/week/month intervals.
                 </p>
-                <TimezoneConfig />
+                <div style={{ maxWidth: '40rem' }}>
+                    <TimezoneConfig />
+                </div>
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="internal-users-filtering">
                     Filter out internal and test users{' '}
