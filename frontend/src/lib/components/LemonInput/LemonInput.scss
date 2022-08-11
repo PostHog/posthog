@@ -40,10 +40,7 @@
     .LemonIcon {
         width: 1em;
         height: 1em;
-        transition: background-color 200ms ease, color 200ms ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+        transition: color 200ms ease;
         font-size: 1.5rem;
         color: var(--muted-alt);
         flex-shrink: 0;
@@ -57,7 +54,6 @@
 
     &.LemonInput--focused {
         &:not(.LemonInput--disabled) {
-            transition: 100ms border;
             border: 1px solid var(--primary);
         }
     }
