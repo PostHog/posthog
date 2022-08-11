@@ -153,6 +153,11 @@ export async function startPluginsServer(
             hub,
         }
 
+        if (hub.capabilities.http) {
+            // start http server used for the healthcheck
+            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
+        }
+
         if (!serverConfig.DISABLE_MMDB) {
             serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
             serverInstance.mmdbUpdateJob = schedule.scheduleJob(
@@ -293,11 +298,6 @@ export async function startPluginsServer(
         } catch (err) {
             // It's fine to do nothing for now - Kafka issues will be caught by the periodic healthcheck
             status.error('🔴', 'Failed to pause Kafka healthcheck consumer on connect!')
-        }
-
-        if (hub.capabilities.http) {
-            // start http server used for the healthcheck
-            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
         }
 
         hub.statsd?.timing('total_setup_time', timer)
