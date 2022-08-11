@@ -167,7 +167,7 @@ jobs:
             - uses: actions/download-artifact@v3
               with:
                   name: docker-image
-                  path: /tmp/posthog-image.tar
+                  path: /tmp/
 
             - name: Boot PostHog
               env:
