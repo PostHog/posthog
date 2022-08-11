@@ -13,7 +13,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/components/icons'
+import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/components/icons'
 import { LemonRow } from '@posthog/lemon-ui'
 import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -94,7 +94,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={
-                        showPersonsModal
+                        showPersonsModal && resultSeries.aggregated_value != null
                             ? () => {
                                   loadPeople({
                                       action: resultSeries.action,
@@ -128,21 +128,29 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
 
     const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
 
+    const previousValue = previousPeriodSeries.aggregated_value
+    const currentValue = currentPeriodSeries.aggregated_value
+
     const percentageDiff =
-        (currentPeriodSeries.aggregated_value - previousPeriodSeries.aggregated_value) /
-        Math.abs(previousPeriodSeries.aggregated_value)
+        previousValue === null || currentValue === null
+            ? null
+            : (currentValue - previousValue) / Math.abs(previousValue)
 
     const percentageDiffDisplay =
-        percentageDiff > 0
-            ? `Up ${percentage(percentageDiff)}`
+        percentageDiff === null
+            ? 'No data for comparison in the'
+            : percentageDiff > 0
+            ? `Up ${percentage(percentageDiff)} from`
             : percentageDiff < 0
-            ? `Down ${percentage(-percentageDiff)}`
-            : 'No change'
+            ? `Down ${percentage(-percentageDiff)} from`
+            : 'No change from'
 
     return (
         <LemonRow
             icon={
-                percentageDiff > 0 ? (
+                percentageDiff === null ? (
+                    <IconFlare />
+                ) : percentageDiff > 0 ? (
                     <IconTrendingUp />
                 ) : percentageDiff < 0 ? (
                     <IconTrendingDown />
@@ -155,8 +163,12 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
             center
         >
             <span>
-                {percentageDiffDisplay} from{' '}
-                {showPersonsModal ? (
+                {percentageDiffDisplay}{' '}
+                {currentValue === null ? (
+                    'current period'
+                ) : previousValue === null || !showPersonsModal ? (
+                    'previous period'
+                ) : (
                     <a
                         onClick={() => {
                             loadPeople({
@@ -166,14 +178,12 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                                 date_to: previousPeriodSeries.filter?.date_to as string,
                                 filters,
                                 saveOriginal: true,
-                                pointValue: previousPeriodSeries.aggregated_value,
+                                pointValue: previousValue,
                             })
                         }}
                     >
                         previous period
                     </a>
-                ) : (
-                    'previous period'
                 )}
             </span>
         </LemonRow>
