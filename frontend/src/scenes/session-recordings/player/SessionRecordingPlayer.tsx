@@ -51,11 +51,11 @@ export function SessionRecordingPlayerV3(): JSX.Element {
                     <PlayerFrame ref={frame} />
                 </div>
             </Row>
-            <LemonDivider style={{ margin: 0 }} />
+            <LemonDivider className="my-0" />
             <Row className="player-controller" align="middle">
                 <PlayerControllerV3 />
             </Row>
-            <LemonDivider style={{ margin: 0 }} />
+            <LemonDivider className="my-0" />
             <PlayerInspectorV3 />
         </Col>
     )
