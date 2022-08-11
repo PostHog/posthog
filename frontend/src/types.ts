@@ -1537,6 +1537,7 @@ export enum PropertyType {
     Numeric = 'Numeric',
     Boolean = 'Boolean',
     Duration = 'Duration',
+    Selector = 'Selector',
 }
 
 export interface PropertyDefinition {
