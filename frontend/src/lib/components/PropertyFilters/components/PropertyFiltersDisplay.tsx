@@ -11,8 +11,14 @@ const PropertyFiltersDisplay: React.FunctionComponent<Props> = ({ filters, style
     return (
         <div className="PropertyFilters mb-4" style={style}>
             {filters &&
-                filters.map((item) => {
-                    return <PropertyFilterButton key={item.key} item={item} />
+                filters.map((item, idx) => {
+                    return (
+                        <>
+                            {' '}
+                            <PropertyFilterButton style={{ margin: '0.1rem' }} key={item.key} item={item} />{' '}
+                            {idx !== filters.length - 1 ? ',' : ''}
+                        </>
+                    )
                 })}
         </div>
     )
