@@ -73,7 +73,7 @@ export function PersonsScene(): JSX.Element {
                         loadPersons()
                     }}
                     endpoint="person"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     showConditionBadge
                 />
                 <PersonsTable

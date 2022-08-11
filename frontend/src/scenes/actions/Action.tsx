@@ -55,6 +55,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                                 ''
                             )}
                         </p>
+                        <div className="pt-4 border-t" />
                         <EventsTable
                             fixedFilters={fixedFilters}
                             sceneUrl={urls.action(id)}

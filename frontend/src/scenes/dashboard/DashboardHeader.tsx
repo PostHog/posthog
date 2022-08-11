@@ -46,13 +46,13 @@ export function DashboardHeader(): JSX.Element | null {
             {dashboard && (
                 <>
                     <SubscriptionsModal
-                        visible={showSubscriptions}
+                        isOpen={showSubscriptions}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                         subscriptionId={subscriptionId}
                     />
                     <SharingModal
-                        visible={dashboardMode === DashboardMode.Sharing}
+                        isOpen={dashboardMode === DashboardMode.Sharing}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
                         dashboardId={dashboard.id}
                     />

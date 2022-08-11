@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined } from '@ant-design/icons'
-import { Button, Select, Skeleton } from 'antd'
+import { Skeleton } from 'antd'
 import { ActorType, ChartDisplayType, ExporterFormat, FilterType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -23,10 +23,10 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 export interface PersonsModalProps {
-    visible: boolean
+    isOpen: boolean
     view: InsightType
     filters: Partial<FilterType>
     onSaveCohort: () => void
@@ -35,7 +35,7 @@ export interface PersonsModalProps {
 }
 
 export function PersonsModal({
-    visible,
+    isOpen,
     view,
     filters,
     onSaveCohort,
@@ -129,8 +129,8 @@ export function PersonsModal({
             {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
             <LemonModal
                 title={title}
-                visible={visible}
-                onCancel={hidePeople}
+                isOpen={isOpen}
+                onClose={hidePeople}
                 footer={
                     people &&
                     people.count > 0 &&
@@ -176,22 +176,20 @@ export function PersonsModal({
                     )
                 }
                 width={600}
-                className="person-modal"
             >
-                <div className="p-4">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search for persons by email, name, or ID"
-                        fullWidth
-                        onChange={(value) => {
-                            setSearchTerm(value)
-                        }}
-                        onBlur={() => filterSearchResults()}
-                        onPressEnter={() => filterSearchResults()}
-                        value={searchTerm}
-                        disabled={isInitialLoad}
-                    />
-                </div>
+                <LemonInput
+                    type="search"
+                    placeholder="Search for persons by email, name, or ID"
+                    fullWidth
+                    onChange={(value) => {
+                        setSearchTerm(value)
+                    }}
+                    onBlur={() => filterSearchResults()}
+                    onPressEnter={() => filterSearchResults()}
+                    value={searchTerm}
+                    disabled={isInitialLoad}
+                    className="mb-2"
+                />
                 {isInitialLoad ? (
                     <div className="p-4">
                         <Skeleton active />
@@ -201,28 +199,37 @@ export function PersonsModal({
                         {people && (
                             <>
                                 {!!people.crossDataset?.length && people.seriesId !== undefined && (
-                                    <div className="data-point-selector">
-                                        <Select value={people.seriesId} onChange={(_id) => switchToDataPoint(_id)}>
-                                            {people.crossDataset.map((dataPoint) => (
-                                                <Select.Option
-                                                    value={dataPoint.id}
-                                                    key={`${dataPoint.action?.id}${dataPoint.breakdown_value}`}
-                                                >
-                                                    <InsightLabel
-                                                        seriesColor={getSeriesColor(dataPoint.id)}
-                                                        action={dataPoint.action}
-                                                        breakdownValue={
-                                                            dataPoint.breakdown_value === ''
-                                                                ? 'None'
-                                                                : dataPoint.breakdown_value?.toString()
-                                                        }
-                                                        showCountedByTag={showCountedByTag}
-                                                        hasMultipleSeries={hasMultipleSeries}
-                                                    />
-                                                </Select.Option>
-                                            ))}
-                                        </Select>
-                                    </div>
+                                    <LemonSelect
+                                        fullWidth
+                                        className="mb-2"
+                                        value={people.seriesId.toString()}
+                                        onChange={(_id) =>
+                                            typeof _id === 'string' ? switchToDataPoint(parseInt(_id, 10)) : null
+                                        }
+                                        options={
+                                            people.crossDataset.reduce(
+                                                (acc, dataPoint) => ({
+                                                    ...acc,
+                                                    [`${dataPoint.id}`]: {
+                                                        label: (
+                                                            <InsightLabel
+                                                                seriesColor={getSeriesColor(dataPoint.id)}
+                                                                action={dataPoint.action}
+                                                                breakdownValue={
+                                                                    dataPoint.breakdown_value === ''
+                                                                        ? 'None'
+                                                                        : dataPoint.breakdown_value?.toString()
+                                                                }
+                                                                showCountedByTag={showCountedByTag}
+                                                                hasMultipleSeries={hasMultipleSeries}
+                                                            />
+                                                        ),
+                                                    },
+                                                }),
+                                                {}
+                                            ) as LemonSelectOptions
+                                        }
+                                    />
                                 )}
                                 <div className="user-count-subheader">
                                     <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
@@ -301,15 +308,15 @@ export function PersonsModal({
                                     </div>
                                 )}
                                 {people?.next && (
-                                    <div className="m-4 text-center">
-                                        <Button
+                                    <div className="m-4 flex justify-center">
+                                        <LemonButton
                                             type="primary"
-                                            style={{ color: 'white' }}
+                                            size="small"
                                             onClick={loadMorePeople}
                                             loading={loadingMorePeople}
                                         >
                                             Load more {aggregationTargetLabel.plural}
-                                        </Button>
+                                        </LemonButton>
                                     </div>
                                 )}
                             </>

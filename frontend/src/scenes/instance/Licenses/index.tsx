@@ -13,8 +13,8 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LicenseType, TeamType } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { LemonModal } from 'lib/components/LemonModal'
 import { dayjs } from 'lib/dayjs'
+import { LemonModal } from 'lib/components/LemonModal'
 
 export const scene: SceneExport = {
     component: Licenses,
@@ -23,10 +23,12 @@ export const scene: SceneExport = {
 
 function ConfirmCancelModal({
     licenses,
+    isOpen,
     onCancel,
     onOk,
 }: {
     licenses: LicenseType[]
+    isOpen: boolean
     onCancel: () => void
     onOk: () => void
 }): JSX.Element {
@@ -40,8 +42,8 @@ function ConfirmCancelModal({
 
     return (
         <LemonModal
-            visible={true}
-            onCancel={onCancel}
+            isOpen={isOpen}
+            onClose={onCancel}
             title="Are you sure you want to deactivate your license?"
             footer={
                 <>
@@ -64,7 +66,7 @@ function ConfirmCancelModal({
                 </>
             }
         >
-            <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+            <ul className="m-0 pl-3">
                 {!hasAnotherValidLicense ? (
                     <li>
                         You will <strong>IMMEDIATELY</strong> lose access to all premium features such as{' '}
@@ -78,7 +80,7 @@ function ConfirmCancelModal({
                 )}
                 {willDeleteProjects && (
                     <li>
-                        We will <strong style={{ color: 'var(--danger)' }}>DELETE</strong> the following projects:
+                        We will <strong className="text-danger">DELETE</strong> the following projects:
                         <ul>
                             {nonDemoProjects.map((team: TeamType) => (
                                 <li key={team.id}>
@@ -168,13 +170,12 @@ export function Licenses(): JSX.Element {
 
     return (
         <div>
-            {showConfirmCancel && (
-                <ConfirmCancelModal
-                    licenses={licenses}
-                    onCancel={() => setShowConfirmCancel(null)}
-                    onOk={() => deleteLicense(showConfirmCancel)}
-                />
-            )}
+            <ConfirmCancelModal
+                licenses={licenses}
+                isOpen={!!showConfirmCancel}
+                onCancel={() => setShowConfirmCancel(null)}
+                onOk={() => (showConfirmCancel ? deleteLicense(showConfirmCancel) : null)}
+            />
             <PageHeader
                 title="Licenses"
                 caption={

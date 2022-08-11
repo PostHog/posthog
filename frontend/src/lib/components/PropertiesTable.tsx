@@ -275,7 +275,7 @@ export function PropertiesTable({
         return Object.keys(properties).length > 0 ? (
             <>
                 {searchable && (
-                    <div className="flex justify-between gap-4">
+                    <div className="flex justify-between items-center gap-4 mb-4">
                         <LemonInput
                             type="search"
                             placeholder="Search for property keys and values"

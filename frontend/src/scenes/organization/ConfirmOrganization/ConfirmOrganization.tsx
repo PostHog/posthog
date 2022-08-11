@@ -118,7 +118,7 @@ export function ConfirmOrganization(): JSX.Element {
                     </a>
                     .
                 </div>
-                <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
+                <LemonDivider thick dashed className="my-6" />
                 <div className="text-center terms-and-conditions-text mt-4 text-muted">
                     Have questions?{' '}
                     <a href={`https://posthog.com/support`} target="_blank" rel="noopener">

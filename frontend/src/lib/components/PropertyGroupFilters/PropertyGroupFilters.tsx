@@ -63,7 +63,7 @@ export function PropertyGroupFilters({
                                     />
                                 )}
                             </div>
-                            <LemonDivider large />
+                            <LemonDivider className="my-4" />
                         </>
                     ) : null}
                     <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />

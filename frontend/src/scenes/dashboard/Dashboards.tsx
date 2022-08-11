@@ -220,7 +220,7 @@ export function Dashboards(): JSX.Element {
                 />
                 <div />
             </div>
-            <LemonDivider large />
+            <LemonDivider className="my-4" />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
                     data-tooltip="dashboards-table"

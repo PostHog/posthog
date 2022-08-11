@@ -100,7 +100,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                     <SitePopover />
                 </div>
             </div>
-            <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
+            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
                 <div className="bridge-page IngestionContainer">

@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import React from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
-import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { LemonModal } from 'lib/components/LemonModal'
+import { Form } from 'kea-forms'
 
 export function ConfigureSAMLModal(): JSX.Element {
     const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
@@ -21,11 +21,12 @@ export function ConfigureSAMLModal(): JSX.Element {
     }
 
     return (
-        <LemonModal onCancel={handleClose} visible={!!configureSAMLModalId} destroyOnClose>
-            <section>
-                <h5>Configure SAML authentication and provisioning</h5>
-
-                <Form logic={verifiedDomainsLogic} formKey="samlConfig" className="space-y-2">
+        <LemonModal onClose={handleClose} isOpen={!!configureSAMLModalId} title="" simple>
+            <Form logic={verifiedDomainsLogic} formKey="samlConfig" enableFormOnSubmit className="LemonModal__layout ">
+                <LemonModal.Header>
+                    <h3>Configure SAML authentication and provisioning</h3>
+                </LemonModal.Header>
+                <LemonModal.Content className="space-y-2">
                     <Field name="saml_acs_url" label="SAML ACS URL">
                         <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />
                     </Field>
@@ -47,13 +48,13 @@ export function ConfigureSAMLModal(): JSX.Element {
                             settings as draft.
                         </AlertMessage>
                     )}
-                    <div className="flex justify-end">
-                        <LemonButton loading={isSamlConfigSubmitting} type="primary" htmlType="submit">
-                            Save settings
-                        </LemonButton>
-                    </div>
-                </Form>
-            </section>
+                </LemonModal.Content>
+                <LemonModal.Footer>
+                    <LemonButton loading={isSamlConfigSubmitting} type="primary" htmlType="submit">
+                        Save settings
+                    </LemonButton>
+                </LemonModal.Footer>
+            </Form>
         </LemonModal>
     )
 }
