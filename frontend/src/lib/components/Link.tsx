@@ -31,8 +31,8 @@ export function Link({ to, preventClick = false, tag = 'a', ...props }: LinkProp
     }
 
     const elProps = {
-        href: to || '#',
         ...props,
+        href: to || props.href || '#',
         onClick,
     }
 
