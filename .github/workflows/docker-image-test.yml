@@ -80,7 +80,8 @@ jobs:
               if: ${{ github.repository == 'PostHog/posthog' }}
               run: |
                   docker load < /tmp/posthog-image.tar
-                  docker image push --all-tags
+                  docker images
+                  docker image push --all-tags ghcr.io/posthog/posthog/posthog
 
             - name: Upload docker image
               uses: actions/upload-artifact@v2
