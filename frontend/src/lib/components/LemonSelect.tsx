@@ -87,7 +87,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
     return (
         <div className={'flex'}>
             <LemonButtonWithPopup
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable', 'LemonSelectButton')}
+                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
                 popup={{
                     ref: popup?.ref,
                     overlay: sections.map((section, i) => (
