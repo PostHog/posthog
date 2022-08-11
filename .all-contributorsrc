@@ -1989,11 +1989,39 @@
       "contributions": [
         "code"
       ]
-    },{
+    },
+    {
       "login": "stuposluns",
       "name": "stuposluns",
       "avatar_url": "https://avatars.githubusercontent.com/u/23000883?v=4",
       "profile": "https://github.com/stuposluns",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "charlrvd",
+      "name": "Charles",
+      "avatar_url": "https://avatars.githubusercontent.com/u/17158847?v=4",
+      "profile": "https://github.com/charlrvd",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "aviflombaum",
+      "name": "Avi Flombaum",
+      "avatar_url": "https://avatars.githubusercontent.com/u/4515?v=4",
+      "profile": "http://www.aviflombaum.com",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "nemobis",
+      "name": "nemobis",
+      "avatar_url": "https://avatars.githubusercontent.com/u/901528?v=4",
+      "profile": "https://federicoleva.eu",
       "contributions": [
         "code"
       ]

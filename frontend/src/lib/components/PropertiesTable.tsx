@@ -11,6 +11,7 @@ import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { LemonButton } from './LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
+import { LemonInput } from '@posthog/lemon-ui'
 
 type HandledType = 'string' | 'number' | 'bigint' | 'boolean' | 'undefined' | 'null'
 type Type = HandledType | 'symbol' | 'object' | 'function'
@@ -274,18 +275,15 @@ export function PropertiesTable({
         return Object.keys(properties).length > 0 ? (
             <>
                 {searchable && (
-                    <div className="flex justify-between gap-4">
-                        <Input.Search
+                    <div className="flex justify-between items-center gap-4 mb-4">
+                        <LemonInput
+                            type="search"
                             placeholder="Search for property keys and values"
-                            className="mb-4"
-                            allowClear
-                            enterButton
-                            style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                            value={searchTerm}
-                            onChange={(e) => {
-                                setSearchTerm(e.target.value)
-                            }}
+                            autoFocus
+                            value={searchTerm || ''}
+                            onChange={setSearchTerm}
                         />
+
                         {onEdit && <NewPropertyComponent editProperty={onEdit} />}
                     </div>
                 )}

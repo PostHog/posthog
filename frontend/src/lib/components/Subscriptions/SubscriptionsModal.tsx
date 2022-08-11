@@ -1,5 +1,4 @@
 import React from 'react'
-import { LemonModal } from 'lib/components/LemonModal'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
 import { EditSubscription } from './views/EditSubscription'
 import { useActions, useValues } from 'kea'
@@ -10,15 +9,17 @@ import { PayGatePage } from '../PayGatePage/PayGatePage'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { Spinner } from '../Spinner/Spinner'
+import { LemonModal } from '../LemonModal'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
-    visible: boolean
+    isOpen: boolean
     closeModal: () => void
     subscriptionId: number | 'new' | null
+    inline?: boolean
 }
 
-export function Subscriptions(props: SubscriptionsModalProps): JSX.Element {
-    const { closeModal, dashboardId, insightShortId, subscriptionId } = props
+export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
+    const { closeModal, dashboardId, insightShortId, subscriptionId, isOpen, inline } = props
     const { push } = useActions(router)
     const { hasAvailableFeature, userLoading } = useValues(userLogic)
 
@@ -26,7 +27,7 @@ export function Subscriptions(props: SubscriptionsModalProps): JSX.Element {
         return <Spinner />
     }
     return (
-        <>
+        <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
             {hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) ? (
                 !subscriptionId ? (
                     <ManageSubscriptions
@@ -45,30 +46,20 @@ export function Subscriptions(props: SubscriptionsModalProps): JSX.Element {
                     />
                 )
             ) : (
-                <PayGatePage
-                    featureKey={AvailableFeature.SUBSCRIPTIONS}
-                    header={
-                        <>
-                            Introducing <span className="highlight">Subscriptions</span>!
-                        </>
-                    }
-                    caption="Get Insight or Dashboard reports directly to your inbox!"
-                    docsLink="https://posthog.com/docs/user-guides/subscriptions"
-                />
+                <div className="p-10">
+                    <PayGatePage
+                        featureKey={AvailableFeature.SUBSCRIPTIONS}
+                        header={
+                            <>
+                                Introducing <span className="highlight">Subscriptions</span>!
+                            </>
+                        }
+                        caption="Get Insight or Dashboard reports directly to your inbox!"
+                        docsLink="https://posthog.com/docs/user-guides/subscriptions"
+                    />
+                </div>
             )}
-        </>
-    )
-}
-
-export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element {
-    const { visible, closeModal } = props
-
-    return (
-        <>
-            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={650}>
-                <Subscriptions {...props} />
-            </LemonModal>
-        </>
+        </LemonModal>
     )
 }
 
@@ -77,17 +68,17 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
 
     return (
         <LemonButtonWithPopup
-            type="stealth"
+            status="stealth"
             fullWidth
             popup={{
                 actionable: true,
                 placement: 'right-start',
                 overlay: (
                     <>
-                        <LemonButton onClick={() => push(urlForSubscription('new', props))} type="stealth" fullWidth>
+                        <LemonButton onClick={() => push(urlForSubscription('new', props))} status="stealth" fullWidth>
                             New subscription
                         </LemonButton>
-                        <LemonButton onClick={() => push(urlForSubscriptions(props))} type="stealth" fullWidth>
+                        <LemonButton onClick={() => push(urlForSubscriptions(props))} status="stealth" fullWidth>
                             Manage subscriptions
                         </LemonButton>
                     </>

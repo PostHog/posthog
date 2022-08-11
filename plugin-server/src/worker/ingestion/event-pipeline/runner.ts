@@ -167,8 +167,9 @@ export class EventPipelineRunner {
     }
 
     private async handleError(err: any, currentStepName: StepType, currentArgs: any) {
+        const serializedArgs = currentArgs.map((arg: any) => this.serialize(arg))
         status.info('🔔', err)
-        Sentry.captureException(err, { extra: { currentStepName, currentArgs, originalEvent: this.originalEvent } })
+        Sentry.captureException(err, { extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent } })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 
         if (STEPS_TO_EMIT_TO_DLQ_ON_FAILURE.includes(currentStepName)) {
@@ -179,7 +180,7 @@ export class EventPipelineRunner {
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 Sentry.captureException(dlqError, {
-                    extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
+                    extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent, err },
                 })
             }
         }

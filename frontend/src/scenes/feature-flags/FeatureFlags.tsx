@@ -1,7 +1,7 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
-import { Input, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -21,6 +21,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -67,17 +68,14 @@ function OverViewTab(): JSX.Element {
             width: 100,
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <LemonSwitch
-                            id={`feature-flag-${featureFlag.id}-switch`}
-                            checked={featureFlag.active}
-                            onChange={(active) =>
-                                featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
-                            }
-                            label={featureFlag.active ? 'Enabled' : 'Disabled'}
-                            style={{ fontWeight: 400, padding: 0 }}
-                        />
-                    </div>
+                    <LemonSwitch
+                        id={`feature-flag-${featureFlag.id}-switch`}
+                        checked={featureFlag.active}
+                        onChange={(active) =>
+                            featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active } }) : null
+                        }
+                        label={<span className="font-normal">{featureFlag.active ? 'Enabled' : 'Disabled'}</span>}
+                    />
                 )
             },
         },
@@ -89,7 +87,7 @@ function OverViewTab(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => {
                                         copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
@@ -98,12 +96,12 @@ function OverViewTab(): JSX.Element {
                                     Copy key
                                 </LemonButton>
                                 {featureFlag.id && (
-                                    <LemonButton type="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                    <LemonButton status="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
                                         Edit
                                     </LemonButton>
                                 )}
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={urls.insightNew({
                                         events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
                                         breakdown_type: 'event',
@@ -117,8 +115,7 @@ function OverViewTab(): JSX.Element {
                                 <LemonDivider />
                                 {featureFlag.id && (
                                     <LemonButton
-                                        type="stealth"
-                                        style={{ color: 'var(--danger)' }}
+                                        status="danger"
                                         onClick={() => {
                                             deleteWithUndo({
                                                 endpoint: `projects/${currentTeamId}/feature_flags`,
@@ -142,16 +139,14 @@ function OverViewTab(): JSX.Element {
     return (
         <>
             <div>
-                <Input.Search
-                    placeholder="Search for feature flags"
-                    allowClear
-                    enterButton
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1, marginBottom: '1rem' }}
-                    value={searchTerm}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
-                />
+                <div className="mb-4">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for feature flags"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                    />
+                </div>
             </div>
             <LemonTable
                 dataSource={searchedFeatureFlags}

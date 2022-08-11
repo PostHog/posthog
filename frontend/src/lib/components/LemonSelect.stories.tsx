@@ -17,7 +17,11 @@ export default {
 } as ComponentMeta<typeof LemonSelect>
 
 const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<LemonSelectOptions>) => {
-    return <LemonSelect {...props} />
+    return (
+        <div className="w-full border p-4">
+            <LemonSelect {...props} />
+        </div>
+    )
 }
 
 export const Default = Template.bind({})
@@ -55,9 +59,6 @@ SectionedOptions.args = {
         },
     ],
 }
-
-export const Stealth = Template.bind({})
-Stealth.args = { type: 'stealth', outlined: true }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }

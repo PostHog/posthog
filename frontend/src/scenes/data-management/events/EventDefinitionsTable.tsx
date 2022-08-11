@@ -14,7 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { ActionHeader, EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Alert, Col, Input, Row } from 'antd'
+import { Alert, Row } from 'antd'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -25,7 +25,7 @@ import { ActionEvent, IconWebhook, UnverifiedEvent } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const eventTypeOptions: LemonSelectOptions = {
     [CombinedEventType.All]: {
@@ -225,46 +225,31 @@ export function EventDefinitionsTable(): JSX.Element {
             {preflight && !preflight?.is_event_property_usage_enabled && (
                 <UsageDisabledWarning tab="Event Definitions" />
             )}
-            <Row
-                justify="space-between"
-                style={{
-                    paddingBottom: '1rem',
-                    marginBottom: '1rem',
-                    borderBottom: '1px solid var(--border)',
-                    gap: '0.75rem',
-                }}
-            >
-                <Col>
-                    <Input.Search
-                        placeholder="Search for events"
-                        allowClear
-                        enterButton
-                        value={filters.event}
-                        style={{ maxWidth: 600, width: 'initial' }}
-                        onChange={(e) => {
-                            setFilters({ event: e.target.value || '' })
-                        }}
-                    />
-                </Col>
+
+            <div className="flex justify-between items-center gap-2 mb-4">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for events"
+                    onChange={(v) => setFilters({ event: v || '' })}
+                    value={filters.event}
+                />
                 {shouldSimplifyActions && (
-                    <Row style={{ gap: '0.75rem' }}>
-                        <Col style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                            Type:
-                            <LemonSelect
-                                value={filters.event_type}
-                                options={eventTypeOptions}
-                                data-attr="event-type-filter"
-                                dropdownMatchSelectWidth={false}
-                                bordered
-                                onChange={(value) => {
-                                    setFilters({ event_type: value as CombinedEventType })
-                                }}
-                                size="small"
-                            />
-                        </Col>
-                    </Row>
+                    <div className="flex items-center gap-2">
+                        <span>Type:</span>
+                        <LemonSelect
+                            value={filters.event_type}
+                            options={eventTypeOptions}
+                            data-attr="event-type-filter"
+                            dropdownMatchSelectWidth={false}
+                            type="secondary"
+                            onChange={(value) => {
+                                setFilters({ event_type: value as CombinedEventType })
+                            }}
+                            size="small"
+                        />
+                    </div>
                 )}
-            </Row>
+            </div>
             <LemonTable
                 columns={columns}
                 className="events-definition-table"

@@ -699,7 +699,7 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     colonTimestamp?: string // Used in session recording events list
-    person?: Partial<PersonType> | null
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
 }
 
@@ -985,6 +985,7 @@ export enum ChartDisplayType {
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
     WorldMap = 'WorldMap',
+    BoldNumber = 'BoldNumber',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
@@ -1133,6 +1134,7 @@ export interface InsightEditorFilter {
     key: string
     label?: string
     tooltip?: JSX.Element
+    showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
@@ -1145,8 +1147,8 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string | number
-    key?: string
+    value: boolean | string | number | null
+    key: string
     description?: string
     subrows?: SystemStatusSubrows
 }

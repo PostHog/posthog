@@ -31,11 +31,11 @@ class MatrixManager:
     MASTER_TEAM = Team(id=MASTER_TEAM_ID)
 
     matrix: Matrix
-    pre_save: bool
+    use_pre_save: bool
 
-    def __init__(self, matrix: Matrix, *, pre_save: bool):
+    def __init__(self, matrix: Matrix, *, use_pre_save: bool):
         self.matrix = matrix
-        self.pre_save = pre_save
+        self.use_pre_save = use_pre_save
 
     def ensure_account_and_save(
         self,
@@ -45,10 +45,13 @@ class MatrixManager:
         *,
         password: Optional[str] = None,
         disallow_collision: bool = False,
+        print_steps: bool = False,
     ) -> Tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
+            if print_steps:
+                print(f"Creating demo organization, project, and user...")
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
@@ -57,17 +60,21 @@ class MatrixManager:
                 organization, email, password, first_name, OrganizationMembership.Level.ADMIN
             )
             team = self.create_team(organization)
+            if print_steps:
+                print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
         elif disallow_collision:
             raise exceptions.ValidationError(
-                f"Cannot save simulation data with email collision disallowed - there already is an account for {email}."
+                f"Cannot save simulated data - email collision disallowed but there already is an account for {email}."
             )
         else:
             assert existing_user.organization is not None
             assert existing_user.team is not None
+            if print_steps:
+                print(f"Found existing account for {email}.")
             return (existing_user.organization, existing_user.team, existing_user)
 
     @staticmethod
@@ -78,11 +85,11 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
-        if not self.pre_save or not self._is_demo_data_pre_saved():
-            if self.matrix.simulation_complete is None:
+        if not self.use_pre_save or not self._is_demo_data_pre_saved():
+            if self.matrix.is_complete is None:
                 self.matrix.simulate()
-            self._save_analytics_data(self.MASTER_TEAM if self.pre_save else team)
-        if self.pre_save:
+            self._save_analytics_data(self.MASTER_TEAM if self.use_pre_save else team)
+        if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
         self._sync_postgres_with_clickhouse_data(team)
         self.matrix.set_project_up(team, user)
@@ -180,7 +187,7 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
-            person_uuid_str = str(UUIDT(unix_time_ms=int(subject.past_events[0].timestamp.timestamp() * 1000)))
+            person_uuid_str = str(subject.roll_uuidt(subject.past_events[0].timestamp))
             create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
             for distinct_id in subject.distinct_ids_at_now:
                 create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)

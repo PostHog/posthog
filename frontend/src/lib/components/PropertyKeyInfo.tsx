@@ -159,10 +159,6 @@ export const keyMapping: KeyMappingInterface = {
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
         },
-        $enabled_feature_flags: {
-            label: 'Enabled Feature Flags',
-            description: 'Object of the feature flags that were active while this event was sent.',
-        },
         $feature_flag_response: {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',
@@ -357,6 +353,16 @@ export const keyMapping: KeyMappingInterface = {
         utm_campaign: {
             label: 'UTM Campaign',
             description: 'UTM campaign tag (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        utm_name: {
+            label: 'UTM Name',
+            description: 'UTM campaign tag, sent via Segment (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        $initial_utm_name: {
+            label: 'Initial UTM Name',
+            description: 'UTM campaign tag, sent via Segment (first-touch).',
             examples: ['feature launch', 'discount'],
         },
         $initial_utm_campaign: {

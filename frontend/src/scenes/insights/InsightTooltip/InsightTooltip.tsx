@@ -62,10 +62,10 @@ export function InsightTooltip({
     altTitle,
     altRightTitle,
     renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
-        <>
+        <div className="datum-label-column">
             <SeriesLetter className="mr-2" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
-        </>
+        </div>
     ),
     renderCount = (value: number) => {
         return <>{humanFriendlyNumber(value)}</>
@@ -173,7 +173,6 @@ export function InsightTooltip({
 
         columns.push({
             key: 'datum',
-            className: 'datum-label-column',
             width: 120,
             title: <span className="whitespace-nowrap">{title}</span>,
             sticky: true,

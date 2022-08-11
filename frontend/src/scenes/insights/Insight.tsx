@@ -89,14 +89,14 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             {insightId !== 'new' && (
                 <>
                     <SubscriptionsModal
-                        visible={insightMode === ItemMode.Subscriptions}
+                        isOpen={insightMode === ItemMode.Subscriptions}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insightId}
                         subscriptionId={subscriptionId}
                     />
 
                     <SharingModal
-                        visible={insightMode === ItemMode.Sharing}
+                        isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
                         insightShortId={insightId}
                         insight={insight}
@@ -132,14 +132,14 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                     overlay={
                                         <>
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
                                             >
                                                 Duplicate
                                             </LemonButton>
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() =>
                                                     setInsightMetadata({
                                                         favorited: !insight.favorited,
@@ -152,7 +152,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             <LemonDivider />
 
                                             <LemonButton
-                                                type="stealth"
+                                                status="stealth"
                                                 onClick={() =>
                                                     insight.short_id
                                                         ? push(urls.insightSharing(insight.short_id))
@@ -185,7 +185,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                             )}
 
                                             <LemonButton
-                                                type="stealth"
                                                 status="danger"
                                                 onClick={() =>
                                                     deleteWithUndo({

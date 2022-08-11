@@ -1,12 +1,40 @@
 .LemonSwitch {
     width: fit-content;
     font-weight: 500;
-    &.LemonRow--disabled {
-        opacity: var(--opacity-disabled);
+    line-height: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    label {
+        flex: 1;
+        cursor: inherit;
     }
 
-    &.LemonRow--full-width {
+    &.LemonSwitch--full-width {
         width: 100%;
+    }
+
+    &.LemonSwitch--bordered {
+        padding: 0.75rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+
+        &.LemonSwitch--small {
+            padding: 0.25rem 0.5rem;
+            gap: 0.5rem;
+        }
+    }
+
+    .LemonIcon {
+        font-size: 1.5rem;
+        color: var(--muted-alt);
+        cursor: pointer;
+    }
+
+    &.LemonSwitch--disabled {
+        cursor: not-allowed;
+        color: var(--muted);
     }
 }
 
@@ -19,10 +47,7 @@
     height: 1.25rem;
     background: none;
     border: none;
-    cursor: pointer;
-    .LemonRow--disabled & {
-        cursor: not-allowed;
-    }
+    cursor: inherit;
 }
 
 .LemonSwitch__slider {
@@ -53,26 +78,17 @@
     background-color: #fff;
     border: 2px solid var(--border);
     transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
+    cursor: inherit;
+
     .LemonSwitch--checked & {
         transform: translateX(1rem);
         background-color: var(--primary);
         border-color: var(--primary);
-    }
-    .LemonSwitch--alt.LemonSwitch--checked & {
-        background-color: var(--primary-alt);
-        border-color: var(--primary-alt);
     }
     .LemonSwitch--active & {
         transform: scale(1.1);
     }
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: translateX(1rem) scale(1.1);
-    }
-}
-
-.LemonSwitch__label {
-    cursor: pointer;
-    .LemonRow--disabled & {
-        cursor: not-allowed;
     }
 }
