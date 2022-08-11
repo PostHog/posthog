@@ -341,11 +341,12 @@ class InsightSerializer(InsightBasicSerializer):
 
         self.context.update({"filters_hash": cache_key})
         result = get_safe_cache(cache_key)
+        context = {"type": insight.type, "from_dashboard": "true" if dashboard else "false"}
         if not result or result.get("task_id", None):
-            statsd.incr("posthog_cloud_insight_cache_miss", tags={"type": insight.type})
+            statsd.incr("posthog_cloud_insight_cache_miss", tags=context)
             return None
         else:
-            statsd.incr("posthog_cloud_insight_cache_hit", tags={"type": insight.type})
+            statsd.incr("posthog_cloud_insight_cache_hit", tags=context)
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("result")
 
