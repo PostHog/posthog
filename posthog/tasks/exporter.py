@@ -4,7 +4,7 @@ from posthog.celery import app
 from posthog.models import ExportedAsset
 
 
-@app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True)
+@app.task(autoretry_for=(Exception,), max_retries=5, retry_backoff=True, acks_late=True)
 def export_asset(exported_asset_id: int, limit: Optional[int] = None,) -> None:
     from statshog.defaults.django import statsd
 
