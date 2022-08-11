@@ -74,7 +74,8 @@ jobs:
                   # It notes that it doesn't support mode=max, but we're not
                   # removing any layers, soooo, maybe it's fine.
                   cache-to: type=inline
-                  outputs: type=oci,dest=/tmp/posthog-image.tar
+                  outputs: |
+                      type=docker,dest=/tmp/posthog-image.tar
 
             - name: Push (if PostHog/posthog)
               if: ${{ github.repository == 'PostHog/posthog' }}
