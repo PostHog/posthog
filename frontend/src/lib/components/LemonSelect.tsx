@@ -85,78 +85,76 @@ export function LemonSelect<O extends LemonSelectOptions>({
     }, [options])
 
     return (
-        <div className={'flex'}>
-            <LemonButtonWithPopup
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
-                popup={{
-                    ref: popup?.ref,
-                    overlay: sections.map((section, i) => (
-                        <React.Fragment key={i}>
-                            {section.label ? (
-                                typeof section.label === 'string' ? (
-                                    <h5>{section.label}</h5>
-                                ) : (
-                                    section.label
-                                )
-                            ) : null}
-                            {Object.entries(section.options).map(([key, option]) => (
-                                <LemonButton
-                                    key={key}
-                                    icon={option.icon}
-                                    onClick={() => {
-                                        if (key != localValue) {
-                                            onChange?.(key)
-                                            setLocalValue(key)
-                                        }
-                                    }}
-                                    status="stealth"
-                                    /* Intentionally == instead of === because JS treats object number keys as strings, */
-                                    /* messing comparisons up a bit */
-                                    active={key == localValue}
-                                    disabled={option.disabled}
-                                    fullWidth
-                                    data-attr={option['data-attr']}
-                                >
-                                    {option.label || key}
-                                    {option.element}
-                                </LemonButton>
-                            ))}
-                            {i < sections.length - 1 ? <LemonDivider /> : null}
-                        </React.Fragment>
-                    )),
-                    sameWidth: dropdownMatchSelectWidth,
-                    placement: dropdownPlacement,
-                    actionable: true,
-                    className: popup?.className,
-                    maxContentWidth: dropdownMaxContentWidth,
-                }}
-                icon={localValue && allOptions[localValue]?.icon}
-                // so that the pop up isn't shown along with the close button
-                sideIcon={isClearButtonShown ? <div /> : undefined}
-                type="secondary"
-                status="stealth"
-                {...buttonProps}
-            >
-                <span>
-                    {(localValue && (allOptions[localValue]?.label || localValue)) || (
-                        <span className="text-muted">{placeholder}</span>
-                    )}
-                </span>
-                {isClearButtonShown && (
-                    <LemonButton
-                        className="LemonSelect--button--clearable"
-                        type="tertiary"
-                        status="stealth"
-                        noPadding
-                        icon={<IconClose />}
-                        tooltip="Clear selection"
-                        onClick={() => {
-                            onChange?.(null)
-                            setLocalValue(null)
-                        }}
-                    />
+        <LemonButtonWithPopup
+            className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
+            popup={{
+                ref: popup?.ref,
+                overlay: sections.map((section, i) => (
+                    <React.Fragment key={i}>
+                        {section.label ? (
+                            typeof section.label === 'string' ? (
+                                <h5>{section.label}</h5>
+                            ) : (
+                                section.label
+                            )
+                        ) : null}
+                        {Object.entries(section.options).map(([key, option]) => (
+                            <LemonButton
+                                key={key}
+                                icon={option.icon}
+                                onClick={() => {
+                                    if (key != localValue) {
+                                        onChange?.(key)
+                                        setLocalValue(key)
+                                    }
+                                }}
+                                status="stealth"
+                                /* Intentionally == instead of === because JS treats object number keys as strings, */
+                                /* messing comparisons up a bit */
+                                active={key == localValue}
+                                disabled={option.disabled}
+                                fullWidth
+                                data-attr={option['data-attr']}
+                            >
+                                {option.label || key}
+                                {option.element}
+                            </LemonButton>
+                        ))}
+                        {i < sections.length - 1 ? <LemonDivider /> : null}
+                    </React.Fragment>
+                )),
+                sameWidth: dropdownMatchSelectWidth,
+                placement: dropdownPlacement,
+                actionable: true,
+                className: popup?.className,
+                maxContentWidth: dropdownMaxContentWidth,
+            }}
+            icon={localValue && allOptions[localValue]?.icon}
+            // so that the pop up isn't shown along with the close button
+            sideIcon={isClearButtonShown ? <div /> : undefined}
+            type="secondary"
+            status="stealth"
+            {...buttonProps}
+        >
+            <span>
+                {(localValue && (allOptions[localValue]?.label || localValue)) || (
+                    <span className="text-muted">{placeholder}</span>
                 )}
-            </LemonButtonWithPopup>
-        </div>
+            </span>
+            {isClearButtonShown && (
+                <LemonButton
+                    className="LemonSelect--button--clearable"
+                    type="tertiary"
+                    status="stealth"
+                    noPadding
+                    icon={<IconClose />}
+                    tooltip="Clear selection"
+                    onClick={() => {
+                        onChange?.(null)
+                        setLocalValue(null)
+                    }}
+                />
+            )}
+        </LemonButtonWithPopup>
     )
 }
