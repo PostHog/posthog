@@ -16,7 +16,7 @@ jobs:
         runs-on: ubuntu-20.04
 
         outputs:
-            docker_image: ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
+            docker_image_id: ${{ steps.docker_build.outputs.imageid }}
 
         steps:
             - name: Checkout PR branch
@@ -30,7 +30,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v3
               with:
-                  images: ghcr.io/${{ github.repository }}/posthog
+                  images: ghcr.io/posthog/posthog/posthog
                   tags: |
                       type=ref,event=pr
                       type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
@@ -43,7 +43,7 @@ jobs:
               id: meta-for-cache
               uses: docker/metadata-action@v3
               with:
-                  images: ghcr.io/${{ github.repository }}/posthog
+                  images: ghcr.io/posthog/posthog/posthog
                   tags: |
                       type=raw,value=master
                       type=ref,event=pr
@@ -65,7 +65,6 @@ jobs:
               id: docker_build
               uses: docker/build-push-action@v2
               with:
-                  push: true
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
@@ -75,14 +74,30 @@ jobs:
                   # It notes that it doesn't support mode=max, but we're not
                   # removing any layers, soooo, maybe it's fine.
                   cache-to: type=inline
+                  outputs: |
+                      type=docker,dest=/tmp/posthog-image.tar
+
+            - name: Push (if PostHog/posthog)
+              if: ${{ github.repository == 'PostHog/posthog' }}
+              run: |
+                  docker load < /tmp/posthog-image.tar
+                  docker image push --all-tags ghcr.io/posthog/posthog/posthog
+
+            - name: Upload docker image
+              uses: actions/upload-artifact@v2
+              with:
+                  name: docker-image
+                  path: /tmp/posthog-image.tar
 
             - name: Output image info including size
+              # Output the size of the local tar file, so give some idea about
+              # how code changes affect docker image size.
               run: |
-                  export docker_image=ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
-                  image_size_bytes=$(docker manifest inspect $docker_image | jq '[.layers[].size] | add')
+                  image_size_bytes=$(stat -c "%s" /tmp/posthog-image.tar)
+                  image_name=$(echo '${{ steps.docker_build.outputs.metadata }}' | jq -r '."image.name"')
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
-                  echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
+                  echo "Image name: $image_name" >> $GITHUB_STEP_SUMMARY
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
@@ -147,13 +162,19 @@ jobs:
                   OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
                   EOT
 
+            - uses: actions/download-artifact@v3
+              with:
+                  name: docker-image
+                  path: /tmp/
+
             - name: Boot PostHog
               env:
-                  DOCKER_IMAGE: ${{ needs.build.outputs.docker_image }}
+                  DOCKER_IMAGE_ID: ${{ needs.build.outputs.docker_image_id }}
               run: |
                   mkdir -p /tmp/logs
 
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env $DOCKER_IMAGE"
+                  docker load < /tmp/posthog-image.tar
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env $DOCKER_IMAGE_ID"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
