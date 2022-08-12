@@ -1,36 +1,4 @@
 // This file has been DEPRECATED
-.image-showcase-container {
-    height: 100%;
-    position: relative;
-
-    .image-showcase {
-        position: fixed;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        background: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
-
-        .the-mountains {
-            z-index: var(--z-city-background-image);
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            height: 180px;
-            background: url('../../../public/mountains.svg');
-            background-size: cover;
-        }
-    }
-    .main-logo {
-        padding: 2rem;
-        z-index: var(--z-city-background-content);
-        position: relative;
-        img {
-            height: 28px;
-        }
-    }
-}
 
 .AuthContent {
     display: flex;
@@ -61,13 +29,6 @@
 }
 
 @media (max-width: 992px) {
-    .main-logo {
-        display: none;
-        &.mobile-logo {
-            display: block;
-        }
-    }
-
     .AuthContent {
         padding-bottom: 0;
         flex-direction: column;

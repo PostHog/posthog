@@ -143,6 +143,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 !textProps.disabled && focused && 'LemonInput--focused',
                 value && 'LemonInput--hasContent',
                 fullWidth && 'LemonInput--full-width',
+                textProps.disabled && 'LemonInput--disabled',
                 className
             )}
             onKeyDown={(event) => {

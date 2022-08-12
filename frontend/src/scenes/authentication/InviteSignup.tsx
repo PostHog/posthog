@@ -1,22 +1,23 @@
 import { useActions, useValues } from 'kea'
-import React, { lazy, Suspense, useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import { Loading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Row, Col, Input, Space } from 'antd'
-import { ArrowLeftOutlined, ArrowRightOutlined, ArrowDownOutlined } from '@ant-design/icons'
-import { router } from 'kea-router'
 import { PrevalidatedInvite, UserType } from '~/types'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
 import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ProfilePicture } from '../../lib/components/ProfilePicture'
+import { IconArrowDropDown, IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
+import { Field, PureField } from 'lib/forms/Field'
+import PasswordStrength from 'lib/components/PasswordStrength'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -36,7 +37,6 @@ export function WhoAmI({ user }: { user: UserType }): JSX.Element {
 }
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
-const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 interface ErrorMessage {
     title: string
@@ -71,11 +71,10 @@ function HelperLinks(): JSX.Element {
 }
 
 function BackToPostHog(): JSX.Element {
-    const { push } = useActions(router)
     return (
-        <Button icon={<ArrowLeftOutlined />} block onClick={() => push(urls.default())}>
+        <LemonButton type="secondary" icon={<IconChevronLeft />} center fullWidth to={urls.default()}>
             Go back to PostHog
-        </Button>
+        </LemonButton>
     )
 }
 
@@ -110,9 +109,9 @@ function ErrorView(): JSX.Element | null {
                             <div>
                                 You need to log in with the email address above, or create your own password.
                                 <div className="mt-4">
-                                    <Button icon={<ArrowLeftOutlined />} href={window.location.pathname}>
+                                    <LemonButton icon={<IconChevronLeft />} href={window.location.pathname}>
                                         Try again
-                                    </Button>
+                                    </LemonButton>
                                 </div>
                             </div>
                         )}
@@ -152,66 +151,59 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 
     return (
         <div className="authenticated-invite">
-            <Space className="inner" direction="vertical" align="center">
-                <Row>
-                    <h1 className="page-title">You have been invited to join {invite.organization_name}</h1>
-                </Row>
-                <Row>
-                    <span>
-                        You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
-                    </span>
-                </Row>
+            <div className="inner flex flex-col text-center space-y-2">
+                <h1 className="page-title">You have been invited to join {invite.organization_name}</h1>
+                <div>
+                    You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
+                </div>
                 {user && (
-                    <Row>
-                        <div className="whoami-mock">
-                            <div className="whoami-inner-container">
-                                <WhoAmI user={user} />
-                            </div>
+                    <div className="whoami-mock">
+                        <div className="whoami-inner-container">
+                            <WhoAmI user={user} />
                         </div>
-                    </Row>
+                    </div>
                 )}
-                <Row>
+                <div>
                     You can change organizations at any time by clicking on the dropdown at the top right corner of the
                     navigation bar.
-                </Row>
+                </div>
                 <div>
                     {!acceptedInvite ? (
                         <>
-                            <Button
+                            <LemonButton
                                 type="primary"
-                                block
+                                center
+                                fullWidth
                                 onClick={() => acceptInvite()}
                                 disabled={acceptedInviteLoading}
                             >
                                 Accept invite
-                            </Button>
+                            </LemonButton>
                             <div className="mt-4">
-                                <Link to="/">
-                                    <ArrowLeftOutlined /> Go back to PostHog
-                                </Link>
+                                <LemonButton type="secondary" center fullWidth icon={<IconChevronLeft />} to="/">
+                                    Go back to PostHog
+                                </LemonButton>
                             </div>
                         </>
                     ) : (
-                        <Button block onClick={() => (window.location.href = '/')}>
-                            Go to PostHog <ArrowRightOutlined />
-                        </Button>
+                        <LemonButton
+                            type="secondary"
+                            center
+                            fullWidth
+                            sideIcon={<IconChevronRight />}
+                            onClick={() => (window.location.href = '/')}
+                        >
+                            Go to PostHog
+                        </LemonButton>
                     )}
                 </div>
-            </Space>
+            </div>
         </div>
     )
 }
 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
-    const [formValues, setFormValues] = useState({
-        firstName: invite?.first_name || '',
-        password: '',
-        emailOptIn: true,
-    })
-    const [formState, setFormState] = useState({ submitted: false, passwordInvalid: false })
-    const passwordInputRef = useRef<Input | null>(null)
-    const { acceptInvite } = useActions(inviteSignupLogic)
-    const { acceptedInviteLoading } = useValues(inviteSignupLogic)
+    const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
     const { socialAuthAvailable } = useValues(preflightLogic)
 
     const parentContainerRef = useRef<HTMLDivElement | null>(null) // Used for scrolling on mobile
@@ -223,153 +215,119 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             parentContainerRef.current?.scrollTo(0, yPos)
         }
     }
-
-    const handlePasswordChanged = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const { value } = e.target
-        setFormValues({ ...formValues, password: value })
-        if (value.length >= 8) {
-            setFormState({ ...formState, passwordInvalid: false })
-        } else {
-            setFormState({ ...formState, passwordInvalid: true })
-        }
-    }
-
-    const handleFormSubmit = (e: React.FormEvent<EventTarget>): void => {
-        e.preventDefault()
-        if (formState.passwordInvalid) {
-            setFormState({ ...formState, submitted: true })
-            if (passwordInputRef.current) {
-                passwordInputRef.current.focus()
-            }
-            return
-        }
-
-        const payload = {
-            first_name: formValues.firstName,
-            password: formValues.password,
-            email_opt_in: formValues.emailOptIn,
-        }
-        acceptInvite(payload)
-    }
-
     return (
-        <div className="unauthenticated-invite" ref={parentContainerRef}>
-            <Row>
-                <Col span={24} md={10} className="image-showcase-container">
-                    <div className="image-showcase ant-col-24 ant-col-md-10">
-                        <div className="the-mountains" />
-                        <div className="main-logo">
-                            <img src={smLogo} alt="" />
-                        </div>
-                        <div className="showcase-content">
-                            <h1 className="page-title">
-                                Hello{invite?.first_name ? ` ${invite.first_name}` : ''}! You've been invited to join
-                            </h1>
-                            <div className="company">{invite?.organization_name || 'us'}</div>
-                            <h1 className="page-title">on PostHog</h1>
-                            <div className="mobile-continue">
-                                <Button icon={<ArrowDownOutlined />} type="default" onClick={goToMainContent}>
-                                    Continue
-                                </Button>
-                            </div>
-                        </div>
+        <div className="UnauthenticatedInvite" ref={parentContainerRef}>
+            <div className="UnauthenticatedInvite__showcase">
+                <div className="UnauthenticatedInvite__showcase__mountains" />
+                <div className="UnauthenticatedInvite__showcase__mainlogo">
+                    <img src={smLogo} alt="" />
+                </div>
+                <div className="UnauthenticatedInvite__showcase__content">
+                    <div className="text-3xl font-semibold flex flex-col gap-2">
+                        <span>
+                            Hello{invite?.first_name ? ` ${invite.first_name}` : ''}! You've been invited to join
+                        </span>
+                        <span className="text-4xl font-bold text-white">{invite?.organization_name || 'us'}</span>
+                        <span>on PostHog</span>
                     </div>
-                </Col>
-                <Col span={24} md={14} className="rhs-content" ref={mainContainerRef}>
-                    <div className="rhs-inner">
-                        <SocialLoginButtons
-                            title="Continue with a provider"
-                            caption={`Remember to log in with ${invite?.target_email}`}
-                            queryString={invite ? `?invite_id=${invite.id}` : ''}
-                        />
-                        <div className="password-login">
-                            <h3 className="l3 text-center">
-                                {socialAuthAvailable ? 'Or create your own password' : 'Create your PostHog account'}
-                            </h3>
-                            <form onSubmit={handleFormSubmit}>
-                                <div className="input-set">
-                                    <label htmlFor="email">Email</label>
-                                    <Input type="email" disabled id="email" value={invite?.target_email} />
-                                </div>
-                                <div
-                                    className={`input-set${
-                                        formState.submitted && formState.passwordInvalid ? ' errored' : ''
-                                    }`}
-                                    style={{ paddingBottom: 8 }}
-                                >
-                                    <label htmlFor="password">Password</label>
-                                    <Input
-                                        placeholder="*******"
-                                        type="password"
-                                        required
-                                        disabled={acceptedInviteLoading}
-                                        autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
-                                        value={formValues.password}
-                                        onChange={handlePasswordChanged}
-                                        id="password"
-                                        ref={passwordInputRef}
-                                    />
-                                    <span className="caption">Your password must have at least 8 characters.</span>
-                                    <Suspense fallback={<></>}>
-                                        <PasswordStrength password={formValues.password} />
-                                    </Suspense>
-                                </div>
-                                <div className="input-set">
-                                    <label htmlFor="first_name">First Name</label>
-                                    <Input
-                                        placeholder="Jane"
-                                        type="text"
-                                        required
-                                        disabled={acceptedInviteLoading}
-                                        id="first_name"
-                                        value={formValues.firstName}
-                                        onChange={(e) => setFormValues({ ...formValues, firstName: e.target.value })}
-                                    />
-                                    {invite?.first_name && (
-                                        <span className="caption">
-                                            Your name was provided in the invite, feel free to change it.
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="mb-4">
-                                    <Checkbox
-                                        checked={formValues.emailOptIn}
-                                        onChange={(e) => setFormValues({ ...formValues, emailOptIn: e.target.checked })}
-                                        disabled={acceptedInviteLoading}
-                                        style={{ fontSize: 12, color: 'var(--muted)' }}
-                                    >
-                                        Send me product and security updates
-                                    </Checkbox>
-                                </div>
-                                <Button
-                                    type="primary"
-                                    htmlType="submit"
-                                    data-attr="password-signup"
-                                    disabled={formState.submitted && formState.passwordInvalid}
-                                    loading={acceptedInviteLoading}
-                                    block
-                                >
-                                    Continue
-                                </Button>
-                            </form>
-                            <div className="mt-4 text-center">
-                                By clicking continue you agree to our{' '}
-                                <a href="https://posthog.com/terms" target="_blank" rel="noopener">
-                                    Terms of Service
-                                </a>{' '}
-                                and{' '}
-                                <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
-                                    Privacy Policy
-                                </a>
-                                .
-                            </div>
-                            <div className="mt-4 text-center text-muted" style={{ marginBottom: 60 }}>
-                                Already have an account? <Link to="/login">Log in</Link>
-                            </div>
-                        </div>
+
+                    <div className="UnauthenticatedInvite__showcase__continue mt-4">
+                        <LemonButton sideIcon={<IconArrowDropDown />} type="secondary" onClick={goToMainContent}>
+                            Continue
+                        </LemonButton>
                     </div>
-                </Col>
-            </Row>
+                </div>
+            </div>
+            <div className="UnauthenticatedInvite__content" ref={mainContainerRef}>
+                <div className="UnauthenticatedInvite__content__inner">
+                    <SocialLoginButtons
+                        className="mb-4"
+                        title="Continue with a provider"
+                        caption={`Remember to log in with ${invite?.target_email}`}
+                        queryString={invite ? `?invite_id=${invite.id}` : ''}
+                    />
+                    <h3 className="text-center">
+                        {socialAuthAvailable ? 'Or create your own password' : 'Create your PostHog account'}
+                    </h3>
+                    <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
+                        <PureField label="Email">
+                            <LemonInput type="email" disabled id="email" value={invite?.target_email} />
+                        </PureField>
+                        <Field
+                            name="password"
+                            label={
+                                <div className="flex flex-1 items-center justify-between">
+                                    <span>Password</span>
+                                    <span className="w-20">
+                                        <PasswordStrength password={signup.password} />
+                                    </span>
+                                </div>
+                            }
+                        >
+                            <LemonInput
+                                type="password"
+                                className="ph-ignore-input"
+                                data-attr="password"
+                                placeholder="••••••••••"
+                                autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
+                                id="password"
+                                disabled={isSignupSubmitting}
+                            />
+                        </Field>
+
+                        <Field
+                            name="first_name"
+                            label="First Name"
+                            help={
+                                invite?.first_name
+                                    ? 'Your name was provided in the invite, feel free to change it.'
+                                    : undefined
+                            }
+                        >
+                            <LemonInput placeholder="Jane" id="first_name" />
+                        </Field>
+
+                        <Field name="email_opt_in">
+                            {({ value, onChange }) => {
+                                console.log({ value })
+                                return (
+                                    <LemonCheckbox
+                                        checked={value}
+                                        onChange={(e) => onChange(e.target.checked)}
+                                        disabled={isSignupSubmitting}
+                                        label="Send me product and security updates"
+                                    />
+                                )
+                            }}
+                        </Field>
+
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            data-attr="password-signup"
+                            loading={isSignupSubmitting}
+                            center
+                            fullWidth
+                        >
+                            Continue
+                        </LemonButton>
+                    </Form>
+                    <div className="mt-4 text-center text-muted">
+                        By clicking continue you agree to our{' '}
+                        <a href="https://posthog.com/terms" target="_blank" rel="noopener">
+                            Terms of Service
+                        </a>{' '}
+                        and{' '}
+                        <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
+                            Privacy Policy
+                        </a>
+                        .
+                    </div>
+                    <div className="mt-4 text-center text-muted mb-20">
+                        Already have an account? <Link to="/login">Log in</Link>
+                    </div>
+                </div>
+            </div>
         </div>
     )
 }

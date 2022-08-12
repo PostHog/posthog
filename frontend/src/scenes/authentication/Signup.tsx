@@ -9,7 +9,7 @@ import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { AuthenticationButton } from './AuthenticationButton'
@@ -147,6 +147,7 @@ export function Signup(): JSX.Element | null {
                     </Form>
                     {!preflight?.demo && (
                         <div>
+                            <LemonDivider dashed className="my-4" />
                             <SocialLoginButtons caption="Or sign up with" />
                         </div>
                     )}

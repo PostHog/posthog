@@ -35,7 +35,6 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
-                alert(JSON.stringify(payload))
                 await breakpoint()
                 try {
                     const res = await api.create('api/signup/', payload)

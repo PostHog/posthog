@@ -82,21 +82,45 @@
         }
     }
 
-    .unauthenticated-invite {
+    .UnauthenticatedInvite {
         height: 100vh;
         position: relative;
+        scroll-behavior: smooth;
+        overflow: auto;
 
-        .ant-row {
+        .UnauthenticatedInvite__showcase {
             height: 100%;
-        }
-
-        .image-showcase-container {
-            .company {
-                font-size: 2.7rem;
-                margin-bottom: 0;
+            position: relative;
+            background: linear-gradient(180deg, #373088 0%, #d05783 60.94%, #ffb269 100%);
+            .UnauthenticatedInvite__showcase__mountains {
+                z-index: var(--z-city-background-image);
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                height: 180px;
+                background: url('../../../public/mountains.svg');
+                background-size: cover;
             }
 
-            .showcase-content {
+            .UnauthenticatedInvite__showcase__mainlogo {
+                position: absolute;
+                left: 2rem;
+                top: 2rem;
+                z-index: var(--z-city-background-content);
+                position: relative;
+                img {
+                    height: 28px;
+                }
+
+                display: none;
+
+                @include screen($md) {
+                    display: block;
+                }
+            }
+
+            .UnauthenticatedInvite__showcase__content {
                 z-index: var(--z-city-background-content);
                 color: var(--light);
                 height: calc(100% - 100px);
@@ -109,78 +133,39 @@
                 padding: 0 2rem;
                 position: relative;
 
-                h1,
-                h2,
-                h3 {
-                    b {
-                        color: white;
+                color: rgba(255, 255, 255, 0.6);
+
+                .UnauthenticatedInvite__showcase__continue {
+                    display: block;
+                    @include screen($md) {
+                        display: none;
                     }
-                }
-
-                .page-title {
-                    color: rgba(255, 255, 255, 0.6);
-                }
-
-                h3 {
-                    color: var(--light);
-                }
-
-                .mobile-continue {
-                    display: none;
                 }
             }
         }
 
-        .rhs-content {
+        .UnauthenticatedInvite__content {
             display: flex;
             justify-content: center;
             align-items: center;
             padding-top: 2rem;
+            height: 100%;
 
-            .rhs-inner {
+            .UnauthenticatedInvite__content__inner {
                 width: 100%;
-                max-width: 382px; // 350px + 32px padding
-                padding: 0 1rem;
-            }
-
-            .password-login {
-                margin-top: 2rem;
+                max-width: 24rem;
+                margin: 0 2rem;
             }
         }
 
-        @media screen and (max-width: $md) {
-            overflow: auto;
-            scroll-behavior: smooth;
-
-            .image-showcase {
-                position: relative !important;
-                height: 100%;
+        @include screen($md) {
+            display: flex;
+            .UnauthenticatedInvite__showcase {
+                flex: 1;
             }
 
-            .showcase-content {
-                .page-title {
-                    margin-top: 0;
-                }
-
-                .mobile-continue {
-                    display: block !important;
-                    padding-top: 1rem;
-                }
-            }
-
-            .rhs-content {
-                height: initial;
-                overflow: initial;
-
-                .top-helper {
-                    text-align: left;
-                    margin-right: 0;
-                    padding: 0 1rem;
-                    color: var(--muted);
-                    b {
-                        font-weight: normal;
-                    }
-                }
+            .UnauthenticatedInvite__content {
+                flex: 1.5;
             }
         }
     }

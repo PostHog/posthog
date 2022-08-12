@@ -11,7 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { SSOProviders } from '~/types'
-import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -74,7 +74,7 @@ function SSOLoginButton({
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, loginForm, isLoginFormSubmitting, loginFormManualErrors } =
+    const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, loginManualErrors } =
         useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -84,10 +84,10 @@ export function Login(): JSX.Element {
                 <WelcomeLogo view="login" />
                 <div className="inner space-y-2">
                     <h2 className="subtitle justify-center">Get started</h2>
-                    {loginFormManualErrors.generic && (
+                    {loginManualErrors.generic && (
                         <AlertMessage type="error">
-                            {loginFormManualErrors.generic.errorDetail ||
-                                ERROR_MESSAGES[loginFormManualErrors.generic.errorCode] ||
+                            {loginManualErrors.generic.errorDetail ||
+                                ERROR_MESSAGES[loginManualErrors.generic.errorCode] ||
                                 'Could not complete your login. Please try again.'}
                         </AlertMessage>
                     )}
@@ -99,9 +99,9 @@ export function Login(): JSX.Element {
                                 data-attr="login-email"
                                 placeholder="email@yourcompany.com"
                                 type="email"
-                                onBlur={() => precheck({ email: loginForm.email })}
+                                onBlur={() => precheck({ email: login.email })}
                                 onPressEnter={() => {
-                                    precheck({ email: loginForm.email })
+                                    precheck({ email: login.email })
                                     document.getElementById('password')?.focus()
                                 }}
                                 autoComplete="off"
@@ -126,15 +126,15 @@ export function Login(): JSX.Element {
                             <AuthenticationButton
                                 htmlType="submit"
                                 data-attr="password-login"
-                                loading={isLoginFormSubmitting || precheckResponseLoading}
+                                loading={isLoginSubmitting || precheckResponseLoading}
                             >
                                 Login
                             </AuthenticationButton>
                         ) : (
-                            <SSOLoginButton provider={precheckResponse.sso_enforcement} email={loginForm.email} />
+                            <SSOLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
                         )}
                         {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                            <SSOLoginButton provider="saml" email={loginForm.email} status="primary" />
+                            <SSOLoginButton provider="saml" email={login.email} status="primary" />
                         )}
                     </Form>
                     <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
@@ -147,6 +147,7 @@ export function Login(): JSX.Element {
                             Forgot your password?
                         </Link>
                     </div>
+                    <LemonDivider dashed className="my-4" />
                     <SocialLoginButtons caption="Or log in with" />
                 </div>
             </div>
