@@ -103,7 +103,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
-                <div className="bridge-page IngestionContainer">
+                <div className="BridgePage IngestionContainer">
                     <div className="mb-4">
                         <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                     </div>

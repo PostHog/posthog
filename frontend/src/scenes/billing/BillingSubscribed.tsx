@@ -20,9 +20,9 @@ export function BillingSubscribedTheme({ children }: PropsWithChildren<unknown>)
     const { toggleHelp } = useActions(helpButtonLogic)
 
     return (
-        <div className="bridge-page billing-subscribed">
+        <div className="BridgePage billing-subscribed">
             <Row>
-                <Col span={24} className="auth-main-content">
+                <Col span={24} className="AuthContent">
                     <img src={hedgehogMain} alt="" className="main-art" />
                     <div className="inner-wrapper">
                         <WelcomeLogo view="signup" />

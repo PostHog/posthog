@@ -2,7 +2,7 @@
 
 .billing-subscribed {
     // bridgePagesShared overrides
-    .auth-main-content {
+    .AuthContent {
         flex-direction: row !important;
         min-height: calc(100vh - 3.5rem) !important; // To account for the TopBar
     }

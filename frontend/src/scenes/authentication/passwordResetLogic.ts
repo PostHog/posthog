@@ -1,4 +1,7 @@
-import { kea } from 'kea'
+import { kea, path, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
 import type { passwordResetLogicType } from './passwordResetLogicType'
@@ -17,22 +20,14 @@ export interface ValidatedTokenResponseType extends ResponseType {
     uuid?: string
 }
 
-export const passwordResetLogic = kea<passwordResetLogicType>({
-    path: ['scenes', 'authentication', 'passwordResetLogic'],
-    loaders: ({ values }) => ({
-        resetResponse: [
-            null as ResetResponseType | null,
-            {
-                reset: async ({ email }: { email: string }) => {
-                    try {
-                        await api.create('api/reset/', { email })
-                        return { success: true, email }
-                    } catch (e: any) {
-                        return { success: false, errorCode: e.code, errorDetail: e.detail }
-                    }
-                },
-            },
-        ],
+export interface PasswordResetForm {
+    password: string
+    passwordConfirm: string
+}
+
+export const passwordResetLogic = kea<passwordResetLogicType>([
+    path(['scenes', 'authentication', 'passwordResetLogic']),
+    loaders(({}) => ({
         validatedResetToken: [
             null as ValidatedTokenResponseType | null,
             {
@@ -46,57 +41,77 @@ export const passwordResetLogic = kea<passwordResetLogicType>({
                 },
             },
         ],
-        newPasswordResponse: [
-            null as ResponseType | null,
+    })),
+    reducers({
+        requestPasswordResetSucceeded: [
+            false,
             {
-                updatePassword: async ({
-                    password,
-                    passwordConfirm,
-                }: {
-                    password: string
-                    passwordConfirm: string
-                }) => {
-                    if (!values.validatedResetToken?.token || !values.validatedResetToken.uuid) {
-                        return {
-                            success: false,
-                            errorCode: 'invalid_token',
-                            errorDetail: 'Your link is invalid or expired.',
-                        }
-                    }
-                    if (passwordConfirm !== password) {
-                        return {
-                            success: false,
-                            errorCode: 'confirmation_does_not_match',
-                            errorDetail: 'Password confirmation does not match.',
-                        }
-                    }
-                    try {
-                        await api.create(`api/reset/${values.validatedResetToken.uuid}/`, {
-                            password,
-                            token: values.validatedResetToken.token,
-                        })
-                        return { success: true }
-                    } catch (e: any) {
-                        return { success: false, errorCode: e.code, errorDetail: e.detail }
-                    }
-                },
+                submitRequestPasswordResetSuccess: () => true,
+            },
+        ],
+        passwordResetSucceeded: [
+            false,
+            {
+                submitPasswordResetSuccess: () => true,
             },
         ],
     }),
-    listeners: {
-        updatePasswordSuccess: async ({ newPasswordResponse }, breakpoint) => {
-            if (newPasswordResponse.success) {
-                lemonToast.success('Your password has been changed. Redirecting…')
-                await breakpoint(3000)
-                window.location.href = '/' // We need the refresh
-            }
+    forms(({ values, actions }) => ({
+        requestPasswordReset: {
+            defaults: {} as unknown as { email: string },
+            errors: ({ email }) => ({
+                email: !email ? 'Please enter your email to continue' : undefined,
+            }),
+            submit: async ({ email }, breakpoint) => {
+                await breakpoint()
+
+                try {
+                    await api.create('api/reset/', { email })
+                } catch (e: any) {
+                    actions.setRequestPasswordResetManualErrors({ email: e.detail })
+                }
+            },
         },
-    },
-    urlToAction: ({ actions }) => ({
+
+        passwordReset: {
+            defaults: {} as unknown as PasswordResetForm,
+            errors: ({ password, passwordConfirm }) => ({
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : password.length < 8
+                    ? 'Password must be at least 8 characters'
+                    : undefined,
+                passwordConfirm: !passwordConfirm
+                    ? 'Please confirm your password to continue'
+                    : password !== passwordConfirm
+                    ? 'Passwords do not match'
+                    : undefined,
+            }),
+            submit: async ({ password }, breakpoint) => {
+                await breakpoint()
+
+                if (!values.validatedResetToken?.token || !values.validatedResetToken.uuid) {
+                    return
+                }
+                try {
+                    await api.create(`api/reset/${values.validatedResetToken.uuid}/`, {
+                        password,
+                        token: values.validatedResetToken.token,
+                    })
+                    lemonToast.success('Your password has been changed. Redirecting…')
+                    await breakpoint(3000)
+                    window.location.href = '/' // We need the refresh
+                } catch (e: any) {
+                    actions.setPasswordResetManualErrors({ password: e.detail })
+                }
+            },
+        },
+    })),
+    urlToAction(({ actions }) => ({
         '/reset/:uuid/:token': ({ uuid, token }) => {
             if (token && uuid) {
                 actions.validateResetToken({ uuid, token })
             }
         },
-    }),
-})
+    })),
+])

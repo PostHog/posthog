@@ -32,7 +32,7 @@
     }
 }
 
-.auth-main-content {
+.AuthContent {
     display: flex;
     justify-content: center;
     align-items: center;
@@ -68,7 +68,7 @@
         }
     }
 
-    .auth-main-content {
+    .AuthContent {
         padding-bottom: 0;
         flex-direction: column;
     }

@@ -24,6 +24,9 @@ export const Cloud = (): JSX.Element => {
                 available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
             },
         },
+        post: {
+            '/api/login/precheck': { sso_enforcement: null, saml_available: false },
+        },
     })
     return <Login />
 }

@@ -69,7 +69,7 @@ export function PreflightCheck(): JSX.Element {
         useActions(preflightLogic)
 
     return (
-        <div className="bridge-page Preflight">
+        <div className="BridgePage Preflight">
             <div>
                 <WelcomeLogo view="preflight-check" />
                 {!preflightMode ? (

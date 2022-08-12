@@ -1,34 +1,11 @@
 @import '../../styles/mixins';
 @import './bridgePagesShared';
 
-.bridge-page.login {
-    .helper-links {
-        display: flex;
-        gap: 0.5rem;
-        align-items: center;
-        justify-content: space-between;
-        text-align: center;
-        padding-top: 1rem;
-        flex-direction: column;
-
-        a {
-            display: block;
-            width: 100%;
-        }
-    }
-
-    @include screen($sm) {
-        .helper-links {
-            flex-direction: row;
-        }
-    }
-
-    .password-wrapper {
-        overflow: hidden;
-        transition: max-height 0.8s ease-in-out;
-        max-height: 1000px;
-        &.hidden {
-            max-height: 0;
-        }
+.PasswordWrapper {
+    overflow: hidden;
+    transition: max-height 0.8s ease-in-out;
+    max-height: 1000px;
+    &.hidden {
+        max-height: 0;
     }
 }

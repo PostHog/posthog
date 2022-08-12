@@ -24,7 +24,7 @@ export function ConfirmOrganization(): JSX.Element {
     console.log(showNewOrgWarning)
 
     return (
-        <div className="bridge-page ConfirmOrganization">
+        <div className="BridgePage ConfirmOrganization">
             <WelcomeLogo view="org-creation-confirmation" />
             <div className="ConfirmOrganization__container-box">
                 <p className="ConfirmOrganization__title text-center">Create a new organization</p>

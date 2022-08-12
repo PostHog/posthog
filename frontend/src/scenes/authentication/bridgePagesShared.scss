@@ -1,6 +1,6 @@
 @import '../../styles/mixins';
 
-.bridge-page {
+.BridgePage {
     background-color: var(--bg-bridge);
 
     // General styles; overrides
@@ -39,8 +39,7 @@
     }
 
     // Local styles
-
-    .auth-main-content {
+    .AuthContent {
         display: flex;
         flex-direction: column;
         justify-content: center;

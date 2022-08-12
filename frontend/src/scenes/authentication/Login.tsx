@@ -15,6 +15,7 @@ import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { AuthenticationButton } from './AuthenticationButton'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -78,8 +79,8 @@ export function Login(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <div className="bridge-page login">
-            <div className="auth-main-content">
+        <div className="BridgePage">
+            <div className="AuthContent">
                 <WelcomeLogo view="login" />
                 <div className="inner space-y-2">
                     <h2 className="subtitle justify-center">Get started</h2>
@@ -108,7 +109,7 @@ export function Login(): JSX.Element {
                         </Field>
                         <div
                             className={clsx(
-                                'password-wrapper',
+                                'PasswordWrapper',
                                 (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) && 'hidden'
                             )}
                         >
@@ -122,17 +123,13 @@ export function Login(): JSX.Element {
                             </Field>
                         </div>
                         {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
-                            <LemonButton
+                            <AuthenticationButton
                                 htmlType="submit"
                                 data-attr="password-login"
-                                fullWidth
-                                type="primary"
-                                status="primary-alt"
-                                center
                                 loading={isLoginFormSubmitting || precheckResponseLoading}
                             >
                                 Login
-                            </LemonButton>
+                            </AuthenticationButton>
                         ) : (
                             <SSOLoginButton provider={precheckResponse.sso_enforcement} email={loginForm.email} />
                         )}
@@ -140,7 +137,7 @@ export function Login(): JSX.Element {
                             <SSOLoginButton provider="saml" email={loginForm.email} status="primary" />
                         )}
                     </Form>
-                    <div className="helper-links">
+                    <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
                         {preflight?.cloud && (
                             <Link to="/signup" data-attr="signup">
                                 Create an account
