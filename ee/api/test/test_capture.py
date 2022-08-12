@@ -2,9 +2,9 @@ import json
 from typing import Any
 from unittest.mock import patch
 
+from confluent_kafka.cimpl import KafkaError
 from django.http.request import HttpRequest
 from django.test.client import Client
-from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
 from posthog.api.utils import get_event_ingestion_context
@@ -159,7 +159,7 @@ class TestCaptureAPI(APIBaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_kafka_connection_error(self, kafka_produce):
-        kafka_produce.side_effect = NoBrokersAvailable()
+        kafka_produce.side_effect = KafkaError()
         response = self.client.post(
             "/capture/",
             {

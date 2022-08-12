@@ -9,13 +9,13 @@ import kombu.connection
 import kombu.exceptions
 import pytest
 from clickhouse_driver.errors import Error as ClickhouseError
+from confluent_kafka.cimpl import KafkaError
 from django.core.cache import cache
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
 from django.http import HttpResponse
 from django.test import Client
-from kafka.errors import KafkaError
 
 from posthog.client import ch_pool
 from posthog.health import logger
