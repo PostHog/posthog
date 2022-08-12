@@ -51,11 +51,6 @@
         }
 
         .whoami-mock {
-            display: flex;
-            align-items: center;
-            height: 100%;
-            width: 100%;
-
             .whoami-inner-container {
                 display: inline-block;
                 .whoami {
@@ -174,6 +169,7 @@
     height: 100%;
     display: flex;
     align-items: center;
+    width: 100%;
 
     .details {
         flex-direction: column;
