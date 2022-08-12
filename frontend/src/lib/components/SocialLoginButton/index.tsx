@@ -7,6 +7,7 @@ import { SSOProviders } from '~/types'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from '../LemonButton'
+import { LemonDivider } from '../LemonDivider'
 
 interface SharedProps {
     queryString?: string
@@ -20,6 +21,7 @@ interface SocialLoginButtonsProps extends SharedProps {
     title?: string
     caption?: string
     className?: string
+    topDivier?: boolean
 }
 
 export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
@@ -47,6 +49,7 @@ export function SocialLoginButtons({
     title,
     caption,
     className,
+    topDivier,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -59,14 +62,18 @@ export function SocialLoginButtons({
     }
 
     return (
-        <div className={clsx(className, 'text-center space-y-2')}>
-            {title && <h3>{title}</h3>}
-            {caption && <span className="text-muted">{caption}</span>}
-            <div className="flex gap-2 justify-center flex-wrap">
-                {Object.keys(preflight.available_social_auth_providers).map((provider) => (
-                    <SocialLoginLink key={provider} provider={provider as SSOProviders} {...props} />
-                ))}
+        <>
+            {topDivier ? <LemonDivider dashed className="my-4" /> : null}
+
+            <div className={clsx(className, 'text-center space-y-2')}>
+                {title && <h3>{title}</h3>}
+                {caption && <span className="text-muted">{caption}</span>}
+                <div className="flex gap-2 justify-center flex-wrap">
+                    {Object.keys(preflight.available_social_auth_providers).map((provider) => (
+                        <SocialLoginLink key={provider} provider={provider as SSOProviders} {...props} />
+                    ))}
+                </div>
             </div>
-        </div>
+        </>
     )
 }

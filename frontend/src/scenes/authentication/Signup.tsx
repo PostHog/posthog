@@ -147,8 +147,7 @@ export function Signup(): JSX.Element | null {
                     </Form>
                     {!preflight?.demo && (
                         <div>
-                            <LemonDivider dashed className="my-4" />
-                            <SocialLoginButtons caption="Or sign up with" />
+                            <SocialLoginButtons caption="Or sign up with" topDivier />
                         </div>
                     )}
                 </div>

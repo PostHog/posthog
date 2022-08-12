@@ -11,7 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { SSOProviders } from '~/types'
-import { LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
@@ -91,7 +91,7 @@ export function Login(): JSX.Element {
                                 'Could not complete your login. Please try again.'}
                         </AlertMessage>
                     )}
-                    <Form logic={loginLogic} formKey={'loginForm'} enableFormOnSubmit className="space-y-2">
+                    <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
                         <Field name="email" label="Email">
                             <LemonInput
                                 className="ph-ignore-input"
@@ -147,8 +147,7 @@ export function Login(): JSX.Element {
                             Forgot your password?
                         </Link>
                     </div>
-                    <LemonDivider dashed className="my-4" />
-                    <SocialLoginButtons caption="Or log in with" />
+                    <SocialLoginButtons caption="Or log in with" topDivier />
                 </div>
             </div>
         </div>
