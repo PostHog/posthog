@@ -229,7 +229,11 @@ pickleshare==0.7.5
 posthoganalytics==2.1.0
     # via -r requirements.in
 prometheus-client==0.14.1
-    # via django-prometheus
+    # via
+    #   django-prometheus
+    #   prometheus-kafka-metrics
+prometheus-kafka-metrics==0.4.2
+    # via -r requirements.in
 protobuf==3.13.0
     # via -r requirements.in
 psycopg2-binary==2.8.6
