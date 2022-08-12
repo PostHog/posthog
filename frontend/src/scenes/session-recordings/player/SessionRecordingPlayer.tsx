@@ -7,6 +7,7 @@ import { PlayerControllerV2, PlayerControllerV3 } from 'scenes/session-recording
 import { Col, Row } from 'antd'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerInspectorV2, PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
+import { PlayerMetaV3 } from './PlayerMeta'
 
 export function useFrameRef(): React.MutableRefObject<HTMLDivElement | null> {
     const { setRootFrame } = useActions(sessionRecordingPlayerLogic)
@@ -46,15 +47,16 @@ export function SessionRecordingPlayerV3(): JSX.Element {
     const frame = useFrameRef()
     return (
         <Col className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
-            <Row className="session-player-body" wrap={false}>
+            <PlayerMetaV3 />
+            <div className="session-player-body flex">
                 <div className="player-container ph-no-capture">
                     <PlayerFrame ref={frame} />
                 </div>
-            </Row>
+            </div>
             <LemonDivider className="my-0" />
-            <Row className="player-controller" align="middle">
+            <div className="player-controller items-center flex">
                 <PlayerControllerV3 />
-            </Row>
+            </div>
             <LemonDivider className="my-0" />
             <PlayerInspectorV3 />
         </Col>

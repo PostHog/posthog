@@ -9,9 +9,14 @@ import { urls } from 'scenes/urls'
 import { ArrowRightOutlined } from '@ant-design/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { SessionRecordingsFilters } from './SessionRecordingFilters'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
         <div>
             <PageHeader title={<Row align="middle">Recordings</Row>} />
@@ -34,8 +39,12 @@ export function SessionsRecordings(): JSX.Element {
                     }
                 />
             ) : null}
-
-            <SessionRecordingsTable key="global" />
+            <SessionRecordingsFilters />
+            {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST] ? (
+                <SessionRecordingsPlaylist key="global" />
+            ) : (
+                <SessionRecordingsTable key="global" />
+            )}
         </div>
     )
 }

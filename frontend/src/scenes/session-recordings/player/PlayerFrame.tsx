@@ -1,11 +1,19 @@
-import React, { MutableRefObject, useEffect, useRef } from 'react'
+import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
 import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState } from '~/types'
 import { IconPlay } from 'scenes/session-recordings/player/icons'
 
-export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrameInner(_, ref): JSX.Element {
+interface PlayerFrameProps {
+    height?: number
+    width?: number
+}
+
+export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
+    { height, width }: PlayerFrameProps,
+    ref: Ref<HTMLDivElement>
+): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
     const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic)
     const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic)
@@ -26,6 +34,10 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
         updatePlayerDimensions(replayDimensionRef.current)
     }
 
+    useEffect(() => {
+        updatePlayerDimensions(replayDimensionRef.current)
+    }, [height, width])
+
     // :TRICKY: Scale down the iframe and try to position it vertically
     const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
         if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
@@ -33,15 +45,20 @@ export const PlayerFrame = React.forwardRef<HTMLDivElement>(function PlayerFrame
         }
 
         replayDimensionRef.current = replayDimensions
-        const { width, height } = frameRef.current.parentElement.getBoundingClientRect()
 
-        const scale = Math.min(width / replayDimensions.width, height / replayDimensions.height, 1)
+        const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
+        console.log('parentDimensions', parentDimensions)
+        const widthToUse = width || parentDimensions.width
+        const heightToUse = height || parentDimensions.height
+
+        const scale = Math.min(widthToUse / replayDimensions.width, heightToUse / replayDimensions.height, 1)
 
         player.replayer.wrapper.style.transform = `scale(${scale})`
-        frameRef.current.style.paddingLeft = `${(width - replayDimensions.width * scale) / 2}px`
-        frameRef.current.style.paddingTop = `${(height - replayDimensions.height * scale) / 2}px`
-        frameRef.current.style.marginBottom = `-${height - replayDimensions.height * scale}px`
-
+        frameRef.current.style.paddingLeft = `${(widthToUse - replayDimensions.width * scale) / 2}px`
+        frameRef.current.style.paddingTop = `${(heightToUse - replayDimensions.height * scale) / 2}px`
+        frameRef.current.style.marginBottom = `-${heightToUse - replayDimensions.height * scale}px`
+        frameRef.current.style.height = `${heightToUse}px`
+        frameRef.current.style.width = `${widthToUse}px`
         setScale(scale)
     }
 
