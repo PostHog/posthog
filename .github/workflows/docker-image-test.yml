@@ -90,8 +90,12 @@ jobs:
                   path: /tmp/posthog-image.tar
 
             - name: Output image info including size
-              # If we're in the posthog repo, we should be able to get the remove size.
-              # TODO: get the size of the local image
+              # If we're in the PostHog repo, we should be able to get the
+              # remote size.
+              #
+              # TODO: get the size of the local image as well, so we can give
+              # some feedback to the external contributes relating to how their
+              # changes affect image size.
               if: ${{ github.repository == 'PostHog/posthog' }}
               run: |
                   export docker_image=ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
