@@ -94,9 +94,10 @@ jobs:
               # how code changes affect docker image size.
               run: |
                   image_size_bytes=$(stat -c "%s" /tmp/posthog-image.tar)
+                  image_name=$(echo '${{ steps.docker_build.outputs.metadata }}' | jq '."image.name"')
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
-                  echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
+                  echo "Image name: $image_name" >> $GITHUB_STEP_SUMMARY
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
