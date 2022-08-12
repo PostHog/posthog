@@ -47,7 +47,7 @@ export function ProfilePicture({
         )
     } else {
         pictureComponent = (
-            <span className={pictureClass}>
+            <span className={pictureClass} style={style}>
                 <Lettermark name={name || email} index={index} rounded />
             </span>
         )

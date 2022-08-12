@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import uuid
+import zlib
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
@@ -486,7 +487,7 @@ def decompress(data: Any, compression: str):
 
         try:
             data = gzip.decompress(data)
-        except (EOFError, OSError) as error:
+        except (EOFError, OSError, zlib.error) as error:
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":

@@ -1,9 +1,9 @@
 import { Checkbox, Input } from 'antd'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import React from 'react'
-import { MetricValueInterface } from './RenderMetricValue'
+import { MetricValue } from './RenderMetricValue'
 
-interface MetricValueEditInterface extends MetricValueInterface {
+interface MetricValueEditInterface extends MetricValue {
     onValueChanged: (key: string, value: any) => void
 }
 

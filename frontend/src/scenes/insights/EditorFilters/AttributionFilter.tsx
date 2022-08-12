@@ -24,7 +24,6 @@ export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.E
                               label: 'Specific step',
                               element: (
                                   <LemonSelect
-                                      type="secondary"
                                       className="ml-2"
                                       onChange={(value) => {
                                           if (value) {
@@ -54,7 +53,6 @@ export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.E
                 }
             }}
             dropdownMaxContentWidth={true}
-            type="secondary"
             data-attr="breakdown-attributions"
         />
     )

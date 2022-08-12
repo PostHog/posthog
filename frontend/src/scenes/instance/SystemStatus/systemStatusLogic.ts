@@ -23,11 +23,6 @@ export enum ConfigMode {
     Edit = 'edit',
     Saving = 'saving',
 }
-export interface MetricRow {
-    metric: string
-    key: string
-    value?: boolean | string | number | null
-}
 
 export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
 

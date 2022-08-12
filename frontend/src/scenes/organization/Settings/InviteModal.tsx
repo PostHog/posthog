@@ -75,6 +75,8 @@ function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean
                         onClick={() => {
                             inviteTeamMembers()
                         }}
+                        fullWidth
+                        center
                         data-attr="invite-generate-invite-link"
                     >
                         Submit
@@ -107,6 +109,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { invitesToSend, canSubmit, invites } = useValues(inviteLogic)
     const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite, updateMessage } = useActions(inviteLogic)
 
+    const invitesReversed = invites.slice().reverse()
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
@@ -181,7 +184,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                         </b>
                     </div>
 
-                    {invites.map((invite: OrganizationInviteType) => {
+                    {invitesReversed.map((invite: OrganizationInviteType) => {
                         return (
                             <div className="flex gap-2 items-start" key={invite.id}>
                                 <div className="flex-1">
