@@ -104,7 +104,7 @@ export function PreflightCheck(): JSX.Element {
                             >
                                 Just experimenting
                             </LemonButton>
-                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
+                            <LemonDivider thick dashed className="my-6" />
                             <p className="text-muted text-center mb-0">
                                 We will not enforce some security requirements in experimentation mode.
                             </p>
@@ -190,7 +190,7 @@ export function PreflightCheck(): JSX.Element {
                                     Validate requirements
                                 </LemonButton>
                             </div>
-                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
+                            <LemonDivider thick dashed className="my-6" />
                             {checksSummary.summaryStatus !== 'error' ? (
                                 <LemonButton
                                     fullWidth

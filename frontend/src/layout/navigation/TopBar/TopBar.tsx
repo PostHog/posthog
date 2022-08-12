@@ -69,7 +69,7 @@ export function TopBar(): JSX.Element {
                 </div>
             </header>
             <CommandPalette />
-            <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />
+            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
         </>

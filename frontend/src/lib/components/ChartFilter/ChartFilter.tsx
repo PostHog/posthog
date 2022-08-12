@@ -160,8 +160,6 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
-            status="stealth"
-            type="secondary"
             size={'small'}
         />
     )
