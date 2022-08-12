@@ -32,62 +32,48 @@ export const urlForSubscription = (
     return ''
 }
 
-export const targetTypeOptions: LemonSelectOptions = {
-    email: { label: 'Email', icon: <IconMail /> },
-    slack: { label: 'Slack', icon: <IconSlack /> },
-    // webhook: { label: 'Webhook', icon: <IconOpenInNew /> },
-}
-
-export const intervalOptions: LemonSelectOptions = range(1, 13).reduce(
-    (acc, x) => ({
-        ...acc,
-        [x]: { label: x },
-    }),
-    {}
-)
-
-export const frequencyOptions: LemonSelectOptions = {
-    daily: { label: 'days' },
-    weekly: { label: 'weeks' },
-    monthly: { label: 'months' },
-}
-
-export const weekdayOptions: LemonSelectOptions = {
-    monday: { label: 'Monday' },
-    tuesday: { label: 'Tuesday' },
-    wednesday: { label: 'Wednesday' },
-    thursday: { label: 'Thursday' },
-    friday: { label: 'Friday' },
-    saturday: { label: 'Saturday' },
-    sunday: { label: 'Sunday' },
-}
-
-export const monthlyWeekdayOptions = [
-    {
-        options: weekdayOptions,
-    },
-    {
-        options: {
-            day: { label: 'day' },
-        },
-    },
+export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
+    { key: 'email', label: 'Email', icon: <IconMail /> },
+    { key: 'slack', label: 'Slack', icon: <IconSlack /> },
+    // { key: 'webhook', label: 'Webhook', icon: <IconOpenInNew /> },
 ]
 
-export const bysetposOptions: LemonSelectOptions = {
-    '1': { label: 'first' },
-    '2': { label: 'second' },
-    '3': { label: 'third' },
-    '4': { label: 'fourth' },
-    '-1': { label: 'last' },
-}
+export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ key: x, label: x.toString() }))
 
-export const timeOptions: LemonSelectOptions = range(0, 24).reduce(
-    (acc, x) => ({
-        ...acc,
-        [String(x)]: { label: `${String(x).padStart(2, '0')}:00` },
-    }),
-    {}
-)
+export const frequencyOptions: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
+    { key: 'daily', label: 'days' },
+    { key: 'weekly', label: 'weeks' },
+    { key: 'monthly', label: 'months' },
+]
+
+export const weekdayOptions: LemonSelectOptions<
+    'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+> = [
+    { key: 'monday', label: 'Monday' },
+    { key: 'tuesday', label: 'Tuesday' },
+    { key: 'wednesday', label: 'Wednesday' },
+    { key: 'thursday', label: 'Thursday' },
+    { key: 'friday', label: 'Friday' },
+    { key: 'saturday', label: 'Saturday' },
+    { key: 'sunday', label: 'Sunday' },
+]
+
+export const monthlyWeekdayOptions: LemonSelectOptions<
+    'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'day'
+> = [...weekdayOptions, { key: 'day', label: 'day' }]
+
+export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> = [
+    { key: '1', label: 'first' },
+    { key: '2', label: 'second' },
+    { key: '3', label: 'third' },
+    { key: '4', label: 'fourth' },
+    { key: '-1', label: 'last' },
+]
+
+export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
+    key: String(x),
+    label: `${String(x).padStart(2, '0')}:00`,
+}))
 
 export const getSlackChannelOptions = (
     value: string,

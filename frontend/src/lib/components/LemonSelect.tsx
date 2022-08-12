@@ -6,7 +6,8 @@ import { PopupProps } from './Popup/Popup'
 import './LemonSelect.scss'
 import clsx from 'clsx'
 
-export interface LemonSelectOption {
+export interface LemonSelectOption<T> {
+    key: T
     label: string | JSX.Element
     icon?: React.ReactElement
     disabled?: boolean
@@ -14,16 +15,14 @@ export interface LemonSelectOption {
     element?: React.ReactElement
 }
 
-export type LemonSelectOptions = Record<string | number, LemonSelectOption>
+export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
 
-export interface LemonSelectSection<O> {
-    label?: string | React.ReactNode
-    options: O
+export interface LemonSelectSection<T> {
+    title?: string | React.ReactNode
+    options: LemonSelectOption<T>[]
 }
 
-export type LemonSelectSections<LemonSelectOptions> = Record<string, LemonSelectSection<LemonSelectOptions>>
-
-export interface LemonSelectProps<O extends LemonSelectOptions>
+export interface LemonSelectProps<T>
     extends Pick<
         LemonButtonWithPopupProps,
         | 'id'
@@ -41,9 +40,9 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
         | 'onClick'
         | 'tabIndex'
     > {
-    options: O | LemonSelectSection<O>[]
-    value?: keyof O | null
-    onChange?: (newValue: keyof O | null) => void
+    options: LemonSelectOptions<T>
+    value?: T
+    onChange?: (newValue: T | null) => void
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopupProps['placement']
@@ -57,7 +56,11 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     }
 }
 
-export function LemonSelect<O extends LemonSelectOptions>({
+function isSections<T>(candidate: LemonSelectOptions<T>): candidate is LemonSelectSection<T>[] {
+    return candidate.length > 0 && 'options' in candidate[0]
+}
+
+export function LemonSelect<T>({
     value,
     onChange,
     options,
@@ -69,7 +72,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
     className,
     popup,
     ...buttonProps
-}: LemonSelectProps<O>): JSX.Element {
+}: LemonSelectProps<T>): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
 
     const isClearButtonShown = allowClear && !!localValue
@@ -81,22 +84,14 @@ export function LemonSelect<O extends LemonSelectOptions>({
     }, [value, buttonProps.loading])
 
     const [sections, allOptions] = useMemo(() => {
-        const sections: LemonSelectSection<O>[] = Array.isArray(options)
-            ? options
-            : [
-                  {
-                      label: '',
-                      options: options,
-                  },
-              ]
+        let sections: LemonSelectSection<T>[]
+        if (isSections(options)) {
+            sections = options
+        } else {
+            sections = [{ options }]
+        }
 
-        const allOptions = Object.values(sections).reduce(
-            (acc, x) => ({
-                ...acc,
-                ...x.options,
-            }),
-            {} as O
-        )
+        const allOptions = sections.flatMap((section) => section.options)
 
         return [sections, allOptions]
     }, [options])
@@ -109,32 +104,32 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     ref: popup?.ref,
                     overlay: sections.map((section, i) => (
                         <React.Fragment key={i}>
-                            {section.label ? (
-                                typeof section.label === 'string' ? (
-                                    <h5>{section.label}</h5>
+                            {section.title ? (
+                                typeof section.title === 'string' ? (
+                                    <h5>{section.title}</h5>
                                 ) : (
-                                    section.label
+                                    section.title
                                 )
                             ) : null}
-                            {Object.entries(section.options).map(([key, option]) => (
+                            {section.options.map((option, index) => (
                                 <LemonButton
-                                    key={key}
+                                    key={index}
                                     icon={option.icon}
                                     onClick={() => {
-                                        if (key != localValue) {
-                                            onChange?.(key)
-                                            setLocalValue(key)
+                                        if (option.key != localValue) {
+                                            onChange?.(option.key)
+                                            setLocalValue(option.key)
                                         }
                                     }}
                                     status="stealth"
                                     /* Intentionally == instead of === because JS treats object number keys as strings, */
                                     /* messing comparisons up a bit */
-                                    active={key == localValue}
+                                    active={option.key == localValue}
                                     disabled={option.disabled}
                                     fullWidth
                                     data-attr={option['data-attr']}
                                 >
-                                    {option.label || key}
+                                    {option.label || option.key}
                                     {option.element}
                                 </LemonButton>
                             ))}
@@ -147,7 +142,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     className: popup?.className,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
-                icon={localValue && allOptions[localValue]?.icon}
+                icon={localValue && allOptions.find((o) => o.key == localValue)?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -155,7 +150,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 {...buttonProps}
             >
                 <span>
-                    {(localValue && (allOptions[localValue]?.label || localValue)) || (
+                    {(localValue && (allOptions.find((o) => o.key == localValue)?.label || localValue)) || (
                         <span className="text-muted">{placeholder}</span>
                     )}
                 </span>
@@ -169,7 +164,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                         tooltip="Clear selection"
                         onClick={() => {
                             onChange?.(null)
-                            setLocalValue(null)
+                            setLocalValue(undefined)
                         }}
                     />
                 )}

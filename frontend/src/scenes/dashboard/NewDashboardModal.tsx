@@ -74,12 +74,13 @@ export function NewDashboardModal(): JSX.Element {
                     <LemonSelect
                         placeholder="Optionally start from template"
                         allowClear
-                        options={{
-                            DEFAULT_APP: {
+                        options={[
+                            {
+                                key: 'DEFAULT_APP',
                                 label: 'Website',
                                 'data-attr': 'dashboard-select-default-app',
                             },
-                        }}
+                        ]}
                         fullWidth
                         data-attr="copy-from-template"
                     />

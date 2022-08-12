@@ -8,16 +8,16 @@ export default {
     component: LemonSelect,
     argTypes: {
         options: {
-            defaultValue: {
-                husky: { label: 'Husky' },
-                poodle: { label: 'Poodle' },
-                labrador: { label: 'Labrador' },
-            },
+            defaultValue: [
+                { key: 'husky', label: 'Husky' },
+                { key: 'poodle', label: 'Poodle' },
+                { key: 'labrador', label: 'Labrador' },
+            ] as LemonSelectOptions<string>,
         },
     },
 } as ComponentMeta<typeof LemonSelect>
 
-const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<LemonSelectOptions>) => {
+const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<string>) => {
     return (
         <div className="flex flex-row items-center w-full border p-4 gap-2">
             {(['small', undefined] as const).map((size, index) => (
@@ -38,32 +38,30 @@ SectionedOptions.args = {
     dropdownMatchSelectWidth: false,
     options: [
         {
-            label: 'Fruits',
-            options: {
-                orange: { label: 'Orange' },
-                pineapple: { label: 'Pineapple' },
-                apple: { label: 'Apple' },
-            },
+            title: 'Fruits',
+            options: [
+                { key: 'orange', label: 'Orange' },
+                { key: 'pineapple', label: 'Pineapple' },
+                { key: 'apple', label: 'Apple' },
+            ],
         },
         {
-            label: 'Vegetables',
-            options: {
-                potato: { label: 'Potato' },
-                lettuce: { label: 'Lettuce' },
-            },
+            title: 'Vegetables',
+            options: [
+                { key: 'potato', label: 'Potato' },
+                { key: 'lettuce', label: 'Lettuce' },
+            ],
         },
         {
-            label: (
+            title: (
                 <div>
                     <h5>I am a Custom label!</h5>
                     <div className="text-muted mx-2 mb-2">I can put whatever I want here</div>
                 </div>
             ),
-            options: {
-                tomato: { label: 'Tomato??' },
-            },
+            options: [{ key: 'tomato', label: 'Tomato??' }],
         },
-    ],
+    ] as LemonSelectOptions<string>,
 }
 
 export const Clearable = Template.bind({})
@@ -74,13 +72,5 @@ export const LongOptions = Template.bind({})
 LongOptions.args = {
     allowClear: true,
     value: '1',
-    options: [...Array(100)]
-        .map((_, i) => i)
-        .reduce(
-            (acc, x) => ({
-                ...acc,
-                [`${x}`]: { label: `${x}` },
-            }),
-            {}
-        ),
+    options: [...Array(100)].map((_, x) => ({ key: `${x}`, label: `${x}` })),
 }

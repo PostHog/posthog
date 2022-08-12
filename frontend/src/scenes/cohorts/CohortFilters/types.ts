@@ -9,6 +9,7 @@ import {
 } from '~/types'
 import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FieldValuesTypes } from 'scenes/cohorts/CohortFilters/constants'
 
 export enum FilterType {
     Behavioral = 'behavioral',
@@ -47,7 +48,7 @@ export enum FieldOptionsType {
 
 export interface FieldValues {
     label: string
-    values: LemonSelectOptions
+    values: LemonSelectOptions<FieldValuesTypes>
     type: FieldOptionsType
 }
 

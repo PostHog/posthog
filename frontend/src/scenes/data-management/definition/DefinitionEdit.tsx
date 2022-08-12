@@ -108,21 +108,13 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                             {({ value, onChange }) => (
                                 <LemonSelect
                                     onChange={(val) => onChange(val)}
-                                    value={value}
-                                    options={{
-                                        DateTime: {
-                                            label: 'DateTime',
-                                        },
-                                        String: {
-                                            label: 'String',
-                                        },
-                                        Numeric: {
-                                            label: 'Numeric',
-                                        },
-                                        Boolean: {
-                                            label: 'Boolean',
-                                        },
-                                    }}
+                                    value={value as 'DateTime' | 'String' | 'Numeric' | 'Boolean'}
+                                    options={[
+                                        { key: 'DateTime', label: 'DateTime' },
+                                        { key: 'String', label: 'String' },
+                                        { key: 'Numeric', label: 'Numeric' },
+                                        { key: 'Boolean', label: 'Boolean' },
+                                    ]}
                                 />
                             )}
                         </Field>

@@ -8,20 +8,12 @@ import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import './RollingDateRangeFilter.scss'
 
-const dateOptions: LemonSelectOptions = {
-    days: {
-        label: 'days',
-    },
-    weeks: {
-        label: 'weeks',
-    },
-    months: {
-        label: 'months',
-    },
-    quarter: {
-        label: 'quarters',
-    },
-}
+const dateOptions: LemonSelectOptions<'days' | 'weeks' | 'months' | 'quarter'> = [
+    { key: 'days', label: 'days' },
+    { key: 'weeks', label: 'weeks' },
+    { key: 'months', label: 'months' },
+    { key: 'quarter', label: 'quarters' },
+]
 
 type RollingDateRangeFilterProps = {
     selected?: boolean

@@ -27,22 +27,21 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
-const eventTypeOptions: LemonSelectOptions = {
-    [CombinedEventType.All]: {
-        label: 'All types',
-        'data-attr': 'event-type-option-all',
-    },
-    [CombinedEventType.ActionEvent]: {
+const eventTypeOptions: LemonSelectOptions<CombinedEventType> = [
+    { key: CombinedEventType.All, label: 'All types', 'data-attr': 'event-type-option-all' },
+    {
+        key: CombinedEventType.ActionEvent,
         label: 'Calculated events',
         icon: <ActionEvent />,
         'data-attr': 'event-type-option-action-event',
     },
-    [CombinedEventType.Event]: {
+    {
+        key: CombinedEventType.Event,
         label: 'Events',
         icon: <UnverifiedEvent />,
         'data-attr': 'event-type-option-event',
     },
-}
+]
 
 export const scene: SceneExport = {
     component: EventDefinitionsTable,

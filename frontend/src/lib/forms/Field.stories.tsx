@@ -43,7 +43,7 @@ export const _PureFields = (): JSX.Element => {
             </PureField>
 
             <PureField label={'Select label'} info={<>With info!</>}>
-                <LemonSelect options={{ foo: { label: 'bar' } }} fullWidth />
+                <LemonSelect options={[{ key: 'foo', label: 'bar' }]} fullWidth />
             </PureField>
 
             <PureField label="Textarea label" error="This field has an error">
@@ -131,7 +131,7 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                 </Field>
 
                 <Field name="select" label={'Select label'} info={<>With info!</>}>
-                    <LemonSelect options={{ foo: { label: 'bar' } }} fullWidth />
+                    <LemonSelect options={[{ key: 'foo', label: 'bar' }]} fullWidth />
                 </Field>
 
                 <Field name="email" label="Email address">

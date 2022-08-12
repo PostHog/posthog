@@ -46,239 +46,149 @@ import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
  *     -> Field values  (i.e. <Pageview, Pageleave, Autocapture, etc.)
  */
 
+export type FieldValuesTypes =
+    | BaseMathType
+    | PropertyMathType
+    | ActorGroupType
+    | BehavioralEventType
+    | BehavioralCohortType
+    | TimeUnitType
+    | DateOperatorType
+    | PropertyOperator
+    | ValueOptionType
+
 export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
     [FieldOptionsType.EventAggregation]: {
         label: 'Event Aggregation',
         type: FieldOptionsType.EventAggregation,
-        values: {
-            [BaseMathType.Total]: {
-                label: 'Total',
-            },
-            [BaseMathType.DailyActive]: {
-                label: 'Unique',
-            },
-            [BaseMathType.WeeklyActive]: {
-                label: 'Count of weekly active',
-            },
-            [BaseMathType.MonthlyActive]: {
-                label: 'Count of weekly active',
-            },
-        },
+        values: [
+            { key: BaseMathType.Total, label: 'Total' },
+            { key: BaseMathType.DailyActive, label: 'Unique' },
+            { key: BaseMathType.WeeklyActive, label: 'Count of weekly active' },
+            { key: BaseMathType.MonthlyActive, label: 'Count of weekly active' },
+        ],
     },
     [FieldOptionsType.PropertyAggregation]: {
         label: 'Property Aggregation',
         type: FieldOptionsType.PropertyAggregation,
-        values: {
-            [PropertyMathType.Average]: {
-                label: 'Average',
-            },
-            [PropertyMathType.Sum]: {
-                label: 'Sum',
-            },
-            [PropertyMathType.Minimum]: {
-                label: 'Minimum',
-            },
-            [PropertyMathType.Maximum]: {
-                label: 'Maximum',
-            },
-            [PropertyMathType.Median]: {
-                label: 'Median',
-            },
-            [PropertyMathType.P90]: {
-                label: '90th percentile',
-            },
-            [PropertyMathType.P95]: {
-                label: '95th percentile',
-            },
-            [PropertyMathType.P99]: {
-                label: '99th percentile',
-            },
-        },
+        values: [
+            { key: PropertyMathType.Average, label: 'Average' },
+            { key: PropertyMathType.Sum, label: 'Sum' },
+            { key: PropertyMathType.Minimum, label: 'Minimum' },
+            { key: PropertyMathType.Maximum, label: 'Maximum' },
+            { key: PropertyMathType.Median, label: 'Median' },
+            { key: PropertyMathType.P90, label: '90th percentile' },
+            { key: PropertyMathType.P95, label: '95th percentile' },
+            { key: PropertyMathType.P99, label: '99th percentile' },
+        ],
     },
     [FieldOptionsType.Actors]: {
         label: 'Actors',
         type: FieldOptionsType.Actors,
-        values: {
-            [ActorGroupType.Person]: {
-                label: 'Persons',
-            },
-        },
+        values: [{ key: ActorGroupType.Person, label: 'Persons' }],
     },
     [FieldOptionsType.EventBehavioral]: {
         label: 'Behavioral',
         type: FieldOptionsType.EventBehavioral,
-        values: {
-            [BehavioralEventType.PerformEvent]: {
+        values: [
+            {
+                key: BehavioralEventType.PerformEvent,
                 label: 'Completed event',
             },
-            [BehavioralEventType.NotPerformedEvent]: {
+            {
+                key: BehavioralEventType.NotPerformedEvent,
                 label: 'Did not complete event',
             },
-            [BehavioralEventType.PerformMultipleEvents]: {
+            {
+                key: BehavioralEventType.PerformMultipleEvents,
                 label: 'Completed an event multiple times',
             },
-        },
+        ],
     },
     [FieldOptionsType.PersonPropertyBehavioral]: {
         label: 'Person Properties',
         type: FieldOptionsType.PersonPropertyBehavioral,
-        values: {
-            [BehavioralEventType.HaveProperty]: {
-                label: 'Have the property',
-            },
-            [BehavioralEventType.NotHaveProperty]: {
-                label: 'Do not have the property',
-            },
-        },
+        values: [
+            { key: BehavioralEventType.HaveProperty, label: 'Have the property' },
+            { key: BehavioralEventType.NotHaveProperty, label: 'Do not have the property' },
+        ],
     },
     [FieldOptionsType.CohortBehavioral]: {
         label: 'Cohorts',
         type: FieldOptionsType.CohortBehavioral,
-        values: {
-            [BehavioralCohortType.InCohort]: {
-                label: 'In cohort',
-            },
-            [BehavioralCohortType.NotInCohort]: {
-                label: 'Not in cohort',
-            },
-        },
+        values: [
+            { key: BehavioralCohortType.InCohort, label: 'In cohort' },
+            { key: BehavioralCohortType.NotInCohort, label: 'Not in cohort' },
+        ],
     },
     [FieldOptionsType.LifecycleBehavioral]: {
         label: 'Lifecycle',
         type: FieldOptionsType.LifecycleBehavioral,
-        values: {},
+        values: [],
     },
     [FieldOptionsType.TimeUnits]: {
         label: 'Units',
         type: FieldOptionsType.TimeUnits,
-        values: {
-            [TimeUnitType.Day]: {
-                label: 'days',
-            },
-            [TimeUnitType.Week]: {
-                label: 'weeks',
-            },
-            [TimeUnitType.Month]: {
-                label: 'months',
-            },
-            [TimeUnitType.Year]: {
-                label: 'years',
-            },
-        },
+        values: [
+            { key: TimeUnitType.Day, label: 'days' },
+            { key: TimeUnitType.Week, label: 'weeks' },
+            { key: TimeUnitType.Month, label: 'months' },
+            { key: TimeUnitType.Year, label: 'years' },
+        ],
     },
     [FieldOptionsType.DateOperators]: {
         label: 'Date Operators',
         type: FieldOptionsType.DateOperators,
-        values: {
-            [DateOperatorType.BeforeTheLast]: {
-                label: 'before the last',
-            },
-            [DateOperatorType.Between]: {
-                label: 'between',
-            },
-            [DateOperatorType.NotBetween]: {
-                label: 'not between',
-            },
-            [DateOperatorType.OnTheDate]: {
-                label: 'on the date',
-            },
-            [DateOperatorType.NotOnTheDate]: {
-                label: 'not on the date',
-            },
-            [DateOperatorType.Since]: {
-                label: 'since',
-            },
-            [DateOperatorType.Before]: {
-                label: 'before',
-            },
-            [DateOperatorType.IsSet]: {
-                label: 'is set',
-            },
-        },
+        values: [
+            { key: DateOperatorType.BeforeTheLast, label: 'before the last' },
+            { key: DateOperatorType.Between, label: 'between' },
+            { key: DateOperatorType.NotBetween, label: 'not between' },
+            { key: DateOperatorType.OnTheDate, label: 'on the date' },
+            { key: DateOperatorType.NotOnTheDate, label: 'not on the date' },
+            { key: DateOperatorType.Since, label: 'since' },
+            { key: DateOperatorType.Before, label: 'before' },
+            { key: DateOperatorType.IsSet, label: 'is set' },
+        ],
     },
     [FieldOptionsType.MathOperators]: {
         label: 'Operators',
         type: FieldOptionsType.MathOperators,
-        values: {
-            [PropertyOperator.Exact]: {
-                label: 'equals',
-            },
-            [PropertyOperator.IsNot]: {
-                label: 'does not equal',
-            },
-            [PropertyOperator.IContains]: {
-                label: 'contain',
-            },
-            [PropertyOperator.NotIContains]: {
-                label: 'does not contain',
-            },
-            [PropertyOperator.Regex]: {
-                label: 'matches regex',
-            },
-            [PropertyOperator.NotRegex]: {
-                label: 'does not match regex',
-            },
-            [PropertyOperator.GreaterThan]: {
-                label: 'greater than',
-            },
-            [PropertyOperator.GreaterThanOrEqual]: {
-                label: 'greater than or equal to',
-            },
-            [PropertyOperator.LessThan]: {
-                label: 'less than',
-            },
-            [PropertyOperator.LessThanOrEqual]: {
-                label: 'less than or equal to',
-            },
-            [PropertyOperator.IsSet]: {
-                label: 'is set',
-            },
-            [PropertyOperator.IsNotSet]: {
-                label: 'is not set',
-            },
-            [PropertyOperator.Between]: {
-                label: 'between',
-            },
-            [PropertyOperator.NotBetween]: {
-                label: 'not between',
-            },
-            [PropertyOperator.Minimum]: {
-                label: 'minimum',
-            },
-            [PropertyOperator.Maximum]: {
-                label: 'maximum',
-            },
-        },
+        values: [
+            { key: PropertyOperator.Exact, label: 'equals' },
+            { key: PropertyOperator.IsNot, label: 'does not equal' },
+            { key: PropertyOperator.IContains, label: 'contain' },
+            { key: PropertyOperator.NotIContains, label: 'does not contain' },
+            { key: PropertyOperator.Regex, label: 'matches regex' },
+            { key: PropertyOperator.NotRegex, label: 'does not match regex' },
+            { key: PropertyOperator.GreaterThan, label: 'greater than' },
+            { key: PropertyOperator.GreaterThanOrEqual, label: 'greater than or equal to' },
+            { key: PropertyOperator.LessThan, label: 'less than' },
+            { key: PropertyOperator.LessThanOrEqual, label: 'less than or equal to' },
+            { key: PropertyOperator.IsSet, label: 'is set' },
+            { key: PropertyOperator.IsNotSet, label: 'is not set' },
+            { key: PropertyOperator.Between, label: 'between' },
+            { key: PropertyOperator.NotBetween, label: 'not between' },
+            { key: PropertyOperator.Minimum, label: 'minimum' },
+            { key: PropertyOperator.Maximum, label: 'maximum' },
+        ],
     },
     [FieldOptionsType.EventsAndActionsMathOperators]: {
         label: 'Operators',
         type: FieldOptionsType.EventsAndActionsMathOperators,
-        values: {
-            [PropertyOperator.Exact]: {
-                label: 'exactly',
-            },
-            [PropertyOperator.GreaterThanOrEqual]: {
-                label: 'at least',
-            },
-            [PropertyOperator.LessThanOrEqual]: {
-                label: 'at most',
-            },
-        },
+        values: [
+            { key: PropertyOperator.Exact, label: 'exactly' },
+            { key: PropertyOperator.GreaterThanOrEqual, label: 'at least' },
+            { key: PropertyOperator.LessThanOrEqual, label: 'at most' },
+        ],
     },
     [FieldOptionsType.ValueOptions]: {
         label: 'Value Options',
         type: FieldOptionsType.ValueOptions,
-        values: {
-            [ValueOptionType.MostRecent]: {
-                label: 'most recent value',
-            },
-            [ValueOptionType.Previous]: {
-                label: 'previous value',
-            },
-            [ValueOptionType.OnDate]: {
-                label: 'value on the date',
-            },
-        },
+        values: [
+            { key: ValueOptionType.MostRecent, label: 'most recent value' },
+            { key: ValueOptionType.Previous, label: 'previous value' },
+            { key: ValueOptionType.OnDate, label: 'value on the date' },
+        ],
     },
 }
 
@@ -943,14 +853,11 @@ export const CRITERIA_VALIDATIONS: Record<
     [FilterType.Behavioral]: () => CohortClientErrors.EmptyBehavioral,
 }
 
-export const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
-    [CohortTypeEnum.Static]: {
-        label: 'Static · Updated manually',
-    },
-    [CohortTypeEnum.Dynamic]: {
-        label: 'Dynamic · Updates automatically',
-    },
-}
+export const COHORT_TYPE_OPTIONS: LemonSelectOptions<CohortTypeEnum> = [
+    { key: CohortTypeEnum.Static, label: 'Static · Updated manually' },
+    { key: CohortTypeEnum.Dynamic, label: 'Dynamic · Updates automatically' },
+]
+
 export const NEW_CRITERIA = {
     type: BehavioralFilterKey.Behavioral,
     value: BehavioralEventType.PerformEvent,
