@@ -10,6 +10,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import anything = jasmine.anything
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -229,7 +230,7 @@ describe('dashboardLogic', () => {
             })
                 .toFinishAllListeners()
                 .toMatchValues({
-                    refreshStatus: { 1001: { error: true } },
+                    refreshStatus: { 1001: { error: true, timer: anything() } },
                 })
         })
     })
@@ -279,8 +280,8 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { loading: true },
-                            [dashboards['5'].items[1].short_id]: { loading: true },
+                            [dashboards['5'].items[0].short_id]: { loading: true, timer: anything() },
+                            [dashboards['5'].items[1].short_id]: { loading: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -301,8 +302,8 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { refreshed: true },
-                            [dashboards['5'].items[1].short_id]: { refreshed: true },
+                            [dashboards['5'].items[0].short_id]: { refreshed: true, timer: anything() },
+                            [dashboards['5'].items[1].short_id]: { refreshed: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 2,
@@ -322,7 +323,7 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { loading: true },
+                            [dashboards['5'].items[0].short_id]: { loading: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 0,
@@ -337,7 +338,7 @@ describe('dashboardLogic', () => {
                     ])
                     .toMatchValues({
                         refreshStatus: {
-                            [dashboards['5'].items[0].short_id]: { refreshed: true },
+                            [dashboards['5'].items[0].short_id]: { refreshed: true, timer: anything() },
                         },
                         refreshMetrics: {
                             completed: 1,
