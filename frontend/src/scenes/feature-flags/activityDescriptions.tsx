@@ -63,7 +63,7 @@ const featureFlagActionsMapping: Record<
                 // there are no rollout groups or all are at 0%
                 changes.push(<>changed the filter conditions to apply to no users</>)
             } else {
-                const groupAdditions: (string | JSX.Element | JSX.Element[] | null)[] = []
+                const groupAdditions: (string | JSX.Element | null)[] = []
                 const groupRemovals: (string | JSX.Element | null)[] = []
 
                 filtersAfter.groups
@@ -76,13 +76,21 @@ const featureFlagActionsMapping: Record<
                         const { properties, rollout_percentage = null } = groupAfter
 
                         if (properties?.length > 0) {
-                            const newButtons = properties.map((property) => {
+                            const newButtons = properties.map((property, idx) => {
                                 return (
-                                    <PropertyFilterButton
-                                        style={{ margin: '0.1rem' }}
-                                        key={property.key}
-                                        item={property}
-                                    />
+                                    <>
+                                        {' '}
+                                        {idx === 0 && (
+                                            <span>
+                                                <strong>{rollout_percentage ?? 100}%</strong> of{' '}
+                                            </span>
+                                        )}
+                                        <PropertyFilterButton
+                                            style={{ margin: '0.1rem' }}
+                                            key={property.key}
+                                            item={property}
+                                        />
+                                    </>
                                 )
                             })
                             newButtons[0] = (
@@ -97,7 +105,7 @@ const featureFlagActionsMapping: Record<
                                     />
                                 </>
                             )
-                            groupAdditions.push(newButtons)
+                            groupAdditions.push(...newButtons)
                         } else {
                             groupAdditions.push(
                                 <>
