@@ -234,8 +234,6 @@ prometheus-client==0.14.1
     #   prometheus-kafka-metrics
 prometheus-kafka-metrics==0.4.2
     # via -r requirements.in
-protobuf==3.13.0
-    # via -r requirements.in
 psycopg2-binary==2.8.6
     # via -r requirements.in
 ptyprocess==0.6.0
@@ -308,7 +306,6 @@ six==1.14.0
     #   djangorestframework-csv
     #   isodate
     #   posthoganalytics
-    #   protobuf
     #   python-dateutil
     #   tenacity
 slack-sdk==3.17.1
