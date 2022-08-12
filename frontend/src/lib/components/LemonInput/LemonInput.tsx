@@ -96,7 +96,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                     size="small"
                     noPadding
                     icon={<IconClose />}
-                    status="muted-alt"
+                    status="primary-alt"
                     tooltip="Clear input"
                     onClick={(e) => {
                         e.stopPropagation()
