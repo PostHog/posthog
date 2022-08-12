@@ -23,7 +23,10 @@ export default {
                     },
                 ],
             },
-            post: { '/api/signup': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })] },
+            post: {
+                '/api/signup': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })],
+                '/api/signup/1234': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })],
+            },
         }),
     ],
 } as Meta

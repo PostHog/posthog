@@ -176,7 +176,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                                 center
                                 fullWidth
                                 onClick={() => acceptInvite()}
-                                disabled={acceptedInviteLoading}
+                                loading={acceptedInviteLoading}
                             >
                                 Accept invite
                             </LemonButton>
