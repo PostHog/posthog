@@ -16,14 +16,13 @@ export interface LemonSelectOption {
 
 export type LemonSelectOptions = Record<string | number, LemonSelectOption>
 
-export interface LemonSelectSection<O> {
+export interface LemonSelectSection {
     label?: string | React.ReactNode
-    options: O
+    options: LemonSelectOptions
 }
+// export type LemonSelectSections = Record<string, LemonSelectSection>
 
-export type LemonSelectSections<LemonSelectOptions> = Record<string, LemonSelectSection<LemonSelectOptions>>
-
-export interface LemonSelectProps<O extends LemonSelectOptions>
+export interface LemonSelectProps
     extends Pick<
         LemonButtonWithPopupProps,
         | 'id'
@@ -41,9 +40,9 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
         | 'onClick'
         | 'tabIndex'
     > {
-    options: O | LemonSelectSection<O>[]
-    value?: keyof O | null
-    onChange?: (newValue: keyof O | null) => void
+    options: LemonSelectOptions | LemonSelectSection[]
+    value?: keyof LemonSelectOptions | null
+    onChange?: (newValue: keyof LemonSelectOptions | null) => void
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
     dropdownPlacement?: PopupProps['placement']
@@ -57,7 +56,7 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     }
 }
 
-export function LemonSelect<O extends LemonSelectOptions>({
+export function LemonSelect({
     value,
     onChange,
     options,
@@ -69,7 +68,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
     className,
     popup,
     ...buttonProps
-}: LemonSelectProps<O>): JSX.Element {
+}: LemonSelectProps): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
 
     const isClearButtonShown = allowClear && !!localValue
@@ -81,13 +80,13 @@ export function LemonSelect<O extends LemonSelectOptions>({
     }, [value, buttonProps.loading])
 
     const [sections, allOptions] = useMemo(() => {
-        const sections: LemonSelectSection<O>[] = Array.isArray(options)
+        const sections: LemonSelectSection[] = Array.isArray(options)
             ? options
             : [
                   {
                       label: '',
                       options: options,
-                  },
+                  } as LemonSelectSection,
               ]
 
         const allOptions = Object.values(sections).reduce(
@@ -95,7 +94,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 ...acc,
                 ...x.options,
             }),
-            {} as O
+            {} as LemonSelectOptions
         )
 
         return [sections, allOptions]
@@ -147,7 +146,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     className: popup?.className,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
-                icon={localValue && allOptions[localValue]?.icon}
+                icon={localValue ? allOptions[localValue]?.icon : undefined}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
