@@ -11,7 +11,7 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
 export interface LemonButtonPropsBase
-    // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+    // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     extends Pick<React.ButtonHTMLAttributes<HTMLElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
