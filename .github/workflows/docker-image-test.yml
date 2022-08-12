@@ -16,7 +16,7 @@ jobs:
         runs-on: ubuntu-20.04
 
         outputs:
-            docker_image: ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
+            docker_image_id: ${{ steps.docker_build.outputs.imageid }}
 
         steps:
             - name: Checkout PR branch
@@ -30,7 +30,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v3
               with:
-                  images: ghcr.io/${{ github.repository }}/posthog
+                  images: ghcr.io/posthog/posthog/posthog
                   tags: |
                       type=ref,event=pr
                       type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
@@ -43,7 +43,7 @@ jobs:
               id: meta-for-cache
               uses: docker/metadata-action@v3
               with:
-                  images: ghcr.io/${{ github.repository }}/posthog
+                  images: ghcr.io/posthog/posthog/posthog
                   tags: |
                       type=raw,value=master
                       type=ref,event=pr
@@ -81,7 +81,6 @@ jobs:
               if: ${{ github.repository == 'PostHog/posthog' }}
               run: |
                   docker load < /tmp/posthog-image.tar
-                  docker images
                   docker image push --all-tags ghcr.io/posthog/posthog/posthog
 
             - name: Upload docker image
@@ -171,12 +170,12 @@ jobs:
 
             - name: Boot PostHog
               env:
-                  DOCKER_IMAGE: ${{ needs.build.outputs.docker_image }}
+                  DOCKER_IMAGE_ID: ${{ needs.build.outputs.docker_image_id }}
               run: |
                   mkdir -p /tmp/logs
 
                   docker load < /tmp/posthog-image.tar
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env $DOCKER_IMAGE"
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env $DOCKER_IMAGE_ID"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
