@@ -90,16 +90,10 @@ jobs:
                   path: /tmp/posthog-image.tar
 
             - name: Output image info including size
-              # If we're in the PostHog repo, we should be able to get the
-              # remote size.
-              #
-              # TODO: get the size of the local image as well, so we can give
-              # some feedback to the external contributes relating to how their
-              # changes affect image size.
-              if: ${{ github.repository == 'PostHog/posthog' }}
+              # Output the size of the local tar file, so give some idea about
+              # how code changes affect docker image size.
               run: |
-                  export docker_image=ghcr.io/posthog/posthog/posthog@${{ steps.docker_build.outputs.digest }}
-                  image_size_bytes=$(docker manifest inspect $docker_image | jq '[.layers[].size] | add')
+                  image_size_bytes=$(stat -c "%s" /tmp/posthog-image.tar)
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $docker_image" >> $GITHUB_STEP_SUMMARY
