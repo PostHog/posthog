@@ -20,7 +20,6 @@ export interface LemonSelectSection {
     label?: string | React.ReactNode
     options: LemonSelectOptions
 }
-// export type LemonSelectSections = Record<string, LemonSelectSection>
 
 export interface LemonSelectProps
     extends Pick<
