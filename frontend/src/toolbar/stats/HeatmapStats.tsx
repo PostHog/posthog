@@ -24,7 +24,7 @@ export function HeatmapStats(): JSX.Element {
                         <LemonInput value={wildcardHref} onChange={setWildcardHref} />
                         <div style={{ color: '#888' }}>Use * as a wildcard</div>
                     </div>
-                    <div style={{ marginBottom: 10 }} className="flex-center">
+                    <div style={{ marginBottom: 10 }} className="flex items-center">
                         <DateFilter
                             defaultValue="Last 7 days"
                             dateFrom={heatmapFilter.date_from}

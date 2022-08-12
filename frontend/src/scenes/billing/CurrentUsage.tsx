@@ -77,7 +77,7 @@ export function CurrentUsage(): JSX.Element | null {
                         )}
                     </>
                 )}
-                <h3 className="l3 mt">Current event usage</h3>
+                <h3 className="l3 mt-4">Current event usage</h3>
                 {usage !== null ? (
                     <>
                         Your organization has used{' '}
@@ -113,7 +113,7 @@ export function CurrentUsage(): JSX.Element | null {
                     </div>
                 )}
                 {billing?.current_bill_cycle && (
-                    <div className="mt text-muted">
+                    <div className="mt-4 text-muted">
                         Your current billing period runs from{' '}
                         <strong>
                             {dayjs.unix(billing.current_bill_cycle.current_period_start).format('MMMM DD, YYYY')}

@@ -1,4 +1,4 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
 .universal-search-box {
     max-width: 15rem;
@@ -11,7 +11,7 @@
         background: var(--bg-bridge);
     }
 
-    @media screen and (min-width: $sm) {
+    @include screen($sm) {
         display: flex;
     }
 }

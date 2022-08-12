@@ -6,6 +6,7 @@ import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconApps,
     IconBarChart,
+    IconCoffee,
     IconCohort,
     IconComment,
     IconExperiment,
@@ -35,13 +36,11 @@ import { navigationLogic } from '../navigationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { CoffeeOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { LemonRow } from 'lib/components/LemonRow'
 import { authorizedUrlsLogic } from 'scenes/toolbar-launch/authorizedUrlsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -64,14 +63,16 @@ function Pages(): JSX.Element {
     const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
 
     return (
-        <div className="Pages">
+        <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
+                data-tooltip="project-button"
                 title={currentTeam?.name ?? 'Choose project'}
                 icon={<Lettermark name={currentOrganization?.name} />}
                 identifier={Scene.ProjectHomepage}
                 to={urls.projectHomepage()}
                 sideAction={{
+                    'aria-label': 'switch project',
                     onClick: () => toggleProjectSwitcher(),
                     popup: {
                         visible: isProjectSwitcherShown,
@@ -101,28 +102,33 @@ function Pages(): JSX.Element {
                                         <h5>Pinned dashboards</h5>
                                         <LemonDivider />
                                         {pinnedDashboards.length > 0 ? (
-                                            pinnedDashboards.map((dashboard) => (
-                                                <PageButton
-                                                    key={dashboard.id}
-                                                    title={dashboard.name || <i>Untitled</i>}
-                                                    identifier={dashboard.id}
-                                                    onClick={() => setArePinnedDashboardsShown(false)}
-                                                    to={urls.dashboard(dashboard.id)}
-                                                />
-                                            ))
-                                        ) : (
-                                            <LemonRow icon={<IconPin />} fullWidth>
-                                                <span>
-                                                    <Link
+                                            <ul className="m-0 p-0 list-none">
+                                                {pinnedDashboards.map((dashboard) => (
+                                                    <PageButton
+                                                        key={dashboard.id}
+                                                        title={dashboard.name || <i>Untitled</i>}
+                                                        identifier={dashboard.id}
                                                         onClick={() => setArePinnedDashboardsShown(false)}
-                                                        to={urls.dashboards()}
-                                                    >
-                                                        Pin some dashboards
-                                                    </Link>
-                                                    <br />
-                                                    for them to show up here
-                                                </span>
-                                            </LemonRow>
+                                                        to={urls.dashboard(dashboard.id)}
+                                                    />
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center gap-2">
+                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <div>
+                                                        <Link
+                                                            onClick={() => setArePinnedDashboardsShown(false)}
+                                                            to={urls.dashboards()}
+                                                        >
+                                                            Pin some dashboards
+                                                        </Link>
+                                                        <br />
+                                                        for them to show up here
+                                                    </div>
+                                                </div>
+                                            </>
                                         )}
                                     </div>
                                 ),
@@ -153,7 +159,7 @@ function Pages(): JSX.Element {
                     )}
                     {featureFlags[FEATURE_FLAGS.WEB_PERFORMANCE] && (
                         <PageButton
-                            icon={<CoffeeOutlined />}
+                            icon={<IconCoffee />}
                             identifier={Scene.WebPerformance}
                             to={urls.webPerformance()}
                         />
@@ -224,7 +230,7 @@ function Pages(): JSX.Element {
                                         {appUrls.map((appUrl, index) => (
                                             <LemonButton
                                                 className="LaunchToolbarButton"
-                                                type="stealth"
+                                                status="stealth"
                                                 fullWidth
                                                 key={index}
                                                 onClick={() => setIsToolbarLaunchShown(false)}
@@ -241,7 +247,7 @@ function Pages(): JSX.Element {
                                             </LemonButton>
                                         ))}
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             data-attr="sidebar-launch-toolbar-add-new-url"
                                             fullWidth
                                             to={`${urls.toolbarLaunch()}?addNew=true`}
@@ -261,7 +267,7 @@ function Pages(): JSX.Element {
                     />
                 </>
             )}
-        </div>
+        </ul>
     )
 }
 

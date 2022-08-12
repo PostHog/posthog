@@ -40,7 +40,6 @@ INSTALLED_APPS = [
     "django_filters",
     "axes",
     "drf_spectacular",
-    "django_prometheus",
 ]
 
 MIDDLEWARE = [
@@ -49,12 +48,12 @@ MIDDLEWARE = [
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.ShortCircuitMiddleware",
-    "posthog.middleware.AllowIPMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
+    "posthog.middleware.ShortCircuitMiddleware",
+    "posthog.middleware.AllowIPMiddleware",
     "google.cloud.sqlcommenter.django.middleware.SqlCommenter",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -216,6 +215,15 @@ REST_FRAMEWORK = {
 }
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
+
+if get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool) or TEST:
+    # These rate limits are applied to all Django views.
+    # Note: Ingestion + decide endpoints do not use Django views, so no rate limits are applied
+    REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [
+        "posthog.rate_limit.PassThroughBurstRateThrottle",
+        "posthog.rate_limit.PassThroughSustainedRateThrottle",
+    ]
+    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"burst": "120/minute", "sustained": "1000/hour"}
 
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],

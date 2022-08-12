@@ -203,7 +203,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
 
-        _should_paginate = should_paginate(actors, filter.limit)
+        _should_paginate = should_paginate(actor_ids, filter.limit)
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
@@ -372,7 +372,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
     @action(methods=["POST"], detail=True)
     def merge(self, request: request.Request, pk=None, **kwargs) -> response.Response:
-        people = Person.objects.filter(team_id=self.team_id, pk__in=request.data.get("ids"))
+        people = Person.objects.filter(team_id=self.team_id, uuid__in=request.data.get("uuids"))
         person = self.get_object()
         person.merge_people([p for p in people])
 

@@ -104,9 +104,6 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
-# This disables using external schemas like protobuf for clickhouse kafka engine
-CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS = get_from_env("CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS", False, type_cast=str_to_bool)
-
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -143,6 +140,10 @@ SUFFIX = "_test" if TEST else ""
 
 KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
+)
+
+KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION: str = (
+    f"{KAFKA_PREFIX}recording_events{SUFFIX}"  # can be overridden in settings.py
 )
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.

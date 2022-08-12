@@ -42,7 +42,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             error && `CohortCriteriaGroups__matching-group--error`
                                         )}
                                     >
-                                        <Row align="middle" wrap={false} className="pl pr">
+                                        <Row align="middle" wrap={false} className="px-4">
                                             <Lettermark name={alphabet[groupIndex]} color={LettermarkColor.Gray} />
                                             <AndOrFilterSelect
                                                 prefix="Match persons against"
@@ -53,18 +53,18 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             <div style={{ flex: 1, minWidth: '0.5rem' }} />
                                             <LemonButton
                                                 icon={<IconCopy />}
-                                                type="alt"
+                                                status="primary-alt"
                                                 onClick={() => duplicateFilter(groupIndex)}
                                             />
                                             {cohort.filters.properties.values.length > 1 && (
                                                 <LemonButton
                                                     icon={<IconDelete />}
-                                                    type="alt"
+                                                    status="primary-alt"
                                                     onClick={() => removeFilter(groupIndex)}
                                                 />
                                             )}
                                         </Row>
-                                        <LemonDivider large />
+                                        <LemonDivider className="my-4" />
                                         {error && (
                                             <Row className="CohortCriteriaGroups__matching-group__error-row">
                                                 <AlertMessage type="error" style={{ width: '100%' }}>
@@ -91,17 +91,16 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 hideDeleteIcon={group.values.length <= 1}
                                             />
                                             {criteriaIndex === group.values.length - 1 && (
-                                                <Row>
+                                                <div className="m-3">
                                                     <LemonButton
                                                         data-attr={'cohort-add-filter-group-criteria'}
-                                                        style={{ margin: '0.75rem' }}
                                                         type="secondary"
                                                         onClick={() => addFilter(groupIndex)}
                                                         icon={<IconPlusMini color="var(--primary)" />}
                                                     >
                                                         Add criteria
                                                     </LemonButton>
-                                                </Row>
+                                                </div>
                                             )}
                                         </Group>
                                     )
@@ -113,7 +112,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
             )}
             <LemonButton
                 data-attr={`cohort-add-filter-group`}
-                className="mb mt"
+                className="mb-4 mt-4"
                 type="secondary"
                 onClick={() => addFilter()}
                 icon={<IconPlusMini color="var(--primary)" />}

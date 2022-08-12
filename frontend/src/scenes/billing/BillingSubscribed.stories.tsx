@@ -28,9 +28,6 @@ export const Subscribed = (): JSX.Element => {
     })
     return <BillingSubscribed />
 }
-export const FailedSubscription = (): JSX.Element => {
-    useEffect(() => {
-        router.actions.push(urls.billingSubscribed(), { session_id: 'cs_test_12345678' })
-    })
-    return <BillingSubscribed />
+export const BillingLocked = (): JSX.Element => {
+    return <BillingLocked />
 }

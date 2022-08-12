@@ -1,3 +1,4 @@
+import { runInSpan } from '../../../sentry'
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 import { JobName } from './../../../types'
 
@@ -41,13 +42,25 @@ export function durationToMs(duration: number, unit: string): number {
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
         try {
-            await server.jobQueueManager.enqueue(JobName.PLUGIN_JOB, {
-                type,
-                payload,
-                timestamp,
-                pluginConfigId: pluginConfig.id,
-                pluginConfigTeam: pluginConfig.team_id,
-            })
+            await runInSpan(
+                {
+                    op: 'vm.enqueuePluginJob',
+                    description: type,
+                    data: {
+                        type,
+                        payload,
+                        timestamp,
+                    },
+                },
+                () =>
+                    server.jobQueueManager.enqueue(JobName.PLUGIN_JOB, {
+                        type,
+                        payload,
+                        timestamp,
+                        pluginConfigId: pluginConfig.id,
+                        pluginConfigTeam: pluginConfig.team_id,
+                    })
+            )
         } catch (e) {
             await pluginConfig.vm?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,

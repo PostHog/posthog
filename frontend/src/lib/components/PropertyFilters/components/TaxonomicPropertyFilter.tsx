@@ -39,6 +39,7 @@ export function TaxonomicPropertyFilter({
     const groupTypes = taxonomicGroupTypes || [
         TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
     ]
@@ -156,8 +157,8 @@ export function TaxonomicPropertyFilter({
                             ) : (
                                 <>
                                     {orFiltering && propertyGroupType ? (
-                                        <div className="primary flex-center">
-                                            <IconPlus className="mr-05" />
+                                        <div className="text-primary flex items-center">
+                                            <IconPlus className="mr-2" />
                                             Add filter
                                         </div>
                                     ) : (

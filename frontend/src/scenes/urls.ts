@@ -78,6 +78,7 @@ export const urls = {
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     billingSubscribed: (): string => '/organization/billing/subscribed',
+    billingLocked: (): string => '/organization/billing/locked',
     // Self-hosted only
     instanceLicenses: (): string => '/instance/licenses',
     instanceStatus: (): string => '/instance/status',

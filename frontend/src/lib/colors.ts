@@ -1,6 +1,6 @@
 /* Insight series colors. */
 const dataColorVars = [
-    'ultramarine',
+    'brand-blue',
     'purple',
     'viridian',
     'magenta',

@@ -1,13 +1,13 @@
-import asyncio
-from concurrent.futures import Future
 import json
 from enum import Enum
 from threading import Thread
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from confluent_kafka import Consumer as KC
 from confluent_kafka import Producer as KP
-from confluent_kafka.cimpl import KafkaError, KafkaException
+from confluent_kafka.cimpl import KafkaError
 from prometheus_kafka_producer.metrics_manager import ProducerMetricsManager
+from statshog.defaults.django import statsd
 from structlog import get_logger
 
 from posthog.client import async_execute, sync_execute
@@ -35,10 +35,13 @@ class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def produce(self, topic: str, value: Any, key: Any = None):
+    def produce(self, topic: str, value: Any, headers: Any = None, key: Any = None, on_delivery: Any = None):
         return
 
     def flush(self):
+        return
+
+    def poll(self, timeout=0.1):
         return
 
 
@@ -110,7 +113,7 @@ class _KafkaProducer:
     def _poll_loop(self):
         while not self._cancelled:
             self.producer.poll(0.1)
-    
+
     def close(self):
         self._cancelled = True
         self._poll_thread.join()
@@ -120,23 +123,34 @@ class _KafkaProducer:
         b = json.dumps(d).encode("utf-8")
         return b
 
-    def produce(self, topic: str, data: Any, key: Any = None, value_serializer: Optional[Callable[[Any], Any]] = None):
+    def produce(
+        self,
+        topic: str,
+        data: Any,
+        key: Any = None,
+        value_serializer: Optional[Callable[[Any], Any]] = None,
+        headers: Optional[List[Tuple[str, str]]] = None,
+    ):
         if not value_serializer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        
-        result = Future()
+        encoded_headers = (
+            [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
+        )
 
         def ack(err, msg):
             if err:
-                result.set_exception(KafkaException(err))
+                statsd.incr(
+                    "posthog_cloud_kafka_send_failure", tags={"topic": topic, "exception": err.__class__.__name__}
+                )
             else:
-                result.set_result(msg)
-                    
-        self.producer.produce(topic, value=b, key=key, on_delivery=ack)
-        return result
+                statsd.incr(
+                    "posthog_cloud_kafka_send_success", tags={"topic": topic},
+                )
+
+        self.producer.produce(topic, value=b, key=key, headers=encoded_headers, on_delivery=ack)
 
 
 def can_connect():

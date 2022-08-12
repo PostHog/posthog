@@ -13,14 +13,14 @@
     }
     .event-row-date-separator {
         background-color: var(--bg-mid);
-        color: var(--text-muted);
+        color: var(--muted);
         font-weight: 600;
         font-size: 0.75rem;
         height: 2rem;
         text-align: center;
     }
     .event-row-is-exception {
-        background-color: var(--depr-lighten-danger-40);
+        background-color: var(--danger-highlight);
     }
     td {
         max-width: 20rem;

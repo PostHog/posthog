@@ -1,17 +1,17 @@
-@import '../../../styles/breakpoints';
+@import '../../../styles/mixins';
 
-.player-events-container {
+.player-events-container-v2 {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.player-events-container-v2,
+.player-events-container-v3 {
     display: flex;
     flex-direction: column;
     background-color: var(--bg-light);
-    height: 100%;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
+    height: inherit;
     padding: var(--recording-spacing);
-
-    @media (max-width: $md) {
-        height: 100vh;
-    }
 
     .event-list {
         flex: 1;
@@ -157,11 +157,11 @@
                 min-width: 0;
 
                 &.out-of-band-event {
-                    color: var(--text-muted);
+                    color: var(--muted);
                 }
 
                 .out-of-band-event-tooltip {
-                    color: var(--text-default);
+                    color: var(--default);
                 }
 
                 .event-item-content-top-row {

@@ -22,7 +22,7 @@ export function FunnelInsight(): JSX.Element {
     return (
         <>
             <PersonsModal
-                visible={showingPeople && !cohortModalVisible}
+                isOpen={showingPeople && !cohortModalVisible}
                 view={InsightType.FUNNELS}
                 filters={filters}
                 onSaveCohort={() => {

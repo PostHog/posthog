@@ -15,12 +15,13 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ActionStepType, AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
-import { lemonToast } from 'lib/components/lemonToast'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { lemonToast } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
+import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -42,7 +43,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             data-attr="delete-action-bottom"
             status="danger"
             type="secondary"
-            style={{ marginRight: 8 }}
             onClick={() => {
                 deleteAction()
             }}
@@ -56,7 +56,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
             data-attr="cancel-action-bottom"
             status="danger"
             type="secondary"
-            style={{ marginRight: 8 }}
             onClick={() => {
                 router.actions.push(shouldSimplifyActions ? urls.eventDefinitions() : urls.actions())
             }}
@@ -67,7 +66,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 
     return (
         <div className="action-edit-container">
-            <VerticalForm logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
+            <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
                     title={
                         <Field name="name">
@@ -75,7 +74,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <EditableField
                                     name="name"
                                     value={value || ''}
-                                    placeholder={`Name this ${shouldSimplifyActions ? 'event' : 'action'}`}
+                                    placeholder={`Name this ${shouldSimplifyActions ? 'calculated event' : 'action'}`}
                                     onChange={
                                         !id
                                             ? onChange
@@ -97,7 +96,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     }
                     caption={
                         <>
-                            <Field name="description" showOptional={true}>
+                            <Field name="description">
                                 {({ value, onChange }) => (
                                     <EditableField
                                         multiline
@@ -128,7 +127,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     />
                                 )}
                             </Field>
-                            <Field name="tags" showOptional={true}>
+                            <Field name="tags">
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
@@ -145,12 +144,12 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 {id && (
                     <div className="input-set">
                         <div>
-                            <span className="text-muted mb-05">
+                            <span className="text-muted mb-2">
                                 {actionCountLoading && <LoadingOutlined />}
                                 {actionCount !== null && actionCount > -1 && (
                                     <>
-                                        This {shouldSimplifyActions ? 'event' : 'action'} matches{' '}
-                                        <b>{compactNumber(actionCount)}</b> raw events in the last 3 months
+                                        This {shouldSimplifyActions ? 'calculated event' : 'action'} matches{' '}
+                                        <b>{compactNumber(actionCount)}</b> events in the last 3 months
                                     </>
                                 )}
                             </span>
@@ -161,7 +160,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div style={{ overflow: 'visible' }}>
                     <h2 className="subtitle">Match groups</h2>
                     <div>
-                        Your {shouldSimplifyActions ? 'event' : 'action'} will be triggered whenever{' '}
+                        Your {shouldSimplifyActions ? 'calculated event' : 'action'} will be triggered whenever{' '}
                         <b>any of your match groups</b> are received.{' '}
                         <a href="https://posthog.com/docs/features/actions" target="_blank">
                             <InfoCircleOutlined />
@@ -231,59 +230,59 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         )}
                     </Field>
                 </div>
-                <div>
-                    <div style={{ marginTop: '2rem' }}>
-                        <h2 className="subtitle">Match groups</h2>
-                        <Field name="post_to_slack">
-                            {({ value, onChange }) => (
+                <div className="my-8">
+                    <Field name="post_to_slack">
+                        {({ value, onChange }) => (
+                            <>
                                 <LemonCheckbox
                                     id="webhook-checkbox"
                                     checked={!!value}
                                     onChange={(e) => onChange(e.target.checked)}
-                                    rowProps={{ fullWidth: true }}
                                     disabled={!slackEnabled}
                                     label={
                                         <>
-                                            Post to webhook when this {shouldSimplifyActions ? 'event' : 'action'} is
-                                            triggered.
-                                            <Link to="/project/settings#webhook" style={{ marginLeft: 4 }}>
-                                                {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
-                                            </Link>
+                                            Post to webhook when this{' '}
+                                            {shouldSimplifyActions ? 'calculated event' : 'action'} is triggered.
                                         </>
                                     }
                                 />
-                            )}
-                        </Field>
-                        {action.post_to_slack && (
-                            <>
-                                <Field name="slack_message_format">
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <div>Message format (optional)</div>
-                                            <LemonInput
-                                                placeholder="Default: [action.name] triggered by [person]"
-                                                value={value}
-                                                onChange={onChange}
-                                                disabled={!slackEnabled || !action.post_to_slack}
-                                                data-attr="edit-slack-message-format"
-                                            />
-                                            <small>
-                                                <a
-                                                    href="https://posthog.com/docs/integrations/message-formatting/"
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                >
-                                                    See documentation on how to format webhook messages.
-                                                </a>
-                                            </small>
-                                        </>
-                                    )}
-                                </Field>
+                                <p className="pl-7">
+                                    <Link to="/project/settings#webhook">
+                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                                    </Link>
+                                </p>
                             </>
                         )}
-                    </div>
+                    </Field>
+                    {action.post_to_slack && (
+                        <>
+                            <Field name="slack_message_format">
+                                {({ value, onChange }) => (
+                                    <>
+                                        <LemonLabel showOptional>Message format</LemonLabel>
+                                        <LemonInput
+                                            placeholder="Default: [action.name] triggered by [person]"
+                                            value={value}
+                                            onChange={onChange}
+                                            disabled={!slackEnabled || !action.post_to_slack}
+                                            data-attr="edit-slack-message-format"
+                                        />
+                                        <small>
+                                            <a
+                                                href="https://posthog.com/docs/integrations/message-formatting/"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                            >
+                                                See documentation on how to format webhook messages.
+                                            </a>
+                                        </small>
+                                    </>
+                                )}
+                            </Field>
+                        </>
+                    )}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <div className="flex justify-end gap-2">
                     {!!id ? deleteButton() : cancelButton()}
                     <LemonButton
                         data-attr="save-action-button"
@@ -294,7 +293,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         Save
                     </LemonButton>
                 </div>
-            </VerticalForm>
+            </Form>
         </div>
     )
 }
@@ -303,7 +302,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
 export function duplicateActionErrorToast(errorActionId: string, shouldSimplifyActions: boolean): void {
     lemonToast.error(
         <>
-            {shouldSimplifyActions ? 'Event' : 'Action'} with this name already exists.{' '}
+            {shouldSimplifyActions ? 'Calculated event' : 'Action'} with this name already exists.{' '}
             <a href={urls.action(errorActionId)}>Click here to edit.</a>
         </>
     )

@@ -317,7 +317,7 @@ WHERE team_id = %(team_id)s
 )
 
 INSERT_PERSON_SQL = """
-INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0, 0
+INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) SELECT %(id)s, %(created_at)s, %(team_id)s, %(properties)s, %(is_identified)s, %(_timestamp)s, 0, 0, %(version)s
 """
 
 INSERT_PERSON_BULK_SQL = """

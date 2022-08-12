@@ -7,7 +7,7 @@ import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { EditorFilterItemTitle } from './EditorFilterItemTitle'
+import { PureField } from 'lib/forms/Field'
 
 export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): JSX.Element {
     const { aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
@@ -15,11 +15,11 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
     useMountedLogic(funnelCommandLogic)
 
     return (
-        <div className="space-y">
-            <EditorFilterItemTitle
+        <div className="space-y-4">
+            <PureField
                 label="Step order"
-                tooltip={
-                    <ul style={{ paddingLeft: '1.2rem' }}>
+                info={
+                    <ul className="pl-4">
                         <li>
                             <b>Sequential</b> - Step B must happen after Step A, but any number events can happen
                             between A and B.
@@ -33,15 +33,16 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
                         </li>
                     </ul>
                 }
-            />
-            <FunnelStepOrderPicker />
+            >
+                <FunnelStepOrderPicker />
+            </PureField>
+            <PureField label="Conversion rate calculation">
+                <FunnelStepReferencePicker bordered />
+            </PureField>
 
-            <EditorFilterItemTitle label="Conversion rate calculation" />
-            <FunnelStepReferencePicker bordered />
-
-            <EditorFilterItemTitle
+            <PureField
                 label="Exclusion steps"
-                tooltip={
+                info={
                     <>
                         Exclude {aggregationTargetLabel.plural}{' '}
                         {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} completed the specified
@@ -49,13 +50,13 @@ export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): J
                         <b>completely excluded from the entire funnel</b>.
                     </>
                 }
-            />
-            <FunnelExclusionsFilter />
+            >
+                <FunnelExclusionsFilter />
+            </PureField>
 
             {!!advancedOptionsUsedCount && (
-                <div className="mt">
+                <div className="mt-4">
                     <LemonButton
-                        type="stealth"
                         status="danger"
                         onClick={() => {
                             setStepReference(FunnelStepReference.total)

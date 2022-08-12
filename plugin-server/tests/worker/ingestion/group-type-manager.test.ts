@@ -91,11 +91,15 @@ describe('GroupTypeManager()', () => {
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
 
             const team = await hub.db.fetchTeam(2)
-            expect(posthog.capture).toHaveBeenCalledWith('group type ingested', {
-                team: team!.uuid,
-                groupType: 'second',
-                groupTypeIndex: 1,
-                $groups: {
+            expect(posthog.capture).toHaveBeenCalledWith({
+                distinctId: 'plugin-server',
+                event: 'group type ingested',
+                properties: {
+                    team: team!.uuid,
+                    groupType: 'second',
+                    groupTypeIndex: 1,
+                },
+                groups: {
                     project: team!.uuid,
                     organization: team!.organization_id,
                     instance: 'unknown',

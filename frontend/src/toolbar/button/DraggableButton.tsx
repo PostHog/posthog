@@ -29,7 +29,7 @@ export function DraggableButton(): JSX.Element {
         hideFlags,
         saveFlagsPosition,
     } = useActions(toolbarButtonLogic)
-    const { countFlagsOverridden } = useValues(featureFlagsLogic)
+    const { countFlagsOverridden, shouldSimplifyActions } = useValues(featureFlagsLogic)
 
     return (
         <>
@@ -63,8 +63,8 @@ export function DraggableButton(): JSX.Element {
             </ButtonWindow>
 
             <ButtonWindow
-                name="actions"
-                label="Actions"
+                name={shouldSimplifyActions ? 'calculated events' : 'actions'}
+                label={shouldSimplifyActions ? 'Calculated Events' : 'Actions'}
                 visible={actionsWindowVisible}
                 close={hideActionsInfo}
                 position={actionsPosition}

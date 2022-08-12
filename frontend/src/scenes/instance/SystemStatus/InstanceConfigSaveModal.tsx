@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
 import React from 'react'
+import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
-import { MetricRow, systemStatusLogic } from './systemStatusLogic'
+import { systemStatusLogic } from './systemStatusLogic'
 
-interface ChangeRowInterface extends Pick<MetricRow, 'value'> {
+interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
     oldValue?: boolean | string | number | null
     metricKey: string
     isSecret?: boolean
@@ -24,19 +25,24 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
             <div>
                 <code>{metricKey}</code>
             </div>
-            <div style={{ color: 'var(--text-muted)' }}>
+            <div style={{ color: 'var(--muted)' }}>
                 Value will be changed
                 {!isSecret && (
                     <>
                         {' from '}
-                        <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                            {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
+                        <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
+                            {RenderMetricValue(null, {
+                                key: metricKey,
+                                value: oldValue,
+                                emptyNullLabel: 'Unset',
+                                isSecret,
+                            })}
                         </span>
                     </>
                 )}
                 {' to '}
-                <span style={{ color: 'var(--text-default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
+                <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
+                    {RenderMetricValue(null, { key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (
                     <div className="text-danger">This field is secret – you won't see its value once saved</div>
@@ -92,7 +98,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                 />
             ))}
             {loading && (
-                <div className="mt text-success">
+                <div className="mt-4 text-success">
                     <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
                 </div>
             )}

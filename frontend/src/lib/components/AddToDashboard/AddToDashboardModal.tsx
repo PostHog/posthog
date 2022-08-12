@@ -2,10 +2,9 @@ import React from 'react'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
-import { IconMagnifier, IconCottage } from 'lib/components/icons'
+import { IconCottage } from 'lib/components/icons'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -13,12 +12,12 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Link } from 'lib/components/Link'
 import { DashboardType, InsightModel } from '~/types'
 import clsx from 'clsx'
-import { LemonModal } from 'lib/components/LemonModal'
 import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { LemonModal } from '../LemonModal'
 
 interface SaveToDashboardModalProps {
-    visible: boolean
+    isOpen: boolean
     closeModal: () => void
     insight: Partial<InsightModel>
     canEditInsight: boolean
@@ -51,22 +50,18 @@ const DashboardRelationRow = ({
     const { currentTeam } = useValues(teamLogic)
     const isPrimary = dashboard.id === currentTeam?.primary_dashboard
     return (
-        <div style={style} className={clsx('modal-row', isHighlighted && 'highlighted')}>
-            <span>
-                <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
-                {isPrimary && (
-                    <Tooltip title="Primary dashboards are shown on the project home page">
-                        <IconCottage
-                            style={{
-                                marginLeft: 6,
-                                color: 'var(--warning)',
-                                fontSize: '1rem',
-                                verticalAlign: '-0.125em',
-                            }}
-                        />
-                    </Tooltip>
-                )}
-            </span>
+        <div
+            data-attr="dashboard-list-item"
+            style={style}
+            className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
+        >
+            <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
+            {isPrimary && (
+                <Tooltip title="Primary dashboards are shown on the project home page">
+                    <IconCottage className="text-warning text-base" />
+                </Tooltip>
+            )}
+            <span className="grow" />
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
@@ -86,7 +81,7 @@ const DashboardRelationRow = ({
 }
 
 export function AddToDashboardModal({
-    visible,
+    isOpen,
     closeModal,
     insight,
     canEditInsight,
@@ -98,8 +93,6 @@ export function AddToDashboardModal({
 
     const { searchQuery, currentDashboards, orderedDashboards, scrollIndex } = useValues(logic)
     const { setSearchQuery, addNewDashboard } = useActions(logic)
-
-    const { insightLoading } = useValues(insightLogic)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         return (
@@ -119,27 +112,36 @@ export function AddToDashboardModal({
 
     return (
         <LemonModal
-            onCancel={closeModal}
-            afterClose={closeModal}
-            confirmLoading={insightLoading}
-            visible={visible}
-            wrapClassName="add-to-dashboard-modal"
+            onClose={closeModal}
+            isOpen={isOpen}
+            title="Add to dashboard"
+            footer={
+                <>
+                    <div className="flex-1">
+                        <LemonButton type="secondary" onClick={addNewDashboard} disabled={!canEditInsight}>
+                            Add to a new dashboard
+                        </LemonButton>
+                    </div>
+                    <LemonButton type="secondary" onClick={closeModal}>
+                        Close
+                    </LemonButton>
+                </>
+            }
         >
-            <section>
-                <h5>Add to dashboard</h5>
+            <div className="space-y-2">
                 <LemonInput
                     data-attr="dashboard-searchfield"
+                    type="search"
+                    fullWidth
                     placeholder={`Search for dashboards...`}
                     value={searchQuery}
-                    className={searchQuery && 'LemonInput--with-input'}
-                    icon={<IconMagnifier />}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
-                <div className={'existing-links-info'}>
-                    This insight is referenced on <strong>{insight.dashboards?.length}</strong>{' '}
+                <div className="text-muted-alt">
+                    This insight is referenced on <strong className="text-default">{insight.dashboards?.length}</strong>{' '}
                     {pluralize(insight.dashboards?.length || 0, 'dashboard', 'dashboards', false)}
                 </div>
-                <div className="list-wrapper">
+                <div style={{ minHeight: 420 }}>
                     <AutoSizer>
                         {({ height, width }) => (
                             <List
@@ -154,20 +156,7 @@ export function AddToDashboardModal({
                         )}
                     </AutoSizer>
                 </div>
-            </section>
-            <section className="space-between-items">
-                <LemonButton type="secondary" size="small" onClick={addNewDashboard} disabled={!canEditInsight}>
-                    Add to a new dashboard
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={closeModal}
-                    style={{ marginTop: 0 }} /* lemon section styling was adding a margin top */
-                >
-                    Close
-                </LemonButton>
-            </section>
+            </div>
         </LemonModal>
     )
 }

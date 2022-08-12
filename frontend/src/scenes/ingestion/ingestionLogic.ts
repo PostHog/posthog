@@ -12,7 +12,6 @@ import {
 } from 'scenes/ingestion/constants'
 import type { ingestionLogicType } from './ingestionLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -116,7 +115,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
         ],
     }),
 
-    selectors(({ values }) => ({
+    selectors(() => ({
         index: [
             (s) => [s.platform, s.framework, s.verify],
             (platform, framework, verify) => {
@@ -127,12 +126,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     return 2
                 }
                 return (verify ? 1 : 0) + (framework ? 1 : 0) + (platform ? 1 : 0)
-            },
-        ],
-        onboardingSidebarEnabled: [
-            () => [],
-            (): boolean => {
-                return values.featureFlags[FEATURE_FLAGS.ONBOARDING_1_5] === 'test'
             },
         ],
         frameworkString: [

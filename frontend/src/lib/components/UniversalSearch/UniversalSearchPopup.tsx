@@ -21,7 +21,6 @@ import { PluginSelectionType, pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import clsx from 'clsx'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { useMountedLogic, useValues } from 'kea'
-import { IconMagnifier } from '../icons'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
@@ -116,7 +115,6 @@ export function UniversalSearchPopup({
     onChange,
     groupTypes,
     dataAttr,
-    style,
     fullWidth = true,
 }: UniversalSearchPopupProps): JSX.Element {
     // Ensure some logics are mounted
@@ -186,19 +184,18 @@ export function UniversalSearchPopup({
                         setVisible(!visible)
                     }}
                     className={clsx(
-                        { 'full-width': fullWidth },
+                        { 'w-full': fullWidth },
                         '',
                         'universal-search-box',
                         isSideBarShown && 'universal-search-box--sidebar-shown'
                     )}
-                    style={style}
                 >
                     {!visible && (
                         <LemonInput
                             data-attr="universal-search-field"
+                            type="search"
                             placeholder={'Search...'}
                             value={searchQuery}
-                            icon={<IconMagnifier />}
                         />
                     )}
                 </div>

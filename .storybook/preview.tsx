@@ -39,17 +39,25 @@ export const parameters = {
     },
     options: {
         // automatically show code panel
-        showPanel: true,
+        showPanel: false,
         storySort: {
             method: 'alphabetical',
-            order: ['Lemon UI', ['Overview', 'Icons'], 'Components', 'Forms', ['Field'], 'Filters', 'Layout'],
+            order: [
+                'Lemon UI',
+                ['Overview', 'Utilities', 'Icons'],
+                'Components',
+                'Forms',
+                ['Field'],
+                'Filters',
+                'Layout',
+            ],
             includeName: true,
         },
     },
     viewMode: 'docs',
     // auto-expand code blocks in docs
     docs: {
-        source: { state: 'open' },
+        source: { state: 'closed' },
     },
 }
 

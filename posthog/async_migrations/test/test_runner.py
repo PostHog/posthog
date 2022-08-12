@@ -17,7 +17,7 @@ from posthog.models.utils import UUIDT
 
 class TestRunner(AsyncMigrationBaseTest):
     def setUp(self):
-        self.migration = Migration()
+        self.migration = Migration("TEST_MIGRATION")
         self.TEST_MIGRATION_DESCRIPTION = self.migration.description
         create_async_migration(name="test_migration", description=self.TEST_MIGRATION_DESCRIPTION)
         return super().setUp()

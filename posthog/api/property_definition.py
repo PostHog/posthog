@@ -84,6 +84,13 @@ class PropertyDefinitionViewSet(
         else:
             numerical_filter = ""
 
+        if self.request.GET.get("is_feature_flag") == "true":
+            is_feature_flag_filter = "AND (name LIKE %(is_feature_flag_like)s)"
+        elif self.request.GET.get("is_feature_flag") == "false":
+            is_feature_flag_filter = "AND (name NOT LIKE %(is_feature_flag_like)s)"
+        else:
+            is_feature_flag_filter = ""
+
         # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
         event_names = self.request.GET.get("event_names", None)
         if event_names:
@@ -112,6 +119,7 @@ class PropertyDefinitionViewSet(
             "names": names,
             "team_id": self.team_id,
             "excluded_properties": tuple(set.union(set(excluded_properties or []), HIDDEN_PROPERTY_DEFINITIONS)),
+            "is_feature_flag_like": "$feature/%",
             **search_kwargs,
         }
 
@@ -128,7 +136,7 @@ class PropertyDefinitionViewSet(
                             FROM ee_enterprisepropertydefinition
                             FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
                             WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s
-                             {name_filter} {numerical_filter} {search_query} {event_property_filter}
+                             {name_filter} {numerical_filter} {search_query} {event_property_filter} {is_feature_flag_filter}
                             ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
                             """,
                 params=params,
@@ -145,7 +153,8 @@ class PropertyDefinitionViewSet(
                 SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property
                 FROM posthog_propertydefinition
-                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s {name_filter} {numerical_filter} {search_query} {event_property_filter}
+                WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s
+                {name_filter} {numerical_filter} {search_query} {event_property_filter} {is_feature_flag_filter}
                 ORDER BY is_event_property DESC, query_usage_30_day DESC NULLS LAST, name ASC
             """,
             params=params,
