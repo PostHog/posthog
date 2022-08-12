@@ -2,7 +2,7 @@ import React from 'react'
 import './SentenceList.scss'
 
 export interface SentenceListProps {
-    listParts: (string | JSX.Element | null)[]
+    listParts: (string | JSX.Element | JSX.Element[] | null)[]
     prefix?: string | JSX.Element | null
     suffix?: string | JSX.Element | null
 }
@@ -19,6 +19,7 @@ export function SentenceList({ listParts, prefix = null, suffix = null }: Senten
             <>
                 {listParts
                     .filter((part) => !!part)
+                    .flat()
                     .flatMap((part, index, all) => {
                         const isntFirst = index > 0
                         const isLast = index === all.length - 1

@@ -10,9 +10,9 @@ import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import React from 'react'
-import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     // detail.name
@@ -63,7 +63,7 @@ const featureFlagActionsMapping: Record<
                 // there are no rollout groups or all are at 0%
                 changes.push(<>changed the filter conditions to apply to no users</>)
             } else {
-                const groupAdditions: (string | JSX.Element | null)[] = []
+                const groupAdditions: (string | JSX.Element | JSX.Element[] | null)[] = []
                 const groupRemovals: (string | JSX.Element | null)[] = []
 
                 filtersAfter.groups
@@ -76,21 +76,28 @@ const featureFlagActionsMapping: Record<
                         const { properties, rollout_percentage = null } = groupAfter
 
                         if (properties?.length > 0) {
-                            groupAdditions.push(
+                            const newButtons = properties.map((property) => {
+                                return (
+                                    <PropertyFilterButton
+                                        style={{ margin: '0.1rem' }}
+                                        key={property.key}
+                                        item={property}
+                                    />
+                                )
+                            })
+                            newButtons[0] = (
                                 <>
                                     <span>
-                                        <strong>{rollout_percentage ?? 100}%</strong> of
+                                        <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
-                                    <PropertyFiltersDisplay
-                                        filters={properties}
-                                        style={{
-                                            display: 'inline-block',
-                                            marginLeft: '0.3rem',
-                                            marginBottom: 0,
-                                        }}
+                                    <PropertyFilterButton
+                                        style={{ margin: '0.1rem' }}
+                                        key={properties[0].key}
+                                        item={properties[0]}
                                     />
                                 </>
                             )
+                            groupAdditions.push(newButtons)
                         } else {
                             groupAdditions.push(
                                 <>
