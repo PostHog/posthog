@@ -40,6 +40,7 @@
 
     // Local styles
     .AuthContent {
+        position: relative;
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -59,6 +60,20 @@
             padding: 1rem 2.5rem 1.75rem;
             background-color: white;
             border-radius: var(--radius);
+        }
+
+        footer {
+            position: absolute;
+            bottom: 40px;
+            left: 0px;
+            right: 0px;
+            display: flex;
+            justify-content: center;
+            gap: 10%;
+            margin-top: 5rem;
+            color: var(--muted);
+            font-weight: 500;
+            width: 100%;
         }
     }
 

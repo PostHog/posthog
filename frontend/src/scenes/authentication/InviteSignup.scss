@@ -1,10 +1,9 @@
 @import '../../styles/mixins';
-@import './authenticationShared';
 
-.invite-signup {
+.InviteSignup {
     height: 100vh;
 
-    &.authenticated {
+    &.InviteSignup--authenticated {
         height: calc(100vh - 3.5rem);
     }
 

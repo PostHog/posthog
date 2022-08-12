@@ -51,14 +51,6 @@ export function SocialLoginButtons({
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
-    if (preflight) {
-        preflight.available_social_auth_providers = {
-            'google-oauth2': true,
-            gitlab: true,
-            github: true,
-        }
-    }
-
     if (
         !preflight?.available_social_auth_providers ||
         !Object.values(preflight.available_social_auth_providers).filter((val) => !!val).length

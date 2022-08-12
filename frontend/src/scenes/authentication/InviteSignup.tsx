@@ -18,6 +18,7 @@ import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field, PureField } from 'lib/forms/Field'
 import PasswordStrength from 'lib/components/PasswordStrength'
+import clsx from 'clsx'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -341,7 +342,7 @@ export function InviteSignup(): JSX.Element {
     }
 
     return (
-        <div className={`invite-signup${user ? ' authenticated' : ''}`}>
+        <div className={clsx('InviteSignup', !!user && 'InviteSignup--authenticated')}>
             <ErrorView />
             {invite &&
                 (user ? (

@@ -153,9 +153,9 @@ export function Signup(): JSX.Element | null {
                     )}
                 </div>
 
-                <footer className="flex gap-4 items-center mt-6">
+                <footer>
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
-                        <span key={idx} className="flex-1 text-center">
+                        <span key={idx} className="text-center">
                             {val}
                         </span>
                     ))}
