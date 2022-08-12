@@ -109,6 +109,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { invitesToSend, canSubmit, invites } = useValues(inviteLogic)
     const { appendInviteRow, resetInviteRows, inviteTeamMembers, deleteInvite, updateMessage } = useActions(inviteLogic)
 
+    const invitesReversed = invites.slice().reverse()
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
@@ -190,70 +191,64 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                         </b>
                     </div>
 
-                    {invites
-                        .slice()
-                        .reverse()
-                        .map((invite: OrganizationInviteType) => {
-                            return (
-                                <div className="flex gap-2 items-start" key={invite.id}>
-                                    <div className="flex-1">
-                                        <div className="flex-1 rounded border p-2">{invite.target_email} </div>
-                                    </div>
-
-                                    <div className="flex-1 flex gap-2 overflow-hidden">
-                                        {invite.is_expired ? (
-                                            <b>Expired! Delete and recreate</b>
-                                        ) : (
-                                            <>
-                                                {preflight?.email_service_available ? (
-                                                    <div className="flex-1 border rounded p-2">
-                                                        {' '}
-                                                        {invite.first_name}{' '}
-                                                    </div>
-                                                ) : (
-                                                    <CopyToClipboardInline
-                                                        data-attr="invite-link"
-                                                        explicitValue={
-                                                            new URL(`/signup/${invite.id}`, document.baseURI).href
-                                                        }
-                                                        description="invite link"
-                                                        style={{
-                                                            color: 'var(--primary)',
-                                                            background: 'var(--bg-side)',
-                                                            borderRadius: 4,
-                                                            padding: '0.5rem',
-                                                        }}
-                                                    >
-                                                        <div className="InviteModal__share_link">
-                                                            {new URL(`/signup/${invite.id}`, document.baseURI).href}
-                                                        </div>
-                                                    </CopyToClipboardInline>
-                                                )}
-                                            </>
-                                        )}
-                                        <LemonButton
-                                            title="Cancel the invite"
-                                            data-attr="invite-delete"
-                                            icon={<IconDelete />}
-                                            status="danger"
-                                            onClick={() => {
-                                                invite.is_expired
-                                                    ? deleteInvite(invite)
-                                                    : Modal.confirm({
-                                                          title: `Do you want to cancel the invite for ${invite.target_email}?`,
-                                                          okText: 'Yes, cancel invite',
-                                                          okType: 'danger',
-                                                          onOk() {
-                                                              deleteInvite(invite)
-                                                          },
-                                                          cancelText: 'No, keep invite',
-                                                      })
-                                            }}
-                                        />
-                                    </div>
+                    {invitesReversed.map((invite: OrganizationInviteType) => {
+                        return (
+                            <div className="flex gap-2 items-start" key={invite.id}>
+                                <div className="flex-1">
+                                    <div className="flex-1 rounded border p-2">{invite.target_email} </div>
                                 </div>
-                            )
-                        })}
+
+                                <div className="flex-1 flex gap-2 overflow-hidden">
+                                    {invite.is_expired ? (
+                                        <b>Expired! Delete and recreate</b>
+                                    ) : (
+                                        <>
+                                            {preflight?.email_service_available ? (
+                                                <div className="flex-1 border rounded p-2"> {invite.first_name} </div>
+                                            ) : (
+                                                <CopyToClipboardInline
+                                                    data-attr="invite-link"
+                                                    explicitValue={
+                                                        new URL(`/signup/${invite.id}`, document.baseURI).href
+                                                    }
+                                                    description="invite link"
+                                                    style={{
+                                                        color: 'var(--primary)',
+                                                        background: 'var(--bg-side)',
+                                                        borderRadius: 4,
+                                                        padding: '0.5rem',
+                                                    }}
+                                                >
+                                                    <div className="InviteModal__share_link">
+                                                        {new URL(`/signup/${invite.id}`, document.baseURI).href}
+                                                    </div>
+                                                </CopyToClipboardInline>
+                                            )}
+                                        </>
+                                    )}
+                                    <LemonButton
+                                        title="Cancel the invite"
+                                        data-attr="invite-delete"
+                                        icon={<IconDelete />}
+                                        status="danger"
+                                        onClick={() => {
+                                            invite.is_expired
+                                                ? deleteInvite(invite)
+                                                : Modal.confirm({
+                                                      title: `Do you want to cancel the invite for ${invite.target_email}?`,
+                                                      okText: 'Yes, cancel invite',
+                                                      okType: 'danger',
+                                                      onOk() {
+                                                          deleteInvite(invite)
+                                                      },
+                                                      cancelText: 'No, keep invite',
+                                                  })
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        )
+                    })}
 
                     {invitesToSend.map((_, index) => (
                         <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
