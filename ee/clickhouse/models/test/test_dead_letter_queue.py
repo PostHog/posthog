@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from confluence_kafka import Producer as KafkaProducer
+from confluent_kafka import Producer as KafkaProducer
 
 from ee.clickhouse.models.test.utils.util import delay_until_clickhouse_consumes_from_kafka
 from posthog.clickhouse.dead_letter_queue import (
