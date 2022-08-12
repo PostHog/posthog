@@ -68,7 +68,7 @@ export const loginLogic = kea<loginLogicType>([
     })),
 
     forms(({ actions }) => ({
-        loginForm: {
+        login: {
             defaults: {} as unknown as LoginForm,
             errors: ({ email, password }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
@@ -83,7 +83,7 @@ export const loginLogic = kea<loginLogicType>([
                 try {
                     return await api.create('api/login', { email, password })
                 } catch (e) {
-                    actions.setLoginFormManualErrors({
+                    actions.setLoginManualErrors({
                         generic: {
                             code: (e as Record<string, any>).code,
                             detail: (e as Record<string, any>).detail,
@@ -95,7 +95,7 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     listeners({
-        submitLoginFormSuccess: () => {
+        submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
@@ -104,7 +104,7 @@ export const loginLogic = kea<loginLogicType>([
     urlToAction(({ actions }) => ({
         '/login': ({}, { error_code, error_detail }) => {
             if (error_code) {
-                actions.setLoginFormManualErrors({ generic: { code: error_code, detail: error_detail } })
+                actions.setLoginManualErrors({ generic: { code: error_code, detail: error_detail } })
                 router.actions.replace('/login', {})
             }
         },

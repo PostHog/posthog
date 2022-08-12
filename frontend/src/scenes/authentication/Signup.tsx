@@ -26,7 +26,6 @@ export function Signup(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { isSignupSubmitting, signupManualErrors, signup } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
-    const passwordInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
         // There's no password in the demo environment
@@ -95,7 +94,6 @@ export function Signup(): JSX.Element | null {
                                     className="ph-ignore-input"
                                     data-attr="password"
                                     placeholder="••••••••••"
-                                    ref={passwordInputRef}
                                     disabled={isSignupSubmitting}
                                 />
                             </Field>
