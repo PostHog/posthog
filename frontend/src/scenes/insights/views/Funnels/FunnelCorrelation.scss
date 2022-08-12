@@ -23,7 +23,7 @@
             .close-button {
                 position: absolute;
                 right: 16px;
-                color: var(--text-muted) !important;
+                color: var(--muted) !important;
                 cursor: pointer;
             }
         }
@@ -45,7 +45,7 @@
             padding: 0;
             margin: 0;
             font-weight: bold;
-            color: var(--text-muted-alt);
+            color: var(--muted-alt);
         }
 
         .emoji-button {
@@ -67,7 +67,7 @@
         }
 
         .close-button {
-            color: var(--text-muted) !important;
+            color: var(--muted) !important;
             cursor: pointer;
             z-index: var(--z-raised);
         }

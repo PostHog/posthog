@@ -8,7 +8,7 @@ export interface TitleWithIconProps {
 
 export function TitleWithIcon({ icon, children, 'data-attr': dataAttr }: TitleWithIconProps): JSX.Element {
     return (
-        <div className="flex-center" data-attr={dataAttr}>
+        <div className="flex items-center" data-attr={dataAttr}>
             <div>{children}</div>
             <div className="title-icon">{icon}</div>
         </div>

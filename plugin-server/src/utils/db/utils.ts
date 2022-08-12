@@ -45,6 +45,7 @@ const campaignParams = new Set([
     'utm_medium',
     'utm_campaign',
     'utm_content',
+    'utm_name',
     'utm_term',
     'gclid',
     'fbclid',
@@ -91,17 +92,15 @@ export function generateKafkaPersonUpdateMessage(
         topic: KAFKA_PERSON,
         messages: [
             {
-                value: Buffer.from(
-                    JSON.stringify({
-                        id,
-                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                        properties: JSON.stringify(properties),
-                        team_id: teamId,
-                        is_identified: isIdentified,
-                        is_deleted: isDeleted,
-                        ...(version !== null ? { version } : {}),
-                    })
-                ),
+                value: JSON.stringify({
+                    id,
+                    created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                    properties: JSON.stringify(properties),
+                    team_id: teamId,
+                    is_identified: isIdentified,
+                    is_deleted: isDeleted,
+                    ...(version !== null ? { version } : {}),
+                }),
             },
         ],
     }

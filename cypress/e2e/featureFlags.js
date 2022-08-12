@@ -15,6 +15,21 @@ describe('Feature Flags', () => {
             .type('This is a new feature.')
             .should('have.value', 'This is a new feature.')
 
+        // Check that feature flags instructions can be displayed in another code language
+        cy.get('[data-attr=feature-flag-instructions-select]').click()
+        cy.get('[data-attr=feature-flag-instructions-select-option-PHP]').click()
+        cy.get('[data-attr=feature-flag-instructions-snippet]').should(
+            'contain',
+            /if (PostHog::isFeatureEnabled('.*', 'some distinct id')) {/
+        )
+        cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', /    \/\/ do something here/)
+        cy.get('[data-attr=feature-flag-instructions-snippet]').should('contain', /}/)
+        cy.get('[data-attr=feature-flag-doc-link]').should(
+            'have.attr',
+            'href',
+            'https://posthog.com/docs/integrations/php-integration?utm_medium=in-product&utm_campaign=feature-flag#feature-flags'
+        )
+
         // select "add filter" and "property"
         cy.get('[data-attr=new-prop-filter-feature-flag-null-0-1-').click()
 

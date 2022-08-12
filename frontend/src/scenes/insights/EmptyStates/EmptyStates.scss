@@ -5,7 +5,7 @@
     align-items: center;
     padding-top: 2rem;
     padding-bottom: 2rem;
-    color: var(--text-muted);
+    color: var(--muted);
     padding: 1rem;
     font-size: 1.1em;
     flex-grow: 1;
@@ -37,10 +37,6 @@
         font-size: 1.5rem;
         line-height: 1.6rem;
         color: var(--primary-alt);
-    }
-
-    .illustration-main {
-        color: var(--depr-rgba-primary-alt-0-3);
     }
 
     button.ant-btn-lg {

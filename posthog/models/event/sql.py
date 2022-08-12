@@ -8,7 +8,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
 )
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
-from posthog.kafka_client.topics import KAFKA_EVENTS, KAFKA_EVENTS_JSON
+from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
 EVENTS_DATA_TABLE = lambda: "sharded_events" if settings.CLICKHOUSE_REPLICATION else "events"
 WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events" if settings.CLICKHOUSE_REPLICATION else EVENTS_DATA_TABLE()
@@ -31,12 +31,12 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     created_at DateTime64(6, 'UTC'),
     person_id UUID,
     person_created_at DateTime64,
-    person_properties VARCHAR,
-    group0_properties VARCHAR,
-    group1_properties VARCHAR,
-    group2_properties VARCHAR,
-    group3_properties VARCHAR,
-    group4_properties VARCHAR,
+    person_properties VARCHAR Codec(ZSTD(3)),
+    group0_properties VARCHAR Codec(ZSTD(3)),
+    group1_properties VARCHAR Codec(ZSTD(3)),
+    group2_properties VARCHAR Codec(ZSTD(3)),
+    group3_properties VARCHAR Codec(ZSTD(3)),
+    group4_properties VARCHAR Codec(ZSTD(3)),
     group0_created_at DateTime64,
     group1_created_at DateTime64,
     group2_created_at DateTime64,
@@ -85,41 +85,6 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
-)
-
-# DEPRECATED
-# Use KAFKA_EVENTS_TABLE_JSON_SQL instead
-# We cannot remove this code yet for backwards compatibility while moving to the new table
-KAFKA_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="kafka_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_EVENTS, serialization="Protobuf", proto_schema="events:Event"),
-    extra_fields="",
-    materialized_columns="",
-)
-
-# DEPRECATED
-# Use EVENTS_TABLE_JSON_MV_SQL instead
-# We cannot remove this code yet for backwards compatibility while moving to the new table
-EVENTS_TABLE_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW events_mv ON CLUSTER '{cluster}'
-TO {database}.{target_table}
-AS SELECT
-uuid,
-event,
-properties,
-timestamp,
-team_id,
-distinct_id,
-elements_chain,
-created_at,
-_timestamp,
-_offset
-FROM {database}.kafka_events
-""".format(
-    target_table=WRITABLE_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
 )
 
 # we add the settings to prevent poison pills from stopping ingestion

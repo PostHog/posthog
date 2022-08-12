@@ -16,7 +16,7 @@ function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
             color = 'var(--muted)'
             break
         case PluginLogEntryType.Log:
-            color = 'var(--text-default)'
+            color = 'var(--default)'
             break
         case PluginLogEntryType.Info:
             color = 'var(--blue)'

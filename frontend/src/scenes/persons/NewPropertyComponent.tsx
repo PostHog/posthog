@@ -28,17 +28,13 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
 
     return (
         <>
-            <div className="mb">
-                <div className="text-right">
-                    <LemonButton
-                        data-attr="add-prop-button"
-                        onClick={() => setState({ ...state, creating: true })}
-                        type="primary"
-                    >
-                        New property
-                    </LemonButton>
-                </div>
-            </div>
+            <LemonButton
+                data-attr="add-prop-button"
+                onClick={() => setState({ ...state, creating: true })}
+                type="primary"
+            >
+                New property
+            </LemonButton>
             <Modal
                 visible={state.creating}
                 destroyOnClose

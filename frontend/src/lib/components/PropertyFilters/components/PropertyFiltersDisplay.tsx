@@ -9,7 +9,7 @@ type Props = {
 
 const PropertyFiltersDisplay: React.FunctionComponent<Props> = ({ filters, style }: Props) => {
     return (
-        <div className="PropertyFilters mb" style={style}>
+        <div className="PropertyFilters mb-4" style={style}>
             {filters &&
                 filters.map((item) => {
                     return <PropertyFilterButton key={item.key} item={item} />

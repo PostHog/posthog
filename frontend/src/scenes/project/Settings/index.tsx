@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Button, Card, Divider, Input, Skeleton } from 'antd'
+import { Skeleton } from 'antd'
 import { IPCapture } from './IPCapture'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
@@ -15,7 +15,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
@@ -35,7 +35,7 @@ import { IconInfo, IconRefresh } from 'lib/components/icons'
 import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SlackIntegration } from './SlackIntegration'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: ProjectSettings,
@@ -56,26 +56,16 @@ function DisplayName(): JSX.Element {
     }
 
     return (
-        <div>
-            <Input
-                value={name}
-                onChange={(event) => {
-                    setName(event.target.value)
-                }}
-                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
-                disabled={currentTeamLoading}
-            />
-            <Button
+        <div className="space-y-2" style={{ maxWidth: '40rem' }}>
+            <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
+            <LemonButton
                 type="primary"
-                onClick={(e) => {
-                    e.preventDefault()
-                    updateCurrentTeam({ name })
-                }}
+                onClick={() => updateCurrentTeam({ name })}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
                 Rename Project
-            </Button>
+            </LemonButton>
         </div>
     )
 }
@@ -86,26 +76,25 @@ export function ProjectSettings(): JSX.Element {
     const { location } = useValues(router)
     const { user, hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useAnchor(location.hash)
 
     const loadingComponent = <Skeleton active />
 
     return (
-        <div style={{ marginBottom: 128 }}>
+        <div>
             <PageHeader
                 title="Project settings"
                 caption={`Organize your analytics within the project. These settings only apply to ${
                     currentTeam?.name ?? 'the current project'
                 }.`}
             />
-            <Card>
-                <h2 id="name" className="subtitle">
+            <div className="border rounded p-6">
+                <h2 id="name" className="subtitle mt-0">
                     Display name
                 </h2>
                 {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 id="snippet" className="subtitle">
                     Website event autocapture
                 </h2>
@@ -127,15 +116,15 @@ export function ProjectSettings(): JSX.Element {
                     <br />
                 </p>
                 <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 id="custom-events" className="subtitle">
                     Send custom events
                 </h2>
                 To send custom events <a href="https://posthog.com/docs/integrations">visit PostHog Docs</a> and
                 integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
                 Go, PHP, iOS, Android, and more.
-                <Divider />
-                <h2 id="project-variables" className="subtitle mb">
+                <LemonDivider className="my-6" />
+                <h2 id="project-variables" className="subtitle mb-4">
                     Project Variables
                 </h2>
                 <h3 id="project-api-key" className="l3">
@@ -172,14 +161,14 @@ export function ProjectSettings(): JSX.Element {
                     Write-only means it can only create new events. It can't read events or any of your other data
                     stored with PostHog, so it's safe to use in public apps.
                 </p>
-                <h3 id="project-id" className="l3 mt">
+                <h3 id="project-id" className="l3 mt-4">
                     Project ID
                 </h3>
                 <p>
                     You can use this ID to reference your project in our <a href="https://posthog.com/docs/api">API</a>.
                 </p>
                 <CodeSnippet copyDescription="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="timezone">
                     Timezone
                 </h2>
@@ -188,7 +177,7 @@ export function ProjectSettings(): JSX.Element {
                     buckets data in day/week/month intervals.
                 </p>
                 <TimezoneConfig />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="internal-users-filtering">
                     Filter out internal and test users{' '}
                     <Tooltip title='Events will still be ingested and saved, but they will be excluded from any queries where the "Filter out internal and test users" toggle is set.'>
@@ -215,11 +204,11 @@ export function ProjectSettings(): JSX.Element {
                     </li>
                 </ul>
                 <TestAccountFiltersConfig />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <CorrelationConfig />
                 {hasAdvancedPaths && (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <h2 className="subtitle" id="path_cleaning_filtering">
                             Path cleaning rules
                             <LemonTag type="warning" style={{ marginLeft: 8 }}>
@@ -249,7 +238,7 @@ export function ProjectSettings(): JSX.Element {
                         <PathCleaningFiltersConfig />
                     </>
                 )}
-                <Divider />
+                <LemonDivider className="my-6" />
                 <div id="permitted-domains" /> {/** DEPRECATED: Remove after Jun 1, 2022 */}
                 <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
@@ -267,39 +256,37 @@ export function ProjectSettings(): JSX.Element {
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
                 <AuthorizedUrls />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="attributes">
                     Data attributes
                 </h2>
                 <DataAttributes />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="person-display-name">
                     Person Display Name
                 </h2>
                 <PersonDisplayNameProperties />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="webhook">
                     Webhook integration
                 </h2>
                 <WebhookIntegration />
-                <Divider />
-                {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
-                    <>
-                        <h2 className="subtitle" id="slack">
-                            Slack integration
-                        </h2>
-                        <SlackIntegration />
-                        <Divider />
-                    </>
-                )}
+                <LemonDivider className="my-6" />
+                <>
+                    <h2 className="subtitle" id="slack">
+                        Slack integration
+                    </h2>
+                    <SlackIntegration />
+                    <LemonDivider className="my-6" />
+                </>
                 <h2 className="subtitle" id="datacapture">
                     Data capture configuration
                 </h2>
                 <IPCapture />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle">PostHog Toolbar</h2>
                 <ToolbarSettings />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
                     Recordings
                 </h2>
@@ -327,14 +314,14 @@ export function ProjectSettings(): JSX.Element {
                     .
                 </p>
                 <SessionRecording />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <GroupAnalytics />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <Divider />
+                <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
                     <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
                         {user && <TeamMembers user={user} team={currentTeam} />}
-                        <Divider />
+                        <LemonDivider className="my-6" />
                     </BindLogic>
                 )}
                 <RestrictedArea
@@ -342,7 +329,7 @@ export function ProjectSettings(): JSX.Element {
                     minimumAccessLevel={OrganizationMembershipLevel.Admin}
                     scope={RestrictionScope.Project}
                 />
-            </Card>
+            </div>
         </div>
     )
 }

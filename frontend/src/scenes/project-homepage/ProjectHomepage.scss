@@ -54,36 +54,28 @@
     }
 }
 
-.list-row {
+.ProjectHomePage__listrow {
     display: flex;
     flex-direction: row;
-    width: 100%;
+    flex: 1;
+    gap: 0.5rem;
+    height: 2.5rem;
     align-items: center;
-    justify-content: center;
-    margin-bottom: 0.25rem;
-    color: var(--text-default);
     font-weight: 400; // Overrides font-weight from LemonButton
-    &:last-child {
-        margin-bottom: 0;
-    }
-    .row-text-container {
+    color: var(--default);
+    overflow: hidden;
+
+    .ProjectHomePage__listrow__details {
         flex: 1;
-        margin: 0 0.5rem;
         overflow: hidden;
 
-        p {
-            overflow: hidden;
+        div:first-child {
+            color: var(--primary);
+            font-weight: 600;
+            margin-bottom: 0.25rem;
             text-overflow: ellipsis;
+            overflow: hidden;
             white-space: nowrap;
-            margin: 0;
-
-            &.row-title {
-                font-weight: 600;
-            }
-
-            &.link-text {
-                color: var(--primary);
-            }
         }
     }
 }

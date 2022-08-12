@@ -56,26 +56,24 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                         }
                         options={DASHBOARD_RESTRICTION_OPTIONS}
                         loading={dashboardLoading}
-                        type="stealth"
-                        outlined
                         fullWidth
                         disabled={!canRestrictDashboard}
                     />
                     {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
-                        <div className="mt">
+                        <div className="mt-4">
                             <h4>Collaborators</h4>
                             {canEditDashboard && (
-                                <div className="flex gap-05">
+                                <div className="flex gap-2">
                                     <div style={{ flex: 1 }}>
                                         <LemonSelectMultiple
                                             placeholder="Search for team members to add…"
                                             value={explicitCollaboratorsToBeAdded}
                                             loading={explicitCollaboratorsLoading}
                                             onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
-                                            filterOption={false}
+                                            filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"
-                                            options={usersLemonSelectOptions(addableMembers)}
+                                            options={usersLemonSelectOptions(addableMembers, 'uuid')}
                                         />
                                     </div>
                                     <LemonButton
@@ -90,7 +88,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                             )}
                             <h5 style={{ marginTop: '1rem' }}>Project members with access</h5>
                             <div
-                                className="mt-05"
+                                className="mt-2"
                                 style={{
                                     maxHeight: 300,
                                     overflowY: 'auto',
@@ -149,7 +147,6 @@ function CollaboratorRow({
                         <LemonButton
                             icon={<IconCancel />}
                             onClick={() => deleteCollaborator(user.uuid)}
-                            type="stealth"
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
                             disabled={!wasInvited}
                             status="danger"

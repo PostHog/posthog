@@ -21,6 +21,7 @@ module.exports = {
                 optimizationLevel: 3,
             },
         },
+        '@storybook/addon-a11y',
     ],
     staticDirs: ['public'],
     babel: async () => {

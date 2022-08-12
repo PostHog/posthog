@@ -1,3 +1,7 @@
+.FrameworkPanel {
+    max-width: 400px;
+}
+
 .welcome-panel {
     max-width: 480px;
     border-radius: var(--radius);
@@ -33,11 +37,6 @@
     bottom: 0;
 }
 
-.panel-header {
-    font-size: 14px;
-    color: var(--text-muted-alt);
-}
-
 .ingestion-card-container {
     padding: 40px;
     margin-bottom: 40px;
@@ -57,6 +56,9 @@
     font-size: 28px;
     font-weight: 800;
     margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .ingestion-listening-for-events {

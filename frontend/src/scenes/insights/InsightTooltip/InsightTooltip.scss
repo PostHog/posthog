@@ -91,7 +91,7 @@
         font-size: 0.75rem;
         text-align: center;
         padding: 0.5rem 1rem;
-        color: var(--text-muted);
+        color: var(--muted);
         background-color: var(--bg-light);
 
         .table-subtext-truncated {
@@ -102,7 +102,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            color: var(--text-default);
+            color: var(--default);
             font-weight: 600;
             white-space: nowrap;
         }

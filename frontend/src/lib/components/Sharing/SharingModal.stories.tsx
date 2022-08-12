@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
-import { Sharing, SharingModal, SharingModalProps } from './SharingModal'
+import { SharingModal, SharingModalProps } from './SharingModal'
 import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from '../LemonButton'
@@ -14,9 +14,9 @@ const fakeInsight: Partial<InsightModel> = {
 
 export default {
     title: 'Components/Sharing',
-    component: Sharing,
+    component: SharingModal,
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
-} as ComponentMeta<typeof Sharing>
+} as ComponentMeta<typeof SharingModal>
 
 const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JSX.Element => {
     const { licensed = false, ...props } = args
@@ -67,23 +67,22 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
 
     return (
         <div>
-            <div className="LemonModal">
-                <div className="border-all ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
-                    <Sharing {...(props as SharingModalProps)} closeModal={() => console.log('close')} visible={true} />
-                </div>
+            <div className="bg-default p-2">
+                <SharingModal
+                    {...(props as SharingModalProps)}
+                    closeModal={() => console.log('close')}
+                    isOpen={true}
+                    inline
+                />
             </div>
 
-            <div className="flex justify-center mt">
+            <div className="flex justify-center mt-4">
                 <LemonButton onClick={() => setModalOpen(true)} type="primary">
                     Open as Modal
                 </LemonButton>
             </div>
 
-            <SharingModal
-                {...(props as SharingModalProps)}
-                closeModal={() => setModalOpen(false)}
-                visible={modalOpen}
-            />
+            <SharingModal {...(props as SharingModalProps)} closeModal={() => setModalOpen(false)} isOpen={modalOpen} />
         </div>
     )
 }

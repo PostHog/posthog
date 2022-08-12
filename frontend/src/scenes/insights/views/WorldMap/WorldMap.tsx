@@ -13,6 +13,7 @@ import { personsModalLogic, PersonsModalParams } from 'scenes/trends/personsModa
 import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from '../../filters/ActionFilter/entityFilterLogic'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
@@ -32,7 +33,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         const svgRect = svgRef.current?.getBoundingClientRect()
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-        const tooltipRect = tooltipEl.getBoundingClientRect()
+
         if (tooltipCoordinates) {
             ReactDOM.render(
                 <>
@@ -43,23 +44,23 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     dataIndex: 1,
                                     datasetIndex: 1,
                                     id: 1,
-                                    filter: {},
                                     breakdown_value: currentTooltip[0],
                                     count: currentTooltip[1]?.aggregated_value || 0,
                                 },
                             ]}
                             renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
                                 typeof datum.breakdown_value === 'string' && (
-                                    <div className="flex-center">
-                                        <span style={{ fontSize: '1.25rem' }} className="mr-05">
-                                            {countryCodeToFlag(datum.breakdown_value)}
-                                        </span>
-                                        <span style={{ whiteSpace: 'nowrap' }}>
+                                    <div className="flex items-center font-semibold">
+                                        <span className="text-xl mr-2">{countryCodeToFlag(datum.breakdown_value)}</span>
+                                        <span className="whitespace-nowrap">
                                             {countryCodeToName[datum.breakdown_value]}
                                         </span>
                                     </div>
                                 )
                             }
+                            renderCount={(value: number) => (
+                                <>{formatAggregationAxisValue(filters.aggregation_axis_format, value)}</>
+                            )}
                             showHeader={false}
                             hideColorCol
                             hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
@@ -67,21 +68,27 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                         />
                     )}
                 </>,
-                tooltipEl
+                tooltipEl,
+                () => {
+                    const tooltipRect = tooltipEl.getBoundingClientRect()
+                    // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
+                    let xOffset: number
+                    if (
+                        svgRect &&
+                        tooltipRect &&
+                        tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX >
+                            svgRect.x + svgRect.width
+                    ) {
+                        xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
+                    } else {
+                        xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
+                    }
+                    tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
+                    tooltipEl.style.top = `${
+                        window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX
+                    }px`
+                }
             )
-            // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
-            let xOffset: number
-            if (
-                svgRect &&
-                tooltipRect &&
-                tooltipCoordinates[0] + tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX > svgRect.x + svgRect.width
-            ) {
-                xOffset = -(tooltipRect.width + WORLD_MAP_TOOLTIP_OFFSET_PX)
-            } else {
-                xOffset = WORLD_MAP_TOOLTIP_OFFSET_PX
-            }
-            tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
-            tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
         } else {
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'

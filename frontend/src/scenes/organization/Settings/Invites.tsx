@@ -59,18 +59,19 @@ export function Invites(): JSX.Element {
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
+            key: 'user_profile_picture',
+            render: function ProfilePictureRender(_, invite) {
+                return <ProfilePicture name={invite.first_name} email={invite.target_email} />
+            },
+            width: 32,
+        },
+        {
             title: 'Invitee',
             dataIndex: 'target_email',
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="flex-center">
-                        <ProfilePicture
-                            name={invite.first_name}
-                            email={invite.target_email}
-                            size="md"
-                            style={{ marginRight: 8 }}
-                        />
+                    <div className="flex items-center">
                         {invite.target_email}
                         {invite.first_name ? ` (${invite.first_name})` : ''}
                     </div>
