@@ -1,4 +1,4 @@
-name: Test Docker image build
+name: E2E CI
 
 on:
     pull_request:
@@ -12,8 +12,8 @@ concurrency:
 
 jobs:
     build:
-        name: Test image build
-        runs-on: ubuntu-20.04
+        name: Docker image build
+        runs-on: ubuntu-latest
 
         outputs:
             docker_image_id: ${{ steps.docker_build.outputs.imageid }}
@@ -78,7 +78,7 @@ jobs:
                       type=docker,dest=/tmp/posthog-image.tar
 
             - name: Push (if PostHog/posthog)
-              if: ${{ github.repository == 'PostHog/posthog' }}
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               run: |
                   docker load < /tmp/posthog-image.tar
                   docker image push --all-tags ghcr.io/posthog/posthog/posthog
@@ -101,7 +101,7 @@ jobs:
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
-        name: Cypress E2E preparation
+        name: Cypress preparation
         runs-on: ubuntu-latest
         timeout-minutes: 30
         outputs:
