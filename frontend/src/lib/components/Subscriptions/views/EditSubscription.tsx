@@ -5,7 +5,7 @@ import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Field } from 'lib/forms/Field'
 import { dayjs } from 'lib/dayjs'
-import { LemonSelect, LemonSelectOptions, LemonSelectProps } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/components/LemonSelect'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconChevronLeft, IconOpenInNew } from 'lib/components/icons'
@@ -75,11 +75,6 @@ export function EditSubscription({
             deleteSubscription(id)
             onDelete()
         }
-    }
-
-    const commonSelectProps: Partial<LemonSelectProps<LemonSelectOptions>> = {
-        status: 'stealth',
-        type: 'secondary',
     }
 
     useEffect(() => {
@@ -175,7 +170,7 @@ export function EditSubscription({
                         </Field>
 
                         <Field name={'target_type'} label={'Destination'}>
-                            <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
+                            <LemonSelect options={targetTypeOptions} />
                         </Field>
 
                         {subscription.target_type === 'email' ? (
@@ -346,10 +341,10 @@ export function EditSubscription({
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>
                                 <Field name={'interval'}>
-                                    <LemonSelect {...commonSelectProps} options={intervalOptions} />
+                                    <LemonSelect options={intervalOptions} />
                                 </Field>
                                 <Field name={'frequency'}>
-                                    <LemonSelect {...commonSelectProps} options={frequencyOptions} />
+                                    <LemonSelect options={frequencyOptions} />
                                 </Field>
 
                                 {subscription.frequency === 'weekly' && (
@@ -358,7 +353,6 @@ export function EditSubscription({
                                         <Field name={'byweekday'}>
                                             {({ value, onChange }) => (
                                                 <LemonSelect
-                                                    {...commonSelectProps}
                                                     options={weekdayOptions}
                                                     value={value ? value[0] : null}
                                                     onChange={(val) => onChange([val])}
@@ -374,7 +368,6 @@ export function EditSubscription({
                                         <Field name={'bysetpos'}>
                                             {({ value, onChange }) => (
                                                 <LemonSelect
-                                                    {...commonSelectProps}
                                                     options={bysetposOptions}
                                                     value={value ? String(value) : null}
                                                     onChange={(val) => {
@@ -386,7 +379,6 @@ export function EditSubscription({
                                         <Field name={'byweekday'}>
                                             {({ value, onChange }) => (
                                                 <LemonSelect
-                                                    {...commonSelectProps}
                                                     dropdownMatchSelectWidth={false}
                                                     options={monthlyWeekdayOptions}
                                                     // "day" is a special case where it is a list of all available days
@@ -403,7 +395,6 @@ export function EditSubscription({
                                 <Field name={'start_date'}>
                                     {({ value, onChange }) => (
                                         <LemonSelect
-                                            {...commonSelectProps}
                                             options={timeOptions}
                                             value={dayjs(value).hour().toString()}
                                             onChange={(val) => {

@@ -103,8 +103,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 onChange={(cohortType) => {
                                                     onChange(cohortType === CohortTypeEnum.Static)
                                                 }}
-                                                type="secondary"
-                                                status="stealth"
                                                 fullWidth
                                                 data-attr="cohort-type"
                                             />

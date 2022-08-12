@@ -380,8 +380,6 @@ export function SavedInsights(): JSX.Element {
                                     }
                                     value={insightType}
                                     onChange={(v: any): void => setSavedInsightsFilters({ insightType: v })}
-                                    status="stealth"
-                                    type="secondary"
                                     dropdownMatchSelectWidth={false}
                                     data-attr="insight-type"
                                 />
@@ -426,8 +424,6 @@ export function SavedInsights(): JSX.Element {
                                         onChange={(v: any): void => {
                                             setSavedInsightsFilters({ createdBy: v })
                                         }}
-                                        status="stealth"
-                                        type="secondary"
                                         dropdownMatchSelectWidth={false}
                                     />
                                 </div>

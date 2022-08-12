@@ -24,7 +24,23 @@ export interface LemonSelectSection<O> {
 export type LemonSelectSections<LemonSelectOptions> = Record<string, LemonSelectSection<LemonSelectOptions>>
 
 export interface LemonSelectProps<O extends LemonSelectOptions>
-    extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange'> {
+    extends Pick<
+        LemonButtonWithPopupProps,
+        | 'id'
+        | 'className'
+        | 'icon'
+        | 'sideIcon'
+        | 'loading'
+        | 'tooltip'
+        | 'fullWidth'
+        | 'disabled'
+        | 'noPadding'
+        | 'data-attr'
+        | 'data-tooltip'
+        | 'aria-label'
+        | 'onClick'
+        | 'tabIndex'
+    > {
     options: O | LemonSelectSection<O>[]
     value?: keyof O | null
     onChange?: (newValue: keyof O | null) => void
@@ -34,6 +50,7 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     allowClear?: boolean
     className?: string
     placeholder?: string
+    size?: 'small' | undefined
     popup?: {
         className?: string
         ref?: React.MutableRefObject<HTMLDivElement | null>
@@ -130,7 +147,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                 maxContentWidth: dropdownMaxContentWidth,
             }}
             icon={localValue && allOptions[localValue]?.icon}
-            // so that the pop up isn't shown along with the close button
+            // so that the pop-up isn't shown along with the close button
             sideIcon={isClearButtonShown ? <div /> : undefined}
             type="secondary"
             status="stealth"
