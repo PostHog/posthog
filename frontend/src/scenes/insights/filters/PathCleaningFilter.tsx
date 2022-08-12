@@ -30,10 +30,21 @@ export function PathCleaningFilter(): JSX.Element {
                     })
                 }}
                 onCopy={(index) => {
-                    const newState = filter.local_path_cleaning_filters
-                        ? [...filter.local_path_cleaning_filters, filter.local_path_cleaning_filters[index]]
-                        : []
-                    setFilter({ local_path_cleaning_filters: newState })
+                    if (
+                        !filter.local_path_cleaning_filters ||
+                        filter.local_path_cleaning_filters?.[index] === undefined ||
+                        index < 0 ||
+                        index >= filter.local_path_cleaning_filters.length
+                    ) {
+                        return
+                    }
+                    setFilter({
+                        local_path_cleaning_filters: [
+                            ...filter.local_path_cleaning_filters.slice(0, index),
+                            filter.local_path_cleaning_filters[index],
+                            ...filter.local_path_cleaning_filters.slice(index),
+                        ],
+                    })
                 }}
                 onRemove={(index) => {
                     const newState = (filter.local_path_cleaning_filters || []).filter((_, i) => i !== index)

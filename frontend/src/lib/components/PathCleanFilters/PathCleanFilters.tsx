@@ -8,7 +8,7 @@ interface PropertyFiltersProps {
     endpoint?: string | null
     onChange: (newItem: Record<string, any>) => void
     onRemove: (index: number) => void
-    onCopy: (index: number) => void
+    onCopy?: (index: number) => void
     pathCleaningFilters: Record<string, any>[]
     pageKey: string
     showConditionBadge?: boolean
@@ -21,7 +21,7 @@ export function PathCleanFilters({
     pageKey,
     onChange,
     onRemove,
-    onCopy,
+    onCopy = () => {},
     pathCleaningFilters,
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover

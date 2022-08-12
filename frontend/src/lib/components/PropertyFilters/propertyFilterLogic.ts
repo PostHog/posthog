@@ -46,11 +46,10 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                     return newState
                 },
                 duplicateFilter: (state, { index }) => {
-                    if (index < 0) {
+                    if (index < 0 || index >= state.length || state?.[index] === undefined) {
                         return state
                     }
-                    const newState = [...state, state[index]]
-                    return newState
+                    return [...state.slice(0, index), state[index], ...state.slice(index)]
                 },
             },
         ],
