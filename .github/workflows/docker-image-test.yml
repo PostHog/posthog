@@ -13,7 +13,7 @@ concurrency:
 jobs:
     build:
         name: Docker image build
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-latest
 
         outputs:
             docker_image_id: ${{ steps.docker_build.outputs.imageid }}
@@ -78,7 +78,7 @@ jobs:
                       type=docker,dest=/tmp/posthog-image.tar
 
             - name: Push (if PostHog/posthog)
-              if: ${{ github.repository == 'PostHog/posthog' }}
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               run: |
                   docker load < /tmp/posthog-image.tar
                   docker image push --all-tags ghcr.io/posthog/posthog/posthog
