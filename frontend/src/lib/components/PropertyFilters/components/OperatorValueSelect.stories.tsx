@@ -64,6 +64,15 @@ export function OperatorValueWithBooleanProperty(): JSX.Element {
     )
 }
 
+export function OperatorValueWithSelectorProperty(): JSX.Element {
+    return (
+        <>
+            <h1>CSS Selector Property</h1>
+            <OperatorValueSelect {...props(PropertyType.Selector)} />
+        </>
+    )
+}
+
 export function OperatorValueWithUnknownProperty(): JSX.Element {
     return (
         <>

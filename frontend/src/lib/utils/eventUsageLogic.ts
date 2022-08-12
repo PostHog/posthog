@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     FilterLogicalOperator,
     PropertyFilterValue,
+    InsightShortId,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -439,6 +440,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadTime,
             error,
         }),
+        reportInsightRefreshTime: (loadingMilliseconds: number, insightShortId: InsightShortId) => ({
+            loadingMilliseconds,
+            insightShortId,
+        }),
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
@@ -454,8 +459,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportInviteMembersButtonClicked: true,
         reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
+        reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
+            loadingMilliseconds,
+            dashboardId,
+        }),
     },
     listeners: ({ values }) => ({
+        reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
+            posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
+        },
+        reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
+            posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
+        },
         reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
             posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })
         },

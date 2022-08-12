@@ -27,7 +27,6 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
                 !canEditInsight ||
                 insight === InsightType.LIFECYCLE ||
                 display === ChartDisplayType.WorldMap ||
-                display === ChartDisplayType.BoldNumber ||
                 date_from === 'all',
         ],
     },

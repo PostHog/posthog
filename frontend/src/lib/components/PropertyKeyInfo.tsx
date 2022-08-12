@@ -159,10 +159,6 @@ export const keyMapping: KeyMappingInterface = {
             description: 'Keys of the feature flags that were active while this event was sent.',
             examples: ['beta-feature'],
         },
-        $enabled_feature_flags: {
-            label: 'Enabled Feature Flags',
-            description: 'Object of the feature flags that were active while this event was sent.',
-        },
         $feature_flag_response: {
             label: 'Feature Flag Response',
             description: 'What the call to feature flag responded with.',

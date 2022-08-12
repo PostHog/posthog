@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
 import React from 'react'
+import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
-import { MetricRow, systemStatusLogic } from './systemStatusLogic'
+import { systemStatusLogic } from './systemStatusLogic'
 
-interface ChangeRowInterface extends Pick<MetricRow, 'value'> {
+interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
     oldValue?: boolean | string | number | null
     metricKey: string
     isSecret?: boolean
@@ -30,13 +31,18 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                     <>
                         {' from '}
                         <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
-                            {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
+                            {RenderMetricValue(null, {
+                                key: metricKey,
+                                value: oldValue,
+                                emptyNullLabel: 'Unset',
+                                isSecret,
+                            })}
                         </span>
                     </>
                 )}
                 {' to '}
                 <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
+                    {RenderMetricValue(null, { key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (
                     <div className="text-danger">This field is secret – you won't see its value once saved</div>

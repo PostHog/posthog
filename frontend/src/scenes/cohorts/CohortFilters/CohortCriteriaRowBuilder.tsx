@@ -133,7 +133,7 @@ export function CohortCriteriaRowBuilder({
                         <Col>
                             <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
                         </Col>
-                        <div>
+                        <Col>
                             <Row align="middle">
                                 {rowShape.fields.map((field, i) => {
                                     return (
@@ -167,7 +167,7 @@ export function CohortCriteriaRowBuilder({
                                     )
                                 })}
                             </Row>
-                        </div>
+                        </Col>
                     </div>
                 </>
             </KeaField>
