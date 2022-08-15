@@ -1,3 +1,4 @@
+from typing import Optional
 from unittest.mock import call, patch
 
 import pytest
@@ -196,12 +197,15 @@ class TestDefaultEventName(BaseTest):
 
 
 class TestLoadDataFromRequest(TestCase):
-    def _create_request_with_headers(self, origin: str, referer: str) -> WSGIRequest:
+    def _create_request_with_headers(
+        self, origin: str, referer: str, user_agent: str = "a browser user agent", url_version: Optional[str] = "1.20.0"
+    ) -> WSGIRequest:
         rf = RequestFactory()
         # the server presents any http headers in upper case with http_ as a prefix
         # see https://docs.djangoproject.com/en/4.0/ref/request-response/#django.http.HttpRequest.META
-        headers = {"HTTP_ORIGIN": origin, "HTTP_REFERER": referer}
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
+        headers = {"HTTP_ORIGIN": origin, "HTTP_REFERER": referer, "User-Agent": user_agent}
+        url = f"/e/{'?ver=1.20.0' if url_version else ''}"
+        post_request = rf.post(url, "content", "text/plain", False, **headers)
         return post_request
 
     @patch("posthog.utils.configure_scope")
@@ -218,7 +222,34 @@ class TestLoadDataFromRequest(TestCase):
 
         patched_scope.assert_called_once()
         mock_set_tag.assert_has_calls(
-            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+            [
+                call("origin", origin),
+                call("referer", referer),
+                call("library", "unknown"),
+                call("library.version", "1.20.0"),
+            ]
+        )
+
+    @patch("posthog.utils.configure_scope")
+    def test_pushes_debug_information_into_sentry_scope_from_useragent_header(self, patched_scope):
+        origin = "potato.io"
+        referer = "https://" + origin
+
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        post_request = self._create_request_with_headers(origin, referer)
+
+        with self.assertRaises(RequestParsingError):
+            load_data_from_request(post_request)
+
+        patched_scope.assert_called_once()
+        mock_set_tag.assert_has_calls(
+            [
+                call("origin", origin),
+                call("referer", referer),
+                call("library", "unknown"),
+                call("library.version", "1.20.0"),
+            ]
         )
 
     @patch("posthog.utils.configure_scope")
@@ -235,7 +266,12 @@ class TestLoadDataFromRequest(TestCase):
 
         patched_scope.assert_called_once()
         mock_set_tag.assert_has_calls(
-            [call("origin", origin), call("referer", referer), call("library.version", "1.20.0")]
+            [
+                call("origin", origin),
+                call("referer", referer),
+                call("library", "unknown"),
+                call("library.version", "1.20.0"),
+            ]
         )
 
     @patch("posthog.utils.configure_scope")
@@ -250,7 +286,12 @@ class TestLoadDataFromRequest(TestCase):
 
         patched_scope.assert_called_once()
         mock_set_tag.assert_has_calls(
-            [call("origin", "unknown"), call("referer", "unknown"), call("library.version", "unknown")]
+            [
+                call("origin", "unknown"),
+                call("referer", "unknown"),
+                call("library", "unknown"),
+                call("library.version", "unknown"),
+            ]
         )
 
     def test_fails_to_JSON_parse_the_literal_string_undefined_when_not_compressed(self):

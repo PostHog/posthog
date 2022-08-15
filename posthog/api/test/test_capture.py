@@ -220,6 +220,31 @@ class TestCapture(BaseTest):
 
         mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
 
+    @patch("posthog.utils.configure_scope")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
+    def test_capture_event_adds_library_to_sentry_from_user_agent(self, patched_utils_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_utils_scope)
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)),
+                HTTP_ORIGIN="https://localhost",
+                HTTP_USER_AGENT="posthog-test/1.34.1",
+            )
+
+        mock_set_tag.assert_has_calls([call("library", "posthog-test"), call("library.version", "1.34.1")])
+
     @patch("posthog.api.capture.configure_scope")
     @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
     def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
