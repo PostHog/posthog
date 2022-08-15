@@ -12,8 +12,8 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
+    ClickHouseEvent,
     Database,
-    Event,
     Hub,
     LogLevel,
     Person,
@@ -70,7 +70,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
             return [
                 distinctIds,
-                (events as Event[])
+                (events as ClickHouseEvent[])
                     .filter((event) => distinctIds.includes(event.distinct_id))
                     .sort((e1, e2) => new Date(e1.timestamp).getTime() - new Date(e2.timestamp).getTime())
                     .map((event) => event.event),
@@ -407,12 +407,12 @@ test('capture new person', async () => {
     const [person] = persons
     const distinctIds = await hub.db.fetchDistinctIdValues(person)
 
-    const [event] = events as Event[]
+    const [event] = events as ClickHouseEvent[]
     expect(event.distinct_id).toEqual('2')
     expect(distinctIds).toEqual(['2'])
     expect(event.event).toEqual('$autocapture')
 
-    const elements = await hub.db.fetchElements(event)
+    const elements = event.elements_chain!
     expect(elements[0].tag_name).toEqual('a')
     expect(elements[0].attr_class).toEqual(['btn', 'btn-sm'])
     expect(elements[1].order).toEqual(1)
@@ -909,8 +909,8 @@ test('long htext', async () => {
         new UUIDT().toString()
     )
 
-    const [event] = (await hub.db.fetchEvents()) as Event[]
-    const [element] = await hub.db.fetchElements(event)
+    const [event] = await hub.db.fetchEvents()
+    const [element] = event.elements_chain!
     expect(element.href?.length).toEqual(2048)
     expect(element.text?.length).toEqual(400)
 })
@@ -954,9 +954,9 @@ test('capture first team event', async () => {
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
 
-    const [event] = (await hub.db.fetchEvents()) as Event[]
+    const [event] = await hub.db.fetchEvents()
 
-    const elements = await hub.db.fetchElements(event)
+    const elements = event.elements_chain!
     expect(elements.length).toEqual(1)
 })
 

@@ -6,7 +6,6 @@ import { Client } from 'pg'
 
 import { ClickHouseEvent, Element, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
-import { chainToElements } from '../../../../utils/db/elements-chain'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
 
 export interface RawElement extends Element {
@@ -136,7 +135,7 @@ export const fetchEventsForInterval = async (
 export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
     const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
     if (eventName === '$autocapture' && elements_chain) {
-        properties['$elements'] = convertDatabaseElementsToRawElements(chainToElements(elements_chain))
+        properties['$elements'] = convertDatabaseElementsToRawElements(elements_chain)
     }
     properties['$$historical_export_source_db'] = 'clickhouse'
     const parsedEvent = {
@@ -144,12 +143,12 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
         team_id,
         distinct_id,
         properties,
-        timestamp,
+        timestamp: timestamp.toISO(),
         now: DateTime.now().toISO(),
         event: eventName || '',
         ip: properties?.['$ip'] || '',
         site_url: '',
-        sent_at: created_at,
+        sent_at: created_at.toISO(),
     }
     return addHistoricalExportEventProperties(parsedEvent)
 }

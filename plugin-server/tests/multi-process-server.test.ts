@@ -1,5 +1,5 @@
 import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
-import { delay, UUIDT } from '../src/utils/utils'
+import { UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
@@ -55,9 +55,8 @@ describe('multi-process plugin server', () => {
         await posthog.capture('custom event', { name: 'haha', uuid })
         await ingestionServer.hub.kafkaProducer.flush()
 
-        await delay(5000)
         await delayUntilEventIngested(() => ingestionServer.hub.db.fetchEvents())
-        await delayUntilEventIngested(() => Promise.resolve(testConsole.read()), 2)
+        await delayUntilEventIngested(() => Promise.resolve(testConsole.read()), 2, undefined, 200)
 
         const events = await ingestionServer.hub.db.fetchEvents()
 

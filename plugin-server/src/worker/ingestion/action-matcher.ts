@@ -13,9 +13,9 @@ import {
     Element,
     ElementPropertyFilter,
     EventPropertyFilter,
-    IngestionEvent,
     IngestionPersonData,
     PersonPropertyFilter,
+    PostIngestionEvent,
     PropertyFilter,
     PropertyFilterWithOperator,
     PropertyOperator,
@@ -110,7 +110,7 @@ export class ActionMatcher {
 
     /** Get all actions matched to the event. */
     public async match(
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         personContainer: LazyPersonContainer,
         elements?: Element[]
     ): Promise<Action[]> {
@@ -141,7 +141,7 @@ export class ActionMatcher {
      * The event is considered a match if any of the action's steps (match groups) is a match.
      */
     public async checkAction(
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         elements: Element[] | undefined,
         personContainer: LazyPersonContainer,
         action: Action
@@ -168,7 +168,7 @@ export class ActionMatcher {
      * The event is considered a match if no subcheck fails. Many subchecks are usually irrelevant and skipped.
      */
     private async checkStep(
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         elements: Element[] | undefined,
         personContainer: LazyPersonContainer,
         step: ActionStep
@@ -190,7 +190,7 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's "URL" constraint.
      * Step properties: `url_matching`, `url`.
      */
-    private checkStepUrl(event: IngestionEvent, step: ActionStep): boolean {
+    private checkStepUrl(event: PostIngestionEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED
         if (step.url) {
             const eventUrl = event.properties?.$current_url
@@ -264,7 +264,7 @@ export class ActionMatcher {
      * Return whether the event is a match for the step's event name constraint.
      * Step property: `event`.
      */
-    private checkStepEvent(event: IngestionEvent, step: ActionStep): boolean {
+    private checkStepEvent(event: PostIngestionEvent, step: ActionStep): boolean {
         // CHECK CONDITIONS, OTHERWISE SKIPPED
         if (step.event && event.event !== step.event) {
             return false // EVENT NAME IS A MISMATCH
@@ -279,7 +279,7 @@ export class ActionMatcher {
      * Step property: `properties`.
      */
     private async checkStepFilters(
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         elements: Element[],
         personContainer: LazyPersonContainer,
         step: ActionStep
@@ -300,7 +300,7 @@ export class ActionMatcher {
      * Sublevel 3 of action matching.
      */
     private async checkEventAgainstFilter(
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         elements: Element[],
         personContainer: LazyPersonContainer,
         filter: PropertyFilter
@@ -324,7 +324,7 @@ export class ActionMatcher {
     /**
      * Sublevel 4 of action matching.
      */
-    private checkEventAgainstEventFilter(event: IngestionEvent, filter: EventPropertyFilter): boolean {
+    private checkEventAgainstEventFilter(event: PostIngestionEvent, filter: EventPropertyFilter): boolean {
         return this.checkPropertiesAgainstFilter(event.properties, filter)
     }
 
