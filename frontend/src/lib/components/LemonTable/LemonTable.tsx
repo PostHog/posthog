@@ -19,7 +19,7 @@ function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason
 function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
 function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
     const columnKey = column.key || column.dataIndex
-    if (obligationReason && !columnKey) {
+    if (obligationReason && columnKey == null) {
         throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
     }
     return columnKey
@@ -70,6 +70,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
+    'data-tooltip'?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -98,6 +99,7 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
+    'data-tooltip': dataTooltip,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -188,6 +190,7 @@ export function LemonTable<T extends Record<string, any>>({
             )}
             style={style}
             data-attr={dataAttr}
+            data-tooltip={dataTooltip}
         >
             <div className="scrollable__inner" ref={scrollRef}>
                 <div className="LemonTable__content">
@@ -227,7 +230,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         columnGroup.children.map((column, columnIndex) => (
                                             <th
                                                 key={`LemonTable-th-${columnGroupIndex}-${
-                                                    determineColumnKey(column) || columnIndex
+                                                    determineColumnKey(column) ?? columnIndex
                                                 }`}
                                                 className={clsx(
                                                     column.sorter && 'LemonTable__header--actionable',

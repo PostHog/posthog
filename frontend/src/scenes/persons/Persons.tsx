@@ -38,8 +38,8 @@ export function PersonsScene(): JSX.Element {
     return (
         <div className="persons-list">
             {!cohortId && <PersonPageHeader />}
-            <div className="space-y-05">
-                <div className="space-between-items" style={{ gap: '0.75rem' }}>
+            <div className="space-y-2">
+                <div className="flex justify-between items-center gap-2">
                     <PersonsSearch autoFocus={!cohortId} />
 
                     <Popconfirm
@@ -73,7 +73,7 @@ export function PersonsScene(): JSX.Element {
                         loadPersons()
                     }}
                     endpoint="person"
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
                     showConditionBadge
                 />
                 <PersonsTable

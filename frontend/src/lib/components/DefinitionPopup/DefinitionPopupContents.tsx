@@ -66,7 +66,7 @@ function TaxonomyIntroductionSection(): JSX.Element {
                 width: '100%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                color: 'var(--text-muted)',
+                color: 'var(--muted)',
             }}
         >
             <Tooltip title="Viewing ingestion data requires a premium license">
@@ -122,7 +122,7 @@ export function VerifiedEventCheckbox({
                     Verified event
                     {compact && (
                         <Tooltip title={copy}>
-                            <InfoCircleOutlined style={{ marginLeft: '0.5rem', color: 'var(--text-muted)' }} />
+                            <InfoCircleOutlined style={{ marginLeft: '0.5rem', color: 'var(--muted)' }} />
                         </Tooltip>
                     )}
                 </span>

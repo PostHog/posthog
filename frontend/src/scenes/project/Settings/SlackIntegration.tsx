@@ -4,10 +4,10 @@ import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { IconDelete, IconSlack } from 'lib/components/icons'
-import { Modal } from 'antd'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
@@ -16,18 +16,22 @@ export function SlackIntegration(): JSX.Element {
     const { user } = useValues(userLogic)
 
     const onDeleteClick = (): void => {
-        Modal.confirm({
+        LemonDialog.open({
             title: `Do you want to disconnect from Slack?`,
-            content:
+            description:
                 'This cannot be undone. PostHog resources configured to use Slack will remain but will stop working.',
-            okText: 'Yes, disconnect',
-            okType: 'danger',
-            onOk() {
-                if (slackIntegration?.id) {
-                    deleteIntegration(slackIntegration.id)
-                }
+            primaryButton: {
+                children: 'Yes, disconnect',
+                status: 'danger',
+                onClick: () => {
+                    if (slackIntegration?.id) {
+                        deleteIntegration(slackIntegration.id)
+                    }
+                },
             },
-            cancelText: 'No thanks',
+            secondaryButton: {
+                children: 'No thanks',
+            },
         })
     }
 
@@ -42,8 +46,8 @@ export function SlackIntegration(): JSX.Element {
 
             <p>
                 {slackIntegration ? (
-                    <div className="border-all space-between-items items-center pa-05">
-                        <div className="flex items-center gap ml-05">
+                    <div className="rounded border flex justify-between items-center p-2">
+                        <div className="flex items-center gap-4 ml-2">
                             <IconSlack />
                             <div>
                                 <div>

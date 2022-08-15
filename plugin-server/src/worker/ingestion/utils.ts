@@ -48,7 +48,7 @@ export function generateEventDeadLetterQueueMessage(
         topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE,
         messages: [
             {
-                value: Buffer.from(JSON.stringify(deadLetterQueueEvent)),
+                value: JSON.stringify(deadLetterQueueEvent),
             },
         ],
     }

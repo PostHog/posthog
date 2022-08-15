@@ -48,12 +48,12 @@ export function PropertyGroupFilters({
     const showHeader = !noTitle || (propertyGroupFilter.type && propertyGroupFilter.values.length > 1)
 
     return (
-        <>
+        <div className="space-y-2 property-group-filters">
             {propertyGroupFilter.values && (
-                <div className="property-group-filters">
-                    <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                        {showHeader ? (
-                            <div className="flex-center space-between-items">
+                <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
+                    {showHeader ? (
+                        <>
+                            <div className="flex items-center justify-between">
                                 {!noTitle ? <GlobalFiltersTitle orFiltering={true} /> : null}
                                 {propertyGroupFilter.type && propertyGroupFilter.values.length > 1 && (
                                     <AndOrFilterSelect
@@ -63,16 +63,18 @@ export function PropertyGroupFilters({
                                     />
                                 )}
                             </div>
-                        ) : null}
-                        <LemonDivider large />
-                        <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
-                        <div className="mt">
+                            <LemonDivider className="my-4" />
+                        </>
+                    ) : null}
+                    <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
+                    {propertyGroupFilter.values?.length ? (
+                        <div>
                             {propertyGroupFilter.values?.map(
                                 (group: PropertyGroupFilterValue, propertyGroupIndex: number) => {
                                     return (
                                         <React.Fragment key={propertyGroupIndex}>
                                             <div className="property-group">
-                                                <Row justify="space-between" align="middle" className="mb-05">
+                                                <div className="flex justify-between items-center mb-2">
                                                     <AndOrFilterSelect
                                                         onChange={(type) =>
                                                             setInnerPropertyGroupType(type, propertyGroupIndex)
@@ -80,6 +82,7 @@ export function PropertyGroupFilters({
                                                         value={group.type}
                                                     />
                                                     <div
+                                                        // eslint-disable-next-line react/forbid-dom-props
                                                         style={{
                                                             marginLeft: 8,
                                                             marginRight: 8,
@@ -90,17 +93,17 @@ export function PropertyGroupFilters({
                                                     />
                                                     <LemonButton
                                                         icon={<IconCopy />}
-                                                        type="alt"
+                                                        status="primary-alt"
                                                         onClick={() => duplicateFilterGroup(propertyGroupIndex)}
                                                         size="small"
                                                     />
                                                     <LemonButton
                                                         icon={<IconDelete />}
-                                                        type="alt"
+                                                        status="primary-alt"
                                                         onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                         size="small"
                                                     />
-                                                </Row>
+                                                </div>
                                                 <PropertyFilters
                                                     orFiltering={true}
                                                     propertyFilters={group.values}
@@ -124,20 +127,18 @@ export function PropertyGroupFilters({
                                 }
                             )}
                         </div>
-                    </BindLogic>
-                </div>
+                    ) : null}
+                </BindLogic>
             )}
             <LemonButton
                 data-attr={`${pageKey}-add-filter-group`}
-                className="mb mt"
                 type="secondary"
                 onClick={() => addFilterGroup()}
                 icon={<IconPlusMini color="var(--primary)" />}
-                fullWidth
             >
                 Add filter group
             </LemonButton>
-        </>
+        </div>
     )
 }
 
@@ -158,7 +159,7 @@ export function AndOrFilterSelect({
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <Row align="middle" wrap={false} className="and-or-filter">
-            <span className="ml-05">{prefix}</span>
+            <span className="ml-2">{prefix}</span>
             <Select
                 optionLabelProp="label"
                 dropdownClassName="and-or-filter-select"

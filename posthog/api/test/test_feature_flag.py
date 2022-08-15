@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.test.base import APIBaseTest
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -941,6 +942,158 @@ class TestFeatureFlag(APIBaseTest):
         groups_flag = response.json()[0]
         self.assertEqual(groups_flag["feature_flag"]["key"], "groups-flag")
         self.assertEqual(groups_flag["value"], True)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_local_evaluation(self, mock_capture):
+        FeatureFlag.objects.all().delete()
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 21}],},
+            },
+            format="json",
+        )
+
+        # old style feature flags
+        FeatureFlag.objects.create(
+            name="Beta feature",
+            key="beta-feature",
+            team=self.team,
+            rollout_percentage=51,
+            filters={"properties": [{"key": "beta-property", "value": "beta-value"}]},
+            created_by=self.user,
+        )
+        # and inactive flag
+        FeatureFlag.objects.create(
+            name="Inactive feature",
+            key="inactive-flag",
+            team=self.team,
+            active=False,
+            rollout_percentage=100,
+            filters={"properties": []},
+            created_by=self.user,
+        )
+
+        key = PersonalAPIKey(label="Test", user=self.user)
+        key.save()
+        personal_api_key = key.value
+
+        self.client.logout()
+        # `local_evaluation` is called by logged out clients!
+
+        # missing API key
+        response = self.client.get(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        response = self.client.get(f"/api/feature_flag/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue("flags" in response_data and "group_type_mapping" in response_data)
+        self.assertEqual(len(response_data["flags"]), 4)
+
+        sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
+
+        self.assertDictContainsSubset(
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {
+                    "groups": [{"rollout_percentage": 20}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": True,
+                "rollout_percentage": 20,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[0],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "beta-property", "value": "beta-value"}], "rollout_percentage": 51}
+                    ]
+                },
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": False,
+                "rollout_percentage": None,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[1],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {"groups": [{"rollout_percentage": 21}], "aggregation_group_type_index": 0,},
+                "deleted": False,
+                "active": True,
+                "is_simple_flag": False,
+                "rollout_percentage": None,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[2],
+        )
+        self.assertDictContainsSubset(
+            {
+                "name": "Inactive feature",
+                "key": "inactive-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                "deleted": False,
+                "active": False,
+                "is_simple_flag": True,
+                "rollout_percentage": 100,
+                "ensure_experience_continuity": False,
+                "experiment_set": [],
+            },
+            sorted_flags[3],
+        )
+
+        self.assertEqual(response_data["group_type_mapping"], {"0": "organization", "1": "company",})
 
     def test_validation_person_properties(self):
         person_request = self._create_flag_with_properties(

@@ -2,8 +2,7 @@ import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { AvailableFeature } from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useStorybookMocks } from '~/mocks/browser'
 import { mockIntegration } from '~/test/mocks'
 import { SlackIntegration } from './SlackIntegration'
 
@@ -17,7 +16,6 @@ const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }):
     const { instanceConfigured = true, integrated = false } = args
 
     useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
-    useFeatureFlags([FEATURE_FLAGS.SUBSCRIPTIONS_SLACK])
 
     useStorybookMocks({
         get: {
@@ -40,7 +38,7 @@ const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }):
     })
 
     return (
-        <div className="border-all pa ma">
+        <div className="rounded border p-4 m-4">
             <SlackIntegration />
         </div>
     )

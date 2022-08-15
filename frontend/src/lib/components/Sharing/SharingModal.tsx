@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { LemonModal } from 'lib/components/LemonModal'
 import { InsightModel, InsightShortId, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { sharingLogic } from './sharingLogic'
@@ -15,16 +14,25 @@ import './SharingModal.scss'
 import { Form } from 'kea-forms'
 import { Spinner } from '../Spinner/Spinner'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { LemonModal } from '../LemonModal'
 
 export interface SharingModalProps {
     dashboardId?: number
     insightShortId?: InsightShortId
     insight?: Partial<InsightModel>
-    visible: boolean
+    isOpen: boolean
     closeModal: () => void
+    inline?: boolean
 }
 
-export function Sharing({ dashboardId, insightShortId, insight, closeModal }: SharingModalProps): JSX.Element {
+export function SharingModal({
+    dashboardId,
+    insightShortId,
+    insight,
+    closeModal,
+    isOpen,
+    inline,
+}: SharingModalProps): JSX.Element {
     const logicProps = {
         dashboardId,
         insightShortId,
@@ -50,157 +58,152 @@ export function Sharing({ dashboardId, insightShortId, insight, closeModal }: Sh
     }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <div className="space-y">
-            <h3>{dashboardId ? 'Dashboard' : 'Insight'} permissions</h3>
-            <LemonDivider large />
-
-            {dashboardId ? <DashboardCollaboration dashboardId={dashboardId} /> : undefined}
-
-            {!sharingConfiguration && sharingConfigurationLoading ? (
-                <Skeleton />
-            ) : !sharingConfiguration ? (
-                <p>Something went wrong...</p>
-            ) : (
-                <>
-                    <LemonSwitch
-                        id="sharing-switch"
-                        label={`Share ${resource} publicly`}
-                        checked={sharingConfiguration.enabled}
-                        loading={sharingConfigurationLoading}
-                        data-attr="sharing-switch"
-                        onChange={(active) => {
-                            setIsEnabled(active)
-                        }}
-                        icon={<IconGlobeLock />}
-                        fullWidth
-                        type="primary"
-                    />
-
-                    {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
-                        <>
-                            <LemonDivider large />
-                            <div className="space-y-05">
-                                <div className="space-between-items">
-                                    <TitleWithIcon
-                                        icon={
-                                            <Tooltip
-                                                title={`Use this HTML snippet to embed the ${resource} on your website`}
-                                            >
-                                                <IconInfo />
-                                            </Tooltip>
-                                        }
-                                    >
-                                        <strong>Embed {resource}</strong>
-                                    </TitleWithIcon>
-                                    <LemonButton
-                                        data-attr="sharing-link-button"
-                                        size={'small'}
-                                        onClick={() => copyToClipboard(shareLink, 'link')}
-                                        icon={<IconLink />}
-                                    >
-                                        Copy share link
-                                    </LemonButton>
-                                </div>
-                                <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
-                            </div>
-
-                            <Form logic={sharingLogic} props={logicProps} formKey="embedConfig" className="space-y-05">
-                                {insight && (
-                                    <div className="border-all">
-                                        <LemonButton
-                                            fullWidth
-                                            type="stealth"
-                                            sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                            onClick={togglePreview}
-                                        >
-                                            Preview
-                                            {showPreview && !iframeLoaded ? (
-                                                <Spinner size="sm" className="ml-05" />
-                                            ) : null}
-                                        </LemonButton>
-                                        {showPreview && (
-                                            <div className="SharingPreview border-top">
-                                                <iframe
-                                                    style={{ display: 'block' }}
-                                                    {...iframeProperties}
-                                                    onLoad={() => setIframeLoaded(true)}
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                                <Field name="whitelabel" noStyle>
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            fullWidth
-                                            type="primary"
-                                            label={
-                                                <div className="flex">
-                                                    <div className="mr-05" style={{ lineHeight: '1.5rem' }}>
-                                                        Show PostHog branding
-                                                    </div>
-                                                    {!whitelabelAvailable ? (
-                                                        <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
-                                                            <IconLockLemon />
-                                                        </Tooltip>
-                                                    ) : null}
-                                                </div>
-                                            }
-                                            onChange={() => onChange(!value)}
-                                            checked={!value}
-                                            disabled={!whitelabelAvailable}
-                                        />
-                                    )}
-                                </Field>
-                                {insight && (
-                                    <Field name="noHeader" noStyle>
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                fullWidth
-                                                type="primary"
-                                                label={<div>Show title and description</div>}
-                                                onChange={() => onChange(!value)}
-                                                checked={!value}
-                                            />
-                                        )}
-                                    </Field>
-                                )}
-                                {showLegendCheckbox && (
-                                    <Field name="legend" noStyle>
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                fullWidth
-                                                type="primary"
-                                                label={<div>Show legend</div>}
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                            />
-                                        )}
-                                    </Field>
-                                )}
-                            </Form>
-                        </>
-                    ) : null}
-                </>
-            )}
-            <LemonDivider large />
-            <div className="page-buttons">
+        <LemonModal
+            onClose={closeModal}
+            isOpen={isOpen}
+            width={480}
+            title={`${dashboardId ? 'Dashboard' : 'Insight'} permissions`}
+            footer={
                 <LemonButton type="secondary" onClick={closeModal}>
                     Done
                 </LemonButton>
+            }
+            inline={inline}
+        >
+            <div className="space-y-4">
+                {dashboardId ? <DashboardCollaboration dashboardId={dashboardId} /> : undefined}
+
+                {!sharingConfiguration && sharingConfigurationLoading ? (
+                    <Skeleton />
+                ) : !sharingConfiguration ? (
+                    <p>Something went wrong...</p>
+                ) : (
+                    <>
+                        <LemonSwitch
+                            id="sharing-switch"
+                            label={`Share ${resource} publicly`}
+                            checked={sharingConfiguration.enabled}
+                            loading={sharingConfigurationLoading}
+                            data-attr="sharing-switch"
+                            onChange={(active) => setIsEnabled(active)}
+                            icon={<IconGlobeLock />}
+                            bordered
+                            fullWidth
+                        />
+
+                        {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
+                            <>
+                                <LemonDivider className="my-4" />
+                                <div className="space-y-2">
+                                    <div className="flex justify-between">
+                                        <TitleWithIcon
+                                            icon={
+                                                <Tooltip
+                                                    title={`Use this HTML snippet to embed the ${resource} on your website`}
+                                                >
+                                                    <IconInfo />
+                                                </Tooltip>
+                                            }
+                                        >
+                                            <strong>Embed {resource}</strong>
+                                        </TitleWithIcon>
+                                        <LemonButton
+                                            data-attr="sharing-link-button"
+                                            size={'small'}
+                                            onClick={() => copyToClipboard(shareLink, 'link')}
+                                            icon={<IconLink />}
+                                        >
+                                            Copy share link
+                                        </LemonButton>
+                                    </div>
+                                    <CodeSnippet language={Language.HTML}>{embedCode}</CodeSnippet>
+                                </div>
+
+                                <Form
+                                    logic={sharingLogic}
+                                    props={logicProps}
+                                    formKey="embedConfig"
+                                    className="space-y-2"
+                                >
+                                    {insight && (
+                                        <div className="rounded border">
+                                            <LemonButton
+                                                fullWidth
+                                                status="stealth"
+                                                sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                                onClick={togglePreview}
+                                            >
+                                                Preview
+                                                {showPreview && !iframeLoaded ? (
+                                                    <Spinner size="sm" className="ml-2" />
+                                                ) : null}
+                                            </LemonButton>
+                                            {showPreview && (
+                                                <div className="SharingPreview border-t">
+                                                    <iframe
+                                                        style={{ display: 'block' }}
+                                                        {...iframeProperties}
+                                                        onLoad={() => setIframeLoaded(true)}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    <Field name="whitelabel">
+                                        {({ value, onChange }) => (
+                                            <LemonSwitch
+                                                fullWidth
+                                                bordered
+                                                label={
+                                                    <div className="flex">
+                                                        <div className="mr-2" style={{ lineHeight: '1.5rem' }}>
+                                                            Show PostHog branding
+                                                        </div>
+                                                        {!whitelabelAvailable ? (
+                                                            <Tooltip title="Upgrade to PostHog Scale to hide PostHog branding">
+                                                                <IconLockLemon />
+                                                            </Tooltip>
+                                                        ) : null}
+                                                    </div>
+                                                }
+                                                onChange={() => onChange(!value)}
+                                                checked={!value}
+                                                disabled={!whitelabelAvailable}
+                                            />
+                                        )}
+                                    </Field>
+                                    {insight && (
+                                        <Field name="noHeader">
+                                            {({ value, onChange }) => (
+                                                <LemonSwitch
+                                                    fullWidth
+                                                    bordered
+                                                    label={<div>Show title and description</div>}
+                                                    onChange={() => onChange(!value)}
+                                                    checked={!value}
+                                                />
+                                            )}
+                                        </Field>
+                                    )}
+                                    {showLegendCheckbox && (
+                                        <Field name="legend">
+                                            {({ value, onChange }) => (
+                                                <LemonSwitch
+                                                    fullWidth
+                                                    bordered
+                                                    label={<div>Show legend</div>}
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                />
+                                            )}
+                                        </Field>
+                                    )}
+                                </Form>
+                            </>
+                        ) : null}
+                    </>
+                )}
             </div>
-        </div>
-    )
-}
-
-export function SharingModal(props: SharingModalProps): JSX.Element {
-    const { visible, closeModal } = props
-
-    return (
-        <>
-            <LemonModal onCancel={closeModal} afterClose={closeModal} visible={visible} width={480}>
-                <Sharing {...props} />
-            </LemonModal>
-        </>
+        </LemonModal>
     )
 }

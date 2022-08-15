@@ -23,11 +23,6 @@ export enum ConfigMode {
     Edit = 'edit',
     Saving = 'saving',
 }
-export interface MetricRow {
-    metric: string
-    key: string
-    value?: boolean | string | number | null
-}
 
 export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
 
@@ -49,10 +44,12 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
     'ENABLE_ACTOR_ON_EVENTS_TEAMS',
+    'GEOIP_PROPERTY_OVERRIDES_TEAMS',
     'STRICT_CACHING_TEAMS',
     'SLACK_APP_CLIENT_ID',
     'SLACK_APP_CLIENT_SECRET',
     'SLACK_APP_SIGNING_SECRET',
+    'PARALLEL_DASHBOARD_ITEM_CACHE',
 ]
 
 export const systemStatusLogic = kea<systemStatusLogicType>({

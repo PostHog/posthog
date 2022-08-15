@@ -36,8 +36,17 @@ import {
     range,
     durationOperatorMap,
     isExternalLink,
+    selectorOperatorMap,
 } from './utils'
-import { ActionFilter, ElementType, FilterLogicalOperator, PropertyOperator, PropertyType, TimeUnitType } from '~/types'
+import {
+    ActionFilter,
+    ElementType,
+    EventType,
+    FilterLogicalOperator,
+    PropertyOperator,
+    PropertyType,
+    TimeUnitType,
+} from '~/types'
 import { dayjs } from 'lib/dayjs'
 
 describe('toParams', () => {
@@ -130,15 +139,18 @@ describe('formatLabel()', () => {
 
 describe('midEllipsis()', () => {
     it('returns same string if short', () => {
+        expect(midEllipsis('12', 10)).toEqual('12')
         expect(midEllipsis('1234567890', 10)).toEqual('1234567890')
     })
 
     it('formats string properly', () => {
-        expect(midEllipsis('1234567890', 2)).toEqual('1...0')
-        expect(midEllipsis('1234567890', 4)).toEqual('12...90')
-        expect(midEllipsis('1234567890', 8)).toEqual('1234...7890')
-        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 26)).toEqual('ZgZbZgD9Z4U2F...oSdWwrEWtdBeM')
-        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 25).length).toBeLessThanOrEqual(28) // 25 + 3 (...)
+        expect(midEllipsis('1234567890', 2)).toEqual('1…')
+        expect(midEllipsis('1234567890', 4)).toEqual('12…0')
+        expect(midEllipsis('1234567890', 8)).toEqual('1234…890')
+        expect(midEllipsis('1234567890', 9)).toEqual('1234…7890')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 26)).toEqual('ZgZbZgD9Z4U2F…SdWwrEWtdBeM')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 25)).toEqual('ZgZbZgD9Z4U2…SdWwrEWtdBeM')
+        expect(midEllipsis('ZgZbZgD9Z4U2FsohDYAJ-hMdoxY7-oSdWwrEWtdBeM', 24)).toEqual('ZgZbZgD9Z4U2…dWwrEWtdBeM')
     })
 })
 
@@ -355,24 +367,24 @@ describe('humanFriendlyDuration()', () => {
         expect(humanFriendlyDuration(45.2)).toEqual('45s')
     })
     it('returns correct value for 60 < t < 120', () => {
-        expect(humanFriendlyDuration(90)).toEqual('1m 30s')
+        expect(humanFriendlyDuration(90)).toEqual('1m 30s')
     })
     it('returns correct value for t > 120', () => {
         expect(humanFriendlyDuration(360)).toEqual('6m')
     })
     it('returns correct value for t >= 3600', () => {
         expect(humanFriendlyDuration(3600)).toEqual('1h')
-        expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
-        expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
-        expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-        expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
+        expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
+        expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
+        expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
+        expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
     })
     it('returns correct value for t >= 86400', () => {
         expect(humanFriendlyDuration(86400)).toEqual('1d')
         expect(humanFriendlyDuration(86400.12)).toEqual('1d')
     })
     it('truncates to specified # of units', () => {
-        expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
+        expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
         expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
         expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
     })
@@ -473,7 +485,7 @@ describe('eventToName()', () => {
         event: '',
         properties: {},
         person: {},
-    }
+    } as any as EventType
 
     it('handles page events as expected', () => {
         expect(eventToDescription({ ...baseEvent, event: '$pageview', properties: { $pathname: '/hello' } })).toEqual(
@@ -569,6 +581,7 @@ describe('{floor|ceil}MsToClosestSecond()', () => {
             { propertyType: PropertyType.Numeric, expected: numericOperatorMap },
             { propertyType: PropertyType.Boolean, expected: booleanOperatorMap },
             { propertyType: PropertyType.Duration, expected: durationOperatorMap },
+            { propertyType: PropertyType.Selector, expected: selectorOperatorMap },
             { propertyType: undefined, expected: genericOperatorMap },
         ]
         testCases.forEach((testcase) => {

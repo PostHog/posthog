@@ -1,5 +1,6 @@
 from unittest.mock import call, patch
 
+import pytest
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
 from django.test import TestCase
@@ -13,6 +14,8 @@ from posthog.models import EventDefinition
 from posthog.settings.utils import get_from_env
 from posthog.test.base import BaseTest
 from posthog.utils import (
+    PotentialSecurityProblemException,
+    absolute_uri,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_default_event_name,
@@ -21,6 +24,60 @@ from posthog.utils import (
     relative_date_parse,
     should_refresh,
 )
+
+
+class TestAbsoluteUrls(TestCase):
+    def test_format_absolute_url(self) -> None:
+        regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
+        absolute_urls_test_cases = [
+            (None, "https://my-amazing.site", "https://my-amazing.site"),
+            (None, "https://my-amazing.site/", "https://my-amazing.site/"),
+            ("api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
+            ("/api/path", "https://my-amazing.site/", "https://my-amazing.site/api/path"),
+            ("api/path", "https://my-amazing.site/base_url/", "https://my-amazing.site/base_url/api/path"),
+            ("/api/path", "https://my-amazing.site/base_url", "https://my-amazing.site/base_url/api/path"),
+            (regression_11204, "https://app.posthog.com", f"https://app.posthog.com/{regression_11204}",),
+            ("https://app.posthog.com", "https://app.posthog.com", "https://app.posthog.com"),
+            (
+                "https://app.posthog.com/some/path?=something",
+                "https://app.posthog.com",
+                "https://app.posthog.com/some/path?=something",
+            ),
+            (
+                "an.attackers.domain.com/bitcoin-miner.exe",
+                "https://app.posthog.com",
+                "https://app.posthog.com/an.attackers.domain.com/bitcoin-miner.exe",
+            ),
+            ("/api/path", "", "/api/path"),  # current behavior whether correct or not
+            (
+                "/api/path",
+                "some-internal-dns-value",
+                "some-internal-dns-value/api/path",
+            ),  # current behavior whether correct or not
+        ]
+        for url, site_url, expected in absolute_urls_test_cases:
+            with self.subTest():
+                with self.settings(SITE_URL=site_url):
+                    self.assertEqual(
+                        expected,
+                        absolute_uri(url),
+                        msg=f"with URL='{url}' & site_url setting='{site_url}' actual did not equal {expected}",
+                    )
+
+    def test_absolute_uri_can_not_escape_out_host(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
+
+    def test_absolute_uri_can_not_escape_out_host_on_different_scheme(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("ftp://an.attackers.domain.com/bitcoin-miner.exe"),
+
+    def test_absolute_uri_can_not_escape_out_host_when_site_url_is_the_empty_string(self) -> None:
+        with self.settings(SITE_URL=""):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://an.attackers.domain.com/bitcoin-miner.exe"),
 
 
 class TestFormatUrls(TestCase):

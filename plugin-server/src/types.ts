@@ -104,6 +104,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
+    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -130,8 +131,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     PISCINA_USE_ATOMICS: boolean
     PISCINA_ATOMICS_TIMEOUT: number
     SITE_URL: string | null
-    EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: boolean
-    EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: boolean
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
@@ -927,7 +926,6 @@ export interface PreIngestionEvent {
     properties: Properties
     timestamp: DateTime | string
     elementsList: Element[]
-    person?: IngestionPersonData | undefined
 }
 
 export type IngestionEvent = PreIngestionEvent

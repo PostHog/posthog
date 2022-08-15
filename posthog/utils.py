@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import uuid
+import zlib
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
@@ -72,12 +73,33 @@ def format_label_date(date: datetime.datetime, interval: str) -> str:
     return date.strftime(labels_format)
 
 
+class PotentialSecurityProblemException(Exception):
+    """
+    When providing an absolutely-formatted URL
+    we will not provide one that has an unexpected hostname
+    because an attacker might use that to redirect traffic somewhere *bad*
+    """
+
+    pass
+
+
 def absolute_uri(url: Optional[str] = None) -> str:
     """
     Returns an absolutely-formatted URL based on the `SITE_URL` config.
+
+    If the provided URL is already absolutely formatted
+    it does not allow anything except the hostname of the SITE_URL config
     """
     if not url:
         return settings.SITE_URL
+
+    provided_url = urlparse(url)
+    if provided_url.hostname and provided_url.scheme:
+        site_url = urlparse(settings.SITE_URL)
+        provided_url = provided_url
+        if site_url.hostname != provided_url.hostname:
+            raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
@@ -465,7 +487,7 @@ def decompress(data: Any, compression: str):
 
         try:
             data = gzip.decompress(data)
-        except (EOFError, OSError) as error:
+        except (EOFError, OSError, zlib.error) as error:
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
@@ -875,10 +897,11 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
-def print_warning(warning_lines: Sequence[str]):
+def print_warning(warning_lines: Sequence[str], *, top_emoji="🔻", bottom_emoji="🔺"):
     highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
     print(
-        "\n".join(("", "🔻" * highlight_length, *warning_lines, "🔺" * highlight_length, "",)), file=sys.stderr,
+        "\n".join(("", top_emoji * highlight_length, *warning_lines, bottom_emoji * highlight_length, "",)),
+        file=sys.stderr,
     )
 
 
@@ -991,3 +1014,19 @@ def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     except Exception as err:
         capture_exception(err)
         return None
+
+
+def should_write_recordings_to_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM
+    )
+
+
+def should_read_recordings_from_object_storage(team_id: Optional[int]) -> bool:
+    return (
+        team_id is not None
+        and settings.OBJECT_STORAGE_ENABLED
+        and team_id == settings.READ_RECORDINGS_FROM_OBJECT_STORAGE_FOR_TEAM
+    )

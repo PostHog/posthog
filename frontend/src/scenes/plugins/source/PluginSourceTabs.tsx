@@ -8,7 +8,7 @@ export function PluginSourceTabs(): JSX.Element {
     const { currentFile, fileNames, pluginSourceAllErrors } = useValues(pluginSourceLogic)
 
     return (
-        <div className="flex-center mb-05" style={{ gap: '0.5rem' }}>
+        <div className="flex items-center mb-2" style={{ gap: '0.5rem' }}>
             {fileNames.map((fileName) => (
                 <LemonButton
                     key={fileName}

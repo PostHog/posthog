@@ -57,7 +57,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 minLength={1}
                                 maxLength={400} // Sync with action model
                                 data-attr="definition-name-view"
-                                className="definition-name"
                             />
                         }
                         caption={
@@ -101,8 +100,8 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <>
                                     <LemonButton
                                         data-attr="edit-definition"
+                                        data-tooltip="data-management-event-edit-button"
                                         type="secondary"
-                                        style={{ marginRight: 8 }}
                                         onClick={() => {
                                             setPageMode(DefinitionPageMode.Edit)
                                         }}
@@ -138,10 +137,11 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             <EventDefinitionProperties definition={definition} />
                             <Divider />
                             <div className="definition-matching-events">
-                                <span className="definition-matching-events-header">Matching raw events</span>
+                                <span className="definition-matching-events-header">Matching events</span>
                                 <p className="definition-matching-events-subtext">
-                                    This is the list of recent raw events that match this definition.
+                                    This is the list of recent events that match this definition.
                                 </p>
+                                <div className="pt-4 border-t" />
                                 <EventsTable
                                     sceneUrl={backDetailUrl}
                                     pageKey={`definition-page-${definition.id}`}

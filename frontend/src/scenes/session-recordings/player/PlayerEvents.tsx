@@ -23,12 +23,14 @@ import {
     OVERSCANNED_ROW_COUNT,
     DEFAULT_ROW_HEIGHT,
 } from 'scenes/session-recordings/player/eventsListLogic'
-import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
+import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 function overscanIndicesGetter({
     cellCount,
@@ -46,17 +48,17 @@ function overscanIndicesGetter({
 
 const renderIcon = (event: RecordingEventType): JSX.Element => {
     if (event.event === '$pageview') {
-        return <PageviewIcon />
+        return <IconPageview />
     }
     if (event.event === '$pageleave') {
-        return <PageleaveIcon />
+        return <IconPageleave />
     }
     if (event.event === '$autocapture') {
-        return <AutocaptureIcon />
+        return <IconAutocapture />
     }
-    return <EventIcon />
+    return <IconEvent />
     // TODO: Have api/events return `event_type` parameter to help distinguish btwn custom events, events, and actions
-    // return <ActionIcon />
+    // return <IconAction />
 }
 
 function noRowsRenderer(): JSX.Element {
@@ -96,6 +98,8 @@ export function PlayerEvents(): JSX.Element {
     const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
     const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } =
         useActions(eventsListLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
     useEffect(() => {
         if (listRef?.current) {
@@ -118,6 +122,7 @@ export function PlayerEvents(): JSX.Element {
                     onClick={() => {
                         handleEventClick(event.playerPosition)
                     }}
+                    data-tooltip="recording-event-list"
                 >
                     <Col className="event-item-icon">
                         <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
@@ -201,7 +206,7 @@ export function PlayerEvents(): JSX.Element {
     )
 
     return (
-        <Col className="player-events-container">
+        <Col className={isSessionRecordingsPlayerV3 ? 'player-events-container-v3' : 'player-events-container-v2'}>
             <Input
                 prefix={<SearchOutlined />}
                 placeholder="Search for events"

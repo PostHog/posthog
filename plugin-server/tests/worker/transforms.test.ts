@@ -4,6 +4,8 @@ import { code } from '../../src/utils/utils'
 import { transformCode } from '../../src/worker/vm/transforms'
 import { resetTestDatabase } from '../helpers/sql'
 
+jest.mock('../../src/utils/status')
+
 describe('transforms', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
@@ -31,7 +33,7 @@ describe('transforms', () => {
             "use strict";
 
             async function x() {
-              await __asyncGuard(console.log(), console.log);
+              await __asyncGuard(console.log(), "await on line 2:2");
             }
         `)
         })
@@ -49,7 +51,7 @@ describe('transforms', () => {
             "use strict";
 
             async function x() {
-              await __asyncGuard(anotherAsyncFunction('arg1', 'arg2'), anotherAsyncFunction);
+              await __asyncGuard(anotherAsyncFunction('arg1', 'arg2'), "await on line 2:2");
             }
         `)
         })
@@ -69,9 +71,7 @@ describe('transforms', () => {
             async function x() {
               await __asyncGuard(async () => {
                 console.log();
-              }, async () => {
-                console.log();
-              });
+              }, "await on line 2:2");
             }
         `)
         })
@@ -89,7 +89,7 @@ describe('transforms', () => {
 
             async function x() {}
 
-            __asyncGuard(x).then(() => null);
+            __asyncGuard(x, "Promise.then on line 2:0").then(() => null);
         `)
         })
 

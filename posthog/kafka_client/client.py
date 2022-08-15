@@ -1,10 +1,13 @@
 import json
 from enum import Enum
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import kafka.errors
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
+from kafka.producer.future import FutureProduceResult, RecordMetadata
+from kafka.structs import TopicPartition
+from statshog.defaults.django import statsd
 from structlog import get_logger
 
 from posthog.client import async_execute, sync_execute
@@ -29,8 +32,8 @@ class TestKafkaProducer:
     def __init__(self):
         pass
 
-    def send(self, topic: str, value: Any, key: Any = None):
-        return
+    def send(self, topic: str, value: Any, key: Any = None, headers: Optional[List[Tuple[str, bytes]]] = None):
+        return FutureProduceResult(topic_partition=TopicPartition(topic, 1))
 
     def flush(self):
         return
@@ -98,13 +101,33 @@ class _KafkaProducer:
         b = json.dumps(d).encode("utf-8")
         return b
 
-    def produce(self, topic: str, data: Any, key: Any = None, value_serializer: Optional[Callable[[Any], Any]] = None):
+    def on_send_success(self, record_metadata: RecordMetadata):
+        statsd.incr(
+            "posthog_cloud_kafka_send_success", tags={"topic": record_metadata.topic,},
+        )
+
+    def on_send_failure(self, topic: str, exc: Exception):
+        statsd.incr("posthog_cloud_kafka_send_failure", tags={"topic": topic, "exception": exc.__class__.__name__})
+
+    def produce(
+        self,
+        topic: str,
+        data: Any,
+        key: Any = None,
+        value_serializer: Optional[Callable[[Any], Any]] = None,
+        headers: Optional[List[Tuple[str, str]]] = None,
+    ):
         if not value_serializer:
             value_serializer = self.json_serializer
         b = value_serializer(data)
         if key is not None:
             key = key.encode("utf-8")
-        self.producer.send(topic, value=b, key=key)
+        encoded_headers = (
+            [(header[0], header[1].encode("utf-8")) for header in headers] if headers is not None else None
+        )
+        future = self.producer.send(topic, value=b, key=key, headers=encoded_headers)
+        # Record if the send request was successful or not
+        future.add_callback(self.on_send_success).add_errback(lambda exc: self.on_send_failure(topic=topic, exc=exc))
 
     def close(self):
         self.producer.flush()

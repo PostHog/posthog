@@ -1,4 +1,4 @@
-@import '../styles/breakpoints';
+@import '../styles/mixins';
 
 html.export-type-image {
     // We don't want scrollbars to show in image captures
@@ -16,8 +16,13 @@ html.export-type-image {
 html.export-type-embed {
     overflow: hidden;
     overflow-y: auto;
+
     .Exporter {
         padding: 0;
+    }
+
+    // Insights can resize to fit any height, whereas dashboards cannot
+    .Exporter--insight {
         height: 100vh;
         max-height: 100vh;
     }
@@ -31,7 +36,7 @@ html.export-type-embed {
             display: none;
         }
 
-        @media screen and (min-width: $md) {
+        @include screen($md) {
             display: flex;
             justify-content: space-between;
             align-items: center;

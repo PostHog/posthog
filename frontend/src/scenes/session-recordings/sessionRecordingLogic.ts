@@ -1,4 +1,7 @@
-import { kea } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import equal from 'fast-deep-equal'
+import { urlToAction } from 'kea-router'
+import { loaders } from 'kea-loaders'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
 import { eventToDescription, sum, toParams } from 'lib/utils'
@@ -16,6 +19,7 @@ import {
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
+    SessionRecordingTab,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -28,8 +32,6 @@ import {
     getPlayerTimeFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './player/playerUtils'
-import { lemonToast } from 'lib/components/lemonToast'
-import equal from 'fast-deep-equal'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -130,13 +132,13 @@ const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[]
     }))
 }
 
-export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
-    path: ['scenes', 'session-recordings', 'sessionRecordingLogic'],
-    connect: {
+export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
+    path(['scenes', 'session-recordings', 'sessionRecordingLogic']),
+    connect({
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],
-    },
-    actions: {
+    }),
+    actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
@@ -146,8 +148,9 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
         loadEvents: (url?: string) => ({ url }),
-    },
-    reducers: {
+        setTab: (tab: SessionRecordingTab) => ({ tab }),
+    }),
+    reducers({
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -158,6 +161,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             null as SessionRecordingId | null,
             {
                 loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
+            },
+        ],
+        tab: [
+            SessionRecordingTab.EVENTS as SessionRecordingTab,
+            {
+                setTab: (_, { tab }) => tab,
             },
         ],
         chunkPaginationIndex: [
@@ -180,8 +189,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 setSource: (_, { source }) => source,
             },
         ],
-    },
-    listeners: ({ values, actions, sharedListeners, cache }) => ({
+    }),
+    listeners(({ values, actions, cache }) => ({
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
@@ -221,9 +230,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 cache.eventsStartTime = null
             }
         },
-        loadRecordingMetaFailure: sharedListeners.showErrorToast,
-        loadRecordingSnapshotsFailure: sharedListeners.showErrorToast,
-        loadEventsFailure: sharedListeners.showErrorToast,
         reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
             eventUsageLogic.actions.reportRecording(
@@ -242,13 +248,13 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 10
             )
         },
-    }),
-    sharedListeners: () => ({
-        showErrorToast: ({ error }) => {
-            lemonToast.error(error)
+        setTab: ({ tab }) => {
+            if (tab === SessionRecordingTab.CONSOLE) {
+                eventUsageLogic.findMounted()?.actions?.reportRecordingConsoleViewed(values.orderedConsoleLogs.length)
+            }
         },
-    }),
-    loaders: ({ values }) => ({
+    })),
+    loaders(({ values }) => ({
         sessionPlayerData: [
             {
                 snapshotsByWindowId: {},
@@ -396,8 +402,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 },
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         eventsToShow: [
             (selectors) => [selectors.filters, selectors.sessionEventsData],
             (filters, sessionEventsData) => {
@@ -513,8 +519,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 )
             },
         ],
-    },
-    urlToAction: ({ actions, values, cache }) => {
+    }),
+    urlToAction(({ actions, values, cache }) => {
         const urlToAction = (
             _: any,
             params: {
@@ -540,5 +546,5 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         return {
             '*': urlToAction,
         }
-    },
-})
+    }),
+])
