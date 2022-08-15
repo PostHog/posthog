@@ -16,7 +16,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
 import { LemonTag } from '../LemonTag/LemonTag'
-import { LemonSelect, LemonSelectOptions, LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -69,13 +69,12 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
         )
     }
 
-    const options: LemonSelectOptions | LemonSelectSection<LemonSelectOptions>[] =
+    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> =
         filters.insight === InsightType.FUNNELS
-            ? {
-                  [FunnelVizType.Steps]: {
-                      label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                  },
-                  [FunnelVizType.Trends]: {
+            ? [
+                  { key: FunnelVizType.Steps, label: <Label icon={<OrderedListOutlined />}>Steps</Label> },
+                  {
+                      key: FunnelVizType.Trends,
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
@@ -85,37 +84,41 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                           </Label>
                       ),
                   },
-              }
+              ]
             : [
                   {
-                      label: 'Line Chart',
-                      options: {
-                          [ChartDisplayType.ActionsLineGraph]: {
+                      title: 'Line Chart',
+                      options: [
+                          {
+                              key: ChartDisplayType.ActionsLineGraph,
                               label: <Label icon={<LineChartOutlined />}>Linear</Label>,
                           },
-                          [ChartDisplayType.ActionsLineGraphCumulative]: {
+                          {
+                              key: ChartDisplayType.ActionsLineGraphCumulative,
                               label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
                               disabled: cumulativeDisabled,
                           },
-                      },
+                      ],
                   },
                   {
-                      label: 'Bar Chart',
-                      options: {
-                          [ChartDisplayType.ActionsBar]: {
+                      title: 'Bar Chart',
+                      options: [
+                          {
+                              key: ChartDisplayType.ActionsBar,
                               label: <Label icon={<BarChartOutlined />}>Time</Label>,
                               disabled: barDisabled,
                           },
-                          [ChartDisplayType.ActionsBarValue]: {
+                          {
+                              key: ChartDisplayType.ActionsBarValue,
                               label: <Label icon={<BarChartOutlined />}>Value</Label>,
                               disabled: barValueDisabled,
                           },
-                      },
+                      ],
                   },
                   {
-                      label: '',
-                      options: {
-                          [ChartDisplayType.BoldNumber]: {
+                      options: [
+                          {
+                              key: ChartDisplayType.BoldNumber,
                               label: (
                                   <Label
                                       icon={<NumberOutlined />}
@@ -126,14 +129,14 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                               ),
                               disabled: boldNumberDisabled,
                           },
-                          [ChartDisplayType.ActionsTable]: {
-                              label: <Label icon={<TableOutlined />}>Table</Label>,
-                          },
-                          [ChartDisplayType.ActionsPie]: {
+                          { key: ChartDisplayType.ActionsTable, label: <Label icon={<TableOutlined />}>Table</Label> },
+                          {
+                              key: ChartDisplayType.ActionsPie,
                               label: <Label icon={<PieChartOutlined />}>Pie</Label>,
                               disabled: pieDisabled,
                           },
-                          [ChartDisplayType.WorldMap]: {
+                          {
+                              key: ChartDisplayType.WorldMap,
                               label: (
                                   <Label
                                       icon={<GlobalOutlined />}
@@ -144,7 +147,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                               ),
                               disabled: worldMapDisabled,
                           },
-                      },
+                      ],
                   },
               ]
     return (

@@ -56,8 +56,40 @@ export interface LemonSelectProps<T>
     }
 }
 
-function isSections<T>(candidate: LemonSelectOptions<T>): candidate is LemonSelectSection<T>[] {
-    return candidate.length > 0 && 'options' in candidate[0]
+const isSection = <T extends any>(
+    candidate: LemonSelectSection<T> | LemonSelectOption<T>
+): candidate is LemonSelectSection<T> => candidate && 'options' in candidate
+
+/**
+ * The select can receive options that are a mix of Options and Sections.
+ *
+ * To simplify the implementation we box the options so that the code only deals with sections
+ * and generate a single list of options since selection is separate from display structure
+ * */
+const boxToSections = <T,>(
+    sectionsAndOptions: LemonSelectSection<T>[] | LemonSelectOption<T>[]
+): [LemonSelectSection<T>[], LemonSelectOption<T>[]] => {
+    let allOptions: LemonSelectOption<T>[] = []
+    const sections: LemonSelectSection<T>[] = []
+    let implicitSection: LemonSelectSection<T> = { options: [] }
+    for (const sectionOrOption of sectionsAndOptions) {
+        if (isSection(sectionOrOption)) {
+            if (implicitSection.options.length > 0) {
+                sections.push(implicitSection)
+                implicitSection = { options: [] }
+            }
+            sections.push(sectionOrOption)
+            allOptions = allOptions.concat(sectionOrOption.options)
+        } else {
+            allOptions.push(sectionOrOption)
+            implicitSection.options.push(sectionOrOption)
+        }
+    }
+    if (implicitSection.options.length > 0) {
+        sections.push(implicitSection)
+    }
+
+    return [sections, allOptions]
 }
 
 export function LemonSelect<T>({
@@ -83,18 +115,7 @@ export function LemonSelect<T>({
         }
     }, [value, buttonProps.loading])
 
-    const [sections, allOptions] = useMemo(() => {
-        let sections: LemonSelectSection<T>[]
-        if (isSections(options)) {
-            sections = options
-        } else {
-            sections = [{ options }]
-        }
-
-        const allOptions = sections.flatMap((section) => section.options)
-
-        return [sections, allOptions]
-    }, [options])
+    const [sections, allOptions] = useMemo(() => boxToSections(options), [options])
 
     return (
         <div className="flex">

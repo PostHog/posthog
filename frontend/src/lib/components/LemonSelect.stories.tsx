@@ -17,7 +17,7 @@ export default {
     },
 } as ComponentMeta<typeof LemonSelect>
 
-const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<string>) => {
+const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="flex flex-row items-center w-full border p-4 gap-2">
             {(['small', undefined] as const).map((size, index) => (

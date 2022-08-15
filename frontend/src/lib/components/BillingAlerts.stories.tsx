@@ -82,14 +82,14 @@ const Template = (): JSX.Element => {
             <BillingAlerts />
 
             <LemonSelect
-                value={alertType}
+                value={alertType ?? undefined}
                 onChange={setAlertType}
-                options={{
-                    [BillingAlertType.SetupBilling]: { label: 'SetupBilling' },
-                    [BillingAlertType.FreeUsageNearLimit]: { label: 'FreeUsageNearLimit' },
-                    [BillingAlertType.UsageLimitExceeded]: { label: 'UsageLimitExceeded' },
-                    [BillingAlertType.UsageNearLimit]: { label: 'UsageNearLimit' },
-                }}
+                options={[
+                    { key: BillingAlertType.SetupBilling, label: 'SetupBilling' },
+                    { key: BillingAlertType.FreeUsageNearLimit, label: 'FreeUsageNearLimit' },
+                    { key: BillingAlertType.UsageLimitExceeded, label: 'UsageLimitExceeded' },
+                    { key: BillingAlertType.UsageNearLimit, label: 'UsageNearLimit' },
+                ]}
             />
         </div>
     )
