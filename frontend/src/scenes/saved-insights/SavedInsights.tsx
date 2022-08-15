@@ -117,7 +117,7 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
     return null
 }
 
-function NewInsightButton(): JSX.Element {
+export function NewInsightButton(): JSX.Element {
     return (
         <LemonButtonWithSideAction
             type="primary"
