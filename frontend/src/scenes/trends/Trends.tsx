@@ -102,7 +102,7 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </div>
             )}
             <PersonsModal
-                visible={showingPeople && !cohortModalVisible}
+                isOpen={showingPeople && !cohortModalVisible}
                 view={view}
                 filters={_filters}
                 onSaveCohort={() => {

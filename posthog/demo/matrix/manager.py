@@ -45,10 +45,13 @@ class MatrixManager:
         *,
         password: Optional[str] = None,
         disallow_collision: bool = False,
+        print_steps: bool = False,
     ) -> Tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
+            if print_steps:
+                print(f"Creating demo organization, project, and user...")
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
@@ -57,17 +60,21 @@ class MatrixManager:
                 organization, email, password, first_name, OrganizationMembership.Level.ADMIN
             )
             team = self.create_team(organization)
+            if print_steps:
+                print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
         elif disallow_collision:
             raise exceptions.ValidationError(
-                f"Cannot save simulation data with email collision disallowed - there already is an account for {email}."
+                f"Cannot save simulated data - email collision disallowed but there already is an account for {email}."
             )
         else:
             assert existing_user.organization is not None
             assert existing_user.team is not None
+            if print_steps:
+                print(f"Found existing account for {email}.")
             return (existing_user.organization, existing_user.team, existing_user)
 
     @staticmethod

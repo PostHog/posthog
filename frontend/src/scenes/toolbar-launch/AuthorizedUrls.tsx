@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Input, Popconfirm } from 'antd'
+import { Popconfirm } from 'antd'
 import { authorizedUrlsLogic } from './authorizedUrlsLogic'
 import { isMobile } from 'lib/utils'
 import { LemonRow } from 'lib/components/LemonRow'
@@ -53,7 +53,7 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
             props={{ actionId }}
             formKey="proposedUrl"
             enableFormOnSubmit
-            className="AuthorizedURLForm w-full"
+            className="w-full space-y-2"
         >
             <Field name="url">
                 <LemonInput
@@ -62,17 +62,11 @@ function AuthorizedUrlForm({ actionId }: { actionId?: number }): JSX.Element {
                     data-attr="url-input"
                 />
             </Field>
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
                 <LemonButton type="secondary" onClick={cancelProposingUrl}>
                     Cancel
                 </LemonButton>
-                <LemonButton
-                    htmlType="submit"
-                    type="primary"
-                    className="form-submit ml-4"
-                    disabled={isProposedUrlSubmitting}
-                    data-attr="url-save"
-                >
+                <LemonButton htmlType="submit" type="primary" disabled={isProposedUrlSubmitting} data-attr="url-save">
                     Save
                 </LemonButton>
             </div>
@@ -88,20 +82,14 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
 
     return (
         <div>
-            <div className="flex items-center mb-4 gap-2">
-                <div className="flex grow">
-                    <Input.Search
-                        allowClear
-                        enterButton
-                        placeholder="Search for authorized URLs"
-                        style={{ maxWidth: 480 }}
-                        value={searchTerm}
-                        onChange={(e) => {
-                            setSearchTerm(e.target.value)
-                        }}
-                        autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
-                    />
-                </div>
+            <div className="flex items-center mb-4 gap-2 justify-between">
+                <LemonInput
+                    type="search"
+                    autoFocus={pageKey === 'toolbar-launch' && !isMobile()}
+                    placeholder="Search for authorized URLs"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
+                />
                 <LemonButton onClick={newUrl} type="secondary" icon={<IconPlus />} data-attr="toolbar-add-url">
                     Add{pageKey === 'toolbar-launch' && ' authorized URL'}
                 </LemonButton>

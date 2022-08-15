@@ -216,7 +216,6 @@
     .bg-#{$name} {
         background-color: $hex;
     }
-
     .border-#{$name} {
         border-color: $hex;
     }
@@ -289,6 +288,10 @@
 // Flex
 .flex {
     display: flex;
+}
+
+.inline-flex {
+    display: inline-flex;
 }
 
 .flex-1 {
@@ -585,5 +588,11 @@
 @each $cursor in $cursors {
     .cursor-#{$cursor} {
         cursor: #{$cursor};
+    }
+}
+
+@each $list_style_type in $list_style_types {
+    .list-#{list_style_type} {
+        list-style-type: #{$list_style_type};
     }
 }

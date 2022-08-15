@@ -135,6 +135,7 @@ $_lifecycle_dormant: #f86234;
     --z-ant-select-dropdown: 1065;
     --z-ant-message: 1070;
     --z-popup: 1061;
+    --z-modal: 1060;
     --z-ant-modal-wrap: 1060;
     --z-ant-modal-mask: 1050;
     --z-plugins-popconfirm: 1001;
@@ -188,6 +189,10 @@ $_lifecycle_dormant: #f86234;
     --lettermark-8-text: #2a3d65;
     --lettermark-8-bg: #e8edff;
     --lettermark-8-text: #35416b;
+
+    // Modals
+    --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
+    --modal-transition-time: 200ms;
 }
 
 // Text styles

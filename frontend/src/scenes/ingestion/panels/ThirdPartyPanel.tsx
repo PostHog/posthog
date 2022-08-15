@@ -149,18 +149,26 @@ export function IntegrationInstructionsModal(): JSX.Element {
                 <>
                     {thirdPartyIntegrationSource?.name && (
                         <LemonModal
-                            width="auto"
-                            style={{ maxWidth: 600 }}
-                            visible={instructionsModalOpen}
-                            onCancel={() => setInstructionsModal(false)}
-                            bodyStyle={{ padding: 40 }}
+                            width={600}
+                            isOpen={instructionsModalOpen}
+                            onClose={() => setInstructionsModal(false)}
+                            title="Configure integration"
+                            footer={
+                                <LemonButton
+                                    fullWidth
+                                    center
+                                    type="primary"
+                                    onClick={() => setInstructionsModal(false)}
+                                >
+                                    Done
+                                </LemonButton>
+                            }
                         >
                             {thirdPartyIntegrationSource.type === ThirdPartySourceType.Integration ? (
                                 <div>
-                                    <p className="text-muted font-medium">Configure integration</p>
-                                    {thirdPartyIntegrationSource.icon}
                                     <h1 className="ingestion-title">
-                                        Integrate with {thirdPartyIntegrationSource.name}{' '}
+                                        {thirdPartyIntegrationSource.icon}
+                                        <span>Integrate with {thirdPartyIntegrationSource.name}</span>
                                     </h1>
                                     <div style={{ borderTop: '2px dashed var(--border)' }}>
                                         <div
@@ -192,12 +200,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                     >
                                         Take me to {thirdPartyIntegrationSource.name}
                                     </LemonButton>
-                                    <div
-                                        className="mb-6 mt-4"
-                                        style={{
-                                            borderBottom: '2px dashed var(--border)',
-                                        }}
-                                    >
+                                    <div className="mb-6 mt-4">
                                         <h4>Steps:</h4>
                                         <ol className="pl-4">
                                             <li>
@@ -216,14 +219,6 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                             </b>
                                         </p>
                                     </div>
-                                    <LemonButton
-                                        fullWidth
-                                        center
-                                        type="primary"
-                                        onClick={() => setInstructionsModal(false)}
-                                    >
-                                        Done
-                                    </LemonButton>
                                 </div>
                             ) : (
                                 <PluginDrawer />

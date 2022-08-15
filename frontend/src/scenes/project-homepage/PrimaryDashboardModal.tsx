@@ -1,30 +1,24 @@
 import React from 'react'
-import './PrimaryDashboardModal.scss'
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { LemonModal } from 'lib/components/LemonModal/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardType } from '~/types'
-import { Skeleton, Typography } from 'antd'
+import { Skeleton } from 'antd'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
 import { IconCottage } from 'lib/components/icons'
 import { LemonRow } from 'lib/components/LemonRow'
+import { LemonModal } from 'lib/components/LemonModal'
 
 export function PrimaryDashboardModal(): JSX.Element {
-    const { visible, primaryDashboardId } = useValues(primaryDashboardModalLogic)
+    const { isOpen, primaryDashboardId } = useValues(primaryDashboardModalLogic)
     const { closePrimaryDashboardModal, setPrimaryDashboard } = useActions(primaryDashboardModalLogic)
     const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <LemonModal
-            className="primary-dashboard-modal"
-            visible={visible}
-            onCancel={() => {
-                closePrimaryDashboardModal()
-            }}
+            isOpen={isOpen}
+            onClose={closePrimaryDashboardModal}
             title="Select a default dashboard for the project"
-            destroyOnClose
-            bodyStyle={{ padding: 0 }}
             footer={
                 <>
                     <LemonButton
@@ -38,33 +32,30 @@ export function PrimaryDashboardModal(): JSX.Element {
             }
         >
             {dashboardsLoading ? (
-                <div className="loading-skeleton-container">
+                <div className="p-4">
                     <Skeleton active />
                 </div>
             ) : (
-                <div className="dashboard-list">
+                <div className="space-y-2">
                     {nameSortedDashboards.map((dashboard: DashboardType) => {
                         const isPrimary = dashboard.id === primaryDashboardId
                         const rowContents = (
-                            <>
-                                <div className="dashboard-label-container">
+                            <div className="flex flex-1 items-center justify-between overflow-hidden">
+                                <div className="flex-1 flex flex-col justify-center overflow-hidden">
                                     <strong>{dashboard.name}</strong>
-                                    <Typography.Paragraph
-                                        ellipsis={{ rows: 1 }}
-                                        className="text-xs dashboard-description"
-                                    >
+                                    <span className="text-default font-normal text-ellipsis">
                                         {dashboard.description}
-                                    </Typography.Paragraph>
+                                    </span>
                                 </div>
                                 {isPrimary ? (
-                                    <div className="default-indicator">
-                                        <IconCottage className="mr-2 text-warning" style={{ fontSize: '1.5rem' }} />
+                                    <>
+                                        <IconCottage className="mr-2 text-warning text-lg" />
                                         <span>Default</span>
-                                    </div>
+                                    </>
                                 ) : (
                                     <strong className="set-default-text">Set as default</strong>
                                 )}
-                            </>
+                            </div>
                         )
                         if (isPrimary) {
                             return (

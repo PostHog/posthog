@@ -13,15 +13,7 @@ import { LemonDivider } from '../LemonDivider'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-const statuses: LemonButtonProps['status'][] = [
-    'primary',
-    'danger',
-    'success',
-    'warning',
-    'primary-alt',
-    'muted-alt',
-    'stealth',
-]
+const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted-alt']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 export default {
@@ -45,7 +37,7 @@ const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonPro
 export const Default = BasicTemplate.bind({})
 Default.args = {}
 
-const StatusesTemplate: ComponentStory<typeof LemonButton> = ({ ...props }) => {
+const StatusesTemplate = ({ ...props }: LemonButtonProps & { noText?: boolean }): JSX.Element => {
     return (
         <div className="flex gap-2 border rounded-lg p-2 flex-wrap">
             {statuses.map((status, j) => (
@@ -81,11 +73,13 @@ const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
     return <More {...props} />
 }
 
-export const NoPadding = StatusesTemplate.bind({})
-NoPadding.args = { noText: true, noPadding: true } as any
+export const NoPadding = (): JSX.Element => {
+    return <StatusesTemplate noText noPadding />
+}
 
-export const TextOnly = StatusesTemplate.bind({})
-TextOnly.args = { icon: undefined, type: 'secondary' } as any
+export const TextOnly = (): JSX.Element => {
+    return <StatusesTemplate type={'secondary'} icon={null} />
+}
 
 export const Sizes = (): JSX.Element => {
     const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
@@ -95,18 +89,35 @@ export const Sizes = (): JSX.Element => {
             {sizes.map((size) => (
                 <>
                     <h5>size={size}</h5>
-                    <StatusesTemplate size={size} type="primary" />
+                    <StatusesTemplate size={size} type="secondary" />
                 </>
             ))}
         </div>
     )
 }
 
-export const Disabled = StatusesTemplate.bind({})
-Disabled.args = { disabled: true }
+export const SizesIconOnly = (): JSX.Element => {
+    const sizes: LemonButtonProps['size'][] = ['small', 'medium', 'large']
 
-export const Loading = StatusesTemplate.bind({})
-Loading.args = { loading: true }
+    return (
+        <div className="space-y-2">
+            {sizes.map((size) => (
+                <>
+                    <h5>size={size}</h5>
+                    <StatusesTemplate size={size} type="secondary" noText />
+                </>
+            ))}
+        </div>
+    )
+}
+
+export const Disabled = (): JSX.Element => {
+    return <StatusesTemplate disabled />
+}
+
+export const Loading = (): JSX.Element => {
+    return <StatusesTemplate disabled />
+}
 
 export const Active = (): JSX.Element => {
     return (
@@ -123,8 +134,24 @@ export const Active = (): JSX.Element => {
     )
 }
 
-export const WithSideIcon = StatusesTemplate.bind({})
-WithSideIcon.args = { sideIcon: <IconInfo /> }
+export const MenuButtons = (): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <p>When a button is used inside a menu item it should have the special status **stealth**</p>
+            <div className="border rounded-lg flex flex-col p-2 space-y-1">
+                <LemonButton active status="stealth">
+                    Active item
+                </LemonButton>
+                <LemonButton status="stealth">Item 1</LemonButton>
+                <LemonButton status="stealth">Item 2</LemonButton>
+            </div>
+        </div>
+    )
+}
+
+export const WithSideIcon = (): JSX.Element => {
+    return <StatusesTemplate sideIcon={<IconInfo />} />
+}
 
 export const FullWidth = (): JSX.Element => {
     return (
@@ -184,7 +211,7 @@ export const WithSideAction = (): JSX.Element => {
 
 export const AsLinks = (): JSX.Element => {
     return (
-        <div className="space-x-2">
+        <div className="flex gap-2">
             <LemonButton href="https://posthog.com">External link with "href"</LemonButton>
 
             <LemonButton to={urls.projectHomepage()}>Internal link with "to"</LemonButton>

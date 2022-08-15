@@ -101,7 +101,7 @@ export function ProjectHomepage(): JSX.Element {
                             Change dashboard
                         </LemonButton>
                     </Row>
-                    <LemonDivider large />
+                    <LemonDivider className="my-6" />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}

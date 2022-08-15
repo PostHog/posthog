@@ -845,6 +845,42 @@ export function IconTrendingFlatDown(props: SvgIconProps): JSX.Element {
     )
 }
 
+/** Material Design Trending Down icon. */
+export function IconTrendingDown(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m16 18 2.29-2.29-4.88-4.88-4 4-7.41-7.42 1.41-1.41 6 6 4-4 6.3 6.29 2.29-2.29v6z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Trending Up icon. */
+export function IconTrendingUp(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m16 6 2.29 2.29-4.88 4.88-4-4-7.41 7.42 1.41 1.41 6-6 4 4 6.3-6.29 2.29 2.29v-6z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Flare icon. */
+export function IconFlare(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m7 11h-6v2h6zm2.17-3.24-2.12-2.12-1.41 1.41 2.12 2.12zm3.83-6.76h-2v6h2zm5.36 6.05-1.41-1.41-2.12 2.12 1.41 1.41zm-1.36 3.95v2h6v-2zm-5-2c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm2.83 7.24 2.12 2.12 1.41-1.41-2.12-2.12zm-9.19.71 1.41 1.41 2.12-2.12-1.41-1.41zm5.36 6.05h2v-6h-2z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
 /** Material Design Schedule (clock) icon. */
 export function IconSchedule(props: SvgIconProps): JSX.Element {
     return (
@@ -1046,7 +1082,7 @@ export function IconClose(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
             <path
-                d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"
+                d="M16.9248 15.4656L13.4592 12L16.9248 8.53443C17.0251 8.43411 17.0251 8.26995 16.9248 8.16963L15.8304 7.07524C15.7301 6.97492 15.5659 6.97492 15.4656 7.07524L12 10.5408L8.53443 7.07524C8.43411 6.97492 8.26995 6.97492 8.16963 7.07524L7.07524 8.16963C6.97492 8.26995 6.97492 8.43411 7.07524 8.53443L10.5408 12L7.07524 15.4656C6.97492 15.5659 6.97492 15.7301 7.07524 15.8304L8.16963 16.9248C8.26995 17.0251 8.43411 17.0251 8.53443 16.9248L12 13.4592L15.4656 16.9248C15.5659 17.0251 15.7301 17.0251 15.8304 16.9248L16.9248 15.8304C17.0251 15.7301 17.0251 15.5659 16.9248 15.4656Z"
                 fill="currentColor"
             />
         </SvgIcon>

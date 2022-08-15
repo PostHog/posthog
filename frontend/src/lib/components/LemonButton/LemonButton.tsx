@@ -11,11 +11,12 @@ export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
     closeOnClickInside?: boolean
 }
 export interface LemonButtonPropsBase
-    // NOTE: We explicitly pick rather than omit to ensure thes components aren't used incorrectly
+    // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     extends Pick<React.ButtonHTMLAttributes<HTMLElement>, 'title' | 'onClick' | 'id' | 'tabIndex' | 'form'> {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
-    status?: 'primary' | 'success' | 'warning' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
+    /** What color scheme the button should follow */
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -167,7 +168,6 @@ export function LemonButtonWithSideAction({
                     // We don't want secondary style as it creates double borders
                     type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
                     status={buttonProps.status}
-                    active={buttonProps.active}
                     popup={sidePopup as LemonButtonPopup}
                     noPadding
                     {...sideActionRest}

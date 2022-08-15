@@ -64,7 +64,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 />
                                             )}
                                         </Row>
-                                        <LemonDivider large />
+                                        <LemonDivider className="my-4" />
                                         {error && (
                                             <Row className="CohortCriteriaGroups__matching-group__error-row">
                                                 <AlertMessage type="error" style={{ width: '100%' }}>

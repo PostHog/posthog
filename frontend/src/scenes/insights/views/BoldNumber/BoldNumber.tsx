@@ -6,7 +6,6 @@ import { ChartParams, TrendResult } from '~/types'
 import { insightLogic } from '../../insightLogic'
 import { Textfit } from 'react-textfit'
 
-import './BoldNumber.scss'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import clsx from 'clsx'
 import { ensureTooltipElement } from '../LineGraph/LineGraph'
@@ -14,9 +13,15 @@ import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { IconFlare, IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/components/icons'
+import { LemonRow } from '@posthog/lemon-ui'
+import { percentage } from 'lib/utils'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
-/** The effect of the value's padding is reduced by the offset. */
-const BOLD_NUMBER_TOOLTIP_OFFSET_PX = -16
+import './BoldNumber.scss'
+
+/** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
+const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
 
 function useBoldNumberTooltip({
     showPersonsModal,
@@ -35,7 +40,7 @@ function useBoldNumberTooltip({
         const tooltipEl = ensureTooltipElement()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
 
-        const seriesResult = insight.result[0]
+        const seriesResult = insight.result?.[0]
 
         ReactDOM.render(
             <InsightTooltip
@@ -47,8 +52,8 @@ function useBoldNumberTooltip({
                         dataIndex: 1,
                         datasetIndex: 1,
                         id: 1,
-                        label: seriesResult.label,
-                        count: seriesResult.aggregated_value,
+                        label: seriesResult?.label,
+                        count: seriesResult?.aggregated_value,
                     },
                 ]}
                 showHeader={false}
@@ -80,15 +85,16 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const resultSeries = insight.result[0] as TrendResult
+    const showComparison = filters.compare && insight.result.length > 1
+    const resultSeries = insight?.result?.[0] as TrendResult | undefined
 
-    return (
+    return resultSeries ? (
         <div className="BoldNumber">
-            <Textfit mode="single" min={32} max={160}>
+            <Textfit mode="single" min={32} max={120}>
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={
-                        showPersonsModal
+                        showPersonsModal && resultSeries.aggregated_value != null
                             ? () => {
                                   loadPeople({
                                       action: resultSeries.action,
@@ -109,6 +115,77 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     {formatAggregationAxisValue(filters.aggregation_axis_format, resultSeries.aggregated_value)}
                 </div>
             </Textfit>
+            {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}
         </div>
+    ) : (
+        <InsightEmptyState />
+    )
+}
+
+function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPersonsModal'>): JSX.Element {
+    const { insight, filters } = useValues(insightLogic)
+    const { loadPeople } = useActions(personsModalLogic)
+
+    const [currentPeriodSeries, previousPeriodSeries] = insight.result as TrendResult[]
+
+    const previousValue = previousPeriodSeries.aggregated_value
+    const currentValue = currentPeriodSeries.aggregated_value
+
+    const percentageDiff =
+        previousValue === null || currentValue === null
+            ? null
+            : (currentValue - previousValue) / Math.abs(previousValue)
+
+    const percentageDiffDisplay =
+        percentageDiff === null
+            ? 'No data for comparison in the'
+            : percentageDiff > 0
+            ? `Up ${percentage(percentageDiff)} from`
+            : percentageDiff < 0
+            ? `Down ${percentage(-percentageDiff)} from`
+            : 'No change from'
+
+    return (
+        <LemonRow
+            icon={
+                percentageDiff === null ? (
+                    <IconFlare />
+                ) : percentageDiff > 0 ? (
+                    <IconTrendingUp />
+                ) : percentageDiff < 0 ? (
+                    <IconTrendingDown />
+                ) : (
+                    <IconTrendingFlat />
+                )
+            }
+            className="BoldNumber__comparison"
+            fullWidth
+            center
+        >
+            <span>
+                {percentageDiffDisplay}{' '}
+                {currentValue === null ? (
+                    'current period'
+                ) : previousValue === null || !showPersonsModal ? (
+                    'previous period'
+                ) : (
+                    <a
+                        onClick={() => {
+                            loadPeople({
+                                action: previousPeriodSeries.action,
+                                label: previousPeriodSeries.label,
+                                date_from: previousPeriodSeries.filter?.date_from as string,
+                                date_to: previousPeriodSeries.filter?.date_to as string,
+                                filters,
+                                saveOriginal: true,
+                                pointValue: previousValue,
+                            })
+                        }}
+                    >
+                        previous period
+                    </a>
+                )}
+            </span>
+        </LemonRow>
     )
 }

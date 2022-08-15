@@ -148,7 +148,7 @@ module.exports = {
         // 'letterSpacing', // The letter-spacing utilities like tracking-normal
         // 'lineHeight', // The line-height utilities like leading-9
         // 'listStylePosition', // The list-style-position utilities like list-inside
-        // 'listStyleType', // The list-style-type utilities like list-disc
+        'listStyleType', // The list-style-type utilities like list-disc
         'margin', // The margin utilities like mt-28
         'maxHeight', // The max-height utilities like max-h-36
         'maxWidth', // The max-width utilities like max-w-6xl

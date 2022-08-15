@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
+import { Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
@@ -23,6 +23,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonButton } from '@posthog/lemon-ui'
 
 const { TabPane } = Tabs
 
@@ -37,8 +38,8 @@ export const scene: SceneExport = {
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <div className="mr-4">
+        <div className="flex flex-wrap items-center gap-2">
+            <div>
                 <span className="text-muted">IDs:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}
@@ -111,30 +112,31 @@ export function Person(): JSX.Element | null {
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
                 buttons={
-                    <div>
+                    <div className="flex gap-2">
                         <Popconfirm
                             title="Are you sure you want to delete this person?"
                             onConfirm={deletePerson}
                             okText={`Yes, delete ${asDisplay(person)}`}
                             cancelText="No, cancel"
                         >
-                            <Button
-                                className="text-danger"
+                            <LemonButton
                                 disabled={deletedPersonLoading}
                                 loading={deletedPersonLoading}
+                                type="secondary"
+                                status="danger"
                                 data-attr="delete-person"
                             >
                                 Delete person
-                            </Button>
+                            </LemonButton>
                         </Popconfirm>
-                        <Button
+                        <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
-                            style={{ marginLeft: 8 }}
                             data-tooltip="person-split-merge-button"
+                            type="secondary"
                         >
                             Split or merge IDs
-                        </Button>
+                        </LemonButton>
                     </div>
                 }
             />
@@ -165,7 +167,7 @@ export function Person(): JSX.Element | null {
                         pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                         fixedFilters={{ person_id: person.id }}
                         showPersonColumn={false}
-                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id), false)}
+                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
                     />
                 </TabPane>
                 {showSessionRecordings && (

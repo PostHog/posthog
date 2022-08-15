@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
 import { cleanFilters } from '../utils/cleanFilters'
-import { EditorFilterItemTitle } from './EditorFilterItemTitle'
 import './EditorFilterGroup.scss'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
@@ -11,6 +10,7 @@ import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import clsx from 'clsx'
+import { PureField } from 'lib/forms/Field'
 
 export interface EditorFilterGroupProps {
     editorFilterGroup: InsightEditorFilterGroup
@@ -51,17 +51,20 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
             )}
             {!usingEditorPanels || isRowExpanded ? (
                 <div className="EditorFilterGroup__content">
-                    {editorFilters.map(({ label, tooltip, key, valueSelector, component: Component }) => (
+                    {editorFilters.map(({ label, tooltip, showOptional, key, valueSelector, component: Component }) => (
                         <div key={key}>
-                            {label ? <EditorFilterItemTitle label={label} tooltip={tooltip} /> : null}
-                            {Component ? (
-                                <Component
-                                    insight={insight}
-                                    insightProps={insightProps}
-                                    filters={insight.filters ?? cleanFilters({})}
-                                    value={(valueSelector ? valueSelector(insight) : insight?.filters?.[key]) ?? null}
-                                />
-                            ) : null}
+                            <PureField label={label} info={tooltip} showOptional={showOptional}>
+                                {Component ? (
+                                    <Component
+                                        insight={insight}
+                                        insightProps={insightProps}
+                                        filters={insight.filters ?? cleanFilters({})}
+                                        value={
+                                            (valueSelector ? valueSelector(insight) : insight?.filters?.[key]) ?? null
+                                        }
+                                    />
+                                ) : null}
+                            </PureField>
                         </div>
                     ))}
                 </div>

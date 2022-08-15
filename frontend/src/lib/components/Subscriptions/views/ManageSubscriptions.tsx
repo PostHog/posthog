@@ -8,6 +8,7 @@ import { ProfileBubbles } from 'lib/components/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { Skeleton } from 'antd'
 import { SubscriptionBaseProps } from '../utils'
+import { LemonModal } from 'lib/components/LemonModal'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -82,16 +83,10 @@ export function ManageSubscriptions({
 
     return (
         <>
-            <header className="border-b pb-4">
-                <h4 className="mt-2">Manage Subscriptions</h4>
-            </header>
-
-            <section
-                style={{
-                    overflowY: 'auto',
-                    maxHeight: '50vh',
-                }}
-            >
+            <LemonModal.Header>
+                <h3> Manage Subscriptions</h3>
+            </LemonModal.Header>
+            <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
                     <>
                         <Skeleton paragraph={false} />
@@ -100,12 +95,13 @@ export function ManageSubscriptions({
                         <Skeleton.Button active block size="large" />
                     </>
                 ) : subscriptions.length ? (
-                    <>
+                    <div className="space-y-2">
                         <div>
                             <strong>{subscriptions?.length}</strong>
                             {' active '}
                             {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
                         </div>
+
                         {subscriptions.map((sub) => (
                             <SubscriptionListItem
                                 key={sub.id}
@@ -114,7 +110,7 @@ export function ManageSubscriptions({
                                 onDelete={() => deleteSubscription(sub.id)}
                             />
                         ))}
-                    </>
+                    </div>
                 ) : (
                     <div className="flex flex-col p-4 items-center text-center">
                         <h3>There are no subscriptions for this insight</h3>
@@ -126,22 +122,20 @@ export function ManageSubscriptions({
                         </LemonButton>
                     </div>
                 )}
-            </section>
+            </LemonModal.Content>
 
-            <footer className="flex justify-between pt-4">
-                <div>
+            <LemonModal.Footer>
+                <div className="flex-1">
                     {!!subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
                             Add subscription
                         </LemonButton>
                     ) : null}
                 </div>
-                <div className="flex gap-2">
-                    <LemonButton type="secondary" onClick={onCancel}>
-                        Close
-                    </LemonButton>
-                </div>
-            </footer>
+                <LemonButton type="secondary" onClick={onCancel}>
+                    Close
+                </LemonButton>
+            </LemonModal.Footer>
         </>
     )
 }

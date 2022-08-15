@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Group } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Loading } from 'lib/utils'
@@ -23,7 +23,6 @@ import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Field } from 'lib/forms/Field'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
@@ -86,7 +85,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <VerticalForm
+                <Form
                     logic={featureFlagLogic}
                     props={props}
                     formKey="featureFlag"
@@ -151,14 +150,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         General settings for your feature flag and integration instructions.
                     </div>
                     <Row gutter={16} style={{ marginBottom: 32 }}>
-                        <Col span={12}>
+                        <Col span={12} className="space-y-4">
                             <Field
                                 name="key"
                                 label="Key (must be unique)"
-                                validateStatus={hasKeyChanged ? 'warning' : undefined}
-                                hint={
+                                help={
                                     hasKeyChanged && id !== 'new' ? (
-                                        <small>
+                                        <span className="text-warning">
                                             <b>Warning! </b>Changing this key will
                                             <a
                                                 href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
@@ -168,7 +166,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {' '}
                                                 affect the persistence of your flag <IconOpenInNew />
                                             </a>
-                                        </small>
+                                        </span>
                                     ) : undefined
                                 }
                             >
@@ -508,7 +506,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </div>
 
-                                    <LemonDivider large />
+                                    <LemonDivider className="my-4" />
                                     <div className="ml-4">
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${
@@ -521,7 +519,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         />
                                     </div>
 
-                                    <LemonDivider large />
+                                    <LemonDivider className="my-4" />
 
                                     <div className="feature-flag-form-row">
                                         <div className="centered">
@@ -560,7 +558,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             Save changes
                         </LemonButton>
                     </div>
-                </VerticalForm>
+                </Form>
             ) : (
                 // TODO: This should be skeleton loaders
                 <Loading />
