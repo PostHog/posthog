@@ -14,7 +14,6 @@ const EXPORT_BUFFER_SECONDS_MINIMUM = 1
 const EXPORT_BUFFER_SECONDS_MAXIMUM = 600
 const EXPORT_BUFFER_SECONDS_DEFAULT = isTestEnv() ? EXPORT_BUFFER_SECONDS_MAXIMUM : 10
 
-
 type ExportEventsUpgrade = Plugin<{
     global: {
         exportEventsBuffer: ExportEventsBuffer
