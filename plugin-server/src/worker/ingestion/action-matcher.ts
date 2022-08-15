@@ -49,8 +49,8 @@ const emptyMatchingOperator: Partial<Record<PropertyOperator, boolean>> = {
  * This simulates the behavior of ClickHouse (or other DBMSs) which like to cast values in SELECTs to the column's type.
  */
 export function castingCompare(
-    a: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types
-    b: any, // eslint-disable-line @typescript-eslint/explicit-module-boundary-types
+    a: any,
+    b: any,
     operator: PropertyOperator.Exact | PropertyOperator.IsNot | PropertyOperator.LessThan | PropertyOperator.GreaterThan
 ): boolean {
     // Check basic case first
