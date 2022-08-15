@@ -68,7 +68,8 @@ switch (alternativeMode) {
         break
 
     default:
+        // void the returned promise
         initApp(defaultConfig)
-        void startPluginsServer(defaultConfig, makePiscina) // void the returned promise
+        void startPluginsServer(defaultConfig, makePiscina)
         break
 }
