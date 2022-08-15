@@ -1,104 +1,97 @@
 import React, { useState } from 'react'
 import { retentionTableLogic } from './retentionTableLogic'
-import { LineGraph } from '../insights/LineGraph'
+import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
-import { Loading } from '../../lib/utils'
-import { LineGraphEmptyState } from '../insights/EmptyStates'
-import { Modal, Button, Spin } from 'antd'
-import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { PersonType } from '~/types'
-import { RetentionTrendPayload, RetentionTrendPeoplePayload } from 'scenes/retention/types'
-import { router } from 'kea-router'
+import { InsightEmptyState } from '../insights/EmptyStates'
+import { GraphType, GraphDataset } from '~/types'
+import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { RetentionModal } from './RetentionModal'
+import { roundToDecimal } from 'lib/utils'
 
 interface RetentionLineGraphProps {
-    dashboardItemId?: number | null
-    color?: string
-    inSharedMode?: boolean | null
-    filters?: Record<string, unknown>
+    inSharedMode?: boolean
 }
 
-export function RetentionLineGraph({
-    dashboardItemId = null,
-    color = 'white',
-    inSharedMode = false,
-    filters: filtersParams = {},
-}: RetentionLineGraphProps): JSX.Element | null {
-    const logic = retentionTableLogic({ dashboardItemId: dashboardItemId, filters: filtersParams })
-    const { filters, results: _results, resultsLoading, people: _people, peopleLoading, loadingMore } = useValues(logic)
-    const results = _results as RetentionTrendPayload[]
-    const people = _people as RetentionTrendPeoplePayload
+export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
+    const { insightProps, insight } = useValues(insightLogic)
+    const logic = retentionTableLogic(insightProps)
+    const {
+        results: _results,
+        filters,
+        trendSeries,
+        people: _people,
+        peopleLoading,
+        loadingMore,
+        aggregationTargetLabel,
+        incompletenessOffsetFromEnd,
+    } = useValues(logic)
+    const results = _results as RetentionTablePayload[]
+    const people = _people as RetentionTablePeoplePayload
 
     const { loadPeople, loadMorePeople } = useActions(logic)
-    const [{ fromItem }] = useState(router.values.hashParams)
     const [modalVisible, setModalVisible] = useState(false)
-    const [day, setDay] = useState(0)
-    function closeModal(): void {
-        setModalVisible(false)
-    }
-    const peopleData = people?.result as PersonType[]
-    const peopleNext = people?.next
-    if (results.length === 0) {
+    const [selectedRow, selectRow] = useState(0)
+
+    if (trendSeries.length === 0) {
         return null
     }
-
-    return resultsLoading ? (
-        <Loading />
-    ) : results && !resultsLoading ? (
+    return trendSeries ? (
         <>
             <LineGraph
                 data-attr="trend-line-graph"
-                type="line"
-                color={color}
-                datasets={results}
-                labels={(results[0] && results[0].labels) || []}
-                isInProgress={!filters.date_to}
-                dashboardItemId={dashboardItemId || fromItem}
-                inSharedMode={inSharedMode}
-                percentage={true}
-                onClick={
-                    dashboardItemId
-                        ? null
-                        : (point) => {
-                              const { index } = point
-                              loadPeople(index) // start from 0
-                              setDay(index)
-                              setModalVisible(true)
-                          }
-                }
+                type={GraphType.Line}
+                datasets={trendSeries as GraphDataset[]}
+                labels={(trendSeries[0] && trendSeries[0].labels) || []}
+                isInProgress={incompletenessOffsetFromEnd < 0}
+                insightNumericId={insight.id}
+                inSharedMode={!!inSharedMode}
+                showPersonsModal={false}
+                labelGroupType={filters.aggregation_group_type_index ?? 'people'}
+                aggregationAxisFormat="percentage"
+                tooltip={{
+                    rowCutoff: 11, // 11 time units is hardcoded into retention insights
+                    renderSeries: function _renderCohortPrefix(value) {
+                        return (
+                            <>
+                                {value}
+                                <span className="ml-1">Cohort</span>
+                            </>
+                        )
+                    },
+                    showHeader: false,
+                    renderCount: (count) => {
+                        return `${roundToDecimal(count)}%`
+                    },
+                }}
+                onClick={(payload) => {
+                    const { points } = payload
+                    const datasetIndex = points.clickedPointNotLine
+                        ? points.pointsIntersectingClick[0].dataset.index
+                        : points.pointsIntersectingLine[0].dataset.index
+                    if (datasetIndex) {
+                        loadPeople(datasetIndex) // start from 0
+                        selectRow(datasetIndex)
+                    }
+                    setModalVisible(true)
+                }}
+                incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             />
-            <Modal
-                title={filters.period + ' ' + day + ' people'}
-                visible={modalVisible}
-                onOk={closeModal}
-                onCancel={closeModal}
-                footer={<Button onClick={closeModal}>Close</Button>}
-                width={700}
-            >
-                {peopleData ? (
-                    <p>
-                        Found {peopleData.length === 99 ? '99+' : peopleData.length}{' '}
-                        {peopleData.length === 1 ? 'user' : 'users'}
-                    </p>
-                ) : (
-                    <p>Loading users...</p>
-                )}
-
-                <PersonsTable loading={peopleLoading} people={peopleData} />
-                <div
-                    style={{
-                        margin: '1rem',
-                        textAlign: 'center',
-                    }}
-                >
-                    {peopleNext && (
-                        <Button type="primary" onClick={loadMorePeople}>
-                            {loadingMore ? <Spin /> : 'Load more people'}
-                        </Button>
-                    )}
-                </div>
-            </Modal>
+            {results && (
+                <RetentionModal
+                    results={results}
+                    actors={people}
+                    selectedRow={selectedRow}
+                    visible={modalVisible}
+                    dismissModal={() => setModalVisible(false)}
+                    actorsLoading={peopleLoading}
+                    loadMore={() => loadMorePeople()}
+                    loadingMore={loadingMore}
+                    aggregationTargetLabel={aggregationTargetLabel}
+                />
+            )}
         </>
     ) : (
-        <LineGraphEmptyState color={color} isDashboard={!!dashboardItemId} />
+        <InsightEmptyState />
     )
 }

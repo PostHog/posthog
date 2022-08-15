@@ -8,24 +8,34 @@ import requests
 from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
+from django_filters.rest_framework import DjangoFilterBackend
 from loginas.utils import is_impersonated_session
-from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.ee import is_clickhouse_enabled
-from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.tasks import user_identify
-from posthog.version import VERSION
+from posthog.utils import get_js_url
+
+
+class UserAuthenticationThrottle(UserRateThrottle):
+    rate = "5/minute"
+
+    def allow_request(self, request, view):
+        # only throttle non-GET requests
+        if request.method == "GET":
+            return True
+        return super().allow_request(request, view)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -42,6 +52,7 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
+            "date_joined",
             "uuid",
             "distinct_id",
             "first_name",
@@ -62,7 +73,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
         ]
         extra_kwargs = {
-            "is_staff": {"read_only": True},
+            "date_joined": {"read_only": True},
             "password": {"write_only": True},
         }
 
@@ -117,6 +128,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         return password
 
+    def validate_is_staff(self, value: bool) -> bool:
+        if not self.context["request"].user.is_staff:
+            raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
+        return value
+
     def update(self, instance: models.Model, validated_data: Any) -> Any:
 
         # Update current_organization and current_team
@@ -158,137 +174,36 @@ class UserSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet):
+class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     permission_classes = [
         permissions.IsAuthenticated,
     ]
-    queryset = User.objects.none()
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = [
+        "is_staff",
+    ]
+    queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
     def get_object(self) -> Any:
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
             return self.request.user
-        raise serializers.ValidationError(
-            "Currently this endpoint only supports retrieving `@me` instance.", code="invalid_parameter",
-        )
 
-
-@authenticate_secondarily
-def user(request):
-    """
-    DEPRECATED: This endpoint (/api/user/) has been deprecated in favor of /api/v2/user/
-    and will be removed soon.
-    """
-    organization: Optional[Organization] = request.user.organization
-    organizations = list(request.user.organizations.order_by("-created_at").values("name", "id"))
-    team: Optional[Team] = request.user.team
-    teams = list(request.user.teams.order_by("-created_at").values("name", "id"))
-    user = cast(User, request.user)
-
-    if request.method == "PATCH":
-        data = json.loads(request.body)
-
-        if team is not None and "team" in data:
-            team.app_urls = data["team"].get("app_urls", team.app_urls)
-            team.slack_incoming_webhook = data["team"].get("slack_incoming_webhook", team.slack_incoming_webhook)
-            team.anonymize_ips = data["team"].get("anonymize_ips", team.anonymize_ips)
-            team.session_recording_opt_in = data["team"].get("session_recording_opt_in", team.session_recording_opt_in)
-            team.session_recording_retention_period_days = data["team"].get(
-                "session_recording_retention_period_days", team.session_recording_retention_period_days,
+        if not self.request.user.is_staff:
+            raise exceptions.PermissionDenied(
+                "As a non-staff user you're only allowed to access the `@me` user instance."
             )
-            team.completed_snippet_onboarding = data["team"].get(
-                "completed_snippet_onboarding", team.completed_snippet_onboarding,
-            )
-            team.test_account_filters = data["team"].get("test_account_filters", team.test_account_filters)
-            team.timezone = data["team"].get("timezone", team.timezone)
-            team.save()
 
-        if "user" in data:
-            try:
-                user.current_organization = user.organizations.get(id=data["user"]["current_organization_id"])
-                assert user.organization is not None, "Organization should have been just set"
-                user.current_team = user.organization.teams.first()
-            except (KeyError, ValueError):
-                pass
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            except KeyError:
-                pass
-            except ObjectDoesNotExist:
-                return JsonResponse({"detail": "Organization not found for user."}, status=404)
-            if user.organization is not None:
-                try:
-                    user.current_team = user.organization.teams.get(id=int(data["user"]["current_team_id"]))
-                except (KeyError, TypeError):
-                    pass
-                except ValueError:
-                    return JsonResponse({"detail": "Team ID must be an integer."}, status=400)
-                except ObjectDoesNotExist:
-                    return JsonResponse({"detail": "Team not found for user's current organization."}, status=404)
-            user.email_opt_in = data["user"].get("email_opt_in", user.email_opt_in)
-            user.anonymize_data = data["user"].get("anonymize_data", user.anonymize_data)
-            user.toolbar_mode = data["user"].get("toolbar_mode", user.toolbar_mode)
-            user.save()
+        return super().get_object()
 
-    user_identify.identify_task.delay(user_id=user.id)
-
-    return JsonResponse(
-        {
-            "deprecation": "Endpoint has been deprecated. Please use `/api/v2/user/`.",
-            "id": user.pk,
-            "distinct_id": user.distinct_id,
-            "name": user.first_name,
-            "email": user.email,
-            "email_opt_in": user.email_opt_in,
-            "anonymize_data": user.anonymize_data,
-            "toolbar_mode": user.toolbar_mode,
-            "organization": None
-            if organization is None
-            else {
-                "id": organization.id,
-                "name": organization.name,
-                "billing_plan": organization.billing_plan,
-                "available_features": organization.available_features,
-                "plugins_access_level": organization.plugins_access_level,
-                "created_at": organization.created_at,
-                "updated_at": organization.updated_at,
-                "teams": [{"id": team.id, "name": team.name} for team in organization.teams.all().only("id", "name")],
-            },
-            "organizations": organizations,
-            "team": None
-            if team is None
-            else {
-                "id": team.id,
-                "name": team.name,
-                "app_urls": team.app_urls,
-                "api_token": team.api_token,
-                "anonymize_ips": team.anonymize_ips,
-                "slack_incoming_webhook": team.slack_incoming_webhook,
-                "completed_snippet_onboarding": team.completed_snippet_onboarding,
-                "session_recording_opt_in": team.session_recording_opt_in,
-                "session_recording_retention_period_days": team.session_recording_retention_period_days,
-                "ingested_event": team.ingested_event,
-                "is_demo": team.is_demo,
-                "test_account_filters": team.test_account_filters,
-                "timezone": team.timezone,
-                "data_attributes": team.data_attributes,
-            },
-            "teams": teams,
-            "has_password": user.has_usable_password(),
-            "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE"),
-            "posthog_version": VERSION,
-            "is_multi_tenancy": getattr(settings, "MULTI_TENANCY", False),
-            "ee_available": settings.EE_AVAILABLE,
-            "is_clickhouse_enabled": is_clickhouse_enabled(),
-            "email_service_available": is_email_available(with_absolute_urls=True),
-            "is_debug": getattr(settings, "DEBUG", False),
-            "is_staff": user.is_staff,
-            "is_impersonated": is_impersonated_session(request),
-            "is_event_property_usage_enabled": getattr(settings, "ASYNC_EVENT_PROPERTY_USAGE", False),
-        }
-    )
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if not self.request.user.is_staff:
+            queryset = queryset.filter(id=self.request.user.id)
+        return queryset
 
 
 @authenticate_secondarily
@@ -312,56 +227,22 @@ def redirect_to_site(request):
         "dataAttributes": team.data_attributes,
     }
 
-    if settings.JS_URL:
-        params["jsURL"] = settings.JS_URL
+    if get_js_url(request):
+        params["jsURL"] = get_js_url(request)
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True
         params["userEmail"] = request.user.email
         params["distinctId"] = request.user.distinct_id
 
-    state = urllib.parse.quote(json.dumps(params))
+    # pass the empty string as the safe param so that `//` is encoded correctly.
+    # see https://github.com/PostHog/posthog/issues/9671
+    state = urllib.parse.quote(json.dumps(params), safe="")
 
     if use_new_toolbar:
         return redirect("{}#__posthog={}".format(app_url, state))
     else:
         return redirect("{}#state={}".format(app_url, state))
-
-
-@require_http_methods(["PATCH"])
-@authenticate_secondarily
-def change_password(request):
-    """
-    DEPRECATED: This endpoint has been deprecated in favor of /api/v2/user/ 
-    and will be removed in PostHog V2.
-    """
-    try:
-        body = json.loads(request.body)
-    except (TypeError, json.decoder.JSONDecodeError):
-        return JsonResponse({"error": "Cannot parse request body"}, status=400)
-
-    old_password = body.get("currentPassword")
-    new_password = body.get("newPassword")
-
-    user = cast(User, request.user)
-
-    if user.has_usable_password():
-        if not old_password or not new_password:
-            return JsonResponse({"error": "Missing payload"}, status=400)
-
-        if not user.check_password(old_password):
-            return JsonResponse({"error": "Incorrect old password"}, status=400)
-
-    try:
-        validate_password(new_password, user)
-    except ValidationError as err:
-        return JsonResponse({"error": err.messages[0]}, status=400)
-
-    user.set_password(new_password)
-    user.save()
-    update_session_auth_hash(request, user)
-
-    return JsonResponse({})
 
 
 @require_http_methods(["POST"])

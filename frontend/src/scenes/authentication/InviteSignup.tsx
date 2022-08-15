@@ -1,20 +1,39 @@
 import { useActions, useValues } from 'kea'
 import React, { lazy, Suspense, useRef, useState } from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import { SceneLoading } from 'lib/utils'
+import { Loading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
 import { Button, Row, Col, Input, Space } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, ArrowDownOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
-import { PrevalidatedInvite } from '~/types'
+import { PrevalidatedInvite, UserType } from '~/types'
 import { Link } from 'lib/components/Link'
-import { WhoAmI } from '~/layout/navigation/TopNavigation'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
 import smLogo from 'public/icon-white.svg'
+import { urls } from 'scenes/urls'
+import { SceneExport } from 'scenes/sceneTypes'
+import { ProfilePicture } from '../../lib/components/ProfilePicture'
+
+export const scene: SceneExport = {
+    component: InviteSignup,
+    logic: inviteSignupLogic,
+}
+
+export function WhoAmI({ user }: { user: UserType }): JSX.Element {
+    return (
+        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
+            <ProfilePicture name={user.first_name} email={user.email} />
+            <div className="details hide-lte-lg">
+                <span>{user.first_name}</span>
+                <span>{user.organization?.name}</span>
+            </div>
+        </div>
+    )
+}
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
 const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
@@ -27,10 +46,11 @@ interface ErrorMessage {
 
 function HelperLinks(): JSX.Element {
     return (
-        <>
+        <span className="text-light font-bold">
             <a className="plain-link" href="/">
                 App Home
             </a>
+            <span className="mx-2">|</span>
             <a
                 className="plain-link"
                 href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}
@@ -38,6 +58,7 @@ function HelperLinks(): JSX.Element {
             >
                 PostHog Website
             </a>
+            <span className="mx-2">|</span>
             <a
                 className="plain-link"
                 href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}
@@ -45,14 +66,14 @@ function HelperLinks(): JSX.Element {
             >
                 Contact Us
             </a>
-        </>
+        </span>
     )
 }
 
 function BackToPostHog(): JSX.Element {
     const { push } = useActions(router)
     return (
-        <Button icon={<ArrowLeftOutlined />} block onClick={() => push('/')}>
+        <Button icon={<ArrowLeftOutlined />} block onClick={() => push(urls.default())}>
             Go back to PostHog
         </Button>
     )
@@ -78,7 +99,7 @@ function ErrorView(): JSX.Element | null {
             detail: (
                 <>
                     <div>{error?.detail}</div>
-                    <div className="mt">
+                    <div className="mt-4">
                         {user ? (
                             <span>
                                 You can either log out and create a new account under the new email address or ask the
@@ -88,7 +109,7 @@ function ErrorView(): JSX.Element | null {
                         ) : (
                             <div>
                                 You need to log in with the email address above, or create your own password.
-                                <div className="mt">
+                                <div className="mt-4">
                                     <Button icon={<ArrowLeftOutlined />} href={window.location.pathname}>
                                         Try again
                                     </Button>
@@ -164,7 +185,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                             >
                                 Accept invite
                             </Button>
-                            <div className="mt">
+                            <div className="mt-4">
                                 <Link to="/">
                                     <ArrowLeftOutlined /> Go back to PostHog
                                 </Link>
@@ -310,7 +331,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                         </span>
                                     )}
                                 </div>
-                                <div className="mb">
+                                <div className="mb-4">
                                     <Checkbox
                                         checked={formValues.emailOptIn}
                                         onChange={(e) => setFormValues({ ...formValues, emailOptIn: e.target.checked })}
@@ -331,18 +352,18 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                     Continue
                                 </Button>
                             </form>
-                            <div className="mt text-center">
+                            <div className="mt-4 text-center">
                                 By clicking continue you agree to our{' '}
                                 <a href="https://posthog.com/terms" target="_blank" rel="noopener">
-                                    Terms of Service
+                                    Terms of Service
                                 </a>{' '}
                                 and{' '}
                                 <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
-                                    Privacy Policy
+                                    Privacy Policy
                                 </a>
                                 .
                             </div>
-                            <div className="mt text-center text-muted" style={{ marginBottom: 60 }}>
+                            <div className="mt-4 text-center text-muted" style={{ marginBottom: 60 }}>
                                 Already have an account? <Link to="/login">Log in</Link>
                             </div>
                         </div>
@@ -358,7 +379,7 @@ export function InviteSignup(): JSX.Element {
     const { user } = useValues(userLogic)
 
     if (inviteLoading) {
-        return <SceneLoading />
+        return <Loading />
     }
 
     return (

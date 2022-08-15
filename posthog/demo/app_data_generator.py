@@ -1,12 +1,20 @@
 import random
-import secrets
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, EventDefinition, Person, PropertyDefinition
+from posthog.models import (
+    Action,
+    ActionStep,
+    Dashboard,
+    DashboardTile,
+    EventDefinition,
+    Insight,
+    Person,
+    PropertyDefinition,
+)
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
@@ -29,12 +37,9 @@ class AppDataGenerator(DataGenerator):
         watched_movie_action = Action.objects.create(team=self.team, name="Watched Movie")
         ActionStep.objects.create(action=watched_movie_action, event="watched_movie")
 
-        dashboard = Dashboard.objects.create(
-            name="App Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
-        )
-        DashboardItem.objects.create(
+        dashboard = Dashboard.objects.create(name="App Analytics", pinned=True, team=self.team)
+        insight = Insight.objects.create(
             team=self.team,
-            dashboard=dashboard,
             name="Installed App -> Rated App -> Rated App 5 Stars",
             filters={
                 "actions": [
@@ -57,6 +62,8 @@ class AppDataGenerator(DataGenerator):
                 "date_from": "yStart",
             },
         )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        dashboard.save()  # to update the insight's filter hash
 
     def populate_person_events(self, person: Person, distinct_id: str, _index: int):
         start_day = random.randint(1, self.n_days)

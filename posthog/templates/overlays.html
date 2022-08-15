@@ -1,23 +1,36 @@
 {% if debug %}
-<div id="bottom-notice" class="tricolor">
+<div id="bottom-notice" class="tricolor click-close" style="display: none">
     <div>
-        <span>Current branch: </span
-        ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
-        ><span>.</span>
+        <span>
+            <span>Current branch: </span
+            ><b><code style="background: 0; color: white">{{ git_branch|default:"unknown" }}</code></b
+            ><span>.</span>
+        </span>
     </div>
     <div>
-        <span>PostHog running in </span><b><code style="background: 0; color: white">DEBUG</code></b> mode!
+        <span
+            ><span>PostHog running in </span><b><code style="background: 0; color: white">DEBUG</code></b> mode!</span
+        >
     </div>
     <div>
-        <span>Current revision: </span
-        ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
-        ><span>.</span>
+        <span
+            ><span>Current revision: </span
+            ><b><code style="background: 0; color: white">{{ git_rev|default:"unknown" }}</code></b
+            ><span>.</span></span
+        >
     </div>
-    <button title="Close debug bar" onclick="document.getElementById('bottom-notice').remove()">
+    <button title="Close debug bar">
         <code style="background: 0; color: white">×</code>
     </button>
 </div>
-{% else %}
+<script>
+    document.getElementById('bottom-notice').addEventListener('click', function (e) {
+        if (e.target.tagName !== 'SPAN') {
+            document.getElementById('bottom-notice').remove()
+        }
+    })
+</script>
+{% elif not e2e_testing %}
 <script>
     if (location.protocol !== 'https:') {
         const element = document.createElement('div')

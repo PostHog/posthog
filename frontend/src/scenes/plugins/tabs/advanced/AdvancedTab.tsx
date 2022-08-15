@@ -7,7 +7,7 @@ import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function AdvancedTab(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -19,8 +19,8 @@ export function AdvancedTab(): JSX.Element {
                 message="Advanced Features Ahead"
                 description={
                     <>
-                        Create and install your <b>own plugins</b> or plugins from <b>third-parties</b>. If you're
-                        looking for officially supported plugins, try the{' '}
+                        Create and install your <b>own apps</b> or apps from <b>third-parties</b>. If you're looking for
+                        officially supported apps, try the{' '}
                         <a
                             href="#"
                             onClick={(e) => {
@@ -28,7 +28,7 @@ export function AdvancedTab(): JSX.Element {
                                 setPluginTab(PluginTab.Repository)
                             }}
                         >
-                            Plugin Repository
+                            App Repository
                         </a>
                         .
                     </>

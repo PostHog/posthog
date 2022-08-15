@@ -1,77 +1,58 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, cast
 
 from rest_framework.decorators import action
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.clickhouse_funnel import ClickhouseFunnel
-from ee.clickhouse.queries.clickhouse_paths import ClickhousePaths
-from ee.clickhouse.queries.clickhouse_retention import ClickhouseRetention
-from ee.clickhouse.queries.clickhouse_stickiness import ClickhouseStickiness
-from ee.clickhouse.queries.sessions.clickhouse_sessions import ClickhouseSessions
-from ee.clickhouse.queries.trends.clickhouse_trends import ClickhouseTrends
-from ee.clickhouse.queries.util import get_earliest_timestamp
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.paths import ClickhousePaths
+from ee.clickhouse.queries.retention import ClickhouseRetention
+from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.insight import InsightViewSet
-from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_SESSIONS, INSIGHT_STICKINESS, TRENDS_STICKINESS
 from posthog.decorators import cached_function
-from posthog.models import Event
+from posthog.models import Insight, User
+from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.sessions_filter import SessionsFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
+
+
+class CanEditInsight(BasePermission):
+    message = "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
+
+    def has_object_permission(self, request: Request, view, insight: Insight) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+
+        return insight.get_effective_privilege_level(cast(User, request.user).id) == Dashboard.PrivilegeLevel.CAN_EDIT
 
 
 class ClickhouseInsightsViewSet(InsightViewSet):
-    @cached_function()
-    def calculate_trends(self, request: Request) -> Dict[str, Any]:
+    permission_classes = [*InsightViewSet.permission_classes, CanEditInsight]
+
+    retention_query_class = ClickhouseRetention
+    stickiness_query_class = ClickhouseStickiness
+    paths_query_class = ClickhousePaths
+
+    # ******************************************
+    # /projects/:id/insights/funnel/correlation
+    #
+    # params:
+    # - params are the same as for funnel
+    #
+    # Returns significant events, i.e. those that are correlated with a person
+    # making it through a funnel
+    # ******************************************
+    @action(methods=["GET", "POST"], url_path="funnel/correlation", detail=False)
+    def funnel_correlation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        result = self.calculate_funnel_correlation(request)
+        return Response(result)
+
+    @cached_function
+    def calculate_funnel_correlation(self, request: Request) -> Dict[str, Any]:
         team = self.team
         filter = Filter(request=request)
 
-        if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
-            stickiness_filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
-            )
-            result = ClickhouseStickiness().run(stickiness_filter, team)
-        else:
-            trends_query = ClickhouseTrends()
-            result = trends_query.run(filter, team)
+        base_uri = request.build_absolute_uri("/")
+        result = FunnelCorrelation(filter=filter, team=team, base_uri=base_uri).run()
 
-        self._refresh_dashboard(request=request)
-        return {"result": result}
-
-    @cached_function()
-    def calculate_session(self, request: Request) -> Dict[str, Any]:
-        return {
-            "result": ClickhouseSessions().run(
-                team=self.team, filter=SessionsFilter(request=request, data={"insight": INSIGHT_SESSIONS})
-            )
-        }
-
-    @cached_function()
-    def calculate_path(self, request: Request) -> Dict[str, Any]:
-        team = self.team
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS})
-        resp = ClickhousePaths().run(filter=filter, team=team)
-        return {"result": resp}
-
-    @action(methods=["GET"], detail=False)
-    def funnel(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        response = self.calculate_funnel(request)
-        return Response(response)
-
-    @cached_function()
-    def calculate_funnel(self, request: Request) -> Dict[str, Any]:
-        team = self.team
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS})
-        return {"result": ClickhouseFunnel(team=team, filter=filter).run()}
-
-    @cached_function()
-    def calculate_retention(self, request: Request) -> Dict[str, Any]:
-        team = self.team
-        data = {}
-        if not request.GET.get("date_from"):
-            data.update({"date_from": "-11d"})
-        filter = RetentionFilter(data=data, request=request)
-        result = ClickhouseRetention().run(filter, team)
         return {"result": result}

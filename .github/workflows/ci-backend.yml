@@ -1,40 +1,114 @@
+# This workflow runs all of our backend django tests.
+#
+# If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
+# .github/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
 
 on:
-    - pull_request
+    push:
+        branches:
+            - master
+    pull_request:
+    workflow_dispatch:
+        inputs:
+            clickhouseServerVersion:
+                description: ClickHouse server version. Leave blank for default
+                type: string
+
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    TEST: 1
+    CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
+    OBJECT_STORAGE_ENABLED: 'True'
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
 
 jobs:
+    # Job to decide if we should run backend ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run backend checks
+        # Set job outputs to values from filter step
+        outputs:
+            backend: ${{ steps.filter.outputs.backend }}
+        steps:
+            # For pull requests it's not necessary to checkout the code, but we
+            # also want this to run on master so we need to checkout
+            - uses: actions/checkout@v2
+
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      backend:
+                        # Avoid running backend tests for irrelevant changes
+                        # NOTE: we are at risk of missing a dependency here. We could make
+                        # the dependencies more clear if we separated the backend/frontend
+                        # code completely
+                        - 'ee/**/*'
+                        - 'posthog/**/*'
+                        - requirements.txt
+                        - requirements-dev.txt
+                        - mypy.ini
+                        - pytest.ini
+                        # Make sure we run if someone is explicitly change the workflow
+                        - .github/workflows/ci-backend.yml
+                        - .github/workflows/backend-tests-action/action.yml
+                        # We use docker-compose for tests, make sure we rerun on
+                        # changes to docker-compose.dev.yml e.g. dependency
+                        # version changes
+                        - docker-compose.dev.yml
+
     backend-code-quality:
-        name: Code quality checks
+        needs: changes
+        timeout-minutes: 5
+        # Make sure we only run on backend changes
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+
+        name: Python code quality checks
         runs-on: ubuntu-latest
 
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
         steps:
-            - uses: actions/checkout@v1
+            - uses: actions/checkout@v2
               with:
                   fetch-depth: 1
 
-            - name: Set up Python 3.8
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d
+
+            - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install SAML (python3-saml) dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
@@ -46,58 +120,49 @@ jobs:
                   black --check .
                   isort --check-only .
 
-            - name: Lint with flake8
+            - name: Check for errors and code style violations
               run: |
-                  # stop the build if there are Python syntax errors or undefined names
-                  flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-                  # exit-zero treats all errors as warnings
-                  flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+                  flake8 .
 
-            - name: Typecheck
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+            - name: Check static typing
               run: |
                   mypy .
 
-    django:
-        name: Django tests – Py ${{ matrix.python-version }}
-        runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
+    check-migrations:
+        needs: changes
+        timeout-minutes: 5
 
-        strategy:
-            fail-fast: false
-            matrix:
-                python-version: ['3.7.8', '3.8.5', '3.9.0']
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-            clickhouse-server:
-                image: yandex/clickhouse-server
-                ports:
-                    - '8123:8123'
-                    - '9000:9000'
-                    - '9440:9440'
-                    - '9009:9009'
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+
+        name: Validate Django migrations
+        runs-on: ubuntu-latest
+
         steps:
-            - uses: actions/checkout@v1
-              with:
-                  fetch-depth: 1
+            - uses: actions/checkout@v2
+
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker-compose -f docker-compose.dev.yml down
+                  docker-compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: ${{ matrix.python-version }}
+                  python-version: 3.8.12
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
+              with:
+                  custom_cache_key_element: v1-
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install SAML (python3-saml) dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
@@ -105,213 +170,238 @@ jobs:
                   python -m pip install -r requirements.txt
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-              run: python manage.py makemigrations --check --dry-run
+              run: |
+                  python manage.py makemigrations --check --dry-run
+                  git fetch origin master
+                  # `git diff --name-only` returns a list of files that were changed - added OR deleted OR modified
+                  # With `--name-status` we get the same, but including a column for status, respectively: A, D, M
+                  # In this check we exclusively care about files that were added (A) in posthog/migrations/
+                  git diff --name-status origin/master..HEAD | grep "A\sposthog/migrations/" | awk '{print $2}' | python manage.py test_migrations_are_safe
 
-            - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+    django:
+        needs: changes
+        timeout-minutes: 30
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
+
+        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        runs-on: ubuntu-latest
+
+        strategy:
+            fail-fast: false
+            matrix:
+                python-version: ['3.8.12']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:22.3']
+                ee: [true]
+                foss: [false]
+                name: ['']
+                person-on-events: [false]
+                # :NOTE: Keep concurrency and group's in sync
+                concurrency: [5]
+                group: [1, 2, 3, 4, 5]
+                include:
+                    # :TRICKY: Run FOSS tests in a separate container
+                    - python-version: '3.8.12'
+                      ee: false
+                      foss: true
+                      name: 'FOSS'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 1
+                      group: 1
+                    # :TRICKY: Run person-on-events tests only for one CH instance
+                    # But still run in parallel
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 1
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 2
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 3
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 4
+                    - python-version: '3.8.12'
+                      ee: true
+                      foss: false
+                      person-on-events: true
+                      name: 'Person on Events'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
+                      concurrency: 5
+                      group: 5
+
+        steps:
+            - uses: actions/checkout@v2
+              with:
+                  fetch-depth: 1
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
+                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+
+            - uses: ./.github/actions/run-backend-tests
+              with:
+                  cache-id: ${{ matrix.name }}
+                  python-version: ${{ matrix.python-version }}
+                  ee: ${{ matrix.ee }}
+                  foss: ${{ matrix.foss }}
+                  clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
+                  concurrency: ${{ matrix.concurrency }}
+                  group: ${{ matrix.group }}
+                  person-on-events: ${{ matrix.person-on-events }}
+
+            - uses: EndBug/add-and-commit@v9
+              # Skip on forks
+              # Also skip for persons-on-events runs, as we want to ignore snapshots diverging there
+              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
+              with:
+                  add: '["ee/clickhouse", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
+                  message: 'Update snapshots'
+
+            - name: Check if any snapshot changes were left uncomitted
+              id: changed-files
+              if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest posthog/
-            - name: Run EE tests
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_DATABASE: 'posthog_test'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
+                  if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
+                  then
+                    echo '::set-output name=files_found::false'
+                  else
+                    echo '::set-output name=diff::$(git status --porcelain)'
+                    echo '::set-output name=files_found::true'
+                  fi
+
+            - name: Fail CI if some snapshots have been updated but not committed
+              if: steps.changed-files.outputs.files_found == 'true' && steps.add-and-commit.outcome == 'success'
               run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest ee/
+                  echo "${{ steps.changed-files.outputs.diff }}"
+                  exit 1
+
+            - name: Archive email renders
+              uses: actions/upload-artifact@v3
+              if: matrix.foss
+              with:
+                  name: email_renders
+                  path: posthog/tasks/test/__emails__
 
     cloud:
+        needs: changes
+        timeout-minutes: 30
+        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
+
         name: Django tests – Cloud
         runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-            clickhouse-server:
-                image: yandex/clickhouse-server
-                ports:
-                    - '8123:8123'
-                    - '9000:9000'
-                    - '9440:9440'
-                    - '9009:9009'
-
         steps:
             - name: Fetch posthog-cloud
               run: |
-                  curl -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
-                  mkdir deploy/
+                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
 
             - name: Checkout master
               uses: actions/checkout@v2
               with:
                   ref: 'master'
-                  path: 'deploy/'
+                  path: 'master/'
 
             - name: Link posthog-cloud at master
               run: |
-                  cp -r multi_tenancy deploy/
-                  cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
-                  cat requirements.txt >> deploy/requirements.txt
+                  cp -r multi_tenancy master/
+                  cp -r messaging master/
+                  cat multi_tenancy_settings.py > master/posthog/settings/cloud.py
+                  cat requirements.txt >> master/requirements.txt
 
-            - name: Set up Python 3.8
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker-compose -f master/docker-compose.dev.yml down
+                  docker-compose -f master/docker-compose.dev.yml up -d
+
+            - name: Set up Python
               uses: actions/setup-python@v2
               with:
-                  python-version: 3.8
+                  python-version: 3.8.12
 
-            - uses: syphar/restore-virtualenv@v1
+            - uses: syphar/restore-virtualenv@v1.2
               id: cache-backend-tests
+
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install SAML (python3-saml) dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
             - name: Install python dependencies
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
               run: |
-                  python -m pip install -r deploy/requirements-dev.txt
-                  python -m pip install -r deploy/requirements.txt
+                  python -m pip install -r master/requirements-dev.txt
+                  python -m pip install -r master/requirements.txt
+
+            - name: Wait for Clickhouse & Kafka
+              run: master/bin/check_kafka_clickhouse_up
 
             # The 2-step migration process (first master, then current branch) verifies that it'll always
             # be possible to migrate to the new version without problems in production
-            - name: Migrate initially at master, then remove master deploy code
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+            - name: Run migration on master branch
               run: |
-                  python deploy/manage.py migrate
-                  rm -rf deploy
+                  python master/manage.py migrate
 
             - name: Checkout current branch
               uses: actions/checkout@v2
               with:
-                  path: 'deploy/'
+                  path: 'current/'
 
             - name: Install requirements.txt dependencies with pip at current branch
               run: |
-                  cd deploy
+                  cd current
                   python -m pip install --upgrade pip
                   python -m pip install -r requirements.txt
-                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django
+                  python -m pip install freezegun fakeredis pytest pytest-mock pytest-django syrupy
 
             - name: Link posthog-cloud at current branch
               run: |
-                  cp deploy/ee/conftest.py multi_tenancy/conftest.py
-                  cp deploy/ee/conftest.py messaging/conftest.py
-                  cp -r multi_tenancy deploy/
-                  cp -r messaging deploy/
-                  cat multi_tenancy_settings.py >> deploy/posthog/settings.py
-                  cat requirements.txt >> deploy/requirements.txt
+                  cp current/ee/conftest.py multi_tenancy/conftest.py
+                  cp current/ee/conftest.py messaging/conftest.py
+                  cp -r multi_tenancy current/
+                  cp -r messaging current/
+                  cat multi_tenancy_settings.py > current/posthog/settings/cloud.py
+                  cat requirements.txt >> current/requirements.txt
 
             - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
               run: |
-                  cd deploy
+                  cd current
                   python manage.py makemigrations --check --dry-run
                   python manage.py migrate
 
-            - name: Run posthog tests
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
+            - name: Set up needed files
               run: |
-                  cd deploy
+                  cd current
                   mkdir -p frontend/dist
+                  python manage.py collectstatic --noinput
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest posthog --reuse-db -m "not skip_on_multitenancy"
+                  touch frontend/dist/exporter.html
 
             - name: Run cloud tests (posthog-cloud)
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_DATABASE: 'posthog_test'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
               run: |
                   source .env.template
-                  cd deploy
-                  pytest multi_tenancy messaging -m "not skip_on_multitenancy"
-            - name: Run EE tests
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-                  PRIMARY_DB: 'clickhouse'
-                  CLICKHOUSE_HOST: 'localhost'
-                  CLICKHOUSE_DATABASE: 'posthog_test'
-                  CLICKHOUSE_SECURE: 'False'
-                  CLICKHOUSE_VERIFY: 'False'
-              run: |
-                  cd deploy/
-                  pytest ee -s -m "not skip_on_multitenancy"
-
-    foss:
-        name: Django tests – FOSS
-        runs-on: ubuntu-latest
-        if: ${{ github.actor != 'posthog-contributions-bot[bot]' }}
-
-        services:
-            postgres:
-                image: postgres:12
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: postgres
-                ports: ['5432:5432']
-                options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-
-        steps:
-            - uses: actions/checkout@v1
-              with:
-                  fetch-depth: 1
-
-            - name: Set up Python 3.8
-              uses: actions/setup-python@v2
-              with:
-                  python-version: 3.8
-
-            - uses: syphar/restore-virtualenv@v1
-              id: cache-backend-tests
-            - uses: syphar/restore-pip-download-cache@v1
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-            - name: Install python dependencies
-              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
-              run: |
-                  python -m pip install -r requirements-dev.txt
-                  python -m pip install -r requirements.txt
-
-            - name: Remove ee
-              run: |
-                  rm -rf ee/
-
-            - name: Check migrations
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-              run: python manage.py makemigrations --check --dry-run
-
-            - name: Run tests
-              env:
-                  DATABASE_URL: 'postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/postgres'
-              run: |
-                  mkdir -p frontend/dist
-                  touch frontend/dist/index.html
-                  touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
-                  pytest -m "not ee"
+                  cd current
+                  pytest multi_tenancy messaging -m "not skip_on_multitenancy and not async_migrations" --durations=100 --durations-min=1.0

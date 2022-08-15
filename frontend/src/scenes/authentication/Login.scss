@@ -1,27 +1,34 @@
-@import '~/vars';
-@import './authenticationShared';
+@import '../../styles/mixins';
+@import './bridgePagesShared';
 
-.login {
-    .showcase-content {
-        z-index: $z_city_background_content;
-        height: calc(100% - 100px);
-        width: 100%;
+.bridge-page.login {
+    .helper-links {
         display: flex;
-        flex-direction: column;
+        gap: 0.5rem;
         align-items: center;
-        justify-content: center;
+        justify-content: space-between;
         text-align: center;
-        padding: 0 $default_spacing * 2;
-        position: relative;
+        padding-top: 1rem;
+        flex-direction: column;
 
-        h1 {
-            color: $text_light;
+        a {
+            display: block;
+            width: 100%;
         }
     }
 
-    .auth-main-content {
-        align-items: center;
-        min-height: 100vh;
-        padding-bottom: 64px;
+    @include screen($sm) {
+        .helper-links {
+            flex-direction: row;
+        }
+    }
+
+    .password-wrapper {
+        overflow: hidden;
+        transition: max-height 0.8s ease-in-out;
+        max-height: 1000px;
+        &.hidden {
+            max-height: 0;
+        }
     }
 }

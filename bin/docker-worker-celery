@@ -59,11 +59,16 @@ while test $# -gt 0; do
   esac
 done
 
+# Stop any background jobs on exit
+trap 'kill $(jobs -p)' EXIT
+
 if [ "$with_scheduler" == "true" ]; then
   ./bin/docker-worker-beat &
 fi
 
 FLAGS=()
+FLAGS+=("-Ofair")
+FLAGS+=("-n node@%h")
 [ "$with_gossip" == "false" ]    && FLAGS+=("--without-gossip")
 [ "$with_mingle" == "false" ]    && FLAGS+=("--without-mingle")
 [ "$with_heartbeat" == "false" ] && FLAGS+=("--without-heartbeat")
@@ -73,10 +78,14 @@ FLAGS=()
 [[ -n "${WEB_CONCURRENCY}" ]]    && FLAGS+=" --concurrency $WEB_CONCURRENCY"
 
 echo
-echo "celery -A posthog worker ${FLAGS[*]}"
+echo "SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]}"
 echo
-# Warning: Changing the command below affects posthog-cloud. Please check ./bin/pull_main for details
-celery -A posthog worker ${FLAGS[*]}
 
-# Stop the beat!
-trap 'kill $(jobs -p)' EXIT
+./bin/migrate-check
+
+SKIP_ASYNC_MIGRATIONS_SETUP=0 celery -A posthog worker ${FLAGS[*]} &
+
+# Exit if any processes exit, and exit with it's exit code
+wait -n
+exit $?
+

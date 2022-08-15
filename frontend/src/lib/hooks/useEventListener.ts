@@ -1,10 +1,23 @@
 import { DependencyList, useEffect, useRef } from 'react'
 
+export type KeyboardEventHandler = (event: KeyboardEvent) => void
 export type EventHandler = (event: Event) => void
 
 export function useEventListener(
+    eventName: 'keyup' | 'keydown',
+    handler: KeyboardEventHandler,
+    element?: Element | Window,
+    deps?: DependencyList
+): void
+export function useEventListener(
     eventName: string,
     handler: EventHandler,
+    element?: Element | Window,
+    deps?: DependencyList
+): void
+export function useEventListener(
+    eventName: string,
+    handler: EventHandler | KeyboardEventHandler,
     element: Element | Window = window,
     deps?: DependencyList
 ): void {
@@ -14,7 +27,7 @@ export function useEventListener(
     // This allows our effect below to always get latest handler without us needing to pass it in effect deps array,
     // which would potentially cause effect to re-run every render
     useEffect(() => {
-        savedHandler.current = handler
+        savedHandler.current = handler as EventHandler
     }, [handler])
 
     useEffect(
@@ -32,9 +45,10 @@ export function useEventListener(
             element.addEventListener(eventName, eventListener)
             // Remove event listener on cleanup
             return () => {
-                element.removeEventListener(eventName, eventListener)
+                element?.removeEventListener(eventName, eventListener)
             }
         },
+
         [eventName, element, ...(deps || [])] // Re-run if eventName or element changes
     )
 }

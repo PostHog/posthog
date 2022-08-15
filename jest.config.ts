@@ -81,7 +81,16 @@ export default {
     // ],
 
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
-    // moduleNameMapper: {},
+    moduleNameMapper: {
+        '^.+\\.(css|less|scss|svg|png|lottie)$': '<rootDir>/test/mocks/styleMock.js',
+        '^~/(.*)$': '<rootDir>/$1',
+        '^@posthog/lemon-ui(|/.*)$': '<rootDir>/../@posthog/lemon-ui/src/$1',
+        '^@posthog/apps-common(|/.*)$': '<rootDir>/../@posthog/apps-common/src/$1',
+        '^lib/(.*)$': '<rootDir>/lib/$1',
+        '^scenes/(.*)$': '<rootDir>/scenes/$1',
+        '^antd/es/(.*)$': 'antd/lib/$1',
+        '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
+    },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader
     // modulePathIgnorePatterns: [],
@@ -126,10 +135,10 @@ export default {
     // runner: "jest-runner",
 
     // The paths to modules that run some code to configure or set up the testing environment before each test
-    // setupFiles: [],
+    setupFiles: ['../../jest.setup.ts'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['givens/setup'],
+    setupFilesAfterEnv: ['givens/setup', './mocks/jest.ts'],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,
@@ -176,10 +185,7 @@ export default {
     // transform: undefined,
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation
-    // transformIgnorePatterns: [
-    //   "/node_modules/",
-    //   "\\.pnp\\.[^\\/]+$"
-    // ],
+    transformIgnorePatterns: ['node_modules/(?!(query-selector-shadow-dom)/)'],
 
     // An array of regexp pattern strings that are matched against all modules before the module loader will automatically return a mock for them
     // unmockedModulePathPatterns: undefined,

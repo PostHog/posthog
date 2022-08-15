@@ -1,8 +1,13 @@
 import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
-import { Select, Tag, Tooltip } from 'antd'
+import { ConfigProvider, Empty, Select, Tag } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
-import './SelectGradientOverflow.scss'
 import { CloseButton } from './CloseButton'
+import { ANTD_TOOLTIP_PLACEMENTS, toString } from 'lib/utils'
+import { Tooltip } from 'lib/components/Tooltip'
+import './SelectGradientOverflow.scss'
+import { useValues } from 'kea'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { LoadingOutlined } from '@ant-design/icons'
 
 interface DropdownGradientRendererProps {
     updateScrollGradient: () => void
@@ -21,42 +26,52 @@ function DropdownGradientRenderer({
     return <div ref={innerRef}>{menu}</div>
 }
 
-/**
- * Ant Design Tag with custom styling in .scss to match default style
- */
 type CustomTagProps = Parameters<Exclude<SelectProps<any>['tagRender'], undefined>>[0]
 
-function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
-    return (
-        <Tooltip title={value.toString()}>
-            <Tag>
-                <span className="label">{label}</span>
-                <CloseButton onClick={onClose} />
-            </Tag>
-        </Tooltip>
-    )
+export type SelectGradientOverflowProps = SelectProps<any> & {
+    delayBeforeAutoOpen?: number
+    dropdownMatchSelectWidth?: boolean | number
+    placement?: 'bottomLeft' | 'topLeft' // Dropdown placement (undefined = auto). See API at https://ant.design/components/dropdown
+    handleBlur?: () => void
+    propertyKey?: string
 }
 
 /**
  * Ant Design Select extended with a gradient overlay to indicate a scrollable list.
  */
-
-export type SelectGradientOverflowProps = SelectProps<any> & {
-    delayBeforeAutoOpen?: number
-    dropdownMatchSelectWidth?: boolean | number
-}
-
 export function SelectGradientOverflow({
     autoFocus = false,
     defaultOpen = false,
     delayBeforeAutoOpen,
     dropdownMatchSelectWidth = true,
+    handleBlur = () => {},
+    placement,
+    propertyKey,
     ...props
 }: SelectGradientOverflowProps): JSX.Element {
     const selectRef: React.RefObject<RefSelectProps> | null = useRef(null)
     const containerRef: React.RefObject<HTMLDivElement> = useRef(null)
     const dropdownRef = useRef<HTMLDivElement>(null)
     const [isOpen, setOpen] = useState(false)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    /**
+     * Ant Design Tag with custom styling in .scss to match default style
+     */
+    function CustomTag({ label, onClose, value }: CustomTagProps): JSX.Element {
+        // if this component is displaying a list of PropertyFilterValues it needs to format them for display
+        if (typeof label === 'string' && propertyKey) {
+            label = formatPropertyValueForDisplay(propertyKey, label)
+        }
+        return (
+            <Tooltip title={toString(value)}>
+                <Tag>
+                    <span className="label">{label}</span>
+                    <CloseButton onClick={onClose} />
+                </Tag>
+            </Tooltip>
+        )
+    }
 
     const updateScrollGradient = (): void => {
         const dropdown = dropdownRef.current
@@ -79,13 +94,16 @@ export function SelectGradientOverflow({
         }
     }
 
-    const onFocus = (): void => {
+    const onFocus: React.FocusEventHandler<HTMLElement> = (e) => {
+        props.onFocus?.(e)
         setTimeout(() => setOpen(true), delayBeforeAutoOpen || 0)
     }
 
-    const onBlur = (): void => {
+    const onBlur: React.FocusEventHandler<HTMLElement> = (e) => {
+        props.onBlur?.(e)
         if (isOpen) {
             setOpen(false)
+            handleBlur()
         }
     }
 
@@ -101,29 +119,54 @@ export function SelectGradientOverflow({
         }
     }
     document.addEventListener('click', outsideClickListener)
+
     return (
-        <div ref={containerRef} style={{ width: '100%' }}>
-            <Select
-                {...props}
-                ref={selectRef}
-                open={isOpen}
-                onFocus={onFocus}
-                onBlur={onBlur}
-                onPopupScroll={() => {
-                    updateScrollGradient()
+        <div ref={containerRef} className="w-full">
+            {/*
+            This config provider is used to configure the empty data state on the wrapped
+            ANT select component
+             */}
+            <ConfigProvider
+                renderEmpty={() => {
+                    if (props.loading) {
+                        return (
+                            <div className="illustration-main text-center">
+                                <LoadingOutlined style={{ fontSize: 20 }} />
+                                <div>Loading data</div>
+                            </div>
+                        )
+                    } else {
+                        return (
+                            <div className="illustration-main">
+                                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No data" />
+                            </div>
+                        )
+                    }
                 }}
-                tagRender={CustomTag}
-                dropdownRender={(menu) => (
-                    <DropdownGradientRenderer
-                        menu={menu}
-                        innerRef={dropdownRef}
-                        updateScrollGradient={updateScrollGradient}
-                    />
-                )}
-                dropdownMatchSelectWidth={dropdownMatchSelectWidth}
             >
-                {props.children}
-            </Select>
+                <Select
+                    {...props}
+                    dropdownAlign={placement ? ANTD_TOOLTIP_PLACEMENTS[placement] : undefined}
+                    ref={selectRef}
+                    open={isOpen}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                    onPopupScroll={() => {
+                        updateScrollGradient()
+                    }}
+                    tagRender={CustomTag}
+                    dropdownRender={(menu) => (
+                        <DropdownGradientRenderer
+                            menu={menu}
+                            innerRef={dropdownRef}
+                            updateScrollGradient={updateScrollGradient}
+                        />
+                    )}
+                    dropdownMatchSelectWidth={dropdownMatchSelectWidth}
+                >
+                    {props.children}
+                </Select>
+            </ConfigProvider>
         </div>
     )
 }

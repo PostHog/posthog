@@ -1,6 +1,9 @@
+import './PropertyKeyInfo.scss'
 import React from 'react'
 import { Popover, Typography } from 'antd'
-import { KeyMapping } from '~/types'
+import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { TooltipPlacement } from 'antd/lib/tooltip'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -55,15 +58,30 @@ export const keyMapping: KeyMappingInterface = {
                 'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
+
         $screen_height: {
             label: 'Screen Height',
-            description: "The height of the user's screen in pixels.",
+            description: "The height of the user's entire screen (in pixels).",
             examples: ['2160', '1050'],
         },
         $screen_width: {
             label: 'Screen Width',
-            description: "The width of the user's screen in pixels.",
+            description: "The width of the user's entire screen (in pixels).",
             examples: ['1440', '1920'],
+        },
+        $screen_name: {
+            label: 'Screen Name',
+            description: 'The name of the active screen.',
+        },
+        $viewport_height: {
+            label: 'Viewport Height',
+            description: "The height of the user's actual browser window (in pixels).",
+            examples: ['2094', '1031'],
+        },
+        $viewport_width: {
+            label: 'Viewport Width',
+            description: "The width of the user's actual browser window (in pixels).",
+            examples: ['1439', '1915'],
         },
         $lib: {
             label: 'Library',
@@ -211,78 +229,179 @@ export const keyMapping: KeyMappingInterface = {
         },
         $identify: {
             label: 'Identify',
-            description: 'Tie a user to their actions',
+            description: 'A user has been identified with properties',
+        },
+        $groupidentify: {
+            label: 'Group Identify',
+            description: 'A group has been identified with properties',
+        },
+        $groups: {
+            label: 'Groups',
+            description: 'Relevant groups',
+        },
+        // There are at most 5 group types per project, so indexes 0, 1, 2, 3, and 4
+        $group_0: {
+            label: 'Group 1',
+            hide: true,
+        },
+        $group_1: {
+            label: 'Group 2',
+            hide: true,
+        },
+        $group_2: {
+            label: 'Group 3',
+            hide: true,
+        },
+        $group_3: {
+            label: 'Group 4',
+            hide: true,
+        },
+        $group_4: {
+            label: 'Group 5',
+            hide: true,
+        },
+        $group_set: {
+            label: 'Group Set',
+            description: 'Group properties to be set',
+        },
+        $group_key: {
+            label: 'Group Key',
+            description: 'Specified group key',
+        },
+        $group_type: {
+            label: 'Group Type',
+            description: 'Specified group type',
+        },
+        $window_id: {
+            label: 'Window ID',
+            description: 'Unique window ID for session recording disambiguation',
+            hide: true,
+        },
+        $session_id: {
+            label: 'Session ID',
+            description: 'Unique session ID for session recording disambiguation',
+            hide: true,
         },
         $rageclick: {
             label: 'Rageclick',
-            description: 'When a user repeatedly clicks a targeted area or element over a short period of time',
+            description: 'A user has rapidly and repeatedly clicked in a single place',
         },
         $set: {
             label: 'Set',
-            description: '',
+            description: 'Person properties to be set',
         },
         $set_once: {
             label: 'Set Once',
-            description: '',
+            description: 'Person properties to be set if not set already (i.e. first-touch)',
         },
         $capture_failed_request: {
             label: 'Capture Failed Request',
             description: '',
         },
+        $plugins_succeeded: {
+            label: 'Plugins Succeeded',
+            description: (
+                <>
+                    Plugins that successfully processed the event, e.g. edited properties (plugin method{' '}
+                    <code>processEvent</code>).
+                </>
+            ),
+        },
+        $plugins_failed: {
+            label: 'Plugins Failed',
+            description: (
+                <>
+                    Plugins that failed to process the event (plugin method <code>processEvent</code>).
+                </>
+            ),
+        },
+        $plugins_deferred: {
+            label: 'Plugins Deferred',
+            description: (
+                <>
+                    Plugins to which the event was handed off post-ingestion, e.g. for export (plugin method{' '}
+                    <code>onEvent</code>).
+                </>
+            ),
+        },
+        $$plugin_metrics: {
+            label: 'Plugin Metric',
+            description: 'Performance metrics for a given plugin.',
+        },
 
         // UTM tags
         utm_source: {
             label: 'UTM Source',
-            description: 'The last UTM source tag that this user saw (last-touch).',
+            description: 'UTM source tag (last-touch).',
             examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
         },
         $initial_utm_source: {
             label: 'Initial UTM Source',
-            description: 'The initial UTM source tag that this user saw (first-touch).',
+            description: 'UTM source tag (first-touch).',
             examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
         },
         utm_medium: {
             label: 'UTM Medium',
-            description: 'The last UTM medium tag that this user saw (last-touch).',
+            description: 'UTM medium tag (last-touch).',
             examples: ['Social', 'Organic', 'Paid', 'Email'],
         },
         $initial_utm_medium: {
             label: 'Initial UTM Medium',
-            description: 'The initial UTM medium tag that this user saw (first-touch).',
+            description: 'UTM medium tag (first-touch).',
             examples: ['Social', 'Organic', 'Paid', 'Email'],
         },
         utm_campaign: {
             label: 'UTM Campaign',
-            description: 'The last UTM campaign tag that this user saw (last-touch).',
+            description: 'UTM campaign tag (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        utm_name: {
+            label: 'UTM Name',
+            description: 'UTM campaign tag, sent via Segment (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        $initial_utm_name: {
+            label: 'Initial UTM Name',
+            description: 'UTM campaign tag, sent via Segment (first-touch).',
             examples: ['feature launch', 'discount'],
         },
         $initial_utm_campaign: {
             label: 'Initial UTM Campaign',
-            description: 'The initial UTM campaign tag that this user saw (first-touch).',
+            description: 'UTM campaign tag (first-touch).',
             examples: ['feature launch', 'discount'],
         },
         utm_content: {
-            label: 'UTM content',
-            description: 'The last UTM content tag that this user saw (last-touch).',
+            label: 'UTM Content',
+            description: 'UTM content tag (last-touch).',
             examples: ['bottom link', 'second button'],
         },
         $initial_utm_content: {
-            label: 'Initial UTM content',
-            description: 'The initial UTM content tag that this user saw (first-touch).',
+            label: 'Initial UTM Content',
+            description: 'UTM content tag (first-touch).',
             examples: ['bottom link', 'second button'],
         },
         utm_term: {
             label: 'UTM Term',
-            description: 'The last UTM term tag that this user saw (last-touch).',
+            description: 'UTM term tag (last-touch).',
             examples: ['free goodies'],
         },
         $initial_utm_term: {
             label: 'Initial UTM Term',
-            description: 'The initial UTM term tag that this user saw (first-touch).',
+            description: 'UTM term tag (first-touch).',
             examples: ['free goodies'],
+        },
+        $performance_page_loaded: {
+            label: 'Page Loaded',
+            description: "The time taken until the browser's page load event in milliseconds.",
         },
 
         // Hidden fields
+        $performance_raw: {
+            label: 'Browser Performance',
+            description:
+                'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
+            hide: true,
+        },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
@@ -332,13 +451,6 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
             hide: true,
         },
-        $environment: {
-            label: 'Environment',
-            description: 'Environment used to filter results on all queries when enabled.',
-            examples: ['test', 'production'],
-            hide: true,
-        },
-
         // GeoIP
         $geoip_city_name: {
             label: 'City Name',
@@ -411,47 +523,98 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Subdivision 3 Code',
             description: `Code of the third subdivision matched to this event's IP address.`,
         },
+        // NOTE: This is a hack. $session_duration is a session property, not an event property
+        // but we don't do a good job of tracking property types, so making it a session property
+        // would require a large refactor, and this works (because all properties are treated as
+        // event properties if they're not elements)
+        $session_duration: {
+            label: 'Session duration',
+            description: (
+                <span>
+                    The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
+                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <br /> <br />
+                    Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
+                </span>
+            ),
+            examples: ['01:04:12'],
+        },
+        $app_build: {
+            label: 'App Build',
+            description: 'The build number for the app',
+        },
+        $app_name: {
+            label: 'App Name',
+            description: 'The name of the app',
+        },
+        $app_namespace: {
+            label: 'App Namespace',
+            description: 'The namespace of the app as identified in the app store',
+            examples: ['com.posthog.app'],
+        },
+        $app_version: {
+            label: 'App Version',
+            description: 'The version of the app',
+        },
+        $device_manufacturer: {
+            label: 'Device Manufacturer',
+            description: 'The manufacturer of the device',
+            examples: ['Apple', 'Samsung'],
+        },
+        $device_name: {
+            label: 'Device Name',
+            description: 'Name of the device',
+            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
+        },
+        $locale: {
+            label: 'Locale',
+            description: 'The locale of the device',
+            examples: ['en-US', 'de-DE'],
+        },
+        $os_name: {
+            label: 'OS Name',
+            description: 'The Operating System name',
+            examples: ['iOS', 'Android'],
+        },
+        $os_version: {
+            label: 'OS Version',
+            description: 'The Operating System version',
+            examples: ['15.5'],
+        },
+        $timezone: {
+            label: 'Timezone',
+            description: 'The timezone as reported by the device',
+        },
+
+        $touch_x: {
+            label: 'Touch X',
+            description: 'The location of a Touch event on the X axis',
+        },
+        $touch_y: {
+            label: 'Touch Y',
+            description: 'The location of a Touch event on the Y axis',
+        },
     },
     element: {
         tag_name: {
             label: 'Tag Name',
-            description: (
-                <span>
-                    Tag name of the element you want to filter on.
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
-                </span>
-            ),
+            description: 'HTML tag name of the element which you want to filter.',
             examples: ['a', 'button', 'input'],
         },
         selector: {
             label: 'CSS Selector',
-            description: (
-                <span>
-                    Select any element by css selector
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
-                </span>
-            ),
-            examples: ['div > a', 'table td:nth-child(2)'],
+            description: 'Select any element by CSS selector.',
+            examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
         },
         text: {
             label: 'Text',
-            description: (
-                <span>
-                    The inner text of the element.
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
-                </span>
-            ),
+            description: 'Filter on the inner text of the HTML element.',
         },
         href: {
-            label: 'href',
+            label: 'Target (href)',
             description: (
                 <span>
-                    The href attribute of the element.
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
+                    Filter on the <code>href</code> attribute of the element.
                 </span>
             ),
             examples: ['https://posthog.com/about'],
@@ -459,74 +622,167 @@ export const keyMapping: KeyMappingInterface = {
     },
 }
 
+export const keyMappingKeys = Object.keys(keyMapping.event)
+
+export function isPostHogProp(key: string): boolean {
+    /*
+    Returns whether a given property is a PostHog-defined property. If the property is custom-defined, 
+        function will return false.
+    */
+    if (Object.keys(keyMapping.event).includes(key) || Object.keys(keyMapping.element).includes(key)) {
+        return true
+    }
+    return false
+}
+
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
-    style?: any
+    style?: React.CSSProperties
+    tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
+    disableIcon?: boolean
+    ellipsis?: boolean
+    className?: string
 }
 
-export function PropertyKeyInfo({
+export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
+    return (
+        <span>
+            <span className="property-key-info-logo" />
+            {data.label}
+        </span>
+    )
+}
+
+export function PropertyKeyDescription({
+    data,
     value,
-    type = 'event',
-    style,
-    disablePopover = false,
-}: PropertyKeyInfoInterface): JSX.Element {
+    propertyType,
+}: {
+    data: KeyMapping
+    value: string
+    propertyType?: PropertyDefinition['property_type'] | null
+}): JSX.Element {
+    return (
+        <span>
+            {data.description ? <p>{data.description}</p> : null}
+            {data.examples ? (
+                <p>
+                    <i>Example: </i>
+                    {data.examples.join(', ')}
+                </p>
+            ) : null}
+            {data.description || data.examples ? <hr /> : null}
+            <div>
+                <span>
+                    Sent as <code className="p-1">{value}</code>
+                </span>
+                <span>{propertyType && <div className="property-value-type">{propertyType}</div>}</span>
+            </div>
+        </span>
+    )
+}
+
+export function getKeyMapping(
+    value: string | PropertyFilterValue | undefined,
+    type: 'event' | 'element'
+): KeyMapping | null {
+    if (!value) {
+        return null
+    }
+
     value = `${value}` // convert to string
     let data = null
     if (value in keyMapping[type]) {
-        data = { ...keyMapping[type][value] }
+        return { ...keyMapping[type][value] }
     } else if (value.startsWith('$initial_') && value.replace(/^\$initial_/, '$') in keyMapping[type]) {
         data = { ...keyMapping[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
             data.description = `${data.description} Data from the first time this user was seen.`
         }
-    } else {
-        return (
-            <Typography.Text ellipsis={true} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
-                {value}
-            </Typography.Text>
-        )
+        return data
+    } else if (value.startsWith('$feature/')) {
+        const featureFlagKey = value.replace(/^\$feature\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature: ${featureFlagKey}`,
+                description: `Value for the feature flag "${featureFlagKey}" when this event was sent.`,
+                examples: ['true', 'variant-1a'],
+            }
+        }
     }
+    return null
+}
+
+export function getPropertyLabel(
+    value: PropertyKeyInfoInterface['value'],
+    type: PropertyKeyInfoInterface['type'] = 'event'
+): string {
+    const data = getKeyMapping(value, type)
+    return (data ? data.label : value)?.trim() ?? '(empty string)'
+}
+
+export function PropertyKeyInfo({
+    value,
+    type = 'event',
+    style,
+    tooltipPlacement = undefined,
+    disablePopover = false,
+    disableIcon = false,
+    ellipsis = true,
+    className = '',
+}: PropertyKeyInfoInterface): JSX.Element {
+    value = `${value}` // convert to string
+
+    const data = getKeyMapping(value, type)
+    const baseValue = (data ? data.label : value)?.trim() ?? ''
+    const baseValueNode = baseValue === '' ? <i>(empty string)</i> : baseValue
+
+    // By this point, property is a PH defined property
     const innerContent = (
-        <div className="property-key-info">
-            <span className="property-key-info-logo" />
-            {data.label}
-        </div>
+        <span className="property-key-info">
+            {!disableIcon && !!data && <span className="property-key-info-logo" />}
+            <Typography.Text
+                ellipsis={ellipsis}
+                style={{
+                    color: 'inherit',
+                    maxWidth: 400,
+                    display: 'inline', // NOTE: This important and stops the whole thing from only showing "..."
+                    ...style,
+                }}
+                title={baseValue}
+                className={className}
+            >
+                {baseValueNode}
+            </Typography.Text>
+        </span>
     )
 
-    return disablePopover ? (
-        innerContent
-    ) : (
+    if (!data || disablePopover) {
+        return innerContent
+    }
+
+    const popoverProps = tooltipPlacement
+        ? {
+              visible: true,
+              placement: tooltipPlacement,
+          }
+        : {
+              align: ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight,
+          }
+
+    const popoverTitle = <PropertyKeyTitle data={data} />
+    const popoverContent = <PropertyKeyDescription data={data} value={value} />
+
+    return (
         <Popover
-            overlayStyle={{ maxWidth: 500 }}
-            placement="right"
-            title={
-                <span>
-                    <span className="property-key-info-logo" />
-                    {data.label}
-                </span>
-            }
-            content={
-                <span>
-                    {data.examples ? (
-                        <>
-                            <span>{data.description}</span>
-                            <br />
-                            <br />
-                            <span>
-                                <i>Example: </i>
-                                {data.examples.join(', ')}
-                            </span>
-                        </>
-                    ) : (
-                        data.description
-                    )}
-                    <hr />
-                    Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
-                </span>
-            }
+            overlayStyle={{ zIndex: 99999 }}
+            overlayClassName={`property-key-info-tooltip ${className || ''}`}
+            title={popoverTitle}
+            content={popoverContent}
+            {...popoverProps}
         >
             {innerContent}
         </Popover>

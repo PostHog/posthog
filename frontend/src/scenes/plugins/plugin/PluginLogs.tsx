@@ -1,13 +1,13 @@
-import { Button, Row, Space } from 'antd'
+import { Button, Checkbox, Row, Space } from 'antd'
 import Search from 'antd/lib/input/Search'
 import { LoadingOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { ResizableColumnType, ResizableTable } from '../../../lib/components/ResizableTable'
 import { pluralize } from '../../../lib/utils'
 import { PluginLogEntry, PluginLogEntryType } from '../../../types'
 import { LOGS_PORTION_LIMIT, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
+import { dayjs } from 'lib/dayjs'
 
 function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined
@@ -16,7 +16,7 @@ function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
             color = 'var(--muted)'
             break
         case PluginLogEntryType.Log:
-            color = 'var(--text-default)'
+            color = 'var(--default)'
             break
         case PluginLogEntryType.Info:
             color = 'var(--blue)'
@@ -62,21 +62,32 @@ const columns: ResizableColumnType<PluginLogEntry>[] = [
     } as ResizableColumnType<PluginLogEntry>,
 ]
 
-export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Element {
-    const logic = pluginLogsLogic({ teamId, pluginConfigId })
+export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
+    const logic = pluginLogsLogic({ pluginConfigId })
 
-    const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad } = useValues(logic)
-    const { revealBackground, loadPluginLogsMore, loadPluginLogsSearch } = useActions(logic)
+    const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad, pluginLogsTypes } = useValues(logic)
+    const { revealBackground, loadPluginLogsMore, setPluginLogsTypes, setSearchTerm } = useActions(logic)
 
     return (
         <Space direction="vertical" style={{ flexGrow: 1 }} className="ph-no-capture plugin-logs">
             <Row>
                 <Search
                     loading={pluginLogsLoading}
-                    onSearch={(term) => loadPluginLogsSearch(term)}
+                    onSearch={setSearchTerm}
                     placeholder="Search for messages containing…"
                     allowClear
                 />
+            </Row>
+            <Row>
+                <Space>
+                    <span>Show logs of type:&nbsp;</span>
+                    <Checkbox.Group
+                        options={Object.values(PluginLogEntryType)}
+                        value={pluginLogsTypes}
+                        onChange={setPluginLogsTypes}
+                        style={{ marginLeft: '8px' }}
+                    />
+                </Space>
             </Row>
             <Row>
                 <Button
@@ -98,7 +109,7 @@ export function PluginLogs({ teamId, pluginConfigId }: PluginLogsProps): JSX.Ele
                 size="small"
                 className="ph-no-capture"
                 rowKey="id"
-                style={{ flexGrow: 1 }}
+                style={{ flexGrow: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!pluginLogs.length && (

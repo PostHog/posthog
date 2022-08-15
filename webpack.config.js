@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 /* global require, module, process, __dirname */
 const path = require('path')
 const HtmlWebpackPlugin = require('html-webpack-plugin')
@@ -12,22 +11,6 @@ function createEntry(entry) {
     const commonLoadersForSassAndLess = [
         {
             loader: 'style-loader',
-            options:
-                entry === 'toolbar'
-                    ? {
-                          insert: function insertAtTop(element) {
-                              // tunnel behind the shadow root
-                              if (window.__PHGTLB_ADD_STYLES__) {
-                                  window.__PHGTLB_ADD_STYLES__(element)
-                              } else {
-                                  if (!window.__PHGTLB_STYLES__) {
-                                      window.__PHGTLB_STYLES__ = []
-                                  }
-                                  window.__PHGTLB_STYLES__.push(element)
-                              }
-                          },
-                      }
-                    : undefined,
         },
         {
             // This loader resolves url() and @imports inside CSS
@@ -42,16 +25,14 @@ function createEntry(entry) {
     return {
         name: entry,
         mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
-        devtool: process.env.NODE_ENV === 'production' ? 'source-map' : 'inline-source-map',
+        devtool:
+            process.env.GENERATE_SOURCEMAP === 'false'
+                ? false
+                : process.env.NODE_ENV === 'production'
+                ? 'source-map'
+                : 'inline-source-map',
         entry: {
-            [entry]:
-                entry === 'main' || entry === 'cypress'
-                    ? './frontend/src/index.tsx'
-                    : entry === 'toolbar'
-                    ? './frontend/src/toolbar/index.tsx'
-                    : entry === 'shared_dashboard'
-                    ? './frontend/src/scenes/dashboard/SharedDashboard.tsx'
-                    : null,
+            [entry]: entry === 'main' || entry === 'cypress' ? './frontend/src/index.tsx' : null,
         },
         watchOptions: {
             ignored: /node_modules/,
@@ -67,11 +48,14 @@ function createEntry(entry) {
                 : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
-            extensions: ['.js', '.ts', '.tsx'],
+            extensions: ['.js', '.jsx', '.ts', '.tsx'],
             alias: {
                 '~': path.resolve(__dirname, 'frontend', 'src'),
                 lib: path.resolve(__dirname, 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, 'frontend', 'src', 'scenes'),
+                '@posthog/apps-common': path.resolve(__dirname, 'frontend', '@posthog', 'apps-common', 'src'),
+                '@posthog/lemon-ui': path.resolve(__dirname, 'frontend', '@posthog', 'lemon-ui', 'src'),
+                storybook: path.resolve(__dirname, '.storybook'),
                 types: path.resolve(__dirname, 'frontend', 'types'),
                 public: path.resolve(__dirname, 'frontend', 'public'),
                 cypress: path.resolve(__dirname, 'cypress'),
@@ -122,7 +106,7 @@ function createEntry(entry) {
 
                 {
                     // Now we apply rule for images
-                    test: /\.(png|jpe?g|gif|svg)$/,
+                    test: /\.(png|jpe?g|gif|svg|lottie)$/,
                     use: [
                         {
                             // Using file-loader for these files
@@ -209,16 +193,6 @@ function createEntry(entry) {
                       }),
                       new HtmlWebpackHarddiskPlugin(),
                   ]
-                : entry === 'shared_dashboard'
-                ? [
-                      new HtmlWebpackPlugin({
-                          alwaysWriteToDisk: true,
-                          title: 'PostHog',
-                          filename: 'shared_dashboard.html',
-                          template: path.join(__dirname, 'frontend', 'src', 'shared_dashboard.ejs'),
-                      }),
-                      new HtmlWebpackHarddiskPlugin(),
-                  ]
                 : entry === 'cypress'
                 ? [new HtmlWebpackHarddiskPlugin()]
                 : []
@@ -227,7 +201,5 @@ function createEntry(entry) {
 }
 
 // main = app
-// toolbar = toolbar
-// shared_dashboard = publicly available dashboard
-module.exports = () => [createEntry('main'), createEntry('toolbar'), createEntry('shared_dashboard')]
+module.exports = () => [createEntry('main')]
 module.exports.createEntry = createEntry

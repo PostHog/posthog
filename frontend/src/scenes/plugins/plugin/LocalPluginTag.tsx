@@ -1,6 +1,7 @@
 import React from 'react'
-import { Tag, Tooltip } from 'antd'
+import { Tag } from 'antd'
 import { copyToClipboard } from 'lib/utils'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export function LocalPluginTag({
     url,
@@ -13,8 +14,8 @@ export function LocalPluginTag({
 }): JSX.Element {
     return (
         <Tooltip title={url.substring(5)}>
-            <Tag color="geekblue" onClick={() => copyToClipboard(url.substring(5))} style={style}>
-                {title || 'Local Plugin'}
+            <Tag color="purple" onClick={() => copyToClipboard(url.substring(5))} style={style}>
+                {title || 'Local App'}
             </Tag>
         </Tooltip>
     )

@@ -2,8 +2,6 @@ import django.contrib.postgres.fields.jsonb
 import django.db.models.deletion
 from django.db import migrations, models
 
-import posthog.models.plugin
-
 
 class Migration(migrations.Migration):
 

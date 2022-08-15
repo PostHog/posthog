@@ -1,6 +1,7 @@
 import { CloudDownloadOutlined } from '@ant-design/icons'
-import { Tag, Tooltip } from 'antd'
+import { Tag } from 'antd'
 import React from 'react'
+import { Tooltip } from 'lib/components/Tooltip'
 
 function SHATag({ tag }: { tag: string }): JSX.Element {
     // github/gitlab sha tag

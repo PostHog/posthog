@@ -3,8 +3,8 @@ import { combineUrl } from 'kea-router'
 
 import { Property } from 'lib/components/Property'
 import { Link } from 'lib/components/Link'
-import { parseProperties } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { FilterType } from '~/types'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
 export function FilterPropertyLink({
     property,
@@ -19,9 +19,7 @@ export function FilterPropertyLink({
     onClick?: (property: string, value: string | number) => void
     className?: string
 }): JSX.Element {
-    const cleanedProperties = Array.isArray(filters.properties)
-        ? filters.properties
-        : parseProperties(filters.properties)
+    const cleanedProperties = parseProperties(filters.properties)
 
     // In case the property we're linking to is already in the filter, remove it, otherwise add it
     const properties = cleanedProperties.find((p: any) => p.key === property && p.value === value && !p.operator)

@@ -1,178 +1,226 @@
-import React, { useState } from 'react'
-import { Row, Tabs, Col, Card, Skeleton, Tag, Dropdown, Menu, Button, Popconfirm } from 'antd'
-import { SessionsView } from '../sessions/SessionsView'
+import React from 'react'
+import { Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
+import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
+import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
-import { PersonHeader } from './PersonHeader'
+import { asDisplay } from './PersonHeader'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis } from 'lib/utils'
-import { DownOutlined, DeleteOutlined, MergeCellsOutlined, LoadingOutlined } from '@ant-design/icons'
-import dayjs from 'dayjs'
-import { MergePerson } from './MergePerson'
+import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { NewPropertyComponent } from './NewPropertyComponent'
-
-import relativeTime from 'dayjs/plugin/relativeTime'
 import { TZLabel } from 'lib/components/TimezoneAware'
-dayjs.extend(relativeTime)
+import { Tooltip } from 'lib/components/Tooltip'
+import { PersonsTabType, PersonType } from '~/types'
+import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { Loading } from 'lib/utils'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonButton } from '@posthog/lemon-ui'
 
 const { TabPane } = Tabs
 
-export function Person(): JSX.Element {
-    const [activeTab, setActiveTab] = useState('events')
-    const [activeCardTab, setActiveCardTab] = useState('properties')
-    const [mergeModalOpen, setMergeModalOpen] = useState(false)
+export const scene: SceneExport = {
+    component: Person,
+    logic: personsLogic,
+    paramsToProps: ({ params: { _: rawUrlId } }): typeof personsLogic['props'] => ({
+        syncWithUrl: true,
+        urlId: decodeURIComponent(rawUrlId),
+    }),
+}
 
-    const { person, personLoading, deletedPersonLoading, hasNewKeys } = useValues(personsLogic)
-    const { deletePerson, setPerson, editProperty } = useActions(personsLogic)
-
-    const ids = (
-        <Menu>
-            {person?.distinct_ids.map((distinct_id: string) => (
-                <Menu.Item key={distinct_id}>
-                    <CopyToClipboardInline
-                        explicitValue={distinct_id}
-                        tooltipMessage=""
-                        iconStyle={{ color: 'var(--primary)' }}
-                    >
-                        {midEllipsis(distinct_id, 32)}
-                    </CopyToClipboardInline>
-                </Menu.Item>
-            ))}
-        </Menu>
-    )
-
+function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
-        <div style={{ paddingTop: 32 }}>
-            <Row gutter={16}>
-                <Col span={16}>
-                    <Tabs
-                        defaultActiveKey={activeTab}
-                        onChange={(tab) => {
-                            setActiveTab(tab)
-                        }}
-                    >
-                        <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key="events" />
-                        <TabPane tab={<span data-attr="person-sessions-tab">Sessions</span>} key="sessions" />
-                    </Tabs>
-                    {person && (
-                        <div>
-                            {activeTab === 'events' ? (
-                                <EventsTable
-                                    pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                    fixedFilters={{ person_id: person.id }}
-                                />
-                            ) : (
-                                <SessionsView
-                                    key={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                                    personIds={person.distinct_ids}
-                                    isPersonPage
-                                />
-                            )}
-                        </div>
-                    )}
-                </Col>
-                <Col span={8}>
-                    <Card className="card-elevated person-detail" data-test-person-details>
-                        {person && (
-                            <>
-                                <PersonHeader person={person} />
-                                <div className="item-group">
-                                    <label>IDs</label>
-                                    <div style={{ display: 'flex' }}>
+        <div className="flex flex-wrap items-center gap-2">
+            <div>
+                <span className="text-muted">IDs:</span>{' '}
+                <CopyToClipboardInline
+                    tooltipMessage={null}
+                    description="person distinct ID"
+                    style={{ justifyContent: 'flex-end' }}
+                >
+                    {person.distinct_ids[0]}
+                </CopyToClipboardInline>
+                {person.distinct_ids.length > 1 && (
+                    <Dropdown
+                        overlay={
+                            <Menu>
+                                {person.distinct_ids.slice(1).map((distinct_id: string) => (
+                                    <Menu.Item key={distinct_id}>
                                         <CopyToClipboardInline
-                                            explicitValue={person.distinct_ids[0]}
-                                            tooltipMessage=""
+                                            description="person distinct ID"
                                             iconStyle={{ color: 'var(--primary)' }}
                                         >
-                                            {midEllipsis(person.distinct_ids[0], 20)}
+                                            {distinct_id}
                                         </CopyToClipboardInline>
-                                        {person.distinct_ids.length > 1 && (
-                                            <Dropdown overlay={ids} trigger={['click']}>
-                                                <Tag className="extra-ids">
-                                                    +{person.distinct_ids.length} <DownOutlined />
-                                                </Tag>
-                                            </Dropdown>
-                                        )}
-                                    </div>
-                                </div>
-                                {person.created_at && (
-                                    <div className="item-group">
-                                        <label>First seen</label>
-                                        <div>{<TZLabel time={person.created_at} />}</div>
-                                    </div>
-                                )}
-                                <div className="text-center mt">
-                                    <a onClick={() => setMergeModalOpen(true)}>
-                                        <MergeCellsOutlined /> Merge person
-                                    </a>
-                                </div>
-                                <div className="text-center mt">
-                                    <Popconfirm
-                                        title="Are you sure to delete this person and all associated data?"
-                                        onConfirm={deletePerson}
-                                        okText="Yes"
-                                        cancelText="No"
-                                    >
-                                        <Button
-                                            className="text-danger"
-                                            disabled={deletedPersonLoading}
-                                            data-attr="delete-person"
-                                            type="link"
-                                        >
-                                            {deletedPersonLoading ? <LoadingOutlined spin /> : <DeleteOutlined />}{' '}
-                                            Delete this person
-                                        </Button>
-                                    </Popconfirm>
-                                </div>
-                            </>
-                        )}
-                        {!person && personLoading && <Skeleton paragraph={{ rows: 4 }} active />}
-                    </Card>
-                    <Card className="card-elevated person-properties" style={{ marginTop: 16 }}>
-                        <Tabs
-                            defaultActiveKey={activeCardTab}
-                            onChange={(tab) => {
-                                setActiveCardTab(tab)
-                            }}
-                        >
-                            <TabPane
-                                tab={<span data-attr="persons-properties-tab">Properties</span>}
-                                key="properties"
-                                disabled={personLoading}
-                            />
-                            <TabPane
-                                tab={<span data-attr="persons-cohorts-tab">Cohorts</span>}
-                                key="cohorts"
-                                disabled={personLoading}
-                            />
-                        </Tabs>
-                        {person &&
-                            (activeCardTab == 'properties' ? (
-                                <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
-                                    <NewPropertyComponent />
-                                    <h3 className="l3">Properties list</h3>
-                                    <PropertiesTable
-                                        properties={person.properties}
-                                        onEdit={editProperty}
-                                        sortProperties={!hasNewKeys}
-                                        onDelete={(key) => editProperty(key, undefined)}
-                                        className="persons-page-props-table"
-                                    />
-                                </div>
-                            ) : (
-                                <PersonCohorts />
-                            ))}
-                        {!person && personLoading && <Skeleton paragraph={{ rows: 6 }} active />}
-                    </Card>
-                </Col>
-            </Row>
-            {mergeModalOpen && person && (
-                <MergePerson person={person} onPersonChange={setPerson} closeModal={() => setMergeModalOpen(false)} />
-            )}
+                                    </Menu.Item>
+                                ))}
+                            </Menu>
+                        }
+                        trigger={['click']}
+                    >
+                        <Tag className="extra-ids">
+                            +{person.distinct_ids.length - 1}
+                            <DownOutlined />
+                        </Tag>
+                    </Dropdown>
+                )}
+            </div>
+            <div>
+                <span className="text-muted">First seen:</span>{' '}
+                {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
+            </div>
         </div>
+    )
+}
+
+export function Person(): JSX.Element | null {
+    const {
+        person,
+        personLoading,
+        deletedPersonLoading,
+        currentTab,
+        showSessionRecordings,
+        splitMergeModalShown,
+        urlId,
+    } = useValues(personsLogic)
+    const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
+        useActions(personsLogic)
+    const { groupsEnabled } = useValues(groupsAccessLogic)
+
+    if (!person) {
+        return personLoading ? (
+            <Loading />
+        ) : (
+            <PageHeader
+                title="Person not found"
+                caption={urlId ? `There's no person matching distinct ID "${urlId}".` : undefined}
+            />
+        )
+    }
+
+    return (
+        <>
+            <PageHeader
+                title={asDisplay(person)}
+                caption={<PersonCaption person={person} />}
+                buttons={
+                    <div className="flex gap-2">
+                        <Popconfirm
+                            title="Are you sure you want to delete this person?"
+                            onConfirm={deletePerson}
+                            okText={`Yes, delete ${asDisplay(person)}`}
+                            cancelText="No, cancel"
+                        >
+                            <LemonButton
+                                disabled={deletedPersonLoading}
+                                loading={deletedPersonLoading}
+                                type="secondary"
+                                status="danger"
+                                data-attr="delete-person"
+                            >
+                                Delete person
+                            </LemonButton>
+                        </Popconfirm>
+                        <LemonButton
+                            onClick={() => setSplitMergeModalShown(true)}
+                            data-attr="merge-person-button"
+                            data-tooltip="person-split-merge-button"
+                            type="secondary"
+                        >
+                            Split or merge IDs
+                        </LemonButton>
+                    </div>
+                }
+            />
+
+            <Tabs
+                activeKey={currentTab}
+                onChange={(tab) => {
+                    navigateToTab(tab as PersonsTabType)
+                }}
+                destroyInactiveTabPane={true}
+                data-tooltip="persons-tabs"
+            >
+                <TabPane
+                    tab={<span data-attr="persons-properties-tab">Properties</span>}
+                    key={PersonsTabType.PROPERTIES}
+                >
+                    <PropertiesTable
+                        properties={person.properties || {}}
+                        searchable
+                        onEdit={editProperty}
+                        sortProperties
+                        embedded={false}
+                        onDelete={(key) => deleteProperty(key)}
+                    />
+                </TabPane>
+                <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
+                    <EventsTable
+                        pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                        fixedFilters={{ person_id: person.id }}
+                        showPersonColumn={false}
+                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                    />
+                </TabPane>
+                {showSessionRecordings && (
+                    <TabPane
+                        tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
+                        key={PersonsTabType.SESSION_RECORDINGS}
+                    >
+                        <SessionRecordingsTable
+                            key={person.uuid} // force refresh if user changes
+                            personUUID={person.uuid}
+                            isPersonPage
+                        />
+                    </TabPane>
+                )}
+
+                <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
+                    <PersonCohorts />
+                </TabPane>
+                {groupsEnabled && person.uuid && (
+                    <TabPane
+                        tab={
+                            <span data-attr="persons-related-tab">
+                                Related groups
+                                <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
+                                    <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                </Tooltip>
+                            </span>
+                        }
+                        key={PersonsTabType.RELATED}
+                    >
+                        <RelatedGroups id={person.uuid} groupTypeIndex={null} />
+                    </TabPane>
+                )}
+
+                <TabPane tab="History" key="history">
+                    <ActivityLog
+                        scope={ActivityScope.PERSON}
+                        id={person.id}
+                        describer={personActivityDescriber}
+                        caption={
+                            <div>
+                                <InfoCircleOutlined style={{ marginRight: '.25rem' }} />
+                                <span>
+                                    This page only shows changes made by users in the PostHog site. Automatic changes
+                                    from the API aren't shown here.
+                                </span>
+                            </div>
+                        }
+                    />
+                </TabPane>
+            </Tabs>
+
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
+        </>
     )
 }

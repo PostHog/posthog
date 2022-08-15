@@ -1,60 +1,77 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
-import { Button, Row, Spin } from 'antd'
 import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonButton } from 'lib/components/LemonButton'
+import './Panels.scss'
+import { IconCheckCircleOutline } from 'lib/components/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 
 export function VerificationPanel(): JSX.Element {
-    const { loadUser } = useActions(userLogic)
-    const { user } = useValues(userLogic)
+    const { loadCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { setVerify, completeOnboarding } = useActions(ingestionLogic)
-    const { index, totalSteps } = useValues(ingestionLogic)
+    const { index } = useValues(ingestionLogic)
+    const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
-        !user?.team?.ingested_event && loadUser()
-    }, 1500)
+        if (!currentTeam?.ingested_event) {
+            loadCurrentTeam()
+        }
+    }, 2000)
 
     return (
-        <CardContainer index={index} totalSteps={totalSteps} onBack={() => setVerify(false)}>
-            {!user?.team?.ingested_event ? (
-                <>
-                    <Row align="middle">
-                        <Spin />
-                        <h2 className="ml-3">Listening for events!</h2>
-                    </Row>
-                    <p className="prompt-text">
-                        {' '}
-                        Once you have integrated the snippet and sent an event, we will verify it sent properly and
-                        continue
-                    </p>
-                    <b
-                        data-attr="wizard-complete-button"
-                        style={{ float: 'right' }}
-                        className="button-border clickable"
-                        onClick={completeOnboarding}
-                    >
-                        Continue without verifying
-                    </b>
-                </>
-            ) : (
-                <>
-                    <h2>Successfully sent events!</h2>
-                    <p className="prompt-text">
-                        You will now be able to explore PostHog and take advantage of all its features to understand
-                        your users.
-                    </p>
-                    <Button
-                        data-attr="wizard-complete-button"
-                        type="primary"
-                        style={{ float: 'right' }}
-                        onClick={completeOnboarding}
-                    >
-                        Complete
-                    </Button>
-                </>
-            )}
+        <CardContainer index={index} onBack={() => setVerify(false)}>
+            <div className="px-6 text-center">
+                {!currentTeam?.ingested_event ? (
+                    <>
+                        <div className="ingestion-listening-for-events">
+                            <Spinner size="lg" />
+                            <h1 className="ingestion-title pt-4">Listening for events...</h1>
+                            <p className="prompt-text">
+                                Once you have integrated the snippet and sent an event, we will verify it was properly
+                                received and continue.
+                            </p>
+                            <EventBufferNotice style={{ marginTop: 0 }} />
+                            <LemonButton
+                                fullWidth
+                                center
+                                type="secondary"
+                                onClick={() => {
+                                    completeOnboarding()
+                                    reportIngestionContinueWithoutVerifying()
+                                }}
+                            >
+                                Continue without verifying
+                            </LemonButton>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <IconCheckCircleOutline className="text-success text-4xl" />
+                        <h1 className="ingestion-title">Successfully sent events!</h1>
+                        <p className="prompt-text text-muted">
+                            You will now be able to explore PostHog and take advantage of all its features to understand
+                            your users.
+                        </p>
+                        <div className="mb-4">
+                            <LemonButton
+                                data-attr="wizard-complete-button"
+                                type="primary"
+                                onClick={() => completeOnboarding()}
+                                fullWidth
+                                center
+                            >
+                                Complete
+                            </LemonButton>
+                        </div>
+                    </>
+                )}
+            </div>
         </CardContainer>
     )
 }

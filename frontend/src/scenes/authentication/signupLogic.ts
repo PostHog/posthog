@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { signupLogicType } from './signupLogicType'
+import type { signupLogicType } from './signupLogicType'
 
-interface AccountResponse {
+export interface AccountResponse {
     success: boolean
     redirect_url?: string
     errorCode?: string
@@ -10,15 +10,24 @@ interface AccountResponse {
     errorAttribute?: string
 }
 
-export const signupLogic = kea<signupLogicType<AccountResponse>>({
+export const signupLogic = kea<signupLogicType>({
+    path: ['scenes', 'authentication', 'signupLogic'],
     actions: {
-        setFormStep: (step: 1 | 2) => ({ step }),
+        setInitialEmail: (email: string) => ({ email }),
+        setFormSubmitted: (submitted: boolean) => ({ submitted }),
     },
     reducers: {
-        formStep: [
-            1,
+        initialEmail: [
+            '',
             {
-                setFormStep: (_, { step }) => step,
+                setInitialEmail: (_, { email }) => email,
+            },
+        ],
+        // Whether the user has attempted to submit the form; used to trigger validation only after initial submission
+        formSubmitted: [
+            false,
+            {
+                setFormSubmitted: (_, { submitted }) => submitted,
             },
         ],
     },
@@ -30,21 +39,24 @@ export const signupLogic = kea<signupLogicType<AccountResponse>>({
                     try {
                         const response = await api.create('api/signup/', payload)
                         return { success: true, ...response }
-                    } catch (e) {
+                    } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail, errorAttribute: e.attr }
                     }
                 },
             },
         ],
     }),
-    listeners: ({ actions }) => ({
+    listeners: () => ({
         signupSuccess: ({ signupResponse }) => {
             if (signupResponse?.success) {
                 location.href = signupResponse.redirect_url || '/'
-            } else {
-                if (['email', 'password'].includes(signupResponse?.errorAttribute || '')) {
-                    actions.setFormStep(1)
-                }
+            }
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/signup': ({}, { email }) => {
+            if (email) {
+                actions.setInitialEmail(email)
             }
         },
     }),

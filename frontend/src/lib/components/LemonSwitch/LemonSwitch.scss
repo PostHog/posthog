@@ -1,0 +1,94 @@
+.LemonSwitch {
+    width: fit-content;
+    font-weight: 500;
+    line-height: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    label {
+        flex: 1;
+        cursor: inherit;
+    }
+
+    &.LemonSwitch--full-width {
+        width: 100%;
+    }
+
+    &.LemonSwitch--bordered {
+        padding: 0.75rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+
+        &.LemonSwitch--small {
+            padding: 0.25rem 0.5rem;
+            gap: 0.5rem;
+        }
+    }
+
+    .LemonIcon {
+        font-size: 1.5rem;
+        color: var(--muted-alt);
+        cursor: pointer;
+    }
+
+    &.LemonSwitch--disabled {
+        cursor: not-allowed;
+        color: var(--muted);
+    }
+}
+
+.LemonSwitch__button {
+    position: relative;
+    display: inline-block;
+    flex-shrink: 0;
+    padding: 0;
+    width: 2.25rem;
+    height: 1.25rem;
+    background: none;
+    border: none;
+    cursor: inherit;
+}
+
+.LemonSwitch__slider {
+    position: absolute;
+    left: 0;
+    top: 5px;
+    display: inline-block;
+    width: 2.25rem;
+    height: 0.625rem;
+    border-radius: 0.625rem;
+    background-color: var(--border);
+    transition: background-color 100ms ease;
+    .LemonSwitch--checked & {
+        background-color: var(--primary-highlight);
+    }
+    .LemonSwitch--alt.LemonSwitch--checked & {
+        background-color: var(--primary-alt-highlight);
+    }
+}
+
+.LemonSwitch__handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.625rem;
+    background-color: #fff;
+    border: 2px solid var(--border);
+    transition: background-color 100ms ease, transform 100ms ease, border-color 100ms ease;
+    cursor: inherit;
+
+    .LemonSwitch--checked & {
+        transform: translateX(1rem);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+    .LemonSwitch--active & {
+        transform: scale(1.1);
+    }
+    .LemonSwitch--active.LemonSwitch--checked & {
+        transform: translateX(1rem) scale(1.1);
+    }
+}

@@ -1,9 +1,13 @@
-import { resetContext } from 'kea'
-import localStoragePlugin from 'kea-localstorage'
+import { KeaPlugin, resetContext } from 'kea'
+import { localStoragePlugin } from 'kea-localstorage'
 import { routerPlugin } from 'kea-router'
 import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
-import { errorToast, identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils'
+import { waitForPlugin } from 'kea-waitfor'
+import { lemonToast } from 'lib/components/lemonToast'
+import { subscriptionsPlugin } from 'kea-subscriptions'
+import { formsPlugin } from 'kea-forms'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -20,12 +24,38 @@ const ERROR_FILTER_WHITELIST = [
     'loadBilling', // Gracefully handled if it fails
 ]
 
-export function initKea(): void {
+interface InitKeaProps {
+    state?: Record<string, any>
+    routerHistory?: any
+    routerLocation?: any
+    beforePlugins?: KeaPlugin[]
+}
+
+// Used in some tests to make life easier
+let errorsSilenced = false
+export function silenceKeaLoadersErrors(): void {
+    errorsSilenced = true
+}
+export function resumeKeaLoadersErrors(): void {
+    errorsSilenced = false
+}
+
+export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     resetContext({
         plugins: [
+            ...(beforePlugins || []),
             localStoragePlugin,
             windowValuesPlugin({ window: window }),
-            routerPlugin,
+            routerPlugin({
+                history: routerHistory,
+                location: routerLocation,
+                urlPatternOptions: {
+                    // :TRICKY: We override default url segment matching characters.
+                    // This list includes all characters which are not escaped by encodeURIComponent
+                    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
+                },
+            }),
+            formsPlugin,
             loadersPlugin({
                 onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
                     // Toast if it's a fetch error or a specific API update error
@@ -34,19 +64,20 @@ export function initKea(): void {
                         (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
                             (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                     ) {
-                        errorToast(
-                            `Error on ${identifierToHuman(reducerKey)}`,
-                            `Attempting to ${identifierToHuman(actionKey).toLowerCase()} returned an error:`,
-                            error.status !== 0
-                                ? error.detail
-                                : "Check your internet connection and make sure you don't have an extension blocking our requests.",
-                            error.code
+                        lemonToast.error(
+                            `${identifierToHuman(actionKey)} on reducer ${identifierToHuman(reducerKey)} failed: ${
+                                error.status !== 0 ? error.detail || 'PostHog may be offline' : 'PostHog may be offline'
+                            }`
                         )
                     }
-                    console.error(error)
+                    if (!errorsSilenced) {
+                        console.error(error)
+                    }
                     ;(window as any).Sentry?.captureException(error)
                 },
             }),
+            subscriptionsPlugin,
+            waitForPlugin,
         ],
     })
 }

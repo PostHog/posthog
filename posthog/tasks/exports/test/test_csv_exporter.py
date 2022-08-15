@@ -1,0 +1,191 @@
+from typing import Any, Dict
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+from boto3 import resource
+from botocore.client import Config
+from django.test import override_settings
+
+from posthog.models import ExportedAsset
+from posthog.settings import (
+    OBJECT_STORAGE_ACCESS_KEY_ID,
+    OBJECT_STORAGE_BUCKET,
+    OBJECT_STORAGE_ENDPOINT,
+    OBJECT_STORAGE_SECRET_ACCESS_KEY,
+)
+from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
+from posthog.tasks.exports import csv_exporter
+from posthog.tasks.exports.csv_exporter import add_query_params
+from posthog.test.base import APIBaseTest
+from posthog.utils import absolute_uri
+
+TEST_BUCKET = "Test-Exports"
+
+# see GitHub issue #11204
+regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%22product%20viewed%22%2C%22name%22%3A%22product%20viewed%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&actions=%5B%5D&display=ActionsTable&insight=TRENDS&interval=day&breakdown=productName&new_entity=%5B%5D&properties=%5B%5D&step_limit=5&funnel_filter=%7B%7D&breakdown_type=event&exclude_events=%5B%5D&path_groupings=%5B%5D&include_event_types=%5B%22%24pageview%22%5D&filter_test_accounts=false&local_path_cleaning_filters=%5B%5D&date_from=-14d&offset=50"
+
+
+@override_settings(SITE_URL="http://testserver")
+class TestCSVExporter(APIBaseTest):
+    @pytest.fixture(autouse=True)
+    def patched_request(self):
+        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
+            mock_response.json.side_effect = [
+                {
+                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
+                    "results": [
+                        {
+                            "id": "e9ca132e-400f-4854-a83c-16c151b2f145",
+                            "distinct_id": "2",
+                            "properties": {"$browser": "Safari"},
+                            "event": "event_name",
+                            "timestamp": "2022-07-06T19:37:43.095295+00:00",
+                            "person": None,
+                            "elements": [],
+                            "elements_chain": "",
+                        }
+                    ],
+                },
+                {
+                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
+                    "results": [
+                        {
+                            "id": "1624228e-a4f1-48cd-aabc-6baa3ddb22e4",
+                            "distinct_id": "2",
+                            "properties": {"$browser": "Safari"},
+                            "event": "event_name",
+                            "timestamp": "2022-07-06T19:37:43.095279+00:00",
+                            "person": None,
+                            "elements": [],
+                            "elements_chain": "",
+                        }
+                    ],
+                },
+                {
+                    "next": None,
+                    "results": [
+                        {
+                            "id": "66d45914-bdf5-4980-a54a-7dc699bdcce9",
+                            "distinct_id": "2",
+                            "properties": {"$browser": "Safari"},
+                            "event": "event_name",
+                            "timestamp": "2022-07-06T19:37:43.095262+00:00",
+                            "person": None,
+                            "elements": [],
+                            "elements_chain": "",
+                        }
+                    ],
+                },
+            ]
+            patched_request.return_value = mock_response
+            yield patched_request
+
+    def _create_asset(self) -> ExportedAsset:
+        asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={"path": "/api/literally/anything"},
+        )
+        asset.save()
+        return asset
+
+    def teardown_method(self, method):
+        s3 = resource(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="us-east-1",
+        )
+        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+
+    def test_csv_exporter_writes_to_asset_when_object_storage_is_disabled(self) -> None:
+        exported_asset = self._create_asset()
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            csv_exporter.export_csv(exported_asset)
+
+            assert (
+                exported_asset.content
+                == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+            )
+            assert exported_asset.content_location is None
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt) -> None:
+        exported_asset = self._create_asset()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"/{TEST_BUCKET}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            assert (
+                content
+                == "distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+            )
+
+            assert exported_asset.content is None
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write")
+    def test_csv_exporter_writes_to_asset_when_object_storage_write_fails(
+        self, mocked_object_storage_write, mocked_uuidt
+    ) -> None:
+        exported_asset = self._create_asset()
+        mocked_uuidt.return_value = "a-guid"
+        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_csv(exported_asset)
+
+            assert exported_asset.content_location is None
+
+            assert (
+                exported_asset.content
+                == b"distinct_id,elements_chain,event,id,person,properties.$browser,timestamp\r\n2,,event_name,e9ca132e-400f-4854-a83c-16c151b2f145,,Safari,2022-07-06T19:37:43.095295+00:00\r\n2,,event_name,1624228e-a4f1-48cd-aabc-6baa3ddb22e4,,Safari,2022-07-06T19:37:43.095279+00:00\r\n2,,event_name,66d45914-bdf5-4980-a54a-7dc699bdcce9,,Safari,2022-07-06T19:37:43.095262+00:00\r\n"
+            )
+
+    @patch("posthog.tasks.exports.csv_exporter.logger")
+    @patch("posthog.tasks.exports.csv_exporter.statsd")
+    def test_failing_export_api_is_reported(self, mock_statsd, mock_logger) -> None:
+        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            exported_asset = self._create_asset()
+            mock_response = MagicMock()
+            mock_response.status_code = 403
+            mock_response.ok = False
+            patched_request.return_value = mock_response
+
+            with pytest.raises(Exception, match="export API call failed with status_code: 403"):
+                csv_exporter.export_csv(exported_asset)
+
+    def test_limiting_query_as_expected(self) -> None:
+
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            modified_url = add_query_params(absolute_uri(regression_11204), {"limit": "3500"})
+            actual_bits = self._split_to_dict(modified_url)
+            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            assert expected_bits == actual_bits
+
+    def test_limiting_existing_limit_query_as_expected(self) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            url_with_existing_limit = regression_11204 + "&limit=100000"
+            modified_url = add_query_params(absolute_uri(url_with_existing_limit), {"limit": "3500"})
+            actual_bits = self._split_to_dict(modified_url)
+            expected_bits = {**self._split_to_dict(regression_11204), **{"limit": "3500"}}
+            assert expected_bits == actual_bits
+
+    def _split_to_dict(self, url: str) -> Dict[str, Any]:
+        first_split_parts = url.split("?")
+        assert len(first_split_parts) == 2
+        return {bits[0]: bits[1] for bits in [param.split("=") for param in first_split_parts[1].split("&")]}

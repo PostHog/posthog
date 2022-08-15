@@ -1,16 +1,20 @@
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf8">
 
 <!-- Favicons & OS-theme configurations -->
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
 <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
-<link rel="manifest" href="/static/site.webmanifest?v=2021-04-29">
+{% if not debug %}
+    <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+{% else %}
+    <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
+{% endif %}
 <link rel="mask-icon" href="/static/icons/safari-pinned-tab.svg?v=2021-04-29" color="#FF053C">
-<link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+<link rel="manifest" href="/static/site.webmanifest?v=2021-04-29">
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
-
 
 {% if not opt_out_capture and js_posthog_api_key %}
     <script>
@@ -23,3 +27,10 @@
 {% if sentry_dsn %}
     <script>window.SENTRY_DSN = '{{sentry_dsn}}';</script>
 {% endif %}
+<script id='posthog-app-user-preload'>
+    window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
+    // Inject the expected location of JS bundle, use to allow the location of
+    // he bundle to be set at runtime, e.g. for PostHog Cloud we serve the
+    // frontent JS from a CDN
+    window.JS_URL = "{{ js_url|default:"" }}";
+</script>

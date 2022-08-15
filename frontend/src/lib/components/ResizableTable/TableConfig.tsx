@@ -1,243 +1,239 @@
-import { Button, Card, Col, Input, Row, Tooltip } from 'antd'
-import React, { useEffect, useState } from 'react'
-import { DownloadOutlined, SettingOutlined, SaveOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
+import { Button, Col, Row, Space } from 'antd'
+import React from 'react'
+import { CloseOutlined, LockOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
 import Modal from 'antd/lib/modal/Modal'
-import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/commonjs/List'
-import { AutoSizer } from 'react-virtualized'
+import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
-import Fuse from 'fuse.js'
+import clsx from 'clsx'
+import { Tooltip } from 'lib/components/Tooltip'
+import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconTuning, SortableDragIcon } from 'lib/components/icons'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import {
+    SortableContainer as sortableContainer,
+    SortableElement as sortableElement,
+    SortableHandle as sortableHandle,
+} from 'react-sortable-hoc'
+import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from '../RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
-interface TableConfigInterface {
-    exportUrl?: string
-    selectedColumns?: string[] // Allows column visibility customization
-    availableColumns?: string[] // List of all available columns (should include selectedColumns too for simplicity)
-    immutableColumns?: string[] // List of columns that cannot be removed
-    defaultColumns?: string[] // To enable resetting to default
-    onColumnUpdate?: (selectedColumns: string[]) => void
-    saving?: boolean // Whether the saving routine is in process (i.e. loading indicators should be shown)
-    mainActionComponent?: JSX.Element
+const DragHandle = sortableHandle(() => (
+    <span className="drag-handle">
+        <SortableDragIcon />
+    </span>
+))
+
+interface TableConfigProps {
+    immutableColumns?: string[] //the titles of the columns that are always displayed
+    defaultColumns: string[] // the titles of the set of columns to show when there is no user choice
 }
 
-export function TableConfig({
-    exportUrl,
-    selectedColumns,
-    availableColumns,
-    onColumnUpdate,
-    mainActionComponent,
-    ...props
-}: TableConfigInterface): JSX.Element {
-    const { state } = useValues(tableConfigLogic)
-    const { setState } = useActions(tableConfigLogic)
+export function LemonTableConfig(props: TableConfigProps): JSX.Element {
+    const { showModal } = useActions(tableConfigLogic)
 
     return (
         <>
-            <div className="table-options">
-                <div className="main-actions">{mainActionComponent}</div>
-                <div className="rhs-actions">
-                    {selectedColumns && availableColumns && onColumnUpdate && (
-                        <>
-                            <Button
-                                data-attr="events-table-column-selector"
-                                onClick={() => setState('columnConfig')}
-                                icon={<SettingOutlined />}
-                            />
-                            {state === 'columnConfig' && (
-                                <ColumnConfigurator
-                                    allColumns={availableColumns}
-                                    currentSelection={selectedColumns}
-                                    onClose={() => setState(null)}
-                                    onColumnUpdate={onColumnUpdate}
-                                    {...props}
-                                />
-                            )}
-                        </>
-                    )}
-                    {exportUrl && (
-                        <Tooltip title="Export up to 100,000 latest events." placement="left">
-                            <Button icon={<DownloadOutlined />} href={exportUrl} />
-                        </Tooltip>
-                    )}
-                </div>
-            </div>
+            <LemonButton
+                type="secondary"
+                data-attr="events-table-column-selector"
+                onClick={showModal}
+                icon={<IconTuning style={{ color: 'var(--primary)' }} />}
+            >
+                Configure columns
+            </LemonButton>
+            <ColumnConfigurator immutableColumns={props.immutableColumns} defaultColumns={props.defaultColumns} />
         </>
     )
 }
 
-interface ColumnConfiguratorInterface {
-    currentSelection: string[] // List of currently selected columns
-    allColumns: string[] // List of all possible columns
-    immutableColumns?: string[]
-    onClose: () => void
-    onColumnUpdate: (selectedColumns: string[]) => void
-    saving?: boolean
-    defaultColumns?: string[]
-}
+function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigProps): JSX.Element {
+    // the virtualised list doesn't support gaps between items in the list
+    // setting the container to be larger than we need
+    // and adding a container with a smaller height to each row item
+    // allows the new row item to set a margin around itself
+    const rowContainerHeight = 36
+    const rowItemHeight = 32
 
-function ColumnConfigurator({
-    currentSelection,
-    allColumns,
-    immutableColumns,
-    onClose,
-    onColumnUpdate,
-    saving,
-    defaultColumns,
-}: ColumnConfiguratorInterface): JSX.Element {
-    const [selectableColumns, setSelectableColumns] = useState([] as string[]) // Stores the actual state of columns that could be selected
-    const [selectedColumns, setSelectedColumns] = useState([] as string[]) // Stores the actual state of columns that **are** selected
-    const [scrollSelectedToIndex, setScrollSelectedToIndex] = useState(0)
-    const [searchTerm, setSearchTerm] = useState('')
+    const { selectedColumns: currentlySelectedColumns, modalVisible } = useValues(tableConfigLogic)
+    const { hideModal } = useActions(tableConfigLogic)
 
-    const selectedColumnsDisplay = searchTerm
-        ? new Fuse(selectedColumns, {
-              threshold: 0.3,
-          })
-              .search(searchTerm)
-              .map(({ item }) => item)
-        : selectedColumns
+    const configuratorLogic = columnConfiguratorLogic({
+        selectedColumns: currentlySelectedColumns === 'DEFAULT' ? defaultColumns : currentlySelectedColumns,
+    })
+    const { selectColumn, unselectColumn, resetColumns, setColumns, toggleSaveAsDefault, save } =
+        useActions(configuratorLogic)
+    const { selectedColumns } = useValues(configuratorLogic)
 
-    const selectableColumnsDisplay = searchTerm
-        ? new Fuse(selectableColumns, {
-              threshold: 0.3,
-          })
-              .search(searchTerm)
-              .map(({ item }) => item)
-        : selectableColumns
-
-    useEffect(() => {
-        setSelectedColumns(currentSelection)
-        setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
-    }, [currentSelection, allColumns])
-
-    const selectColumn = (column: string): void => {
-        setSelectedColumns([...selectedColumns, column])
-        setSelectableColumns(selectableColumns.filter((item) => item != column))
-        setScrollSelectedToIndex(selectedColumns.length)
+    function SaveColumnsAsDefault({ isRestricted }: RestrictedComponentProps): JSX.Element {
+        return (
+            <LemonCheckbox
+                label="Save as default for all project members"
+                className="mt-2"
+                data-attr="events-table-save-columns-as-default-toggle"
+                bordered
+                onChange={toggleSaveAsDefault}
+                defaultChecked={false}
+                disabled={isRestricted}
+            />
+        )
     }
-
-    const unSelectColumn = (column: string): void => {
-        setSelectedColumns(selectedColumns.filter((item) => item != column))
-        setSelectableColumns([...selectableColumns, column])
-    }
-
-    const resetColumns = (): void => {
-        if (defaultColumns) {
-            setSelectedColumns(defaultColumns)
-            setSelectableColumns(allColumns.filter((column) => !currentSelection.includes(column)))
-        }
-    }
-
-    function RenderAvailableColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = saving
+    const SelectedColumn = ({ column, disabled }: { column: string; disabled?: boolean }): JSX.Element => {
         return (
             <div
-                className={`column-display-item${disabled ? ' disabled' : ''}`}
-                style={style}
-                key={key}
-                onClick={() => !disabled && selectColumn(selectableColumnsDisplay[index])}
+                className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
+                style={{ height: `${rowItemHeight}px` }}
             >
-                <Checkbox style={{ marginRight: 8 }} checked={false} disabled={disabled} />
-                {<PropertyKeyInfo value={selectableColumnsDisplay[index]} />}
+                {!disabled && <DragHandle />}
+                <PropertyKeyInfo value={column} />
+                <div className="text-right" style={{ flex: 1 }}>
+                    <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
+                        {disabled ? (
+                            <LockOutlined />
+                        ) : (
+                            <CloseOutlined
+                                data-attr="column-display-item-remove-icon"
+                                style={{ color: 'var(--danger)' }}
+                                onClick={() => unselectColumn(column)}
+                            />
+                        )}
+                    </Tooltip>
+                </div>
             </div>
         )
     }
 
-    function RenderSelectedColumn({ index, style, key }: ListRowProps): JSX.Element {
-        const disabled = immutableColumns?.includes(selectedColumnsDisplay[index]) || saving
+    const SortableSelectedColumn = sortableElement(SelectedColumn)
 
+    const SortableSelectedColumnRenderer = ({ index, style, key }: ListRowProps): JSX.Element => {
+        const disabled = immutableColumns?.includes(selectedColumns[index])
         return (
-            <div
-                className={`column-display-item${disabled ? ' disabled' : ''}`}
-                style={style}
-                key={key}
-                onClick={() => !disabled && unSelectColumn(selectedColumnsDisplay[index])}
-            >
-                <Checkbox style={{ marginRight: 8 }} checked disabled={disabled} />
-                {<PropertyKeyInfo value={selectedColumnsDisplay[index]} />}
+            <div style={style} key={key}>
+                {disabled && <SelectedColumn column={selectedColumns[index]} disabled={Boolean(disabled)} />}
+                {!disabled && (
+                    <SortableSelectedColumn
+                        column={selectedColumns[index]}
+                        index={index}
+                        collection="selected-columns"
+                    />
+                )}
             </div>
         )
+    }
+
+    const SortableColumnList = sortableContainer(() => (
+        <div style={{ height: 320 }} className="selected-columns-col">
+            <AutoSizer>
+                {({ height, width }: { height: number; width: number }) => {
+                    return (
+                        <VirtualizedList
+                            height={height}
+                            rowCount={selectedColumns.length}
+                            rowRenderer={SortableSelectedColumnRenderer}
+                            rowHeight={rowContainerHeight}
+                            width={width}
+                        />
+                    )
+                }}
+            </AutoSizer>
+        </div>
+    ))
+
+    const handleSort = ({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void => {
+        const newColumns = [...selectedColumns]
+        const [removed] = newColumns.splice(oldIndex, 1)
+        newColumns.splice(newIndex, 0, removed)
+        setColumns(newColumns)
     }
 
     return (
         <Modal
+            id="column-configurator-modal"
             centered
-            visible
-            title="Toggle column visibility"
-            confirmLoading={saving}
-            onOk={() => onColumnUpdate(selectedColumns)}
+            visible={modalVisible}
+            title="Configure columns"
+            onOk={save}
             width={700}
+            bodyStyle={{ padding: '16px 16px 0 16px' }}
             className="column-configurator-modal"
             okButtonProps={{
-                // @ts-ignore
+                // @ts-expect-error
                 'data-attr': 'items-selector-confirm',
-                loading: saving,
-                icon: <SaveOutlined />,
             }}
-            okText="Save preferences"
-            onCancel={onClose}
+            okText="Save"
+            onCancel={hideModal}
+            footer={
+                <Row>
+                    <Space style={{ flexGrow: 1 }} align="start">
+                        <Button className="text-blue" onClick={() => resetColumns(defaultColumns)}>
+                            Reset to defaults
+                        </Button>
+                    </Space>
+                    <Space>
+                        <Button className="text-blue" type="text" onClick={hideModal}>
+                            Close
+                        </Button>
+                        <Button type="primary" onClick={save}>
+                            Save
+                        </Button>
+                    </Space>
+                </Row>
+            }
         >
-            {defaultColumns && (
-                <div className="text-right mb">
-                    <Button type="link" icon={<ClearOutlined />} style={{ paddingRight: 0 }} onClick={resetColumns}>
-                        Reset to default
-                    </Button>
-                </div>
-            )}
-            <Input
-                allowClear
-                autoFocus
-                placeholder="Search for a column ..."
-                addonAfter={<SearchOutlined />}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            <Row gutter={16} className="mt">
-                <Col sm={11}>
-                    <Card>
-                        <h3 className="l3">Available columns</h3>
+            <div className="main-content">
+                <Row gutter={16} className="lists">
+                    <Col xs={24} sm={12}>
+                        <h4 className="secondary uppercase text-muted">
+                            Visible columns ({selectedColumns.length}) - Drag to reorder
+                        </h4>
+                        <SortableColumnList
+                            helperClass="column-configurator-modal-sortable-container"
+                            onSortEnd={handleSort}
+                            distance={5}
+                            useDragHandle
+                            lockAxis="y"
+                        />
+                    </Col>
+                    <Col xs={24} sm={12}>
+                        <h4 className="secondary uppercase text-muted">Available columns</h4>
                         <div style={{ height: 320 }}>
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => {
                                     return (
-                                        <VirtualizedList
+                                        <TaxonomicFilter
                                             height={height}
-                                            rowCount={selectableColumnsDisplay.length}
-                                            rowRenderer={RenderAvailableColumn}
-                                            rowHeight={32}
                                             width={width}
+                                            taxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.EventProperties,
+                                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                            ]}
+                                            value={undefined}
+                                            onChange={(_, value) => value && selectColumn(String(value))}
+                                            popoverEnabled={false}
+                                            selectFirstItem={false}
+                                            excludedProperties={{
+                                                [TaxonomicFilterGroupType.EventProperties]: selectedColumns,
+                                                [TaxonomicFilterGroupType.EventFeatureFlags]: selectedColumns,
+                                            }}
                                         />
                                     )
                                 }}
                             </AutoSizer>
                         </div>
-                    </Card>
-                </Col>
-                <Col sm={2} />
-                <Col sm={11}>
-                    <Card>
-                        <h3 className="l3">Visible columns</h3>
-                        <div style={{ height: 320 }}>
-                            <AutoSizer>
-                                {({ height, width }: { height: number; width: number }) => {
-                                    return (
-                                        <VirtualizedList
-                                            height={height}
-                                            rowCount={selectedColumnsDisplay.length}
-                                            rowRenderer={RenderSelectedColumn}
-                                            rowHeight={32}
-                                            width={width}
-                                            scrollToIndex={scrollSelectedToIndex}
-                                        />
-                                    )
-                                }}
-                            </AutoSizer>
-                        </div>
-                    </Card>
-                </Col>
-            </Row>
+                    </Col>
+                </Row>
+                <RestrictedArea
+                    Component={SaveColumnsAsDefault}
+                    minimumAccessLevel={OrganizationMembershipLevel.Owner}
+                    scope={RestrictionScope.Project}
+                />
+            </div>
         </Modal>
     )
 }

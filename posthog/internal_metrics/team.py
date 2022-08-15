@@ -1,5 +1,4 @@
 import json
-import secrets
 from functools import lru_cache
 from typing import Dict, Optional
 
@@ -7,28 +6,30 @@ from django.conf import settings
 from django.db import transaction
 from sentry_sdk.api import capture_exception
 
+from posthog.models import DashboardTile
 from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_item import DashboardItem
+from posthog.models.insight import Insight
+from posthog.models.sharing_configuration import SharingConfiguration
 
-NAME = "Posthog Internal Metrics"
+NAME = "PostHog Internal Metrics"
 CLICKHOUSE_DASHBOARD = {
-    "name": "Clickhouse internal dashboard",
+    "name": "ClickHouse internal dashboard",
     "items": [
         {
-            "name": "Number of insights loaded vs failed",
+            "name": "Number of insights loaded vs. failed",
             "filters": {
                 "events": [
                     {
                         "id": "$$insight_load_time",
                         "name": "insights loaded",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "properties": [{"key": "success", "type": "event", "value": ["true"], "operator": "exact"}],
                     },
                     {
                         "id": "$$insight_load_time",
                         "name": "insights loaded",
-                        "type": "events",
+                        "type": "event",
                         "order": 1,
                         "properties": [{"key": "success", "type": "event", "value": ["false"], "operator": "exact"}],
                     },
@@ -47,8 +48,8 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$insight_load_time",
                         "math": "avg",
-                        "name": "Load time (avg)",
-                        "type": "events",
+                        "name": "Load time (average)",
+                        "type": "event",
                         "order": 0,
                         "properties": [],
                         "math_property": "value",
@@ -56,8 +57,8 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$insight_load_time",
                         "math": "p90",
-                        "name": "Load time (p90)",
-                        "type": "events",
+                        "name": "Load time (90th percentile)",
+                        "type": "event",
                         "order": 1,
                         "properties": [],
                         "math_property": "value",
@@ -65,8 +66,8 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$insight_load_time",
                         "math": "p95",
-                        "name": "Load time (p95)",
-                        "type": "events",
+                        "name": "Load time (95th percentile)",
+                        "type": "event",
                         "order": 2,
                         "properties": [],
                         "math_property": "value",
@@ -86,7 +87,7 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$insight_timeout",
                         "name": "insight timeout",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "properties": [],
                     },
@@ -99,13 +100,13 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse total queries",
+            "name": "ClickHouse total queries",
             "filters": {
                 "events": [
                     {
                         "id": "$$clickhouse_sync_execution_time",
                         "name": "$$clickhouse_sync_execution_time",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "math": "total",
                     }
@@ -125,7 +126,7 @@ CLICKHOUSE_DASHBOARD = {
                         "id": "$$clickhouse_sync_execution_time",
                         "math": "avg",
                         "name": "$$clickhouse_sync_execution_time",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "properties": [],
                         "math_property": "value",
@@ -134,7 +135,7 @@ CLICKHOUSE_DASHBOARD = {
                         "id": "$$clickhouse_sync_execution_time",
                         "math": "p90",
                         "name": "$$clickhouse_sync_execution_time",
-                        "type": "events",
+                        "type": "event",
                         "order": 1,
                         "properties": [],
                         "math_property": "value",
@@ -143,7 +144,7 @@ CLICKHOUSE_DASHBOARD = {
                         "id": "$$clickhouse_sync_execution_time",
                         "math": "p95",
                         "name": "$$clickhouse_sync_execution_time",
-                        "type": "events",
+                        "type": "event",
                         "order": 2,
                         "properties": [],
                         "math_property": "value",
@@ -157,14 +158,37 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse mutations count",
+            "name": "ClickHouse: query time total breakdown (ms)",
+            "filters": {
+                "events": [
+                    {
+                        "id": "$$clickhouse_sync_execution_time",
+                        "math": "sum",
+                        "name": "$$clickhouse_sync_execution_time",
+                        "type": "event",
+                        "order": 0,
+                        "properties": [],
+                        "math_property": "value",
+                    },
+                ],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "hour",
+                "date_from": "-24h",
+                "breakdown": "table",
+                "breakdown_type": "event",
+                "properties": [],
+            },
+        },
+        {
+            "name": "ClickHouse mutations count",
             "filters": {
                 "events": [
                     {
                         "id": "$$posthog_celery_clickhouse_table_mutations_count",
                         "math": "avg",
                         "name": "$$posthog_celery_clickhouse_table_mutations_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "properties": [],
                         "math_property": "value",
@@ -173,28 +197,28 @@ CLICKHOUSE_DASHBOARD = {
                         "id": "$$posthog_celery_clickhouse_table_mutations_count",
                         "math": "avg",
                         "name": "$$posthog_celery_clickhouse_table_mutations_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 1,
-                        "properties": [{"key": "table", "type": "events", "value": ["events"], "operator": "exact"}],
+                        "properties": [{"key": "table", "type": "event", "value": ["events"], "operator": "exact"}],
                         "math_property": "value",
                     },
                     {
                         "id": "$$posthog_celery_clickhouse_table_mutations_count",
                         "math": "avg",
                         "name": "$$posthog_celery_clickhouse_table_mutations_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 1,
-                        "properties": [{"key": "table", "type": "events", "value": ["person"], "operator": "exact"}],
+                        "properties": [{"key": "table", "type": "event", "value": ["person"], "operator": "exact"}],
                         "math_property": "value",
                     },
                     {
                         "id": "$$posthog_celery_clickhouse_table_mutations_count",
                         "math": "avg",
                         "name": "$$posthog_celery_clickhouse_table_mutations_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 2,
                         "properties": [
-                            {"key": "table", "type": "events", "value": ["person_distinct_id"], "operator": "exact"}
+                            {"key": "table", "type": "event", "value": ["person_distinct_id"], "operator": "exact"}
                         ],
                         "math_property": "value",
                     },
@@ -207,14 +231,14 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse tables part counts",
+            "name": "ClickHouse table part counts",
             "filters": {
                 "events": [
                     {
                         "id": "$$posthog_celery_clickhouse_table_parts_count",
                         "math": "avg",
                         "name": "$$posthog_celery_clickhouse_table_parts_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "properties": [],
                         "math_property": "value",
@@ -223,28 +247,28 @@ CLICKHOUSE_DASHBOARD = {
                         "id": "$$posthog_celery_clickhouse_table_parts_count",
                         "math": "avg",
                         "name": "$$posthog_celery_clickhouse_table_parts_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 1,
-                        "properties": [{"key": "table", "type": "events", "value": ["events"], "operator": "exact"}],
+                        "properties": [{"key": "table", "type": "event", "value": ["events"], "operator": "exact"}],
                         "math_property": "value",
                     },
                     {
                         "id": "$$posthog_celery_clickhouse_table_parts_count",
                         "math": "avg",
                         "name": "$$posthog_celery_clickhouse_table_parts_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 1,
-                        "properties": [{"key": "table", "type": "events", "value": ["person"], "operator": "exact"}],
+                        "properties": [{"key": "table", "type": "event", "value": ["person"], "operator": "exact"}],
                         "math_property": "value",
                     },
                     {
                         "id": "$$posthog_celery_clickhouse_table_parts_count",
                         "math": "avg",
                         "name": "$$clickhouse_sync_execution_time",
-                        "type": "events",
+                        "type": "event",
                         "order": 2,
                         "properties": [
-                            {"key": "table", "type": "events", "value": ["person_distinct_id"], "operator": "exact"}
+                            {"key": "table", "type": "event", "value": ["person_distinct_id"], "operator": "exact"}
                         ],
                         "math_property": "value",
                     },
@@ -257,13 +281,13 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse table lag (seconds)",
+            "name": "ClickHouse table lag (seconds)",
             "filters": {
                 "events": [
                     {
                         "id": "$$posthog_celery_clickhouse__table_lag_seconds",
                         "name": "$$posthog_celery_clickhouse__table_lag_seconds",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "math": "avg",
                         "math_property": "value",
@@ -279,13 +303,13 @@ CLICKHOUSE_DASHBOARD = {
             },
         },
         {
-            "name": "Clickhouse table row counts",
+            "name": "ClickHouse table row counts",
             "filters": {
                 "events": [
                     {
                         "id": "$$posthog_celery_clickhouse_table_row_count",
                         "name": "$$posthog_celery_clickhouse_table_row_count",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "math": "avg",
                         "math_property": "value",
@@ -307,7 +331,7 @@ CLICKHOUSE_DASHBOARD = {
                     {
                         "id": "$$posthog_celery_queue_depth",
                         "name": "$$posthog_celery_queue_depth",
-                        "type": "events",
+                        "type": "event",
                         "order": 0,
                         "math": "avg",
                         "math_property": "value",
@@ -363,7 +387,7 @@ def get_internal_metrics_dashboards() -> Dict:
 
     clickhouse_dashboard = get_or_create_dashboard(team_id, CLICKHOUSE_DASHBOARD)
 
-    return {"clickhouse": {"id": clickhouse_dashboard.id, "share_token": clickhouse_dashboard.share_token}}
+    return {"clickhouse": clickhouse_dashboard}
 
 
 def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
@@ -374,15 +398,15 @@ def get_or_create_dashboard(team_id: int, definition: Dict) -> Dashboard:
     if dashboard is None:
         Dashboard.objects.filter(team_id=team_id, name=definition["name"]).delete()
         dashboard = Dashboard.objects.create(
-            name=definition["name"],
-            filters=definition["filters"],
-            description=description,
-            team_id=team_id,
-            share_token=secrets.token_urlsafe(22),
+            name=definition["name"], filters=definition["filters"], description=description, team_id=team_id
         )
+        SharingConfiguration.objects.create(team_id=team_id, dashboard=dashboard, enabled=True)
 
         for index, item in enumerate(definition["items"]):
-            DashboardItem.objects.create(team_id=team_id, dashboard=dashboard, order=index, **item)
+            layouts = item.pop("layouts", {})
+            color = item.pop("color", None)
+            insight = Insight.objects.create(team_id=team_id, order=index, **item)
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight, layouts=layouts, color=color)
 
     return dashboard
 

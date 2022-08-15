@@ -1,20 +1,19 @@
 from typing import Optional
 
 from django.utils import timezone
-from rest_framework import exceptions, generics, mixins, request, serializers, status, viewsets
+from rest_framework import exceptions, mixins, viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.plugin import PluginOwnershipPermission, PluginsAccessLevelPermission
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models.plugin import PluginLogEntry, fetch_plugin_log_entries
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.models.plugin import PluginLogEntry, PluginLogEntryType, fetch_plugin_log_entries
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
-class PluginLogEntrySerializer(serializers.ModelSerializer):
+class PluginLogEntrySerializer(DataclassSerializer):
     class Meta:
-        model = PluginLogEntry
-        fields = ["id", "team_id", "plugin_id", "timestamp", "source", "type", "message", "instance_id"]
-        read_only_fields = fields
+        dataclass = PluginLogEntry
 
 
 class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -24,6 +23,7 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         ProjectMembershipNecessaryPermissions,
         PluginsAccessLevelPermission,
         PluginOwnershipPermission,
+        TeamMemberAccessPermission,
     ]
 
     def get_queryset(self):
@@ -47,13 +47,13 @@ class PluginLogEntryViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         if before_raw is not None:
             before = timezone.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        parents_query_dict = self.get_parents_query_dict()
-
+        type_filter = [PluginLogEntryType[t] for t in (self.request.GET.getlist("type_filter", []))]
         return fetch_plugin_log_entries(
-            team_id=parents_query_dict["team_id"],
-            plugin_config_id=parents_query_dict["plugin_config_id"],
+            team_id=self.parents_query_dict["team_id"],
+            plugin_config_id=self.parents_query_dict["plugin_config_id"],
             after=after,
             before=before,
             search=self.request.GET.get("search"),
             limit=limit,
+            type_filter=type_filter,
         )

@@ -1,8 +1,8 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
+import { lemonToast } from 'lib/components/lemonToast'
 import { PrevalidatedInvite } from '~/types'
-import { inviteSignupLogicType } from './inviteSignupLogicType'
+import type { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
@@ -10,20 +10,19 @@ export enum ErrorCodes {
     Unknown = 'unknown',
 }
 
-interface ErrorInterface {
+export interface ErrorInterface {
     code: ErrorCodes
     detail?: string
 }
 
-interface AcceptInvitePayloadInterface {
+export interface AcceptInvitePayloadInterface {
     first_name?: string
     password: string
     email_opt_in: boolean
 }
 
-export const inviteSignupLogic = kea<
-    inviteSignupLogicType<PrevalidatedInvite, ErrorInterface, AcceptInvitePayloadInterface>
->({
+export const inviteSignupLogic = kea<inviteSignupLogicType>({
+    path: ['scenes', 'authentication', 'inviteSignupLogic'],
     actions: {
         setError: (payload: ErrorInterface) => ({ payload }),
     },
@@ -44,7 +43,7 @@ export const inviteSignupLogic = kea<
 
                     try {
                         return await api.get(`api/signup/${id}/`)
-                    } catch (e) {
+                    } catch (e: any) {
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
@@ -76,23 +75,20 @@ export const inviteSignupLogic = kea<
     }),
     listeners: ({ values }) => ({
         acceptInviteSuccess: async (_, breakpoint) => {
-            toast.success(`You have joined ${values.invite?.organization_name}! Taking you to PostHog now...`)
+            lemonToast.success(`You have joined ${values.invite?.organization_name}! Taking you to PostHog now…`)
             await breakpoint(2000) // timeout for the user to read the toast
             window.location.href = '/' // hard refresh because the current_organization changed
         },
     }),
     urlToAction: ({ actions }) => ({
-        '/signup/*': (
-            { _: id }: { _: string },
-            { error_code, error_detail }: { error_code?: string; error_detail?: string }
-        ) => {
+        '/signup/*': ({ _: id }, { error_code, error_detail }) => {
             if (error_code) {
                 if ((Object.values(ErrorCodes) as string[]).includes(error_code)) {
                     actions.setError({ code: error_code as ErrorCodes, detail: error_detail })
                 } else {
                     actions.setError({ code: ErrorCodes.Unknown, detail: error_detail })
                 }
-            } else {
+            } else if (id) {
                 actions.prevalidateInvite(id)
             }
         },

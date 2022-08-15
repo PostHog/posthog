@@ -5,8 +5,8 @@ from typing import Any, Dict, List
 from django.db import models, transaction
 from django.forms.models import model_to_dict
 
-from .element import Element
-from .team import Team
+from posthog.models.element import Element
+from posthog.models.team import Team
 
 
 def hash_elements(elements: List) -> str:

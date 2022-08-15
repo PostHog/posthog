@@ -1,57 +1,22 @@
 import React from 'react'
-import { kea, useActions, useValues } from 'kea'
+import { SceneExport } from 'scenes/sceneTypes'
+import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
+import { EventsTable } from 'scenes/events/EventsTable'
+import { urls } from 'scenes/urls'
+import { PageHeader } from 'lib/components/PageHeader'
 
-import { Tabs } from 'antd'
-import { ActionsTable } from 'scenes/actions/ActionsTable'
-import { EventsTable } from './EventsTable'
-import { EventsVolumeTable } from './EventsVolumeTable'
-import { PropertiesVolumeTable } from './PropertiesVolumeTable'
-import { eventsLogicType } from './EventsType'
+export const scene: SceneExport = {
+    component: Events,
+    logic: eventsTableLogic,
+    paramsToProps: ({ params: { fixedFilters } }) => ({ fixedFilters, key: 'EventsTable', sceneUrl: urls.events() }),
+}
 
-const eventsLogic = kea<eventsLogicType>({
-    actions: {
-        setTab: (tab: string) => ({ tab }),
-    },
-    reducers: {
-        tab: [
-            'live',
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
-    },
-    actionToUrl: ({ values }) => ({
-        setTab: () => '/events' + (values.tab === 'live' ? '' : '/' + values.tab),
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/events(/:tab)': ({ tab }: Record<string, string>) => {
-            const currentTab = tab || 'live'
-            if (currentTab !== values.tab) {
-                actions.setTab(currentTab)
-            }
-        },
-    }),
-})
-
-export function ManageEvents(): JSX.Element {
-    const { tab } = useValues(eventsLogic)
-    const { setTab } = useActions(eventsLogic)
+export function Events(): JSX.Element {
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={setTab}>
-                <Tabs.TabPane tab="Events" key="live">
-                    <EventsTable />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
-                    <ActionsTable />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="Events Stats" key="stats">
-                    <EventsVolumeTable />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="Properties Stats" key="properties">
-                    <PropertiesVolumeTable />
-                </Tabs.TabPane>
-            </Tabs>
-        </div>
+        <>
+            <PageHeader title="Live events" caption="Event history limited to the last twelve months." />
+            <div className="pt-4 border-t" />
+            <EventsTable pageKey={'EventsTable'} />
+        </>
     )
 }

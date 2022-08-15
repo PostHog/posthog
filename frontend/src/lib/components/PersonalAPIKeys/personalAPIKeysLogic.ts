@@ -1,11 +1,12 @@
 import { kea } from 'kea'
-import { toast } from 'react-toastify'
 import api from 'lib/api'
 import { PersonalAPIKeyType } from '~/types'
-import { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
+import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 import { copyToClipboard } from 'lib/utils'
+import { lemonToast } from '../lemonToast'
 
-export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyType>>({
+export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>({
+    path: ['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic'],
     loaders: ({ values }) => ({
         keys: [
             [] as PersonalAPIKeyType[],
@@ -32,7 +33,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType<PersonalAPIKeyT
             keys[0]?.value && copyToClipboard(keys[0].value, 'personal API key value')
         },
         deleteKeySuccess: ({}: { keys: PersonalAPIKeyType[] }) => {
-            toast.success(`Personal API key deleted.`)
+            lemonToast.success(`Personal API key deleted`)
         },
     }),
 

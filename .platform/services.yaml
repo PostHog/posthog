@@ -1,6 +1,0 @@
-dbpostgres:
-    type: postgresql:12
-    disk: 2048
-redis:
-    type: redis-persistent:5.0
-    disk: 512

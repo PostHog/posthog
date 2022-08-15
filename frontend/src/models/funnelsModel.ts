@@ -1,15 +1,14 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { DashboardItemType, SavedFunnel } from '~/types'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { funnelsModelType } from './funnelsModelType'
+import { SavedFunnel, InsightType } from '~/types'
+import type { funnelsModelType } from './funnelsModelType'
+import { teamLogic } from '../scenes/teamLogic'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {
         filters: result.filters,
-        type: ViewType.FUNNELS,
+        type: InsightType.FUNNELS,
         id: result.id,
         createdAt: result.created_at,
         name: result.name,
@@ -18,33 +17,30 @@ const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     }
 }
 
-export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>>({
+export const funnelsModel = kea<funnelsModelType>({
+    path: ['models', 'funnelsModel'],
     loaders: ({ values, actions }) => ({
         funnels: {
             __default: [] as SavedFunnel[],
             loadFunnels: async () => {
                 const response = await api.get(
-                    'api/insight/?' +
-                        toParams({
-                            order: '-created_at',
-                            saved: true,
-                            limit: 5,
-                            insight: ViewType.FUNNELS,
-                        })
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({
+                        order: '-created_at',
+                        saved: true,
+                        limit: 5,
+                        insight: InsightType.FUNNELS,
+                    })}`
                 )
                 const results = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
                 actions.setNext(response.next)
                 return results
             },
             deleteFunnel: async (funnelId: number) => {
-                await api.delete(`api/insight/${funnelId}`)
+                await api.delete(`api/projects/${teamLogic.values.currentTeamId}/insights/${funnelId}`)
                 return values.funnels.filter((funnel) => funnel.id !== funnelId)
             },
         },
     }),
-    connect: {
-        actions: [insightHistoryLogic, ['updateInsight']],
-    },
     reducers: () => ({
         next: [
             null as null | string,
@@ -70,12 +66,14 @@ export const funnelsModel = kea<funnelsModelType<SavedFunnel, DashboardItemType>
     }),
     listeners: ({ values, actions }) => ({
         loadNext: async () => {
+            if (!values.next) {
+                throw new Error('URL of next page of funnels is not known.')
+            }
             const response = await api.get(values.next)
             const results = response.results.map((result: Record<string, any>) => parseSavedFunnel(result))
             actions.setNext(response.next)
             actions.appendFunnels(results)
         },
-        updateInsight: () => actions.loadFunnels(),
     }),
     events: ({ actions }) => ({
         afterMount: actions.loadFunnels,

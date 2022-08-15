@@ -1,25 +1,21 @@
 from unittest.mock import patch
 
+from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Element, Event
-from posthog.test.base import APIBaseTest
+from posthog.models import Action, ActionStep, Organization, Tag
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 
-@patch("posthog.tasks.calculate_action.calculate_action.delay")
-class TestCreateAction(APIBaseTest):
-    @patch("posthoganalytics.capture")
+class TestActionApi(ClickhouseTestMixin, APIBaseTest):
+    @patch("posthog.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
-            "/api/action/",
+            f"/api/projects/{self.team.id}/actions/",
             data={
                 "name": "user signed up",
                 "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
+                "description": "Test description",
             },
             HTTP_ORIGIN="http://testserver",
         )
@@ -28,6 +24,7 @@ class TestCreateAction(APIBaseTest):
         self.assertIn("last_calculated_at", response.json())
         action = Action.objects.get()
         self.assertEqual(action.name, "user signed up")
+        self.assertEqual(action.description, "Test description")
         self.assertEqual(action.team, self.team)
         self.assertEqual(action.steps.get().selector, "div > button")
         self.assertEqual(response.json()["steps"][0]["text"], "sign up")
@@ -36,7 +33,7 @@ class TestCreateAction(APIBaseTest):
 
         # Assert analytics are sent
         patch_capture.assert_called_once_with(
-            self.user.distinct_id,
+            self.user,
             "action created",
             {
                 "post_to_slack": False,
@@ -54,8 +51,7 @@ class TestCreateAction(APIBaseTest):
         )
 
     def test_cant_create_action_with_the_same_name(self, *args):
-
-        Action.objects.create(name="user signed up", team=self.team)
+        original_action = Action.objects.create(name="user signed up", team=self.team)
         user2 = self._create_user("tim2")
         self.client.force_login(user2)
 
@@ -63,14 +59,16 @@ class TestCreateAction(APIBaseTest):
         steps_count = ActionStep.objects.count()
 
         # Make sure the endpoint works with and without the trailing slash
-        response = self.client.post("/api/action", {"name": "user signed up"}, HTTP_ORIGIN="http://testserver",)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/", {"name": "user signed up"}, HTTP_ORIGIN="http://testserver",
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "type": "validation_error",
                 "code": "unique",
-                "detail": "This project already has an action with that name.",
+                "detail": f"This project already has an action with this name, ID {original_action.id}",
                 "attr": "name",
             },
         )
@@ -78,23 +76,16 @@ class TestCreateAction(APIBaseTest):
         self.assertEqual(Action.objects.count(), count)
         self.assertEqual(ActionStep.objects.count(), steps_count)
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
-
         user = self._create_user("test_user_update")
         self.client.force_login(user)
 
         action = Action.objects.create(name="user signed up", team=self.team)
         ActionStep.objects.create(action=action, text="sign me up!")
-        event2 = Event.objects.create(
-            team=self.team,
-            event="$autocapture",
-            properties={"$browser": "Chrome"},
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div"),],
-        )
         action_id = action.steps.get().pk
         response = self.client.patch(
-            "/api/action/%s/" % action.pk,
+            f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={
                 "name": "user signed up 2",
                 "steps": [
@@ -108,6 +99,7 @@ class TestCreateAction(APIBaseTest):
                     },
                     {"href": "/a-new-link"},
                 ],
+                "description": "updated description",
                 "created_by": {
                     "id": 1,
                     "distinct_id": "BLKJzxHq4z2d8P1icfpg5wo4eIHaSrMtnotkwdtD8Ok",
@@ -122,19 +114,17 @@ class TestCreateAction(APIBaseTest):
         self.assertEqual(response.json()["created_by"], None)
         self.assertEqual(response.json()["steps"][0]["id"], str(action_id))
         self.assertEqual(response.json()["steps"][1]["href"], "/a-new-link")
+        self.assertEqual(response.json()["description"], "updated description")
 
         action.refresh_from_db()
-        action.calculate_events()
         steps = action.steps.all().order_by("id")
         self.assertEqual(action.name, "user signed up 2")
         self.assertEqual(steps[0].text, "sign up NOW")
         self.assertEqual(steps[1].href, "/a-new-link")
-        self.assertEqual(action.events.get(), event2)
-        self.assertEqual(action.events.count(), 1)
 
         # Assert analytics are sent
         patch_capture.assert_called_with(
-            user.distinct_id,
+            user,
             "action updated",
             {
                 "post_to_slack": False,
@@ -153,8 +143,10 @@ class TestCreateAction(APIBaseTest):
         )
 
         # test queries
-        with self.assertNumQueries(6):
-            self.client.get("/api/action/")
+        with self.assertNumQueries(7):
+            # Django session, PostHog user, PostHog team, PostHog org membership, PostHog org
+            # PostHog action, PostHog action step
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_update_action_remove_all_steps(self, *args):
 
@@ -162,7 +154,7 @@ class TestCreateAction(APIBaseTest):
         ActionStep.objects.create(action=action, text="sign me up!")
 
         response = self.client.patch(
-            "/api/action/%s/" % action.pk,
+            f"/api/projects/{self.team.id}/actions/{action.pk}/",
             data={"name": "user signed up 2", "steps": [],},
             HTTP_ORIGIN="http://testserver",
         )
@@ -174,11 +166,13 @@ class TestCreateAction(APIBaseTest):
     # Make sure you can only create actions if that token is set,
     # otherwise evil sites could create actions with a users' session.
     # NOTE: Origin header is only set on cross domain request
-    def test_create_from_other_domain(self, patch_delay):
+    def test_create_from_other_domain(self, *args):
         # FIXME: BaseTest is using Django client to performe calls to a DRF endpoint.
         # Django HttpResponse does not have an attribute `data`. Better use rest_framework.test.APIClient.
         response = self.client.post(
-            "/api/action/", data={"name": "user signed up",}, HTTP_ORIGIN="https://evilwebsite.com",
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "user signed up",},
+            HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(response.status_code, 403)
 
@@ -186,60 +180,152 @@ class TestCreateAction(APIBaseTest):
         self.user.save()
 
         response = self.client.post(
-            "/api/action/?temporary_token=token123",
+            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up",},
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
 
         response = self.client.post(
-            "/api/action/?temporary_token=token123",
+            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up and post to slack", "post_to_slack": True,},
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["post_to_slack"], True)
 
-        list_response = self.client.get("/api/action/", HTTP_ORIGIN="https://evilwebsite.com",)
+        list_response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/", HTTP_ORIGIN="https://evilwebsite.com",
+        )
         self.assertEqual(list_response.status_code, 403)
 
         detail_response = self.client.get(
-            f"/api/action/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com",
+            f"/api/projects/{self.team.id}/actions/{response.json()['id']}/", HTTP_ORIGIN="https://evilwebsite.com",
         )
         self.assertEqual(detail_response.status_code, 403)
 
         self.client.logout()
         list_response = self.client.get(
-            "/api/action/", data={"temporary_token": "token123",}, HTTP_ORIGIN="https://somewebsite.com",
+            f"/api/projects/{self.team.id}/actions/",
+            data={"temporary_token": "token123",},
+            HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(list_response.status_code, 200)
 
         response = self.client.post(
-            "/api/action/?temporary_token=token123",
+            f"/api/projects/{self.team.id}/actions/?temporary_token=token123",
             data={"name": "user signed up 22",},
             HTTP_ORIGIN="https://somewebsite.com",
         )
         self.assertEqual(response.status_code, 201, response.json())
 
     # This case happens when someone is running behind a proxy, but hasn't set `IS_BEHIND_PROXY`
-    def test_http_to_https(self, patch_delay):
+    def test_http_to_https(self, *args):
         response = self.client.post(
-            "/api/action/", data={"name": "user signed up again",}, HTTP_ORIGIN="https://testserver/",
+            f"/api/projects/{self.team.id}/actions/",
+            data={"name": "user signed up again",},
+            HTTP_ORIGIN="https://testserver/",
         )
         self.assertEqual(response.status_code, 201, response.json())
 
     @patch("posthoganalytics.capture")
     def test_create_action_event_with_space(self, patch_capture, *args):
-        Event.objects.create(
-            team=self.team,
-            event="test_event ",  # notice trailing space
-            elements=[Element(tag_name="button", text="sign up NOW"), Element(tag_name="div")],
-        )
         response = self.client.post(
-            "/api/action/",
+            f"/api/projects/{self.team.id}/actions/",
             data={"name": "test event", "steps": [{"event": "test_event "}],},
             HTTP_ORIGIN="http://testserver",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         action = Action.objects.get()
         self.assertEqual(action.steps.get().event, "test_event ")
+
+    @freeze_time("2021-12-12")
+    def test_get_event_count(self, *args):
+        team2 = Organization.objects.bootstrap(None, team_fields={"name": "bla"})[2]
+        action = Action.objects.create(team=self.team, name="bla")
+        ActionStep.objects.create(action=action, event="custom event")
+        _create_event(event="custom event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
+        _create_event(event="another event", team=self.team, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
+        # test team leakage
+        _create_event(event="custom event", team=team2, distinct_id="test", timestamp="2021-12-04T19:20:00Z")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
+        self.assertEqual(response, {"count": 1})
+
+    def test_get_tags_on_non_ee_returns_empty_list(self):
+        action = Action.objects.create(team=self.team, name="bla")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Action.objects.all().count(), 1)
+
+    def test_create_tags_on_non_ee_not_allowed(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/", {"name": "Default", "tags": ["random", "hello"]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Tag.objects.all().count(), 0)
+
+    def test_update_tags_on_non_ee_not_allowed(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "tags": ["random", "hello"], "description": "Internal system metrics.",},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+
+    def test_undefined_tags_allows_other_props_to_update(self):
+        action = Action.objects.create(team_id=self.team.id, name="private action")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "description": "Internal system metrics.",},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "action new name")
+        self.assertEqual(response.json()["description"], "Internal system metrics.")
+
+    def test_empty_tags_does_not_delete_tags(self):
+        action = Action.objects.create(team_id=self.team.id, name="private dashboard")
+        tag = Tag.objects.create(name="random", team_id=self.team.id)
+        action.tagged_items.create(tag_id=tag.id)
+
+        self.assertEqual(Action.objects.all().count(), 1)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/actions/{action.id}",
+            {"name": "action new name", "description": "Internal system metrics.", "tags": []},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertEqual(Tag.objects.all().count(), 1)
+
+    def test_hard_deletion_is_forbidden(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up",
+                "steps": [{"text": "sign up", "selector": "div > button", "url": "/signup", "isNew": "asdf"}],
+                "description": "Test description",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
+        self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)

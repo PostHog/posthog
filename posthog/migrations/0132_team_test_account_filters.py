@@ -48,7 +48,7 @@ def forward(apps, schema_editor):
             generic_emails = GenericEmails()
             example_emails = [email.email for email in example_emails if not generic_emails.is_generic(email.email)]
             if len(example_emails) > 0:
-                example_email = re.search("@[\w.]+", example_emails[0])
+                example_email = re.search(r"@[\w.]+", example_emails[0])
                 if example_email:
                     filters += [
                         {"key": "email", "operator": "not_icontains", "value": example_email.group(), "type": "person"},

@@ -1,41 +1,62 @@
-import { PersonType } from '~/types'
-import React, { useMemo } from 'react'
-import { IconPerson } from 'lib/components/icons'
+import { PersonActorType, PersonType } from '~/types'
+import React from 'react'
 import './PersonHeader.scss'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { teamLogic } from 'scenes/teamLogic'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { midEllipsis } from 'lib/utils'
+import clsx from 'clsx'
 
-export function PersonHeader({ person }: { person?: Partial<PersonType> | null }): JSX.Element {
-    const propertyIdentifier = person?.properties
-        ? person.properties.email || person.properties.name || person.properties.username
-        : null
-    const customIdentifier =
+export interface PersonHeaderProps {
+    person?: Pick<PersonType, 'properties' | 'distinct_ids'> | null
+    withIcon?: boolean
+    noLink?: boolean
+    noEllipsis?: boolean
+}
+
+export function asDisplay(person: PersonType | PersonActorType | null | undefined): string {
+    if (!person) {
+        return 'Unknown'
+    }
+    const team = teamLogic.findMounted()?.values?.currentTeam
+    const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+
+    const customPropertyKey = personDisplayNameProperties.find((x) => person.properties?.[x])
+    const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
+
+    const customIdentifier: string =
         typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
-    const displayId = useMemo(() => {
-        if (!person?.distinct_ids?.length) {
-            return null
-        }
-        const baseId = person.distinct_ids[0].replace(/\W/g, '')
-        return baseId.substr(baseId.length - 5).toUpperCase()
-    }, [person])
+    const display: string | undefined = (customIdentifier || person.distinct_ids?.[0])?.trim()
+
+    return display ? midEllipsis(display, 40) : 'Person without ID'
+}
+
+export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
+    person?.distinct_ids?.length ? urls.person(person.distinct_ids[0]) : undefined
+
+export function PersonHeader(props: PersonHeaderProps): JSX.Element {
+    const href = asLink(props.person)
+    const display = asDisplay(props.person)
+
+    const content = (
+        <div className="flex items-center">
+            {props.withIcon && <ProfilePicture name={display} size="md" />}
+            <span className={clsx('ph-no-capture', !props.noEllipsis && 'text-ellipsis')}>{display}</span>
+        </div>
+    )
 
     return (
-        <>
-            {person?.is_identified ? (
-                <div className="person-header identified">
-                    <span>
-                        <IconPerson />
-                    </span>
-                    {customIdentifier ? (
-                        <span className="ph-no-capture text-ellipsis">{customIdentifier}</span>
-                    ) : (
-                        <i>No email or name set</i>
-                    )}
-                </div>
+        <div className="person-header">
+            {props.noLink || !href ? (
+                content
             ) : (
-                <div className="person-header anonymous">
-                    <IconPerson /> Unidentified {customIdentifier || <>user {displayId}</>}
-                </div>
+                <Link to={href} data-attr={`goto-person-email-${props.person?.distinct_ids?.[0]}`}>
+                    {content}
+                </Link>
             )}
-        </>
+        </div>
     )
 }

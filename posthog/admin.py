@@ -1,42 +1,63 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.utils.safestring import mark_safe
-from django.utils.translation import ugettext_lazy as _
+from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
 
 from posthog.models import (
     Action,
     ActionStep,
-    DashboardItem,
     Element,
-    Event,
     FeatureFlag,
+    Insight,
+    InstanceSetting,
     Organization,
     Person,
+    Plugin,
+    PluginConfig,
     Team,
     User,
 )
 
-admin.site.register(Team)
 admin.site.register(Person)
 admin.site.register(Element)
 admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(DashboardItem)
+admin.site.register(Insight)
+admin.site.register(InstanceSetting)
 
 
-@admin.register(Event)
-class EventAdmin(admin.ModelAdmin):
-    readonly_fields = ("timestamp",)
+@admin.register(Plugin)
+class PluginAdmin(admin.ModelAdmin):
     list_display = (
-        "timestamp",
-        "event",
         "id",
+        "name",
+        "organization_id",
+        "is_global",
     )
+    list_filter = ("plugin_type", "is_global")
+    search_fields = ("name",)
+    ordering = ("-created_at",)
 
-    def get_queryset(self, request):
-        qs = super(EventAdmin, self).get_queryset(request)
-        return qs.order_by("-timestamp")
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "organization_link", "organization_id")
+    search_fields = ("name", "organization__id", "organization__name")
+
+    def organization_link(self, team: Team):
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>', team.organization.pk, team.organization.name
+        )
+
+
+@admin.register(PluginConfig)
+class PluginConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "plugin_id",
+        "team_id",
+    )
+    ordering = ("-created_at",)
 
 
 @admin.register(User)
@@ -70,8 +91,8 @@ class UserAdmin(DjangoUserAdmin):
         if not user.organization:
             return "No Organization"
 
-        return mark_safe(
-            f'<a href="/admin/posthog/organization/{user.organization.pk}/change/">{user.organization.name}</a>',
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>', user.organization.pk, user.organization.name
         )
 
     def org_count(self, user: User) -> int:
@@ -87,13 +108,39 @@ class OrganizationTeamInline(admin.TabularInline):
     extra = 0
     model = Team
 
+    fields = (
+        "id",
+        "displayed_name",
+        "api_token",
+        "app_urls",
+        "name",
+        "created_at",
+        "updated_at",
+        "anonymize_ips",
+        "completed_snippet_onboarding",
+        "ingested_event",
+        "session_recording_opt_in",
+        "signup_token",
+        "is_demo",
+        "access_control",
+        "test_account_filters",
+        "path_cleaning_filters",
+        "timezone",
+        "data_attributes",
+        "correlation_config",
+        "plugins_opt_in",
+        "opt_out_capture",
+    )
+    readonly_fields = ("id", "displayed_name", "created_at", "updated_at")
+
+    def displayed_name(self, team: Team):
+        return format_html('<a href="/admin/posthog/team/{}/change/">{}. {}</a>', team.pk, team.pk, team.name)
+
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
     fields = [
         "name",
-        "personalization",
-        "setup_section_2_completed",
         "created_at",
         "updated_at",
         "plugins_access_level",
@@ -121,16 +168,17 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def first_member(self, organization: Organization):
         user = organization.members.order_by("id").first()
-        return mark_safe('<a href="/admin/posthog/user/%s/change/">%s</a>' % (user.pk, user.email))
+        return format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
 
     def organization_billing_link(self, organization: Organization) -> str:
-        return mark_safe(f'<a href="/admin/multi_tenancy/organizationbilling/{organization.pk}/change/">Billing →</a>')
+        return format_html(
+            '<a href="/admin/multi_tenancy/organizationbilling/{}/change/">Billing →</a>', organization.pk
+        )
 
     def usage(self, organization: Organization):
-        return mark_safe(
-            '<a target="_blank" href="/insights?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>'.format(
-                organization.id
-            )
+        return format_html(
+            '<a target="_blank" href="/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>',
+            organization.id,
         )
 
 

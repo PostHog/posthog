@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import connection
 
-from posthog.models import CohortPeople, Person, PersonDistinctId, Team
+from posthog.models import Person, Team
 
 
 class Command(BaseCommand):
@@ -36,10 +36,10 @@ class Command(BaseCommand):
 
             for row in cursor.fetchall():
                 email = row[0]
-                print("Merging email: {}".format(email))
+                print(f"Merging email: {email}")
 
                 people = Person.objects.filter(team=team, properties__email=email).order_by("pk")
                 first_person = people[0]
-                other_people = people[1:]
+                other_people = list(people[1:])
 
                 first_person.merge_people(other_people)

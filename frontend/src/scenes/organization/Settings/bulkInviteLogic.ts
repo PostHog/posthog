@@ -1,14 +1,14 @@
 import { kea } from 'kea'
-import { bulkInviteLogicType } from './bulkInviteLogicType'
+import type { bulkInviteLogicType } from './bulkInviteLogicType'
 import { OrganizationInviteType } from '~/types'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { invitesLogic } from './invitesLogic'
+import { lemonToast } from 'lib/components/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
-interface InviteRowState {
+export interface InviteRowState {
     target_email: string
     first_name: string
     isValid: boolean
@@ -16,7 +16,8 @@ interface InviteRowState {
 
 const EMPTY_INVITE: InviteRowState = { target_email: '', first_name: '', isValid: true }
 
-export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, InviteRowState>>({
+export const bulkInviteLogic = kea<bulkInviteLogicType>({
+    path: ['scenes', 'organization', 'Settings', 'bulkInviteLogic'],
     actions: {
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
@@ -59,11 +60,8 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, I
                         return { invites: [] }
                     }
 
-                    const payload: Pick<
-                        OrganizationInviteType,
-                        'target_email' | 'first_name'
-                    >[] = values.invites.filter((invite) => invite.target_email)
-
+                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name'>[] =
+                        values.invites.filter((invite) => invite.target_email)
                     eventUsageLogic.actions.reportBulkInviteAttempted(
                         payload.length,
                         payload.filter((invite) => !!invite.first_name).length
@@ -77,7 +75,7 @@ export const bulkInviteLogic = kea<bulkInviteLogicType<OrganizationInviteType, I
     listeners: ({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
             const inviteCount = values.invitedTeamMembers.length
-            toast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
+            lemonToast.success(`Invited ${inviteCount} new team member${inviteCount === 1 ? '' : 's'}`)
             organizationLogic.actions.loadCurrentOrganization()
             invitesLogic.actions.loadInvites()
             actions.resetInviteRows()

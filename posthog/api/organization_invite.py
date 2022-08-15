@@ -29,6 +29,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "message",
         ]
         read_only_fields = [
             "id",
@@ -46,22 +47,22 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             organization_id=self.context["organization_id"], created_by=self.context["request"].user, **validated_data,
         )
-
         if is_email_available(with_absolute_urls=True):
             invite.emailing_attempt_made = True
             send_invite.delay(invite_id=invite.id)
             invite.save()
 
-        if not self.context.get("bulk_create"):
-            report_team_member_invited(
-                self.context["request"].user.distinct_id,
-                name_provided=bool(validated_data.get("first_name")),
-                current_invite_count=invite.organization.active_invites.count(),
-                current_member_count=OrganizationMembership.objects.filter(
-                    organization_id=self.context["organization_id"],
-                ).count(),
-                email_available=is_email_available(),
-            )
+        report_team_member_invited(
+            self.context["request"].user,
+            invite_id=str(invite.id),
+            name_provided=bool(validated_data.get("first_name")),
+            current_invite_count=invite.organization.active_invites.count(),
+            current_member_count=OrganizationMembership.objects.filter(
+                organization_id=self.context["organization_id"],
+            ).count(),
+            is_bulk=self.context.get("bulk_create", False),
+            email_available=is_email_available(with_absolute_urls=True),
+        )
 
         return invite
 
@@ -104,7 +105,7 @@ class OrganizationInviteViewSet(
 
         organization = Organization.objects.get(id=self.organization_id)
         report_bulk_invited(
-            cast(User, self.request.user).distinct_id,
+            cast(User, self.request.user),
             invitee_count=len(serializer.validated_data),
             name_count=sum(1 for invite in serializer.validated_data if invite.get("first_name")),
             current_invite_count=organization.active_invites.count(),

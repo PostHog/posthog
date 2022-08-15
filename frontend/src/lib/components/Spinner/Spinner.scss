@@ -1,0 +1,53 @@
+.Spinner {
+    animation: spin 1s infinite linear;
+    display: block;
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+    color: var(--primary);
+    transition: color 100ms ease;
+    .Spinner__trace,
+    .Spinner__overlay {
+        display: block;
+        fill: transparent;
+        stroke: currentColor;
+        stroke-width: 8px;
+        transform-origin: center;
+    }
+    .Spinner__trace {
+        opacity: 0.25;
+    }
+    .Spinner__overlay {
+        animation: writhe 1.2s infinite ease both;
+        stroke-linecap: round;
+        stroke-dashoffset: -30;
+        stroke-dasharray: 60;
+    }
+    &.Spinner--inverse,
+    .LemonButton--primary & {
+        color: #fff;
+    }
+    &.Spinner--sm {
+        width: 1rem;
+        height: 1rem;
+    }
+    &.Spinner--lg {
+        width: 4rem;
+        height: 4rem;
+    }
+}
+
+@keyframes writhe {
+    0% {
+        stroke-dashoffset: -40;
+        stroke-dasharray: 50;
+    }
+    50% {
+        stroke-dashoffset: -30;
+        stroke-dasharray: 70;
+    }
+    100% {
+        stroke-dashoffset: -40;
+        stroke-dasharray: 50;
+    }
+}

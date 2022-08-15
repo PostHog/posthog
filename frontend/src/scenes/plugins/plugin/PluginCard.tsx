@@ -1,4 +1,4 @@
-import { Button, Card, Col, Popconfirm, Row, Space, Switch, Tag } from 'antd'
+import { Button, Card, Col, Row, Space, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
@@ -13,6 +13,7 @@ import {
     InfoCircleOutlined,
     DownOutlined,
     GlobalOutlined,
+    ClockCircleOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
@@ -24,16 +25,21 @@ import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from '../../../lib/utils'
 import { canInstallPlugins } from '../access'
-import { LinkButton } from '../../../lib/components/LinkButton'
+import { LinkButton } from 'lib/components/LinkButton'
 import { PluginUpdateButton } from './PluginUpdateButton'
+import { Tooltip } from 'lib/components/Tooltip'
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { PluginsAccessLevel } from 'lib/constants'
 
-export function ExtraPluginButtons({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
+export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
         <Space>
-            <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
-                <InfoCircleOutlined />
-                <span className="show-over-500">About</span>
-            </LinkButton>
+            <Tooltip title="About">
+                <LinkButton to={url} target="_blank" rel="noopener noreferrer" disabled={disabled}>
+                    <InfoCircleOutlined />
+                </LinkButton>
+            </Tooltip>
         </Space>
     )
 }
@@ -48,6 +54,7 @@ interface PluginCardProps {
     maxOrder?: number
     rearranging?: boolean
     DragColumn?: React.ComponentClass | React.FC
+    unorderedPlugin?: boolean
 }
 
 export function PluginCard({
@@ -59,6 +66,7 @@ export function PluginCard({
     maxOrder,
     rearranging,
     DragColumn = ({ children }) => <Col className="order-handle">{children}</Col>,
+    unorderedPlugin = false,
 }: PluginCardProps): JSX.Element {
     const {
         name,
@@ -76,11 +84,21 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } = useActions(
-        pluginsLogic
-    )
-    const { loading, installingPluginUrl, checkingForUpdates } = useValues(pluginsLogic)
+    const {
+        editPlugin,
+        toggleEnabled,
+        installPlugin,
+        resetPluginConfigError,
+        rearrange,
+        showPluginLogs,
+        showPluginHistory,
+    } = useActions(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
+
+    const hasSpecifiedMaintainer = maintainer || (plugin.url && pluginUrlToMaintainer[plugin.url])
+    const pluginMaintainer = maintainer || pluginUrlToMaintainer[plugin.url || '']
 
     return (
         <Col
@@ -105,28 +123,28 @@ export function PluginCard({
                             </div>
                         </DragColumn>
                     ) : null}
+                    {unorderedPlugin ? (
+                        <Tooltip title="This app does not do any processing in order." placement="topRight">
+                            <Col>
+                                <Tag color="#555">-</Tag>
+                            </Col>
+                        </Tooltip>
+                    ) : null}
                     {pluginConfig && (
                         <Col>
-                            <Popconfirm
-                                placement="topLeft"
-                                title={`Are you sure you wish to ${
-                                    pluginConfig.enabled ? 'disable' : 'enable'
-                                } this plugin?`}
-                                onConfirm={() =>
-                                    pluginConfig.id
-                                        ? toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
-                                        : editPlugin(pluginId || null, { __enabled: true })
-                                }
-                                okText="Yes"
-                                cancelText="No"
-                                disabled={rearranging}
-                            >
-                                <Switch
+                            {pluginConfig.id ? (
+                                <LemonSwitch
                                     checked={pluginConfig.enabled ?? false}
-                                    onClick={() => console.log(pluginConfig.enabled)}
                                     disabled={rearranging}
+                                    onChange={() =>
+                                        toggleEnabled({ id: pluginConfig.id, enabled: !pluginConfig.enabled })
+                                    }
                                 />
-                            </Popconfirm>
+                            ) : (
+                                <Tooltip title="Please configure this plugin before enabling it">
+                                    <LemonSwitch checked={false} disabled={true} />
+                                </Tooltip>
+                            )}
                         </Col>
                     )}
                     <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
@@ -135,7 +153,9 @@ export function PluginCard({
                     <Col style={{ flex: 1 }}>
                         <div>
                             <strong style={{ marginRight: 8 }}>{name}</strong>
-                            {maintainer && !pluginId && <CommunityPluginTag isCommunity={maintainer === 'community'} />}
+                            {hasSpecifiedMaintainer && (
+                                <CommunityPluginTag isCommunity={pluginMaintainer === 'community'} />
+                            )}
                             {pluginConfig?.error ? (
                                 <PluginError
                                     error={pluginConfig.error}
@@ -144,11 +164,15 @@ export function PluginCard({
                             ) : error ? (
                                 <PluginError error={error} />
                             ) : null}
-                            {is_global && (
-                                <Tag color="blue">
-                                    <GlobalOutlined /> Managed by {organization_name}
-                                </Tag>
-                            )}
+                            {is_global &&
+                                !!currentOrganization &&
+                                currentOrganization.plugins_access_level >= PluginsAccessLevel.Install && (
+                                    <Tooltip title={`This plugin is managed by the ${organization_name} organization`}>
+                                        <Tag color="blue" icon={<GlobalOutlined />}>
+                                            Global
+                                        </Tag>
+                                    </Tooltip>
+                                )}
                             {canInstallPlugins(user?.organization, organization_id) && (
                                 <>
                                     {url?.startsWith('file:') ? <LocalPluginTag url={url} title="Local" /> : null}
@@ -180,7 +204,7 @@ export function PluginCard({
                     </Col>
                     <Col>
                         <Space>
-                            {url && <ExtraPluginButtons url={url} disabled={rearranging} />}
+                            {url && <PluginAboutButton url={url} disabled={rearranging} />}
                             {showUpdateButton && pluginId ? (
                                 <PluginUpdateButton
                                     updateStatus={updateStatus}
@@ -189,25 +213,43 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    <Button
-                                        className="padding-under-500"
-                                        disabled={rearranging}
-                                        onClick={() => showPluginLogs(pluginId)}
-                                        data-attr="plugin-logs"
+                                    <Tooltip title="Activity history">
+                                        <Button
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            onClick={() => showPluginHistory(pluginId)}
+                                            data-attr="plugin-history"
+                                        >
+                                            <ClockCircleOutlined />
+                                        </Button>
+                                    </Tooltip>
+                                    <Tooltip
+                                        title={
+                                            pluginConfig?.id
+                                                ? 'Logs'
+                                                : 'Logs – enable the app for the first time to view them'
+                                        }
                                     >
-                                        <UnorderedListOutlined />
-                                        <span className="show-over-500">Logs</span>
-                                    </Button>
-                                    <Button
-                                        type="primary"
-                                        className="padding-under-500"
-                                        disabled={rearranging}
-                                        onClick={() => editPlugin(pluginId)}
-                                        data-attr="plugin-configure"
-                                    >
-                                        <SettingOutlined />
-                                        <span className="show-over-500">Configure</span>
-                                    </Button>
+                                        <Button
+                                            className="padding-under-500"
+                                            disabled={rearranging || !pluginConfig?.id}
+                                            onClick={() => showPluginLogs(pluginId)}
+                                            data-attr="plugin-logs"
+                                        >
+                                            <UnorderedListOutlined />
+                                        </Button>
+                                    </Tooltip>
+                                    <Tooltip title="Configure">
+                                        <Button
+                                            type="primary"
+                                            className="padding-under-500"
+                                            disabled={rearranging}
+                                            onClick={() => editPlugin(pluginId)}
+                                            data-attr="plugin-configure"
+                                        >
+                                            <SettingOutlined />
+                                        </Button>
+                                    </Tooltip>
                                 </>
                             ) : !pluginId ? (
                                 <Button

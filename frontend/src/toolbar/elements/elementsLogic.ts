@@ -5,28 +5,18 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '~/toolbar/utils'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
-import { elementsLogicType } from './elementsLogicType'
-import { ActionStepType, ActionType } from '~/types'
-import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
+import type { elementsLogicType } from './elementsLogicType'
+import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
-type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
-type ElementMap = Map<HTMLElement, ElementWithMetadata>
+export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
+export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
-export const elementsLogic = kea<
-    elementsLogicType<
-        ActionStepType,
-        ActionForm,
-        ActionType,
-        ElementWithMetadata,
-        ActionElementWithMetadata,
-        ActionElementMap,
-        ElementMap
-    >
->({
+export const elementsLogic = kea<elementsLogicType>({
+    path: ['toolbar', 'elements', 'elementsLogic'],
     actions: {
         enableInspect: true,
         disableInspect: true,
@@ -212,13 +202,13 @@ export const elementsLogic = kea<
 
         elementsWithActions: [
             (s) => [s.actionsForElementMap],
-            (actionsForElementMap) => [...((actionsForElementMap.keys() as unknown) as HTMLElement[])],
+            (actionsForElementMap) => [...(actionsForElementMap.keys() as unknown as HTMLElement[])],
         ],
 
         actionsListElements: [
             (s) => [s.actionsForElementMap],
             (actionsForElementMap) =>
-                [...((actionsForElementMap.values() as unknown) as ActionElementWithMetadata[][])].map((a) => a[0]),
+                [...(actionsForElementMap.values() as unknown as ActionElementWithMetadata[][])].map((a) => a[0]),
         ],
 
         elementsToDisplayRaw: [

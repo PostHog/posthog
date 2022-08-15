@@ -1,57 +1,167 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { toast } from 'react-toastify'
-import { personsLogicType } from './personsLogicType'
-import { CohortType, PersonType } from '~/types'
+import type { personsLogicType } from './personsLogicType'
+import { AnyPropertyFilter, Breadcrumb, CohortType, ExporterFormat, PersonsTabType, PersonType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+import { teamLogic } from 'scenes/teamLogic'
+import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
+import { asDisplay } from 'scenes/persons/PersonHeader'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { lemonToast } from 'lib/components/lemonToast'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
-interface PersonPaginatedResponse {
+export interface PersonPaginatedResponse {
     next: string | null
     previous: string | null
     results: PersonType[]
 }
 
-const FILTER_WHITELIST: string[] = ['is_identified', 'search', 'cohort']
+export interface PersonFilters {
+    properties?: AnyPropertyFilter[]
+    search?: string
+    cohort?: number
+}
 
-export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, PersonType, CohortType>>({
+export interface PersonLogicProps {
+    cohort?: number | 'new'
+    syncWithUrl?: boolean
+    urlId?: string
+}
+
+export const personsLogic = kea<personsLogicType>({
+    props: {} as PersonLogicProps,
+    key: (props) => {
+        if (!props.cohort && !props.syncWithUrl) {
+            throw new Error(`personsLogic must be initialized with props.cohort or props.syncWithUrl`)
+        }
+        return props.cohort ? `cohort_${props.cohort}` : 'scene'
+    },
+    path: (key) => ['scenes', 'persons', 'personsLogic', key],
     connect: {
         actions: [eventUsageLogic, ['reportPersonDetailViewed']],
+        values: [teamLogic, ['currentTeam']],
     },
     actions: {
-        setListFilters: (payload) => ({ payload }),
+        setPerson: (person: PersonType | null) => ({ person }),
+        loadPerson: (id: string) => ({ id }),
+        loadPersons: (url: string | null = '') => ({ url }),
+        setListFilters: (payload: PersonFilters) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
-        setHasNewKeys: true,
+        deleteProperty: (key: string) => ({ key }),
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
+        navigateToTab: (tab: PersonsTabType) => ({ tab }),
+        setSplitMergeModalShown: (shown: boolean) => ({ shown }),
     },
     reducers: {
         listFilters: [
-            {} as Record<string, string>,
+            {} as PersonFilters,
             {
-                setListFilters: (state, { payload }) => ({ ...state, ...payload }),
+                setListFilters: (state, { payload }) => {
+                    const newFilters = { ...state, ...payload }
+                    if (newFilters.properties?.length === 0) {
+                        delete newFilters['properties']
+                    }
+                    if (newFilters.properties) {
+                        newFilters.properties = convertPropertyGroupToProperties(
+                            newFilters.properties.filter(isValidPropertyFilter)
+                        )
+                    }
+                    return newFilters
+                },
             },
         ],
-        hasNewKeys: [
+        activeTab: [
+            null as PersonsTabType | null,
+            {
+                navigateToTab: (_, { tab }) => tab,
+            },
+        ],
+        splitMergeModalShown: [
             false,
             {
-                setHasNewKeys: () => true,
+                setSplitMergeModalShown: (_, { shown }) => shown,
             },
         ],
+        persons: {
+            setPerson: (state, { person }) => ({
+                ...state,
+                results: state.results.map((p) => (person && p.id === person.id ? person : p)),
+            }),
+        },
+        person: {
+            loadPerson: () => null,
+            setPerson: (_, { person }): PersonType | null => person,
+        },
     },
-    selectors: {
-        exampleEmail: [
-            (s) => [s.persons],
-            (persons: PersonPaginatedResponse): string => {
-                const match = persons && persons.results.find((person) => person.properties?.email)
-                return match?.properties?.email || 'example@gmail.com'
+    selectors: () => ({
+        apiDocsURL: [
+            () => [(_, props) => props.cohort],
+            (cohort: PersonLogicProps['cohort']) =>
+                !!cohort
+                    ? 'https://posthog.com/docs/api/cohorts#get-api-projects-project_id-cohorts-id-persons'
+                    : 'https://posthog.com/docs/api/persons',
+        ],
+        cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
+        showSessionRecordings: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => {
+                return !!currentTeam?.session_recording_opt_in
             },
         ],
-    },
+        currentTab: [
+            (s) => [s.activeTab, s.showSessionRecordings],
+            (activeTab, showSessionRecordings) => {
+                // Ensure the activeTab reflects a valid tab given the available tabs
+                if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
+                    return PersonsTabType.EVENTS
+                }
+                return activeTab || PersonsTabType.PROPERTIES
+            },
+        ],
+        breadcrumbs: [
+            (s) => [s.person, router.selectors.location],
+            (person, location): Breadcrumb[] => {
+                const showPerson = person && location.pathname.match(/\/person\/.+/)
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        name: 'Persons',
+                        path: urls.persons(),
+                    },
+                ]
+                if (showPerson) {
+                    breadcrumbs.push({
+                        name: asDisplay(person),
+                    })
+                }
+                return breadcrumbs
+            },
+        ],
+
+        exporterProps: [
+            (s) => [s.listFilters, (_, { cohort }) => cohort],
+            (listFilters, cohort: number | 'new' | undefined): TriggerExportProps[] => [
+                {
+                    export_format: ExporterFormat.CSV,
+                    export_context: {
+                        path: cohort
+                            ? api.cohorts.determineCSVUrl(cohort, listFilters)
+                            : api.person.determineCSVUrl(listFilters),
+                        max_limit: 10000,
+                    },
+                },
+            ],
+        ],
+        urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
+    }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: () => {
-            toast('Person deleted successfully')
+            // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
+            // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
+            lemonToast.success('Person deleted. Their ID(s) will be usable again in an hour or so')
             actions.loadPersons()
-            router.actions.push('/persons')
+            router.actions.push(urls.persons())
         },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
@@ -78,17 +188,18 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 }
 
                 if (!Object.keys(person.properties).includes(key)) {
-                    actions.setHasNewKeys()
                     person.properties = { [key]: parsedValue, ...person.properties } // To add property at the top (if new)
                     action = 'added'
                 } else {
                     person.properties[key] = parsedValue
-                    action = parsedValue !== undefined ? 'updated' : 'removed'
+                    action = 'updated'
                 }
 
-                actions.setPerson(person) // To update the UI immediately while the request is being processed
-                const response = await api.update(`api/person/${person.id}`, person)
-                actions.setPerson(response)
+                actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
+                // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
+                //      the 'updated' properties yet.
+                await api.update(`api/person/${person.id}`, person)
+                lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
                     action,
@@ -98,30 +209,35 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
                 )
             }
         },
+        deleteProperty: async ({ key }) => {
+            const person = values.person
+
+            if (person) {
+                const updatedProperties = { ...person.properties }
+                delete updatedProperties[key]
+
+                actions.setPerson({ ...person, properties: updatedProperties })
+                await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                lemonToast.success(`Person property deleted`)
+
+                eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
+            }
+        },
         navigateToCohort: ({ cohort }) => {
-            router.actions.push(`/cohorts/${cohort.id}`)
+            router.actions.push(urls.cohort(cohort.id))
         },
     }),
-    loaders: ({ values, actions }) => ({
+    loaders: ({ values, actions, props }) => ({
         persons: [
             { next: null, previous: null, results: [] } as PersonPaginatedResponse,
             {
-                loadPersons: async (url: string | null = '') => {
+                loadPersons: async ({ url }) => {
                     if (!url) {
-                        const qs = Object.keys(values.listFilters)
-                            .filter((key) =>
-                                key !== 'is_identified'
-                                    ? FILTER_WHITELIST.includes(key)
-                                    : !url?.includes('is_identified')
-                            )
-                            .reduce(function (result, key) {
-                                const value = values.listFilters[key]
-                                if (value !== undefined && value !== null) {
-                                    result.push(`${key}=${value}`)
-                                }
-                                return result
-                            }, [] as string[])
-                        url = `api/person/${qs.length ? '?' + qs.join('&') : ''}`
+                        if (props.cohort) {
+                            url = `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
+                        } else {
+                            url = `api/person/?${toParams(values.listFilters)}`
+                        }
                     }
                     return await api.get(url)
                 },
@@ -130,17 +246,12 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
         person: [
             null as PersonType | null,
             {
-                loadPerson: async (id: string): Promise<PersonType | null> => {
-                    const response = await api.get(`api/person/?distinct_id=${id}`)
-                    if (!response.results.length) {
-                        router.actions.push('/404')
+                loadPerson: async ({ id }): Promise<PersonType | null> => {
+                    const response = await api.get(`api/person/?${toParams({ distinct_id: id })}`)
+                    const person = response.results[0] || (null as PersonType | null)
+                    if (person) {
+                        actions.reportPersonDetailViewed(person)
                     }
-                    const person = response.results[0] as PersonType
-                    person && actions.reportPersonDetailViewed(person)
-                    return person
-                },
-                setPerson: (person: PersonType): PersonType => {
-                    // Used after merging persons to update the view without an additional request
                     return person
                 },
             },
@@ -149,6 +260,9 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
             null as CohortType[] | null,
             {
                 loadCohorts: async (): Promise<CohortType[] | null> => {
+                    if (!values.person?.id) {
+                        return null
+                    }
                     const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
                     return response.results
                 },
@@ -169,21 +283,72 @@ export const personsLogic = kea<personsLogicType<PersonPaginatedResponse, Person
     }),
     actionToUrl: ({ values, props }) => ({
         setListFilters: () => {
-            if (props.updateURL && router.values.location.pathname.indexOf('/persons') > -1) {
-                return ['/persons', values.listFilters]
+            if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
+                return ['/persons', values.listFilters, undefined, { replace: true }]
+            }
+        },
+        navigateToTab: () => {
+            if (props.syncWithUrl && router.values.location.pathname.indexOf('/person') > -1) {
+                const searchParams = { ...router.values.searchParams }
+
+                if (values.activeTab !== PersonsTabType.HISTORY) {
+                    delete searchParams['page']
+                }
+
+                return [
+                    router.values.location.pathname,
+                    searchParams,
+                    {
+                        ...router.values.hashParams,
+                        activeTab: values.activeTab,
+                    },
+                ]
             }
         },
     }),
-    urlToAction: ({ actions, values }) => ({
-        '/persons': ({}, searchParams: Record<string, string>) => {
-            actions.setListFilters(searchParams)
-            if (!values.persons.results.length && !values.personsLoading) {
-                // Initial load
-                actions.loadPersons()
+    urlToAction: ({ actions, values, props }) => ({
+        '/persons': ({}, searchParams) => {
+            if (props.syncWithUrl) {
+                actions.setListFilters(searchParams)
+                if (!values.persons.results.length && !values.personsLoading) {
+                    // Initial load
+                    actions.loadPersons()
+                }
             }
         },
-        '/person/*': ({ _ }: { _: string }) => {
-            actions.loadPerson(_) // underscore contains the wildcard
+        '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
+            if (props.syncWithUrl) {
+                if (sessionRecordingId) {
+                    if (values.showSessionRecordings) {
+                        actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
+                    } else {
+                        actions.navigateToTab(PersonsTabType.EVENTS)
+                    }
+                } else if (activeTab && values.activeTab !== activeTab) {
+                    actions.navigateToTab(activeTab as PersonsTabType)
+                }
+
+                if (!activeTab && values.activeTab && values.activeTab !== PersonsTabType.PROPERTIES) {
+                    actions.navigateToTab(PersonsTabType.PROPERTIES)
+                }
+
+                if (rawPersonDistinctId) {
+                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
+                    const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
+
+                    if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
+                        actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
+                    }
+                }
+            }
+        },
+    }),
+    events: ({ props, actions }) => ({
+        afterMount: () => {
+            if (props.cohort && typeof props.cohort === 'number') {
+                actions.setListFilters({ cohort: props.cohort })
+                actions.loadPersons()
+            }
         },
     }),
 })

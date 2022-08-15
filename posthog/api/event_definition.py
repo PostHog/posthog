@@ -1,15 +1,31 @@
 from typing import Type
 
-from rest_framework import filters, mixins, permissions, serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied
+from django.db.models import Prefetch
+from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.utils import create_event_definitions_sql
+from posthog.constants import AvailableFeature, CombinedEventType
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.models import EventDefinition
-from posthog.permissions import OrganizationMemberPermissions
+from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
+from posthog.models import EventDefinition, TaggedItem
+from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
+from posthog.settings import EE_AVAILABLE
+
+# If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
 
-class EventDefinitionSerializer(serializers.ModelSerializer):
+class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+    is_action = serializers.SerializerMethodField(read_only=True)
+    action_id = serializers.IntegerField(read_only=True)
+    created_by = UserBasicSerializer(read_only=True)
+    is_calculating = serializers.BooleanField(read_only=True)
+    last_calculated_at = serializers.DateTimeField(read_only=True)
+    last_updated_at = serializers.DateTimeField(read_only=True)
+    post_to_slack = serializers.BooleanField(default=False)
+
     class Meta:
         model = EventDefinition
         fields = (
@@ -17,13 +33,28 @@ class EventDefinitionSerializer(serializers.ModelSerializer):
             "name",
             "volume_30_day",
             "query_usage_30_day",
+            "created_at",
+            "last_seen_at",
+            "last_updated_at",
+            "tags",
+            # Action fields
+            "is_action",
+            "action_id",
+            "is_calculating",
+            "last_calculated_at",
+            "created_by",
+            "post_to_slack",
         )
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()
 
+    def get_is_action(self, obj):
+        return hasattr(obj, "action_id") and obj.action_id is not None
+
 
 class EventDefinitionViewSet(
+    TaggedItemViewSetMixin,
     StructuredViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -31,59 +62,65 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
+    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     lookup_field = "id"
-    ordering = "name"
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [TermSearchFilterBackend]
     search_fields = ["name"]
 
     def get_queryset(self):
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
-            try:
-                from ee.models.event_definition import EnterpriseEventDefinition
-            except ImportError:
-                pass
-            else:
-                ee_event_definitions = EnterpriseEventDefinition.objects.raw(
-                    """
-                    SELECT *
-                    FROM ee_enterpriseeventdefinition
-                    FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-                    WHERE team_id = %s
-                    ORDER BY name
-                    """,
-                    params=[self.request.user.team.id],  # type: ignore
-                )
-                return ee_event_definitions
-        return self.filter_queryset_by_parents_lookups(EventDefinition.objects.all()).order_by(self.ordering)
+        # `type` = 'all' | 'event' | 'action_event'
+        # Allows this endpoint to return lists of event definitions, actions, or both.
+        event_type = CombinedEventType(self.request.GET.get("event_type", CombinedEventType.EVENT))
+
+        search = self.request.GET.get("search", None)
+        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
+
+        params = {
+            "team_id": self.team_id,
+            **search_kwargs,
+        }
+
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+            from ee.models.event_definition import EnterpriseEventDefinition
+
+            # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
+            sql = create_event_definitions_sql(event_type, is_enterprise=True, conditions=search_query)
+
+            ee_event_definitions = EnterpriseEventDefinition.objects.raw(sql, params=params)
+            ee_event_definitions_list = ee_event_definitions.prefetch_related(
+                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+            )
+
+            return ee_event_definitions_list
+
+        sql = create_event_definitions_sql(event_type, is_enterprise=False, conditions=search_query)
+        event_definitions_list = EventDefinition.objects.raw(sql, params=params)
+
+        return event_definitions_list
 
     def get_object(self):
         id = self.kwargs["id"]
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
-            try:
-                from ee.models.event_definition import EnterpriseEventDefinition
-            except ImportError:
-                pass
-            else:
-                enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
-                if enterprise_event:
-                    return enterprise_event
-                non_enterprise_event = EventDefinition.objects.get(id=id)
-                new_enterprise_event = EnterpriseEventDefinition(
-                    eventdefinition_ptr_id=non_enterprise_event.id, description=""
-                )
-                new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
-                new_enterprise_event.save()
-                return new_enterprise_event
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+            from ee.models.event_definition import EnterpriseEventDefinition
+
+            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
+            if enterprise_event:
+                return enterprise_event
+
+            non_enterprise_event = EventDefinition.objects.get(id=id)
+            new_enterprise_event = EnterpriseEventDefinition(
+                eventdefinition_ptr_id=non_enterprise_event.id, description=""
+            )
+            new_enterprise_event.__dict__.update(non_enterprise_event.__dict__)
+            new_enterprise_event.save()
+            return new_enterprise_event
+
         return EventDefinition.objects.get(id=id)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available("ingestion_taxonomy"):  # type: ignore
-            try:
-                from ee.api.enterprise_event_definition import EnterpriseEventDefinitionSerializer
-            except ImportError:
-                pass
-            else:
-                serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+            from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
+
+            serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
         return serializer_class

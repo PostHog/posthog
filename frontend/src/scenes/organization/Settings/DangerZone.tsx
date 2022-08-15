@@ -23,13 +23,14 @@ export function DeleteOrganizationModal({
         <Modal
             title="Delete the entire organization?"
             okText={`Delete ${currentOrganization ? currentOrganization.name : 'the current organization'}`}
-            okType="danger"
             onOk={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
+            okType="primary"
             okButtonProps={{
                 // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
                 'data-attr': 'delete-organization-ok',
                 loading: isDeletionInProgress,
                 disabled: !isDeletionConfirmed,
+                className: 'btn-danger',
             }}
             onCancel={() => setIsVisible(false)}
             cancelButtonProps={{
@@ -70,17 +71,16 @@ export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Elem
                 <h2 style={{ color: 'var(--danger)' }} className="subtitle">
                     Danger Zone
                 </h2>
-                <div className="mt">
+                <div className="mt-4">
                     {!isRestricted && (
                         <Paragraph type="danger">
                             This is <b>irreversible</b>. Please be certain.
                         </Paragraph>
                     )}
                     <Button
-                        type="default"
-                        danger
+                        type="primary"
                         onClick={() => setIsModalVisible(true)}
-                        className="mr-05"
+                        className="mr-2 btn-danger"
                         data-attr="delete-project-button"
                         icon={<DeleteOutlined />}
                         disabled={isRestricted}

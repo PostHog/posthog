@@ -1,22 +1,27 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Popconfirm, Space, Switch, Tooltip } from 'antd'
+import { Button, Form, Popconfirm, Space, Switch, Tag } from 'antd'
 import { DeleteOutlined, CodeOutlined, LockFilled, GlobalOutlined, RollbackOutlined } from '@ant-design/icons'
 import { userLogic } from 'scenes/userLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
-import { defaultConfigForPlugin, getConfigSchemaArray } from 'scenes/plugins/utils'
-import Markdown from 'react-markdown'
+import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
+import ReactMarkdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
-import { PluginSource } from './PluginSource'
+import { PluginSource } from '../source/PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { ExtraPluginButtons } from '../plugin/PluginCard'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { capabilitiesInfo } from './CapabilitiesInfo'
+import { Tooltip } from 'lib/components/Tooltip'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+
+window.process = MOCK_NODE_PROCESS
 
 function EnabledDisabledSwitch({
     value,
@@ -48,15 +53,13 @@ export function PluginDrawer(): JSX.Element {
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { editingPlugin, loading, editingSource, editingPluginInitialChanges } = useValues(pluginsLogic)
-    const {
-        editPlugin,
-        savePluginConfig,
-        uninstallPlugin,
-        setEditingSource,
-        generateApiKeysIfNeeded,
-        patchPlugin,
-    } = useActions(pluginsLogic)
+    const { editPlugin, savePluginConfig, uninstallPlugin, setEditingSource, generateApiKeysIfNeeded, patchPlugin } =
+        useActions(pluginsLogic)
+
     const [form] = Form.useForm()
+
+    const [invisibleFields, setInvisibleFields] = useState<string[]>([])
+    const [requiredFields, setRequiredFields] = useState<string[]>([])
 
     useEffect(() => {
         if (editingPlugin) {
@@ -69,7 +72,49 @@ export function PluginDrawer(): JSX.Element {
         } else {
             form.resetFields()
         }
-    }, [editingPlugin?.id])
+        updateInvisibleAndRequiredFields()
+    }, [editingPlugin?.id, editingPlugin?.config_schema])
+
+    const updateInvisibleAndRequiredFields = (): void => {
+        determineAndSetInvisibleFields()
+        determineAndSetRequiredFields()
+    }
+
+    const determineAndSetInvisibleFields = (): void => {
+        const fieldsToSetAsInvisible = []
+        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
+            if (!field.visible_if || !field.key) {
+                continue
+            }
+            const shouldBeVisible = field.visible_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
+
+            if (!shouldBeVisible) {
+                fieldsToSetAsInvisible.push(field.key)
+            }
+        }
+        setInvisibleFields(fieldsToSetAsInvisible)
+    }
+
+    const determineAndSetRequiredFields = (): void => {
+        const fieldsToSetAsRequired = []
+        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
+            if (!field.required_if || !Array.isArray(field.required_if) || !field.key) {
+                continue
+            }
+            const shouldBeRequired = field.required_if.every(
+                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
+                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
+            )
+            if (shouldBeRequired) {
+                fieldsToSetAsRequired.push(field.key)
+            }
+        }
+
+        setRequiredFields(fieldsToSetAsRequired)
+    }
 
     const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
         return (
@@ -89,7 +134,7 @@ export function PluginDrawer(): JSX.Element {
                 forceRender={true}
                 visible={!!editingPlugin}
                 onClose={() => editPlugin(null)}
-                width="min(90vw, 420px)"
+                width="min(90vw, 500px)"
                 title={editingPlugin?.name}
                 data-attr="plugin-drawer"
                 footer={
@@ -100,10 +145,11 @@ export function PluginDrawer(): JSX.Element {
                                 canInstallPlugins(user?.organization, editingPlugin.organization_id) && (
                                     <Popconfirm
                                         placement="topLeft"
-                                        title="Are you sure you wish to uninstall this plugin completely?"
+                                        title="Are you sure you wish to uninstall this app completely?"
                                         onConfirm={() => uninstallPlugin(editingPlugin.name)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
+                                        className="plugins-popconfirm"
                                     >
                                         <Button
                                             style={{ color: 'var(--danger)', padding: 4 }}
@@ -122,8 +168,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This plugin can currently be used by other organizations in this
-                                                instance of PostHog. This action will <b>disable and hide it</b> for all
+                                                This app can currently be used by other organizations in this instance
+                                                of PostHog. This action will <b>disable and hide it</b> for all
                                                 organizations other than yours.
                                             </>
                                         }
@@ -141,8 +187,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This action will mark this plugin as installed for{' '}
-                                                <b>all organizations</b> in this instance of PostHog.
+                                                This action will mark this app as installed for <b>all organizations</b>{' '}
+                                                in this instance of PostHog.
                                             </>
                                         }
                                     >
@@ -174,6 +220,7 @@ export function PluginDrawer(): JSX.Element {
                 }
             >
                 <Form form={form} layout="vertical" name="basic" onFinish={savePluginConfig}>
+                    {/* TODO: Rework as Kea form with Lemon UI components */}
                     {editingPlugin ? (
                         <div>
                             <div style={{ display: 'flex', marginBottom: 16 }}>
@@ -190,7 +237,11 @@ export function PluginDrawer(): JSX.Element {
                                         ) : editingPlugin.plugin_type === 'source' ? (
                                             <SourcePluginTag />
                                         ) : null}
-                                        {editingPlugin.url && <ExtraPluginButtons url={editingPlugin.url} />}
+                                        {editingPlugin.url && (
+                                            <a href={editingPlugin.url}>
+                                                <i>⤷ Learn more</i>
+                                            </a>
+                                        )}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
                                         <Form.Item
@@ -205,7 +256,7 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             </div>
 
-                            {editingPlugin.plugin_type === 'source' ? (
+                            {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
                                     <Button
                                         type={editingSource ? 'default' : 'primary'}
@@ -218,19 +269,62 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             ) : null}
 
+                            {editingPlugin.capabilities && Object.keys(editingPlugin.capabilities).length > 0 ? (
+                                <>
+                                    <h3 className="l3" style={{ marginTop: 32 }}>
+                                        Capabilities
+                                    </h3>
+
+                                    <div style={{ marginTop: 5 }}>
+                                        {[
+                                            ...editingPlugin.capabilities.methods,
+                                            ...editingPlugin.capabilities.scheduled_tasks,
+                                        ]
+                                            .filter(
+                                                (capability) => !['setupPlugin', 'teardownPlugin'].includes(capability)
+                                            )
+                                            .map((capability) => (
+                                                <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
+                                                    <Tag className="plugin-capabilities-tag">{capability}</Tag>
+                                                </Tooltip>
+                                            ))}
+                                        {editingPlugin.capabilities.jobs.map((jobName) => (
+                                            <Tooltip title="Custom job" key={jobName}>
+                                                <Tag className="plugin-capabilities-tag">{jobName}</Tag>
+                                            </Tooltip>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : null}
+
+                            {!!(
+                                editingPlugin.pluginConfig.id &&
+                                editingPlugin.capabilities?.jobs?.length &&
+                                editingPlugin.public_jobs &&
+                                Object.keys(editingPlugin.public_jobs).length
+                            ) && (
+                                <PluginJobOptions
+                                    pluginId={editingPlugin.id}
+                                    pluginConfigId={editingPlugin.pluginConfig.id}
+                                    capabilities={editingPlugin.capabilities}
+                                    publicJobs={editingPlugin.public_jobs}
+                                />
+                            )}
+
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration
                             </h3>
                             {getConfigSchemaArray(editingPlugin.config_schema).length === 0 ? (
-                                <div>This plugin is not configurable.</div>
+                                <div>This app is not configurable.</div>
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
                                     {fieldConfig.markdown && (
-                                        <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
+                                        <ReactMarkdown source={fieldConfig.markdown} linkTarget="_blank" />
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
+                                            hidden={!!fieldConfig.key && invisibleFields.includes(fieldConfig.key)}
                                             label={
                                                 <>
                                                     {fieldConfig.secret && <SecretFieldIcon />}
@@ -239,19 +333,30 @@ export function PluginDrawer(): JSX.Element {
                                             }
                                             extra={
                                                 fieldConfig.hint && (
-                                                    <Markdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                    <small>
+                                                        <div style={{ height: 2 }} />
+                                                        <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                    </small>
                                                 )
                                             }
                                             name={fieldConfig.key}
-                                            required={fieldConfig.required}
+                                            required={
+                                                fieldConfig.required ||
+                                                (!!fieldConfig.key && requiredFields.includes(fieldConfig.key))
+                                            }
                                             rules={[
                                                 {
-                                                    required: fieldConfig.required,
+                                                    required:
+                                                        fieldConfig.required ||
+                                                        (!!fieldConfig.key && requiredFields.includes(fieldConfig.key)),
                                                     message: 'Please enter a value!',
                                                 },
                                             ]}
                                         >
-                                            <PluginField fieldConfig={fieldConfig} />
+                                            <PluginField
+                                                fieldConfig={fieldConfig}
+                                                onChange={updateInvisibleAndRequiredFields}
+                                            />
                                         </Form.Item>
                                     ) : (
                                         <>
@@ -268,7 +373,14 @@ export function PluginDrawer(): JSX.Element {
                     ) : null}
                 </Form>
             </Drawer>
-            {editingPlugin?.plugin_type === 'source' ? <PluginSource /> : null}
+            {editingPlugin?.plugin_type === 'source' && editingPlugin.id ? (
+                <PluginSource
+                    visible={editingSource}
+                    close={() => setEditingSource(false)}
+                    pluginId={editingPlugin.id}
+                    pluginConfigId={editingPlugin.pluginConfig?.id}
+                />
+            ) : null}
         </>
     )
 }

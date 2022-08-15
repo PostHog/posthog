@@ -1,8 +1,7 @@
 from typing import Dict, List
+from uuid import uuid4
 
-from posthog.ee import is_clickhouse_enabled
-from posthog.models import Action, Event, Person, PersonDistinctId, Team
-from posthog.models.session_recording_event import SessionRecordingEvent
+from posthog.models import Person, PersonDistinctId, Team
 from posthog.models.utils import UUIDT
 
 
@@ -27,27 +26,29 @@ class DataGenerator:
         if dashboards:
             self.create_actions_dashboards()
         self.team.save()
-        _recalculate(team=self.team)
 
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
-        Person.objects.bulk_create(self.people)
+        self.people = Person.objects.bulk_create(self.people)
 
         pids = [
             PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
             for person, distinct_id in zip(self.people, self.distinct_ids)
         ]
         PersonDistinctId.objects.bulk_create(pids)
-        if is_clickhouse_enabled():
-            from ee.clickhouse.models.person import create_person, create_person_distinct_id
+        from posthog.models.person.util import create_person, create_person_distinct_id
 
-            for person in self.people:
-                create_person(team_id=person.team.pk, properties=person.properties, is_identified=person.is_identified)
-            for pid in pids:
-                create_person_distinct_id(
-                    0, pid.team.pk, pid.distinct_id, str(pid.person.uuid)
-                )  # use dummy number for id
+        for person in self.people:
+            create_person(
+                uuid=str(person.uuid),
+                team_id=person.team.pk,
+                properties=person.properties,
+                is_identified=person.is_identified,
+                version=0,
+            )
+        for pid in pids:
+            create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})
@@ -65,16 +66,13 @@ class DataGenerator:
         pass
 
     def bulk_import_events(self):
-        if is_clickhouse_enabled():
-            from ee.clickhouse.demo import bulk_create_events, bulk_create_session_recording_events
+        from posthog.models.event.util import create_event
+        from posthog.models.session_recording_event.util import create_session_recording_event
 
-            bulk_create_events(self.events, team=self.team)
-            bulk_create_session_recording_events(self.snapshots, team_id=self.team.pk)
-        else:
-            Event.objects.bulk_create([Event(**kw, team=self.team) for kw in self.events])
-            SessionRecordingEvent.objects.bulk_create(
-                [SessionRecordingEvent(**kw, team=self.team) for kw in self.snapshots]
-            )
+        for event_data in self.events:
+            create_event(**event_data, team=self.team, event_uuid=uuid4())
+        for data in self.snapshots:
+            create_session_recording_event(**data, team_id=self.team.pk, uuid=uuid4())
 
     def add_if_not_contained(self, array, value):
         if value not in array:
@@ -82,9 +80,3 @@ class DataGenerator:
 
     def add_event(self, **kw):
         self.events.append(kw)
-
-
-def _recalculate(team: Team) -> None:
-    actions = Action.objects.filter(team=team)
-    for action in actions:
-        action.calculate_events()

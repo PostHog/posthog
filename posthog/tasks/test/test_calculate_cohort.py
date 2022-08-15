@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 from freezegun import freeze_time
 
 from posthog.models.cohort import Cohort
-from posthog.models.event import Event
+from posthog.models.feature_flag import FeatureFlag
 from posthog.models.person import Person
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list, calculate_cohorts
 from posthog.test.base import APIBaseTest
 
 
@@ -23,7 +23,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 timestamp="2021-01-01T12:00:00Z",
             )
             response = self.client.post(
-                "/api/cohort/?insight=STICKINESS&properties=%5B%5D&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&shown_as=Stickiness&date_from=2021-01-01&entity_id=%24pageview&entity_type=events&stickiness_days=1&label=%24pageview",
+                f"/api/projects/{self.team.id}/cohorts/?insight=STICKINESS&properties=%5B%5D&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&shown_as=Stickiness&date_from=2021-01-01&entity_id=%24pageview&entity_type=events&stickiness_days=1&label=%24pageview",
                 {"name": "test", "is_static": True},
             ).json()
 
@@ -32,7 +32,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             calculate_cohort_from_list(cohort_id, ["blabla"])
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk)
-            self.assertEqual(len(people), 1)
+            self.assertEqual(people.count(), 1)
 
         @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
         def test_create_trends_cohort(self, _calculate_cohort_from_list: MagicMock) -> None:
@@ -56,7 +56,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 )
 
             response = self.client.post(
-                "/api/cohort/?interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&entity_id=%24pageview&entity_type=events&date_from=2021-01-01&date_to=2021-01-01&label=%24pageview",
+                f"/api/projects/{self.team.id}/cohorts/?interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%7D%5D&properties=%5B%5D&entity_id=%24pageview&entity_type=events&date_from=2021-01-01&date_to=2021-01-01&label=%24pageview",
                 {"name": "test", "is_static": True},
             ).json()
             cohort_id = response["id"]
@@ -64,10 +64,37 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             calculate_cohort_from_list(cohort_id, ["blabla"])
             cohort = Cohort.objects.get(pk=cohort_id)
             people = Person.objects.filter(cohort__id=cohort.pk)
-            self.assertEqual(len(people), 1)
+            self.assertEqual(people.count(), 1)
+
+        def test_calculate_cohorts(self) -> None:
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={
+                    "groups": [
+                        {"properties": [{"key": "id", "type": "cohort", "value": 267}], "rollout_percentage": None}
+                    ]
+                },
+                key="default-flag-1",
+                created_by=self.user,
+            )
+
+            FeatureFlag.objects.create(
+                team=self.team,
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "id", "type": "cohort", "value": 22},
+                                {"key": "id", "type": "cohort", "value": 35},
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+                key="default-flag-2",
+                created_by=self.user,
+            )
+
+            calculate_cohorts()
 
     return TestCalculateCohort
-
-
-class TestDjangoCalculateCohort(calculate_cohort_test_factory(Event.objects.create, Person.objects.create)):  # type: ignore
-    pass

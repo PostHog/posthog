@@ -1,66 +1,73 @@
-import React, { useState, useRef, useCallback, Dispatch, SetStateAction } from 'react'
-import { Table, Modal, Button, Input, Alert, Popconfirm } from 'antd'
+import React, { useState, useCallback, Dispatch, SetStateAction } from 'react'
+import { Table, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ExclamationCircleOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { PersonalAPIKeyType } from '~/types'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { ColumnsType } from 'antd/lib/table'
+import { LemonButton } from '../LemonButton'
+import { LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { AlertMessage } from '../AlertMessage'
+import { IconPlus } from '../icons'
 
 function CreateKeyModal({
-    isVisible,
-    setIsVisible,
+    isOpen,
+    setIsOpen,
 }: {
-    isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    isOpen: boolean
+    setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { createKey } = useActions(personalAPIKeysLogic)
 
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const inputRef = useRef<Input | null>(null)
+    const [label, setLabel] = useState('')
 
     const closeModal: () => void = useCallback(() => {
         setErrorMessage(null)
-        setIsVisible(false)
-        if (inputRef.current) {
-            inputRef.current.setValue('')
-        }
-    }, [inputRef, setIsVisible])
+        setIsOpen(false)
+    }, [setIsOpen])
 
     return (
-        <Modal
+        <LemonModal
             title="Creating a Personal API Key"
-            okText="Create Key"
-            cancelText="Cancel"
-            onOk={() => {
-                const label = inputRef.current?.state.value?.trim()
-                if (label) {
-                    setErrorMessage(null)
-                    createKey(label)
-                    closeModal()
-                } else {
-                    setErrorMessage('Your key needs a label!')
-                }
-            }}
-            onCancel={closeModal}
-            visible={isVisible}
+            onClose={closeModal}
+            isOpen={isOpen}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={closeModal}>
+                        Cancel
+                    </LemonButton>
+
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            if (label) {
+                                setErrorMessage(null)
+                                createKey(label)
+                                setLabel('')
+                                closeModal()
+                            } else {
+                                setErrorMessage('Your key needs a label!')
+                            }
+                        }}
+                    >
+                        Create key
+                    </LemonButton>
+                </>
+            }
         >
-            <Input
-                addonBefore="Label"
-                ref={inputRef}
-                placeholder='for example "Zapier"'
-                maxLength={40}
-                style={{ marginBottom: '1rem' }}
-            />
-            {errorMessage && <Alert message={errorMessage} type="error" style={{ marginBottom: '1rem' }} />}
-            <p style={{ marginBottom: 0 }}>
-                Key value <b>will only ever be shown once</b>, immediately after creation.
-                <br />
-                Copy it to your destination right away.
-            </p>
-        </Modal>
+            <div className="space-y-2">
+                <LemonInput placeholder='for example "Zapier"' maxLength={40} onChange={setLabel} value={label} />
+                {errorMessage && <AlertMessage type="error">{errorMessage}</AlertMessage>}
+                <p>
+                    Key value <b>will only ever be shown once</b>, immediately after creation.
+                    <br />
+                    Copy it to your destination right away.
+                </p>
+            </div>
+        </LemonModal>
     )
 }
 
@@ -81,7 +88,7 @@ function RowActionsCreator(
                 title={`Permanently delete key "${personalAPIKey.label}"?`}
                 okText="Delete Key"
                 okType="danger"
-                icon={<ExclamationCircleOutlined style={{ color: red.primary }} />}
+                icon={<ExclamationCircleOutlined style={{ color: 'var(--danger)' }} />}
                 placement="left"
                 onConfirm={() => {
                     deleteKey(personalAPIKey)
@@ -114,7 +121,7 @@ function PersonalAPIKeysTable(): JSX.Element {
             title: 'Last Used',
             dataIndex: 'last_used_at',
             key: 'lastUsedAt',
-            render: (lastUsedAt: string | null) => humanFriendlyDetailedTime(lastUsedAt),
+            render: (lastUsedAt: string | null) => humanFriendlyDetailedTime(lastUsedAt, 'MMMM DD, YYYY', 'h A'),
         },
         {
             title: 'Created',
@@ -135,14 +142,14 @@ function PersonalAPIKeysTable(): JSX.Element {
             dataSource={keys}
             columns={columns}
             rowKey="id"
-            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            pagination={{ pageSize: 50, hideOnSinglePage: true }}
             style={{ marginTop: '1rem' }}
         />
     )
 }
 
 export function PersonalAPIKeys(): JSX.Element {
-    const [isCreateKeyModalVisible, setIsCreateKeyModalVisible] = useState(false)
+    const [modalIsOpen, setModalIsOpen] = useState(false)
 
     return (
         <>
@@ -158,15 +165,16 @@ export function PersonalAPIKeys(): JSX.Element {
                     More about API authentication in PostHog Docs.
                 </a>
             </p>
-            <Button
+            <LemonButton
                 type="primary"
                 onClick={() => {
-                    setIsCreateKeyModalVisible(true)
+                    setModalIsOpen(true)
                 }}
+                icon={<IconPlus />}
             >
-                + Create Personal API Key
-            </Button>
-            <CreateKeyModal isVisible={isCreateKeyModalVisible} setIsVisible={setIsCreateKeyModalVisible} />
+                Create personal API key
+            </LemonButton>
+            <CreateKeyModal isOpen={modalIsOpen} setIsOpen={setModalIsOpen} />
             <PersonalAPIKeysTable />
         </>
     )

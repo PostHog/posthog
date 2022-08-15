@@ -1,41 +1,65 @@
-import React from 'react'
-import { SceneLoading } from 'lib/utils'
+import React, { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardHeader } from 'scenes/dashboard/DashboardHeader'
+import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import './Dashboard.scss'
-import { useKeyboardHotkeys } from '../../lib/hooks/useKeyboardHotkeys'
-import { DashboardMode } from '../../types'
-import { DashboardEventSource } from '../../lib/utils/eventUsageLogic'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { DashboardPlacement, DashboardMode, DashboardType } from '~/types'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
+import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { SceneExport } from 'scenes/sceneTypes'
+import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { DashboardHeader } from './DashboardHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 interface Props {
-    id: string
-    shareToken?: string
-    internal?: boolean
+    id?: string
+    dashboard?: DashboardType
+    placement?: DashboardPlacement
 }
 
-export function Dashboard({ id, shareToken, internal }: Props): JSX.Element {
+export const scene: SceneExport = {
+    component: DashboardScene,
+    logic: dashboardLogic,
+    paramsToProps: ({ params: { id, placement } }: { params: Props }): DashboardLogicProps => ({
+        id: id ? parseInt(id) : undefined,
+        placement,
+    }),
+}
+
+export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element {
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseInt(id), shareToken, internal }}>
-            <DashboardView />
+        <BindLogic logic={dashboardLogic} props={{ id: id ? parseInt(id) : undefined, placement, dashboard }}>
+            <DashboardScene />
         </BindLogic>
     )
 }
 
-function DashboardView(): JSX.Element {
-    const { dashboard, itemsLoading, items, filters: dashboardFilters, dashboardMode } = useValues(dashboardLogic)
-    const { dashboardsLoading } = useValues(dashboardsModel)
-    const { setDashboardMode, addGraph, setDates } = useActions(dashboardLogic)
+function DashboardScene(): JSX.Element {
+    const {
+        placement,
+        dashboard,
+        canEditDashboard,
+        items,
+        itemsLoading,
+        filters: dashboardFilters,
+        dashboardMode,
+        receivedErrorsFromAPI,
+    } = useValues(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
+
+    useEffect(() => {
+        reportDashboardViewed()
+    }, [])
 
     useKeyboardHotkeys(
-        dashboardMode === DashboardMode.Public || dashboardMode === DashboardMode.Internal
+        [DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement)
             ? {}
             : {
                   e: {
@@ -44,7 +68,7 @@ function DashboardView(): JSX.Element {
                               dashboardMode === DashboardMode.Edit ? null : DashboardMode.Edit,
                               DashboardEventSource.Hotkey
                           ),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
+                      disabled: !canEditDashboard || (dashboardMode !== null && dashboardMode !== DashboardMode.Edit),
                   },
                   f: {
                       action: () =>
@@ -53,18 +77,6 @@ function DashboardView(): JSX.Element {
                               DashboardEventSource.Hotkey
                           ),
                       disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Fullscreen,
-                  },
-                  s: {
-                      action: () =>
-                          setDashboardMode(
-                              dashboardMode === DashboardMode.Sharing ? null : DashboardMode.Sharing,
-                              DashboardEventSource.Hotkey
-                          ),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Sharing,
-                  },
-                  n: {
-                      action: () => addGraph(),
-                      disabled: dashboardMode !== null && dashboardMode !== DashboardMode.Edit,
                   },
                   escape: {
                       // Exit edit mode with Esc. Full screen mode is also exited with Esc, but this behavior is native to the browser.
@@ -75,60 +87,74 @@ function DashboardView(): JSX.Element {
         [setDashboardMode, dashboardMode]
     )
 
-    if (dashboardsLoading || itemsLoading) {
-        return <SceneLoading />
-    }
-
-    if (!dashboard) {
+    if (!dashboard && !itemsLoading && receivedErrorsFromAPI) {
         return <NotFound object="dashboard" />
     }
 
     return (
         <div className="dashboard">
-            {dashboardMode !== DashboardMode.Public && dashboardMode !== DashboardMode.Internal && <DashboardHeader />}
-            {items && items.length ? (
+            {![
+                DashboardPlacement.ProjectHomepage,
+                DashboardPlacement.Public,
+                DashboardPlacement.Export,
+                DashboardPlacement.InternalMetrics,
+            ].includes(placement) && <DashboardHeader />}
+
+            {receivedErrorsFromAPI ? (
+                <InsightErrorState title="There was an error loading this dashboard" />
+            ) : !items || items.length === 0 ? (
+                <EmptyDashboardComponent loading={itemsLoading} />
+            ) : (
                 <div>
-                    <div className="dashboard-items-actions">
-                        {/* :TODO: Bring this back when addressing https://github.com/PostHog/posthog/issues/3609
-                        <div className="left-item">
-                            Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
-                            {dashboardMode !== DashboardMode.Public && (
-                                <Button type="link" icon={<ReloadOutlined />} onClick={refreshAllDashboardItems}>
-                                    Refresh
-                                </Button>
-                            )}
-                        </div>
-                         */}
-                        {dashboardMode !== DashboardMode.Public && (
-                            <div
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'flex-end',
-                                    width: '100%',
-                                }}
-                            >
-                                <TZIndicator style={{ marginRight: 8, fontWeight: 'bold' }} />
-                                <DateFilter
-                                    defaultValue="Custom"
-                                    showCustom
-                                    dateFrom={dashboardFilters?.date_from}
-                                    dateTo={dashboardFilters?.date_to}
-                                    onChange={setDates}
-                                    makeLabel={(key) => (
-                                        <>
-                                            <CalendarOutlined />
-                                            <span className="hide-when-small"> {key}</span>
-                                        </>
-                                    )}
+                    {![
+                        DashboardPlacement.Public,
+                        DashboardPlacement.Export,
+                        DashboardPlacement.InternalMetrics,
+                    ].includes(placement) && (
+                        <>
+                            <div className="flex space-x-4">
+                                <div className="flex items-center" style={{ height: '2rem' }}>
+                                    <TZIndicator style={{ marginRight: '0.5rem' }} />
+                                    <DateFilter
+                                        defaultValue="Custom"
+                                        showCustom
+                                        dateFrom={dashboardFilters?.date_from ?? undefined}
+                                        dateTo={dashboardFilters?.date_to ?? undefined}
+                                        onChange={setDates}
+                                        disabled={!canEditDashboard}
+                                        makeLabel={(key) => (
+                                            <>
+                                                <CalendarOutlined />
+                                                <span className="hide-when-small"> {key}</span>
+                                            </>
+                                        )}
+                                    />
+                                </div>
+                                <PropertyFilters
+                                    onChange={setProperties}
+                                    pageKey={'dashboard_' + dashboard?.id}
+                                    propertyFilters={dashboard?.filters.properties}
                                 />
                             </div>
-                        )}
-                    </div>
+                            <LemonDivider className="my-4" />
+                        </>
+                    )}
+                    {placement !== DashboardPlacement.Export && (
+                        <div className="flex pb-4 space-x-4 dashoard-items-actions">
+                            <div
+                                className="left-item"
+                                style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                            >
+                                {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement) ? (
+                                    <LastRefreshText />
+                                ) : (
+                                    <DashboardReloadAction />
+                                )}
+                            </div>
+                        </div>
+                    )}
                     <DashboardItems />
                 </div>
-            ) : (
-                <EmptyDashboardComponent />
             )}
         </div>
     )

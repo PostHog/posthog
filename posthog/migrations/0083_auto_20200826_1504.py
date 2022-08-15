@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(model_name="team", name="ingested_event", field=models.BooleanField(default=False),),
         migrations.AddField(model_name="team", name="uuid", field=models.UUIDField(blank=True, null=True),),
-        migrations.RunPython(create_uuid),
+        migrations.RunPython(create_uuid, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="team", name="uuid", field=models.UUIDField(default=uuid.uuid4, unique=True, editable=False),
         ),

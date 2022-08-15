@@ -1,19 +1,19 @@
-from distutils.util import strtobool
 from typing import Any, Dict
 
-import posthoganalytics
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from rest_framework import request, serializers, viewsets
+from rest_framework import filters, request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_hooks.signals import raw_hook_event
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.event_usage import report_user_action
 from posthog.models import Annotation, Team
-from posthog.permissions import ProjectMembershipNecessaryPermissions
+from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.utils import str_to_bool
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -50,12 +50,16 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return annotation
 
 
-class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
-    legacy_team_compatibility = True  # to be moved to a separate Legacy*ViewSet Class
+class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    """
+    Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
+    """
 
     queryset = Annotation.objects.all()
     serializer_class = AnnotationSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions]
+    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["content"]
 
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
@@ -80,12 +84,10 @@ class AnnotationsViewSet(StructuredViewSetMixin, AnalyticsDestroyModelMixin, vie
             elif key == "scope":
                 queryset = queryset.filter(scope=request.GET["scope"])
             elif key == "apply_all":
-                queryset_method = (
-                    queryset.exclude if bool(strtobool(str(request.GET["apply_all"]))) else queryset.filter
-                )
-                queryset = queryset_method(scope="dashboard_item")
+                queryset_method = queryset.exclude if str_to_bool(request.GET["apply_all"]) else queryset.filter
+                queryset = queryset_method(scope=Annotation.Scope.INSIGHT)
             elif key == "deleted":
-                queryset = queryset.filter(deleted=bool(strtobool(str(request.GET["deleted"]))))
+                queryset = queryset.filter(deleted=str_to_bool(request.GET["deleted"]))
 
         return queryset
 
@@ -105,6 +107,8 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
 
     if instance.created_by:
         event_name: str = "annotation created" if created else "annotation updated"
-        posthoganalytics.capture(
-            instance.created_by.distinct_id, event_name, instance.get_analytics_metadata(),
-        )
+        report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
+
+
+class LegacyAnnotationsViewSet(AnnotationsViewSet):
+    legacy_team_compatibility = True

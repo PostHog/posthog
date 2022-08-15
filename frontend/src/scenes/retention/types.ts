@@ -1,8 +1,9 @@
-import { PersonType } from '~/types'
+import { ActorType, PersonType } from '~/types'
 
 export interface RetentionTablePayload {
     date: string
     label: string
+    people_url: string
     values: Record<string, any>[]
 }
 
@@ -11,6 +12,7 @@ export interface RetentionTrendPayload {
     data: number[]
     days: string[]
     labels: string[]
+    index: number
 }
 
 export interface RetentionTablePeoplePayload {
@@ -24,6 +26,6 @@ export interface RetentionTrendPeoplePayload {
 }
 
 export interface RetentionTableAppearanceType {
-    person: PersonType
+    person: ActorType
     appearances: number[]
 }

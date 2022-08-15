@@ -1,6 +1,7 @@
 from typing import Any, Union
 
 from django.utils import timezone
+from sentry_sdk.api import capture_exception
 from statshog.client.base import Tags
 from statshog.defaults.django import statsd
 
@@ -26,9 +27,13 @@ def incr(metric_name: str, count: int = 1, tags: Tags = None):
 def _capture(metric_name: str, value: Any, tags: Tags):
     from posthog.api.capture import capture_internal
 
-    team_id = get_internal_metrics_team_id()
-    if team_id is not None:
-        now = timezone.now()
-        distinct_id = utils.get_machine_id()
-        event = {"event": f"$${metric_name}", "properties": {"value": value, **(tags or {})}}
-        capture_internal(event, distinct_id, None, None, now, now, team_id)
+    try:
+        team_id = get_internal_metrics_team_id()
+        if team_id is not None:
+            now = timezone.now()
+            distinct_id = utils.get_machine_id()
+            event = {"event": f"$${metric_name}", "properties": {"value": value, **(tags or {})}}
+            capture_internal(event, distinct_id, None, None, now, now, team_id)
+    except Exception as err:
+        # Ignore errors, this is not important enough to fail API on
+        capture_exception(err)

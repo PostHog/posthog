@@ -1,3 +1,8 @@
+from datetime import timedelta
+
+from rest_framework import status
+
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey
 from posthog.test.base import APIBaseTest
 
@@ -27,10 +32,10 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        self.assertEqual(len(PersonalAPIKey.objects.all()), 1)
+        self.assertEqual(PersonalAPIKey.objects.count(), 1)
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(len(PersonalAPIKey.objects.all()), 0)
+        self.assertEqual(PersonalAPIKey.objects.count(), 0)
 
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
@@ -39,7 +44,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         other_user = self._create_user("abc@def.xyz")
         other_key = PersonalAPIKey(label="Other test", user=other_user)
         other_key.save()
-        self.assertEqual(len(PersonalAPIKey.objects.all()), 2)
+        self.assertEqual(PersonalAPIKey.objects.count(), 2)
         response = self.client.get("/api/personal_api_keys")
         self.assertEqual(response.status_code, 200)
         response_data = response.json()
@@ -75,25 +80,36 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
     def test_no_key(self):
-        response = self.client.get("/api/dashboard/")
-        self.assertEqual(response.status_code, 403)
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/")
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": None,
+                "code": "not_authenticated",
+                "detail": "Authentication credentials were not provided.",
+                "type": "authentication_error",
+            },
+        )
 
     def test_header_resilient(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/dashboard/", HTTP_AUTHORIZATION=f"Bearer  {key.value}  ")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer  {key.value}  "
+        )
         self.assertEqual(response.status_code, 200)
 
     def test_query_string(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get(f"/api/dashboard/?personal_api_key={key.value}")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?personal_api_key={key.value}")
         self.assertEqual(response.status_code, 200)
 
     def test_body(self):
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/dashboard/", {"personal_api_key": key.value})
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/", {"personal_api_key": key.value})
         self.assertEqual(response.status_code, 200)
 
     def test_user_not_active(self):
@@ -101,12 +117,28 @@ class TestPersonalAPIKeysAPIAuthentication(APIBaseTest):
         self.user.save()
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/user/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
-        self.assertEqual(response.status_code, 401)
+        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_user_endpoint(self):
-        # special case as /api/user/ is (or used to be) uniquely not DRF (vanilla Django instead)
         key = PersonalAPIKey(label="Test", user=self.user)
         key.save()
-        response = self.client.get("/api/user", HTTP_AUTHORIZATION=f"Bearer {key.value}")
-        self.assertEqual(response.status_code, 200)
+        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {key.value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_does_not_interfere_with_temporary_token_auth(self):
+        key = PersonalAPIKey(label="Test", user=self.user)
+        key.save()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer {key.value}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        impersonated_access_token = encode_jwt(
+            {"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", HTTP_AUTHORIZATION=f"Bearer {impersonated_access_token}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

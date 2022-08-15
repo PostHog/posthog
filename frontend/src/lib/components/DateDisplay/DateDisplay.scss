@@ -1,0 +1,19 @@
+.dated-highlight {
+    color: var(--muted);
+    margin-right: 4px;
+    padding: 2px 4px;
+    border: 1px solid var(--border-light);
+    background-color: #fff;
+    border-radius: var(--radius);
+    white-space: nowrap;
+}
+
+.date-display-dates {
+    white-space: nowrap;
+
+    .secondary-date {
+        margin-left: 2px;
+        color: var(--muted-alt);
+        font-weight: normal;
+    }
+}

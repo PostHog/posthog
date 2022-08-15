@@ -1,9 +1,13 @@
 import base64
 import gzip
 import json
-from datetime import timedelta
+import zlib
+from collections import Counter
+from datetime import datetime, timedelta
+from datetime import timezone as tz
 from typing import Any, Dict, List, Union
-from unittest.mock import patch
+from unittest import mock
+from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
@@ -12,10 +16,16 @@ from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.constants import ENVIRONMENT_TEST
+from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models import PersonalAPIKey
 from posthog.models.feature_flag import FeatureFlag
+from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings.data_stores import KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION
 from posthog.test.base import BaseTest
+
+
+def mocked_get_ingest_context_from_token(_: Any) -> None:
+    raise Exception("test exception")
 
 
 class TestCapture(BaseTest):
@@ -28,7 +38,8 @@ class TestCapture(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.client = Client()
+        # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
+        self.client = Client(enforce_csrf_checks=True)
 
     def _to_json(self, data: Union[Dict, List]) -> str:
         return json.dumps(data)
@@ -40,22 +51,51 @@ class TestCapture(BaseTest):
         return json.loads(base64.b64decode(data))
 
     def _to_arguments(self, patch_process_event_with_plugins: Any) -> dict:
-        args = patch_process_event_with_plugins.call_args[1]["args"]
-        distinct_id, ip, site_url, data, team_id, now, sent_at = args
+        args = patch_process_event_with_plugins.call_args[1]["data"]
 
         return {
-            "distinct_id": distinct_id,
-            "ip": ip,
-            "site_url": site_url,
-            "data": data,
-            "team_id": team_id,
-            "now": now,
-            "sent_at": sent_at,
+            "uuid": args["uuid"],
+            "distinct_id": args["distinct_id"],
+            "ip": args["ip"],
+            "site_url": args["site_url"],
+            "data": json.loads(args["data"]),
+            "team_id": args["team_id"],
+            "now": args["now"],
+            "sent_at": args["sent_at"],
         }
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_capture_event(self, patch_process_event_with_plugins):
+    def _send_session_recording_event(
+        self,
+        number_of_events=1,
+        event_data="data",
+        snapshot_source=3,
+        snapshot_type=1,
+        session_id="abc123",
+        window_id="def456",
+        distinct_id="ghi789",
+        timestamp=1658516991883,
+    ):
+        event = {
+            "event": "$snapshot",
+            "properties": {
+                "$snapshot_data": {
+                    "type": snapshot_type,
+                    "data": {"source": snapshot_source, "data": event_data,},
+                    "timestamp": timestamp,
+                },
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
+            },
+            "offset": 1993,
+        }
+
+        self.client.post(
+            "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token,},
+        )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event(self, kafka_produce):
         data = {
             "event": "$autocapture",
             "properties": {
@@ -67,16 +107,10 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        now = timezone.now()
-        with freeze_time(now):
-            with self.assertNumQueries(2):
-                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
+        with self.assertNumQueries(1):
+            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
-        self.assertDictEqual(
-            arguments,
+        self.assertDictContainsSubset(
             {
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
@@ -84,45 +118,133 @@ class TestCapture(BaseTest):
                 "data": data,
                 "team_id": self.team.pk,
             },
+            self._to_arguments(kafka_produce),
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_test_api_key(self, patch_process_event_with_plugins):
-        api_token = "test_" + self.team.api_token
-        data: Dict[str, Any] = {
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ip(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4", HTTP_ORIGIN="https://localhost"
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "1.2.3.4",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ipv6(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)),
+            HTTP_X_FORWARDED_FOR="2345:0425:2CA1:0000:0000:0567:5673:23b5",
+            HTTP_ORIGIN="https://localhost",
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "2345:0425:2CA1:0000:0000:0567:5673:23b5",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+    # Regression test as Azure Gateway forwards ipv4 ips with a port number
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ip_with_port(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)),
+            HTTP_X_FORWARDED_FOR="1.2.3.4:5555",
+            HTTP_ORIGIN="https://localhost",
+        )
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "1.2.3.4",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_ip_anonymize(self, kafka_produce):
+        data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
+
+        self.team.anonymize_ips = True
+        self.team.save()
+
+        self.client.get(
+            "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4", HTTP_ORIGIN="https://localhost"
+        )
+        self.assertDictContainsSubset(
+            {"distinct_id": "2", "ip": None, "site_url": "http://testserver", "data": data, "team_id": self.team.pk,},
+            self._to_arguments(kafka_produce),
+        )
+
+    @patch("posthog.api.capture.configure_scope")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
+    def test_capture_event_adds_library_to_sentry(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        data = {
             "event": "$autocapture",
             "properties": {
+                "$lib": "web",
+                "$lib_version": "1.14.1",
                 "distinct_id": 2,
-                "token": api_token,
+                "token": self.team.api_token,
                 "$elements": [
                     {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
                     {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
                 ],
             },
         }
-        now = timezone.now()
-        with freeze_time(now):
-            with self.assertNumQueries(2):
-                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
-        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        arguments.pop("now")  # can't compare fakedate
-        arguments.pop("sent_at")  # can't compare fakedate
-        self.assertDictEqual(
-            arguments,
-            {
-                "distinct_id": "2",
-                "ip": "127.0.0.1",
-                "site_url": "http://testserver",
-                "data": {**data, "properties": {**data["properties"], "$environment": ENVIRONMENT_TEST}},
-                "team_id": self.team.pk,
-            },
-        )
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_personal_api_key(self, patch_process_event_with_plugins):
+        mock_set_tag.assert_has_calls([call("library", "web"), call("library.version", "1.14.1")])
+
+    @patch("posthog.api.capture.configure_scope")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
+    def test_capture_event_adds_unknown_to_sentry_when_no_properties_sent(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
+
+        mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_personal_api_key(self, kafka_produce):
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
         data = {
@@ -142,12 +264,13 @@ class TestCapture(BaseTest):
             with self.assertNumQueries(5):
                 response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -156,9 +279,8 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_personal_api_key_from_batch_request(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_personal_api_key_from_batch_request(self, kafka_produce):
         # Originally issue POSTHOG-2P8
         key = PersonalAPIKey(label="X", user=self.user)
         key.save()
@@ -180,12 +302,13 @@ class TestCapture(BaseTest):
         response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "94b03e599131fd5026b",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -206,9 +329,8 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_multiple_events(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_multiple_events(self, kafka_produce):
         self.client.post(
             "/track/",
             data={
@@ -221,11 +343,10 @@ class TestCapture(BaseTest):
                 "api_key": self.team.api_token,
             },
         )
-        self.assertEqual(patch_process_event_with_plugins.call_count, 2)
+        self.assertEqual(kafka_produce.call_count, 2)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_emojis_in_text(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_emojis_in_text(self, kafka_produce):
         self.team.api_token = "xp9qT2VLY76JJg"
         self.team.save()
 
@@ -236,15 +357,13 @@ class TestCapture(BaseTest):
                 "data": "eyJldmVudCI6ICIkd2ViX2V2ZW50IiwicHJvcGVydGllcyI6IHsiJG9zIjogIk1hYyBPUyBYIiwiJGJyb3dzZXIiOiAiQ2hyb21lIiwiJHJlZmVycmVyIjogImh0dHBzOi8vYXBwLmhpYmVybHkuY29tL2xvZ2luP25leHQ9LyIsIiRyZWZlcnJpbmdfZG9tYWluIjogImFwcC5oaWJlcmx5LmNvbSIsIiRjdXJyZW50X3VybCI6ICJodHRwczovL2FwcC5oaWJlcmx5LmNvbS8iLCIkYnJvd3Nlcl92ZXJzaW9uIjogNzksIiRzY3JlZW5faGVpZ2h0IjogMjE2MCwiJHNjcmVlbl93aWR0aCI6IDM4NDAsInBoX2xpYiI6ICJ3ZWIiLCIkbGliX3ZlcnNpb24iOiAiMi4zMy4xIiwiJGluc2VydF9pZCI6ICJnNGFoZXFtejVrY3AwZ2QyIiwidGltZSI6IDE1ODA0MTAzNjguMjY1LCJkaXN0aW5jdF9pZCI6IDYzLCIkZGV2aWNlX2lkIjogIjE2ZmQ1MmRkMDQ1NTMyLTA1YmNhOTRkOWI3OWFiLTM5NjM3YzBlLTFhZWFhMC0xNmZkNTJkZDA0NjQxZCIsIiRpbml0aWFsX3JlZmVycmVyIjogIiRkaXJlY3QiLCIkaW5pdGlhbF9yZWZlcnJpbmdfZG9tYWluIjogIiRkaXJlY3QiLCIkdXNlcl9pZCI6IDYzLCIkZXZlbnRfdHlwZSI6ICJjbGljayIsIiRjZV92ZXJzaW9uIjogMSwiJGhvc3QiOiAiYXBwLmhpYmVybHkuY29tIiwiJHBhdGhuYW1lIjogIi8iLCIkZWxlbWVudHMiOiBbCiAgICB7InRhZ19uYW1lIjogImJ1dHRvbiIsIiRlbF90ZXh0IjogIu2gve2yuyBXcml0aW5nIGNvZGUiLCJjbGFzc2VzIjogWwogICAgImJ0biIsCiAgICAiYnRuLXNlY29uZGFyeSIKXSwiYXR0cl9fY2xhc3MiOiAiYnRuIGJ0bi1zZWNvbmRhcnkiLCJhdHRyX19zdHlsZSI6ICJjdXJzb3I6IHBvaW50ZXI7IG1hcmdpbi1yaWdodDogOHB4OyBtYXJnaW4tYm90dG9tOiAxcmVtOyIsIm50aF9jaGlsZCI6IDIsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiZmVlZGJhY2stc3RlcCIsCiAgICAiZmVlZGJhY2stc3RlcC1zZWxlY3RlZCIKXSwiYXR0cl9fY2xhc3MiOiAiZmVlZGJhY2stc3RlcCBmZWVkYmFjay1zdGVwLXNlbGVjdGVkIiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJnaXZlLWZlZWRiYWNrIgpdLCJhdHRyX19jbGFzcyI6ICJnaXZlLWZlZWRiYWNrIiwiYXR0cl9fc3R5bGUiOiAid2lkdGg6IDkwJTsgbWFyZ2luOiAwcHggYXV0bzsgZm9udC1zaXplOiAxNXB4OyBwb3NpdGlvbjogcmVsYXRpdmU7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9fc3R5bGUiOiAib3ZlcmZsb3c6IGhpZGRlbjsiLCJudGhfY2hpbGQiOiAxLCJudGhfb2ZfdHlwZSI6IDF9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgIm1vZGFsLWJvZHkiCl0sImF0dHJfX2NsYXNzIjogIm1vZGFsLWJvZHkiLCJhdHRyX19zdHlsZSI6ICJmb250LXNpemU6IDE1cHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1jb250ZW50IgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1jb250ZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1kaWFsb2ciLAogICAgIm1vZGFsLWxnIgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1kaWFsb2cgbW9kYWwtbGciLCJhdHRyX19yb2xlIjogImRvY3VtZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbCIsCiAgICAiZmFkZSIsCiAgICAic2hvdyIKXSwiYXR0cl9fY2xhc3MiOiAibW9kYWwgZmFkZSBzaG93IiwiYXR0cl9fc3R5bGUiOiAiZGlzcGxheTogYmxvY2s7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJrLXBvcnRsZXRfX2JvZHkiLAogICAgIiIKXSwiYXR0cl9fY2xhc3MiOiAiay1wb3J0bGV0X19ib2R5ICIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDBweDsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgImstcG9ydGxldCIsCiAgICAiay1wb3J0bGV0LS1oZWlnaHQtZmx1aWQiCl0sImF0dHJfX2NsYXNzIjogImstcG9ydGxldCBrLXBvcnRsZXQtLWhlaWdodC1mbHVpZCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiY29sLWxnLTYiCl0sImF0dHJfX2NsYXNzIjogImNvbC1sZy02IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJyb3ciCl0sImF0dHJfX2NsYXNzIjogInJvdyIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDQwcHggMzBweCAwcHg7IGJhY2tncm91bmQtY29sb3I6IHJnYigyMzksIDIzOSwgMjQ1KTsgbWFyZ2luLXRvcDogLTQwcHg7IG1pbi1oZWlnaHQ6IGNhbGMoMTAwdmggLSA0MHB4KTsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJhdHRyX19zdHlsZSI6ICJtYXJnaW4tdG9wOiAwcHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJBcHAiCl0sImF0dHJfX2NsYXNzIjogIkFwcCIsImF0dHJfX3N0eWxlIjogImNvbG9yOiByZ2IoNTIsIDYxLCA2Mik7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9faWQiOiAicm9vdCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImJvZHkiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDF9Cl0sInRva2VuIjogInhwOXFUMlZMWTc2SkpnIn19"
             },
         )
-
+        properties = json.loads(kafka_produce.call_args[1]["data"]["data"])["properties"]
         self.assertEqual(
-            patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["$elements"][0]["$el_text"],
-            "💻 Writing code",
+            properties["$elements"][0]["$el_text"], "💻 Writing code",
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_js_gzip(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_js_gzip(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
         self.team.save()
 
@@ -254,15 +373,49 @@ class TestCapture(BaseTest):
             content_type="text/plain",
         )
 
-        self.assertEqual(patch_process_event_with_plugins.call_count, 1)
-        self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "my-event")
+        self.assertEqual(kafka_produce.call_count, 1)
+
+        data = json.loads(kafka_produce.call_args[1]["data"]["data"])
+        self.assertEqual(data["event"], "my-event")
         self.assertEqual(
-            patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["prop"], "💻 Writing code",
+            data["properties"]["prop"], "💻 Writing code",
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_js_gzip_with_no_content_type(self, patch_process_event_with_plugins):
+    @patch("gzip.decompress")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_invalid_js_gzip_zlib_error(self, kafka_produce, gzip_decompress):
+        """
+        This was prompted by an event request that was resulting in the zlib
+        error "invalid distance too far back". I couldn't easily generate such a
+        string so I'm just mocking the raise the error explicitly.
+
+        Note that gzip can raise BadGzipFile (from OSError), EOFError, and
+        zlib.error: https://docs.python.org/3/library/gzip.html#gzip.BadGzipFile
+        """
+        self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
+        self.team.save()
+
+        gzip_decompress.side_effect = zlib.error("Error -3 while decompressing data: invalid distance too far back")
+
+        response = self.client.post(
+            "/track?compression=gzip-js",
+            # NOTE: this is actually valid, but we are mocking the gzip lib to raise
+            data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
+            content_type="text/plain",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Malformed request data: Failed to decompress data. Error -3 while decompressing data: invalid distance too far back",
+                code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_js_gzip_with_no_content_type(self, kafka_produce):
         "IE11 sometimes does not send content_type"
 
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
@@ -274,15 +427,16 @@ class TestCapture(BaseTest):
             content_type="",
         )
 
-        self.assertEqual(patch_process_event_with_plugins.call_count, 1)
-        self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "my-event")
+        self.assertEqual(kafka_produce.call_count, 1)
+
+        data = json.loads(kafka_produce.call_args[1]["data"]["data"])
+        self.assertEqual(data["event"], "my-event")
         self.assertEqual(
-            patch_process_event_with_plugins.call_args[1]["args"][3]["properties"]["prop"], "💻 Writing code",
+            data["properties"]["prop"], "💻 Writing code",
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_invalid_gzip(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_invalid_gzip(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
         self.team.save()
 
@@ -298,11 +452,10 @@ class TestCapture(BaseTest):
                 code="invalid_payload",
             ),
         )
-        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
+        self.assertEqual(kafka_produce.call_count, 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_invalid_lz64(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_invalid_lz64(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
         self.team.save()
 
@@ -315,22 +468,21 @@ class TestCapture(BaseTest):
                 "Malformed request data: Failed to decompress data.", code="invalid_payload",
             ),
         )
-        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
+        self.assertEqual(kafka_produce.call_count, 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_incorrect_padding(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_incorrect_padding(self, kafka_produce):
         response = self.client.get(
             "/e/?data=eyJldmVudCI6IndoYXRldmVmciIsInByb3BlcnRpZXMiOnsidG9rZW4iOiJ0b2tlbjEyMyIsImRpc3RpbmN0X2lkIjoiYXNkZiJ9fQ",
             content_type="application/json",
             HTTP_REFERER="https://localhost",
         )
         self.assertEqual(response.json()["status"], 1)
-        self.assertEqual(patch_process_event_with_plugins.call_args[1]["args"][3]["event"], "whatevefr")
+        data = json.loads(kafka_produce.call_args[1]["data"]["data"])
+        self.assertEqual(data["event"], "whatevefr")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_empty_request_returns_an_error(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_empty_request_returns_an_error(self, kafka_produce):
         """
         Empty requests that fail silently cause confusion as to whether they were successful or not.
         """
@@ -338,43 +490,64 @@ class TestCapture(BaseTest):
         # Empty GET
         response = self.client.get("/e/?data=", content_type="application/json", HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
+        self.assertEqual(kafka_produce.call_count, 0)
 
         # Empty POST
         response = self.client.post("/e/", {}, content_type="application/json", HTTP_ORIGIN="https://localhost",)
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(patch_process_event_with_plugins.call_count, 0)
+        self.assertEqual(kafka_produce.call_count, 0)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_batch(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch(self, kafka_produce):
         data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
-        response = self.client.post(
+        self.client.post(
             "/batch/", data={"api_key": self.team.api_token, "batch": [data]}, content_type="application/json",
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {}},
+                "data": {**data, "properties": {}},  # type: ignore
                 "team_id": self.team.pk,
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_batch_gzip_header(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch_with_invalid_event(self, kafka_produce):
+        data = [
+            {"type": "capture", "event": "event1", "distinct_id": "2"},
+            {"type": "capture", "event": "event2"},  # invalid
+            {"type": "capture", "event": "event3", "distinct_id": "2"},
+            {"type": "capture", "event": "event4", "distinct_id": "2"},
+            {"type": "capture", "event": "event5", "distinct_id": "2"},
+        ]
+        response = self.client.post(
+            "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch_gzip_header(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2",}],
         }
 
-        response = self.client.generic(
+        self.client.generic(
             "POST",
             "/batch/",
             data=gzip.compress(json.dumps(data).encode()),
@@ -382,12 +555,13 @@ class TestCapture(BaseTest):
             HTTP_CONTENT_ENCODING="gzip",
         )
 
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -396,27 +570,27 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_batch_gzip_param(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch_gzip_param(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
-        response = self.client.generic(
+        self.client.generic(
             "POST",
             "/batch/?compression=gzip",
             data=gzip.compress(json.dumps(data).encode()),
             content_type="application/json",
         )
 
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -425,15 +599,14 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_batch_lzstring(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch_lzstring(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,
             "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "2"}],
         }
 
-        response = self.client.generic(
+        self.client.generic(
             "POST",
             "/batch",
             data=lzstring.LZString().compressToBase64(json.dumps(data)).encode(),
@@ -441,12 +614,13 @@ class TestCapture(BaseTest):
             HTTP_CONTENT_ENCODING="lz64",
         )
 
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
             {
+                "uuid": mock.ANY,
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
@@ -455,8 +629,8 @@ class TestCapture(BaseTest):
             },
         )
 
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_lz64_with_emoji(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_lz64_with_emoji(self, kafka_produce):
         self.team.api_token = "KZZZeIpycLH-tKobLBET2NOg7wgJF2KqDL5yWU_7tZw"
         self.team.save()
         response = self.client.post(
@@ -466,7 +640,7 @@ class TestCapture(BaseTest):
             HTTP_CONTENT_ENCODING="lz64",
         )
         self.assertEqual(response.status_code, 200)
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "🤓")
 
     def test_batch_incorrect_token(self):
@@ -504,7 +678,8 @@ class TestCapture(BaseTest):
             ),
         )
 
-    def test_batch_distinct_id_not_set(self):
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_batch_distinct_id_not_set(self, statsd_incr):
         response = self.client.post(
             "/batch/",
             data={"api_key": self.team.api_token, "batch": [{"type": "capture", "event": "user signed up",},],},
@@ -515,14 +690,20 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                "You need to set user distinct ID field `distinct_id`.", code="required", attr="distinct_id"
+                'Invalid payload: All events must have the event field "distinct_id"!', code="invalid_payload",
             ),
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_engage(self, patch_process_event_with_plugins):
-        response = self.client.get(
+        # endpoint success metric + missing ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_distinct_id"}})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_engage(self, kafka_produce):
+        self.client.get(
             "/engage/?data=%s"
             % quote(
                 self._to_json(
@@ -538,19 +719,24 @@ class TestCapture(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["event"], "$identify")
         arguments.pop("now")  # can't compare fakedate
         arguments.pop("sent_at")  # can't compare fakedate
         arguments.pop("data")  # can't compare fakedate
         self.assertDictEqual(
             arguments,
-            {"distinct_id": "3", "ip": "127.0.0.1", "site_url": "http://testserver", "team_id": self.team.pk,},
+            {
+                "uuid": mock.ANY,
+                "distinct_id": "3",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "team_id": self.team.pk,
+            },
         )
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_python_library(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_python_library(self, kafka_produce):
         self.client.post(
             "/track/",
             data={
@@ -558,12 +744,11 @@ class TestCapture(BaseTest):
                 "api_key": self.team.api_token,  # main difference in this test
             },
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["team_id"], self.team.pk)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_base64_decode_variations(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_base64_decode_variations(self, kafka_produce):
         base64 = "eyJldmVudCI6IiRwYWdldmlldyIsInByb3BlcnRpZXMiOnsiZGlzdGluY3RfaWQiOiJlZWVlZWVlZ8+lZWVlZWUifX0="
         dict = self._dict_from_b64(base64)
         self.assertDictEqual(
@@ -574,7 +759,7 @@ class TestCapture(BaseTest):
         self.client.post(
             "/track/", data={"data": base64, "api_key": self.team.api_token,},  # main difference in this test
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
@@ -583,13 +768,12 @@ class TestCapture(BaseTest):
             "/track/",
             data={"data": base64.replace("+", " "), "api_key": self.team.api_token,},  # main difference in this test
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_js_library_underscore_sent_at(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_js_library_underscore_sent_at(self, kafka_produce):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
@@ -606,20 +790,19 @@ class TestCapture(BaseTest):
             HTTP_ORIGIN="https://localhost",
         )
 
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        arguments.pop("now")  # can't compare fakedate
+        arguments = self._to_arguments(kafka_produce)
 
         # right time sent as sent_at to process_event
 
-        self.assertEqual(arguments["sent_at"].tzinfo, timezone.utc)
+        sent_at = datetime.fromisoformat(arguments["sent_at"])
+        self.assertEqual(sent_at.tzinfo, tz.utc)
 
-        timediff = arguments["sent_at"].timestamp() - tomorrow_sent_at.timestamp()
+        timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_long_distinct_id(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_long_distinct_id(self, kafka_produce):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
@@ -635,12 +818,11 @@ class TestCapture(BaseTest):
             content_type="application/json",
             HTTP_ORIGIN="https://localhost",
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         self.assertEqual(len(arguments["distinct_id"]), 200)
 
-    @patch("posthog.models.team.TEAM_CACHE", {})
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_sent_at_field(self, patch_process_event_with_plugins):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_sent_at_field(self, kafka_produce):
         now = timezone.now()
         tomorrow = now + timedelta(days=1, hours=2)
         tomorrow_sent_at = now + timedelta(days=1, hours=2, minutes=10)
@@ -656,11 +838,10 @@ class TestCapture(BaseTest):
             },
         )
 
-        arguments = self._to_arguments(patch_process_event_with_plugins)
-        arguments.pop("now")  # can't compare fakedate
-
+        arguments = self._to_arguments(kafka_produce)
+        sent_at = datetime.fromisoformat(arguments["sent_at"])
         # right time sent as sent_at to process_event
-        timediff = arguments["sent_at"].timestamp() - tomorrow_sent_at.timestamp()
+        timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
@@ -677,7 +858,8 @@ class TestCapture(BaseTest):
             ),
         )
 
-    def test_nan(self):
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_distinct_id_nan(self, statsd_incr):
         response = self.client.post(
             "/track/",
             data={
@@ -690,11 +872,19 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
             ),
         )
 
-    def test_distinct_id_set_but_null(self):
+        # endpoint success metric + invalid ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "invalid_distinct_id"}})
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_distinct_id_set_but_null(self, statsd_incr):
         response = self.client.post(
             "/e/",
             data={"api_key": self.team.api_token, "type": "capture", "event": "user signed up", "distinct_id": None},
@@ -705,12 +895,74 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.json(),
             self.validation_error_response(
-                "Distinct ID field `distinct_id` must have a non-empty value.", code="required", attr="distinct_id"
+                'Invalid payload: Event field "distinct_id" should not be blank!', code="invalid_payload",
             ),
         )
 
-    @patch("posthog.api.capture.celery_app.send_task")
-    def test_add_feature_flags_if_missing(self, patch_process_event_with_plugins) -> None:
+        # endpoint success metric + invalid ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "invalid_distinct_id"}})
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_event_name_missing(self, statsd_incr):
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "type": "capture", "event": "", "distinct_id": "a valid id"},
+            content_type="application/json",
+        )
+
+        # An invalid distinct ID will not return an error code, instead we will capture an exception
+        # and will not ingest the event
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # endpoint success metric + invalid ID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
+        self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_event_name"}})
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_custom_uuid(self, kafka_produce) -> None:
+        uuid = "01823e89-f75d-0000-0d4d-3d43e54f6de5"
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": uuid},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        arguments = self._to_arguments(kafka_produce)
+        self.assertEqual(arguments["uuid"], uuid)
+        self.assertEqual(arguments["data"]["uuid"], uuid)
+
+    @patch("statshog.defaults.django.statsd.incr")
+    def test_custom_uuid_invalid(self, statsd_incr) -> None:
+        response = self.client.post(
+            "/e/",
+            data={"api_key": self.team.api_token, "event": "some_event", "distinct_id": "1", "uuid": "invalid_uuid"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                'Invalid payload: Event field "uuid" is not a valid UUID!', code="invalid_payload",
+            ),
+        )
+
+        # endpoint success metric + invalid UUID metric
+        self.assertEqual(statsd_incr.call_count, 2)
+
+        statsd_incr_first_call = statsd_incr.call_args_list[0]
+        self.assertEqual(statsd_incr_first_call.args[0], "invalid_event_uuid")
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_add_feature_flags_if_missing(self, kafka_produce) -> None:
         self.assertListEqual(self.team.event_properties_numerical, [])
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="test-ff", rollout_percentage=100)
         self.client.post(
@@ -720,7 +972,7 @@ class TestCapture(BaseTest):
                 "api_key": self.team.api_token,
             },
         )
-        arguments = self._to_arguments(patch_process_event_with_plugins)
+        arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
 
     def test_handle_lacking_event_name_field(self):
@@ -775,3 +1027,237 @@ class TestCapture(BaseTest):
                 "attr": None,
             },
         )
+
+    def test_sentry_tracing_headers(self):
+        response = self.client.generic(
+            "OPTIONS",
+            "/e/?ip=1&_=1651741927805",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
+        )
+
+        response = self.client.generic(
+            "OPTIONS",
+            "/decide/",
+            HTTP_ORIGIN="https://localhost",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="traceparent,request-id,someotherrandomheader",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+        )
+        self.assertEqual(response.status_code, 200)  # type: ignore
+        self.assertEqual(
+            response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
+        )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_only_sent_to_clickhouse_if_env_variable_not_set(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=None):
+            self._send_session_recording_event()
+            self.assertEqual(kafka_produce.call_count, 1)
+            kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+            self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_sent_to_object_storage_and_clickhouse_if_env_variable_is_set_for_team(
+        self, kafka_produce
+    ) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            self._send_session_recording_event()
+            self.assertEqual(kafka_produce.call_count, 2)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            self.assertEqual(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+            self.assertEqual(topic_counter[KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION], 1)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_is_not_sent_to_object_storage_if_env_variable_is_set_for_another_team(
+        self, kafka_produce
+    ) -> None:
+        wrong_team_id = self.team.pk + 1
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=wrong_team_id):
+            self._send_session_recording_event()
+            self.assertEqual(kafka_produce.call_count, 1)
+            kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+            self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+
+    @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_recording_data_is_transformed_before_sent_to_object_storage(self, kafka_produce, _) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            timestamp = 1658516991883
+            session_id = "fake-session-id"
+            distinct_id = "fake-distinct-id"
+            window_id = "fake-window-id"
+            snapshot_source = 8
+            snapshot_type = 8
+            event_data = "{'foo': 'bar'}"
+            self._send_session_recording_event(
+                timestamp=timestamp,
+                snapshot_source=snapshot_source,
+                snapshot_type=snapshot_type,
+                session_id=session_id,
+                distinct_id=distinct_id,
+                window_id=window_id,
+                event_data=event_data,
+            )
+            self.assertEqual(kafka_produce.call_count, 2)
+            for call_args in kafka_produce.call_args_list:
+                kafka_topic_used = call_args[1]["topic"]
+                if kafka_topic_used == KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION:
+                    headers_sent = call_args[1]["headers"]
+                    expected_headers = [
+                        ("unixTimestamp", str(timestamp)),
+                        ("eventId", "fake-uuid"),
+                        ("sessionId", session_id),
+                        ("distinctId", distinct_id),
+                        ("chunkCount", "1"),
+                        ("chunkIndex", "0"),
+                        ("eventSource", str(snapshot_source),),
+                        ("eventType", str(snapshot_type),),
+                        ("windowId", window_id),
+                        ("teamId", str(self.team.pk)),
+                    ]
+                    self.assertEqual(headers_sent, expected_headers)
+                    data_sent = call_args[1]["data"]
+                    expected_data = json.dumps(
+                        {
+                            "type": snapshot_type,
+                            "data": {"source": snapshot_source, "data": event_data,},
+                            "timestamp": timestamp,
+                            "$window_id": window_id,
+                        }
+                    )
+                    self.assertEqual(data_sent, expected_data)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_multiple_events_are_split_into_multiple_messages_for_object_storage(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            number_of_events = 5
+            self._send_session_recording_event(number_of_events=number_of_events)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            self.assertEqual(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+            self.assertEqual(topic_counter[KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION], number_of_events)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_large_recording_data_is_split_into_multiple_messages_for_object_storage(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            data = "a" * (
+                512 * 1024
+            )  # 512 * 1024 is the max size of a single message, but because each event has a bit more data, this will be split into 2 messages
+            self._send_session_recording_event(event_data=data)
+            topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
+            self.assertEqual(
+                topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1
+            )  # Data gets compressed before sending to clickhouse, so this is still 1 message
+            self.assertEqual(topic_counter[KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION], 2)
+
+    def test_recording_data_without_distinct_id_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_distinct_id = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"type": 1, "data": {"source": 1, "data": "blah",}, "timestamp": 0,},
+                    "$session_id": "session_id",
+                    "$window_id": "window_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_distinct_id]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain property "distinct_id"', code="invalid_payload",
+                ),
+            )
+
+    def test_recording_data_without_session_id_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_session_id = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"type": 1, "data": {"source": 1, "data": "blah",}, "timestamp": 0,},
+                    "$window_id": "window_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_session_id]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain property "$session_id"', code="invalid_payload",
+                ),
+            )
+
+    def test_recording_data_without_timestamp_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_timestamp = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"type": 1, "data": {"source": 1, "data": "blah",}},
+                    "$session_id": "session_id",
+                    "$window_id": "window_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_timestamp]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain snapshot data with "timestamp"',
+                    code="invalid_payload",
+                ),
+            )
+
+    def test_recording_data_without_type_fails(self) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_type = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"data": {"source": 1, "data": "blah",}, "timestamp": 0,},
+                    "$session_id": "session_id",
+                    "$window_id": "window_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            response = self.client.post(
+                "/s/", data={"data": json.dumps([event_without_type]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response(
+                    'Invalid payload: $snapshot events must contain snapshot data with "type"', code="invalid_payload",
+                ),
+            )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_event_with_minimal_recording_data_succeeds(self, kafka_produce) -> None:
+        with self.settings(WRITE_RECORDINGS_TO_OBJECT_STORAGE_FOR_TEAM=self.team.pk):
+            event_without_timestamp = {
+                "event": "$snapshot",
+                "properties": {
+                    "$snapshot_data": {"timestamp": 0, "type": 1},
+                    "$session_id": "session_id",
+                    "distinct_id": "distinct_id",
+                },
+                "offset": 1993,
+            }
+            self.client.post(
+                "/s/", data={"data": json.dumps([event_without_timestamp]), "api_key": self.team.api_token,},
+            )
+            self.assertEqual(kafka_produce.call_count, 2)

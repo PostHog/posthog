@@ -1,50 +1,63 @@
 import { kea } from 'kea'
+import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { router } from 'kea-router'
-import { dashboardsLogicType } from './dashboardsLogicType'
+import type { dashboardsLogicType } from './dashboardsLogicType'
 import { DashboardType } from '~/types'
 import { uniqueBy } from 'lib/utils'
 
+export enum DashboardsTab {
+    All = 'all',
+    Pinned = 'pinned',
+    Shared = 'shared',
+}
+
 export const dashboardsLogic = kea<dashboardsLogicType>({
-    actions: () => ({
-        addNewDashboard: true,
-        setNewDashboardDrawer: (shown) => ({ shown }), // Whether the drawer to create a new dashboard should be shown
-    }),
-    reducers: () => ({
-        newDashboardDrawer: [
-            false,
+    path: ['scenes', 'dashboard', 'dashboardsLogic'],
+    actions: {
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setCurrentTab: (tab: DashboardsTab) => ({ tab }),
+    },
+    reducers: {
+        searchTerm: {
+            setSearchTerm: (_, { searchTerm }) => searchTerm,
+        },
+        currentTab: [
+            DashboardsTab.All as DashboardsTab,
             {
-                setNewDashboardDrawer: (_, { shown }) => shown,
+                setCurrentTab: (_, { tab }) => tab,
             },
         ],
-    }),
-    selectors: () => ({
+    },
+    selectors: {
         dashboards: [
-            () => [dashboardsModel.selectors.dashboards],
-            (dashboards: DashboardType[]) =>
-                dashboards
+            (selectors) => [dashboardsModel.selectors.nameSortedDashboards, selectors.searchTerm, selectors.currentTab],
+            (dashboards, searchTerm, currentTab) => {
+                dashboards = dashboards
                     .filter((d) => !d.deleted)
-                    .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled')),
+                    .sort((a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'))
+                if (currentTab === DashboardsTab.Pinned) {
+                    dashboards = dashboards.filter((d) => d.pinned)
+                } else if (currentTab === DashboardsTab.Shared) {
+                    dashboards = dashboards.filter((d) => d.is_shared)
+                }
+                if (!searchTerm) {
+                    return dashboards
+                }
+                return new Fuse(dashboards, {
+                    keys: ['key', 'name'],
+                    threshold: 0.3,
+                })
+                    .search(searchTerm)
+                    .map((result) => result.item)
+            },
         ],
         dashboardTags: [
-            () => [dashboardsModel.selectors.dashboards],
+            () => [dashboardsModel.selectors.nameSortedDashboards],
             (dashboards: DashboardType[]): string[] =>
                 uniqueBy(
-                    dashboards.flatMap(({ tags }) => tags),
+                    dashboards.flatMap(({ tags }) => tags || ''),
                     (item) => item
                 ).sort(),
         ],
-    }),
-    listeners: () => ({
-        [dashboardsModel.actions.addDashboardSuccess]: ({ dashboard }) => {
-            router.actions.push(`/dashboard/${dashboard.id}`)
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/dashboard': (_: any, { new: newDashboard }: { new: boolean }) => {
-            if (newDashboard !== undefined) {
-                actions.setNewDashboardDrawer(true)
-            }
-        },
-    }),
+    },
 })

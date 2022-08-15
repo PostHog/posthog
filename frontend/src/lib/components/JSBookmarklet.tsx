@@ -1,8 +1,8 @@
 import React from 'react'
-import { BookOutlined, ArrowLeftOutlined } from '@ant-design/icons'
 import { TeamBasicType } from '~/types'
 import { useActions } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { IconBookmarkBorder } from './icons'
 
 export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
     const initCall = `posthog.init('${team?.api_token}',{api_host:'${location.origin}', loaded: () => alert('Posthog is now tracking events!')})`
@@ -13,11 +13,19 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
     const { reportBookmarkletDragged } = useActions(eventUsageLogic)
 
     return (
-        <a href={href} onDragStart={reportBookmarkletDragged}>
-            <BookOutlined /> PostHog Bookmarklet{' '}
-            <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 16 }}>
-                <ArrowLeftOutlined /> <b>Drag</b> to your bookmarks. Do not click on this page.
-            </span>
-        </a>
+        <>
+            <a
+                href={href}
+                className="w-full text-primary-alt bg-primary-alt-highlight rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
+                onDragStart={reportBookmarkletDragged}
+            >
+                <IconBookmarkBorder fontSize="1.5rem" />
+                <span className="text-base">PostHog Bookmarklet</span>
+            </a>
+            <p className="text-center text-muted font-medium mt-2">
+                Drag to your bookmarks. Do not click on this link. The bookmarklet only works for the current browser
+                session.
+            </p>
+        </>
     )
 }

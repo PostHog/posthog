@@ -1,14 +1,17 @@
 import React from 'react'
-import { Table, Modal } from 'antd'
+import { Modal } from 'antd'
 import { useValues, useActions } from 'kea'
-import { invitesLogic } from './invitesLogic'
-import { DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationInviteType, UserBasicType } from '~/types'
+import { ExclamationCircleOutlined } from '@ant-design/icons'
+import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { CreateInviteModalWithButton } from './CreateInviteModal'
-import { ColumnsType } from 'antd/lib/table'
-import { ProfilePicture } from '../../../layout/navigation/TopNavigation'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { inviteLogic } from './inviteLogic'
+import { EmailUnavailableMessage } from './InviteModal'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconClose } from 'lib/components/icons'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -26,19 +29,23 @@ function makeActionsComponent(
 ): (_: any, invite: any) => JSX.Element {
     return function ActionsComponent(_, invite: OrganizationInviteType): JSX.Element {
         return (
-            <DeleteOutlined
-                className="text-danger"
+            <LemonButton
+                title="Cancel the invite"
+                data-attr="invite-delete"
+                icon={<IconClose />}
+                status="danger"
                 onClick={() => {
                     invite.is_expired
                         ? deleteInvite(invite)
                         : Modal.confirm({
-                              title: `Delete invite for ${invite.target_email}?`,
+                              title: `Do you want to cancel the invite for ${invite.target_email}?`,
                               icon: <ExclamationCircleOutlined />,
-                              okText: 'Delete',
+                              okText: 'Yes, cancel invite',
                               okType: 'danger',
                               onOk() {
                                   deleteInvite(invite)
                               },
+                              cancelText: 'No, keep invite',
                           })
                 }}
             />
@@ -46,76 +53,67 @@ function makeActionsComponent(
     }
 }
 export function Invites(): JSX.Element {
-    const { invites, invitesLoading } = useValues(invitesLogic)
-    const { deleteInvite } = useActions(invitesLogic)
+    const { invites, invitesLoading } = useValues(inviteLogic)
+    const { deleteInvite, showInviteModal } = useActions(inviteLogic)
+    const { preflight } = useValues(preflightLogic)
 
-    const columns: ColumnsType = [
+    const columns: LemonTableColumns<OrganizationInviteType> = [
         {
-            dataIndex: 'target_email',
-            key: 'target_email',
+            key: 'user_profile_picture',
             render: function ProfilePictureRender(_, invite) {
-                return (
-                    <ProfilePicture
-                        name={(invite as OrganizationInviteType).first_name}
-                        email={(invite as OrganizationInviteType).target_email}
-                    />
-                )
+                return <ProfilePicture name={invite.first_name} email={invite.target_email} />
             },
             width: 32,
         },
         {
-            title: 'Target Email',
+            title: 'Invitee',
             dataIndex: 'target_email',
             key: 'target_email',
-            render: function TargetEmail(target_email: string | null): JSX.Element | string {
-                return target_email ?? <i>none</i>
+            render: function TargetEmail(_, invite): JSX.Element | string {
+                return invite.target_email ? (
+                    <div className="flex items-center">
+                        {invite.target_email}
+                        {invite.first_name ? ` (${invite.first_name})` : ''}
+                    </div>
+                ) : (
+                    <i>no one</i>
+                )
             },
+            width: '20%',
         },
-        {
-            title: 'Created At',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            render: (created_at: string) => humanFriendlyDetailedTime(created_at),
-        },
-        {
-            title: 'Created By',
-            dataIndex: 'created_by',
-            key: 'created_by',
-            render: (createdBy?: UserBasicType) => (createdBy ? `${createdBy.first_name} (${createdBy.email})` : '–'),
-        },
+        createdByColumn() as LemonTableColumn<OrganizationInviteType, keyof OrganizationInviteType | undefined>,
+        createdAtColumn() as LemonTableColumn<OrganizationInviteType, keyof OrganizationInviteType | undefined>,
         {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: (id, invite) => InviteLinkComponent(id as string, invite as OrganizationInviteType),
+            render: (_, invite) => InviteLinkComponent(invite.id, invite),
         },
         {
             title: '',
-            dataIndex: 'actions',
             key: 'actions',
+            width: 24,
             render: makeActionsComponent(deleteInvite),
         },
     ]
 
     return (
         <div>
-            <h2 className="subtitle" style={{ justifyContent: 'space-between' }}>
+            <h2 id="invites" className="subtitle" style={{ justifyContent: 'space-between' }}>
                 Pending Invites
-                {!!invites.length && <CreateInviteModalWithButton />}
+                <LemonButton type="primary" onClick={showInviteModal} data-attr="invite-teammate-button">
+                    Invite team member
+                </LemonButton>
             </h2>
-            <Table
+            {!preflight?.email_service_available && <EmailUnavailableMessage />}
+            <LemonTable
                 dataSource={invites}
                 columns={columns}
                 rowKey="id"
-                pagination={false}
                 loading={invitesLoading}
                 style={{ marginTop: '1rem' }}
                 data-attr="invites-table"
-                locale={{
-                    emptyText: function InvitesTableCTA() {
-                        return <CreateInviteModalWithButton />
-                    },
-                }}
+                emptyState="There are no outstanding invitations. You can invite another team member above."
             />
         </div>
     )

@@ -1,0 +1,127 @@
+/* DEPRECATED in favor of global.scss */
+.layout-container {
+    max-width: 100vw;
+}
+
+@keyframes rotation {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(359deg);
+    }
+}
+
+pre.code {
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: var(--bg-depth);
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    color: white;
+    margin-top: 1rem;
+    font-size: 0.875rem;
+}
+
+.text-overflow {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0;
+}
+
+hr {
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+button.no-style {
+    background: none;
+    border: none;
+}
+
+.table th,
+.table td {
+    padding: 0.25rem;
+}
+
+.modal {
+    overflow: scroll;
+}
+
+label.disabled {
+    color: #888;
+}
+
+.ant-modal-mask {
+    z-index: var(--z-ant-modal-mask) !important;
+}
+.ant-modal-wrap {
+    z-index: var(--z-ant-modal-wrap) !important;
+}
+.ant-message {
+    z-index: var(--z-ant-message) !important;
+}
+.ant-select-dropdown {
+    z-index: var(--z-ant-select-dropdown) !important;
+}
+
+.ant-select-arrow .anticon {
+    vertical-align: top !important;
+}
+
+.property-key-info {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.property-key-info-logo {
+    margin-right: 6px;
+    display: inline-block;
+    vertical-align: top;
+    height: 19px;
+    width: 19px;
+    background-image: url('../../public/posthog-icon.svg');
+    background-size: cover;
+}
+
+.ant-select-selection-item .property-key-info-logo {
+    vertical-align: text-bottom;
+}
+
+.button-border {
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.clickable {
+    cursor: pointer;
+}
+
+.clickable:hover {
+    background-color: gainsboro;
+}
+
+.space-top {
+    margin-top: 32px;
+}
+
+.breadcrumbs {
+    .selected {
+        color: #35416b;
+        font-weight: bold;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .signup-form {
+        h1.title {
+            img {
+                display: none;
+            }
+        }
+        .main-img {
+            margin-top: 0 !important;
+            height: 200px;
+        }
+    }
+}

@@ -1,0 +1,173 @@
+{
+    "family": "posthog-production-plugins-async",
+    "networkMode": "awsvpc",
+    "executionRoleArn": "posthog-production-ecs-task",
+    "taskRoleArn": "posthog-production-ecs-task",
+    "containerDefinitions": [
+        {
+            "name": "posthog-production-plugins-async",
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "awslogs-posthog-production",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "posthog-production-plugins-async"
+                }
+            },
+            "essential": true,
+            "environment": [
+                {
+                    "name": "PLUGIN_SERVER_MODE",
+                    "value": "async"
+                },
+                {
+                    "name": "CLICKHOUSE_DATABASE",
+                    "value": "posthog"
+                },
+                {
+                    "name": "CLICKHOUSE_SECURE",
+                    "value": "True"
+                },
+                {
+                    "name": "CLICKHOUSE_VERIFY",
+                    "value": "True"
+                },
+                {
+                    "name": "SITE_URL",
+                    "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "BILLING_TRIAL_DAYS",
+                    "value": "0"
+                },
+                {
+                    "name": "BILLING_NO_PLAN_EVENT_ALLOCATION",
+                    "value": "10000"
+                },
+                {
+                    "name": "TRUST_ALL_PROXIES",
+                    "value": "True"
+                },
+                {
+                    "name": "NODE_OPTIONS",
+                    "value": "--max-old-space-size=4096"
+                },
+                {
+                    "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "False"
+                },
+                {
+                    "name": "PISCINA_ATOMICS_TIMEOUT",
+                    "value": "3000"
+                },
+                {
+                    "name": "USING_PGBOUNCER",
+                    "value": "True"
+                },
+                {
+                    "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
+                    "value": "2,2635"
+                },
+                {
+                    "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+                    "value": "1"
+                },
+                {
+                    "name": "KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY",
+                    "value": "5"
+                },
+                {
+                    "name": "PERSON_INFO_TO_REDIS_TEAMS",
+                    "value": "7964"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENABLED",
+                    "value": "True"
+                },
+                {
+                    "name": "KAFKA_SECURITY_PROTOCOL",
+                    "value": "SSL"
+                },
+                {
+                    "name": "WORKER_CONCURRENCY",
+                    "value": "2"
+                },
+                {
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
+                }
+            ],
+            "secrets": [
+                {
+                    "name": "CLICKHOUSE_CA",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_CA::"
+                },
+                {
+                    "name": "CLICKHOUSE_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
+                },
+                {
+                    "name": "CLICKHOUSE_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_PASSWORD::"
+                },
+                {
+                    "name": "DATABASE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:DATABASE_URL::"
+                },
+                {
+                    "name": "KAFKA_HOSTS",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:MSKProduction-ZnkrjC:KAFKA_HOSTS::"
+                },
+                {
+                    "name": "POSTHOG_PERSONAL_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:POSTHOG_PERSONAL_API_KEY::"
+                },
+                {
+                    "name": "REDIS_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:REDIS_URL::"
+                },
+                {
+                    "name": "SENTRY_DSN",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:SENTRY_DSN_PLUGIN_SERVER::"
+                },
+                {
+                    "name": "JOB_QUEUE_GRAPHILE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:JOB_QUEUE_GRAPHILE_URL::"
+                },
+                {
+                    "name": "STATSD_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STATSD_HOST::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENDPOINT",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_ENDPOINT::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_BUCKET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_BUCKET::"
+                }
+            ],
+            "entryPoint": ["./bin/plugin-server", "--no-restart-loop"],
+            "ulimits": [
+                {
+                    "name": "nofile",
+                    "softLimit": 1024000,
+                    "hardLimit": 1024000
+                }
+            ],
+            "linuxParameters": {
+                "initProcessEnabled": true
+            },
+            "healthCheck": {
+                "retries": 10,
+                "command": ["CMD-SHELL", "curl -f http://localhost:6738/_health || exit 1"],
+                "timeout": 30,
+                "interval": 20,
+                "startPeriod": 60
+            }
+        }
+    ],
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "4096",
+    "memory": "8192"
+}

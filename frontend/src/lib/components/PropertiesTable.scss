@@ -1,22 +1,51 @@
-@import '~/vars';
-
 .properties-table-key {
+    min-width: 8rem;
+    max-width: 24rem;
     display: flex;
     align-items: center;
+    justify-content: space-between;
+}
 
-    .anticon-delete {
-        color: $primary;
-        margin-right: 4px;
+.property-value-type {
+    display: flex;
+    align-items: center;
+    width: fit-content;
+    height: 1.25rem;
+    padding: 0.125rem 0.25rem;
+    letter-spacing: 0.25px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-light);
+    background: var(--bg-mid);
+    color: var(--muted-alt);
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: default;
+    &:not(:first-child) {
+        margin-left: 0.25rem;
     }
 }
 
 .properties-table-value {
-    display: 'flex';
-    align-items: 'center';
+    min-width: 12rem;
+    max-width: fit-content;
+    display: flex;
+    align-items: center;
+
+    .value-link {
+        > * {
+            vertical-align: middle;
+        }
+        > svg {
+            margin-left: 0.25rem;
+            font-size: 1rem;
+        }
+    }
 
     .editable {
         text-decoration: underline dotted;
-        text-decoration-color: $primary;
+        text-decoration-color: var(--primary);
         cursor: pointer;
     }
 }

@@ -1,0 +1,18 @@
+# name: TestCohort.test_static_cohort_precalculated
+  '
+  
+  SELECT distinct_id
+  FROM
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0)
+  WHERE person_id IN
+      (SELECT person_id
+       FROM person_static_cohort
+       WHERE cohort_id = %(_cohort_id_0)s
+         AND team_id = %(team_id)s)
+  '
+---

@@ -1,26 +1,37 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { billingLogicType } from './billingLogicType'
-import { PlanInterface, UserType, BillingType, PreflightStatus } from '~/types'
-import { sceneLogic, Scene } from 'scenes/sceneLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import type { billingLogicType } from './billingLogicType'
+import { PlanInterface, BillingType } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
-import { userLogic } from 'scenes/userLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
+export const FREE_PLAN_MAX_EVENTS = 1000000
+export const FREE_PLAN_EVENTS_THRESHOLD = 0.85
 
 export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
-    ClickhouseLicenseMissing = 'clickhouse_license_missing',
+    UsageLimitExceeded = 'usage_limit_exceeded',
+    FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType<PlanInterface, UserType, BillingType, PreflightStatus, Scene>>({
+export const billingLogic = kea<billingLogicType>({
+    path: ['scenes', 'billing', 'billingLogic'],
     actions: {
         registerInstrumentationProps: true,
     },
-    loaders: ({ actions }) => ({
+    connect: {
+        values: [featureFlagLogic, ['featureFlags']],
+    },
+    loaders: ({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -29,8 +40,23 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
                     if (!response?.plan) {
                         actions.loadPlans()
                     }
+                    if (
+                        response.current_usage > FREE_PLAN_EVENTS_THRESHOLD &&
+                        response.should_setup_billing &&
+                        router.values.location.pathname !== '/organization/billing/locked' &&
+                        values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
+                    ) {
+                        posthog.capture('billing locked screen shown')
+                        router.actions.replace('/organization/billing/locked')
+                    }
                     actions.registerInstrumentationProps()
                     return response as BillingType
+                },
+                setBillingLimit: async (billing: BillingType) => {
+                    const res = await api.update('api/billing/', billing)
+                    lemonToast.success(`Billing limit set to $${billing.billing_limit} usd/month`)
+
+                    return res as BillingType
                 },
             },
         ],
@@ -63,6 +89,15 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
                 return Math.min(Math.round((billing.current_usage / eventAllocation) * 100) / 100, 1)
             },
         ],
+        freePlanPercentage: [
+            (s) => [s.billing],
+            (billing: BillingType) => {
+                if (!billing?.current_usage) {
+                    return null
+                }
+                return Math.min(Math.round((billing.current_usage / FREE_PLAN_MAX_EVENTS) * 100) / 100, 1)
+            },
+        ],
         strokeColor: [
             (selectors) => [selectors.percentage],
             (percentage) => {
@@ -85,19 +120,13 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
             },
         ],
         alertToShow: [
-            (s) => [
-                s.eventAllocation,
-                s.billing,
-                sceneLogic.selectors.scene,
-                preflightLogic.selectors.preflight,
-                userLogic.selectors.user,
-            ],
+            (s) => [s.eventAllocation, s.percentage, s.freePlanPercentage, s.billing, sceneLogic.selectors.scene],
             (
                 eventAllocation: number | null,
+                percentage: number,
+                freePlanPercentage: number,
                 billing: BillingType,
-                scene: Scene,
-                preflight: PreflightStatus,
-                user: UserType
+                scene: Scene
             ): BillingAlertType | undefined => {
                 // Determines which billing alert/warning to show to the user (if any)
 
@@ -106,25 +135,28 @@ export const billingLogic = kea<billingLogicType<PlanInterface, UserType, Billin
                     return BillingAlertType.SetupBilling
                 }
 
-                // Priority 2: Event allowance near limit
+                // Priority 2: Event allowance exceeded or near limit
+                if (billing?.billing_limit_exceeded) {
+                    return BillingAlertType.UsageLimitExceeded
+                }
+
+                // Priority 3: Event allowance near threshold
                 if (
                     scene !== Scene.Billing &&
+                    billing?.current_usage &&
                     eventAllocation &&
-                    billing.current_usage &&
-                    billing.current_usage / eventAllocation >= ALLOCATION_THRESHOLD_ALERT
+                    percentage >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
 
-                // Priority 3: Clickhouse enabled without a Clickhouse license
-                // In practical terms, this would be priority 1 for self-hosted (as the other alerts are cloud-based only)
+                // Priority 4: Users on free account that are almost reaching free events threshold
                 if (
-                    !preflight?.cloud &&
-                    preflight?.is_clickhouse_enabled &&
-                    !user?.organization?.available_features.includes('clickhouse') &&
-                    scene !== Scene.InstanceLicenses
+                    !billing?.is_billing_active &&
+                    billing?.current_usage &&
+                    freePlanPercentage > FREE_PLAN_EVENTS_THRESHOLD
                 ) {
-                    return BillingAlertType.ClickhouseLicenseMissing
+                    return BillingAlertType.FreeUsageNearLimit
                 }
             },
         ],

@@ -9,10 +9,6 @@ labels: bug
 *Please describe.*  
 *If this affects the front-end, screenshots would be of great help.*  
 
-## Expected behavior
-
-
-
 ## How to reproduce
 
 1.
@@ -22,7 +18,7 @@ labels: bug
 ## Environment
 
 - [ ] PostHog Cloud
-- [ ] self-hosted PostHog, version/commit: _please provide_
+- [ ] self-hosted PostHog, version/commit: please provide
 
 ## Additional context
 

@@ -1,10 +1,8 @@
 import React, { useState } from 'react'
-import { Input, Button, Radio } from 'antd'
-import { useActions } from 'kea'
-import { personsLogic } from './personsLogic'
-import { PlusOutlined, SaveOutlined, BulbOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
-import { IconText } from 'lib/components/icons'
+import { Input, Radio } from 'antd'
+import { SaveOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
 import Modal from 'antd/lib/modal/Modal'
+import { LemonButton } from 'lib/components/LemonButton'
 
 interface NewPropertyInterface {
     creating: boolean
@@ -13,10 +11,13 @@ interface NewPropertyInterface {
     value?: string | number | boolean | null
 }
 
-export const NewPropertyComponent = (): JSX.Element => {
+export interface NewPropertyComponentProps {
+    editProperty: (key: string, newValue?: string | number | boolean | null) => void
+}
+
+export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps): JSX.Element {
     const initialState = { creating: false, propertyType: 'string' } as NewPropertyInterface
     const [state, setState] = useState(initialState)
-    const { editProperty } = useActions(personsLogic)
 
     const saveProperty = (): void => {
         if (state.key && state.value !== undefined) {
@@ -27,18 +28,13 @@ export const NewPropertyComponent = (): JSX.Element => {
 
     return (
         <>
-            <div className="mb">
-                <div className="text-right">
-                    <Button
-                        data-attr="add-prop-button"
-                        onClick={() => setState({ ...state, creating: true })}
-                        type="primary"
-                        icon={<PlusOutlined />}
-                    >
-                        New property
-                    </Button>
-                </div>
-            </div>
+            <LemonButton
+                data-attr="add-prop-button"
+                onClick={() => setState({ ...state, creating: true })}
+                type="primary"
+            >
+                New property
+            </LemonButton>
             <Modal
                 visible={state.creating}
                 destroyOnClose
@@ -77,12 +73,8 @@ export const NewPropertyComponent = (): JSX.Element => {
                             id="propertyType"
                             buttonStyle="solid"
                         >
-                            <Radio.Button value="string">
-                                <IconText /> Text or Number
-                            </Radio.Button>
-                            <Radio.Button value="boolean">
-                                <BulbOutlined /> Boolean or Null
-                            </Radio.Button>
+                            <Radio.Button value="string">Text or Number</Radio.Button>
+                            <Radio.Button value="boolean">Boolean or Null</Radio.Button>
                         </Radio.Group>
                     </div>
                 </div>

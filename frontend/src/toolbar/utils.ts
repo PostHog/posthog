@@ -1,14 +1,11 @@
 import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
-import { ActionStepType, ActionStepUrlMatching, ElementType } from '~/types'
+import { ActionStepType, ActionStepUrlMatching } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
-
-// these plus any element with cursor:pointer will be click targets
-const CLICK_TARGET_SELECTOR = `a, button, input, select, textarea, label`
-
-// always ignore the following
-const TAGS_TO_IGNORE = ['html', 'body', 'meta', 'head', 'script', 'link', 'style']
+import { toolbarLogic } from '~/toolbar/toolbarLogic'
+import { combineUrl, encodeParams } from 'kea-router'
+import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 
 let simmer: SimmerType
 
@@ -58,37 +55,6 @@ export function elementToActionStep(element: HTMLElement, dataAttributes: string
     }
 }
 
-export function elementToSelector(element: ElementType): string {
-    let selector = ''
-    if (element.tag_name) {
-        selector += cssEscape(element.tag_name)
-    }
-    if (element.attributes?.['attr__data-attr']) {
-        selector += `[data-attr="${element.attributes['attr__data-attr']}"]`
-        return selector
-    }
-    if (element.attr_id) {
-        selector += `#${cssEscape(element.attr_id)}`
-        return selector
-    }
-    if (element.attr_class) {
-        selector += element.attr_class
-            .filter((a) => a)
-            .map((a) => `.${cssEscape(a)}`)
-            .join('')
-    }
-    if (element.href && element.tag_name === 'a') {
-        selector += `[href="${cssEscape(element.href)}"]`
-    }
-    if (element.nth_child) {
-        selector += `:nth-child(${parseInt(element.nth_child as any)})`
-    }
-    if (element.nth_of_type) {
-        selector += `:nth-of-type(${parseInt(element.nth_of_type as any)})`
-    }
-    return selector
-}
-
 export function getToolbarElement(): HTMLElement | null {
     return window.document.getElementById('__POSTHOG_TOOLBAR__') || null
 }
@@ -98,7 +64,7 @@ export function getShadowRoot(): ShadowRoot | null {
 }
 
 export function getShadowRootPopupContainer(): HTMLElement {
-    return (getShadowRoot() as unknown) as HTMLElement
+    return getShadowRoot() as unknown as HTMLElement
 }
 
 export function hasCursorPointer(element: HTMLElement): boolean {
@@ -168,14 +134,13 @@ export function inBounds(min: number, value: number, max: number): number {
 }
 
 export function getAllClickTargets(startNode: Document | HTMLElement | ShadowRoot = document): HTMLElement[] {
-    const elements = (startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown) as HTMLElement[]
+    const elements = startNode.querySelectorAll(CLICK_TARGET_SELECTOR) as unknown as HTMLElement[]
 
-    const allElements = [...((startNode.querySelectorAll('*') as unknown) as HTMLElement[])]
-    const clickTags = CLICK_TARGET_SELECTOR.split(',').map((c) => c.trim())
+    const allElements = [...(startNode.querySelectorAll('*') as unknown as HTMLElement[])]
 
     // loop through all elements and getComputedStyle
     const pointerElements = allElements.filter((el) => {
-        if (clickTags.indexOf(el.tagName.toLowerCase()) >= 0) {
+        if (CLICK_TARGETS.indexOf(el.tagName.toLowerCase()) >= 0) {
             return false
         }
         const compStyles = window.getComputedStyle(el)
@@ -208,7 +173,6 @@ export function stepMatchesHref(step: ActionStepType, href: string): boolean {
 }
 
 function matchRuleShort(str: string, rule: string): boolean {
-    const escapeRegex = (strng: string): string => strng.replace(/([.*+?^=!:${}()|[\]/\\])/g, '\\$1')
     return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
 }
 
@@ -246,9 +210,9 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
 
     let elements = [] as HTMLElement[]
     try {
-        elements = [...((querySelectorAllDeep(selector || '*', document, allElements) as unknown) as HTMLElement[])]
+        elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
     } catch (e) {
-        console.error('Can not use selector:', selector)
+        console.error('Cannot use selector:', selector)
         return null
     }
 
@@ -350,10 +314,10 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
     const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
     const newStep = {
         ...rest,
-        href: href_selected ? rest.href : undefined,
-        text: text_selected ? rest.text : undefined,
-        selector: selector_selected ? rest.selector : undefined,
-        url: url_selected ? rest.url : undefined,
+        href: href_selected ? rest.href || null : null,
+        text: text_selected ? rest.text || null : null,
+        selector: selector_selected ? rest.selector || null : null,
+        url: url_selected ? rest.url || null : null,
     }
     return newStep
 }
@@ -399,4 +363,36 @@ export function getHeatMapHue(count: number, maxCount: number): number {
         return 60
     }
     return 60 - (count / maxCount) * 40
+}
+
+export async function toolbarFetch(
+    url: string,
+    method: string = 'GET',
+    payload?: Record<string, any>
+): Promise<Response> {
+    const { pathname, searchParams } = combineUrl(url)
+    const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
+    const fullUrl = `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+
+    const payloadData = payload
+        ? {
+              body: JSON.stringify(payload),
+              headers: {
+                  'Content-Type': 'application/json',
+              },
+          }
+        : {}
+
+    const response = await fetch(fullUrl, {
+        method,
+        ...payloadData,
+    })
+    if (response.status === 403) {
+        const responseData = await response.json()
+        // Do not try to authenticate if the user has no project access altogether
+        if (responseData.detail !== "You don't have access to the project.") {
+            toolbarLogic.actions.authenticate()
+        }
+    }
+    return response
 }

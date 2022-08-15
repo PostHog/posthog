@@ -1,0 +1,97 @@
+.performance-popup {
+    max-width: 400px;
+}
+
+.performance-timings-table {
+    margin: auto;
+
+    th,
+    td {
+        text-align: center;
+        vertical-align: middle;
+    }
+
+    td.key {
+        text-align: left;
+    }
+}
+
+.web-performance {
+    line-height: 32px;
+    padding-right: 3em;
+
+    .control-row {
+        padding-bottom: 1rem;
+        padding-top: 1rem;
+        min-height: 4rem;
+        border-top: solid 1px var(--border);
+    }
+
+    tr.current-event {
+        background-color: var(--mark-color);
+    }
+
+    .chart-title {
+        display: flex;
+        width: 100%;
+        padding-top: 1rem;
+
+        .property-key-info-logo {
+            vertical-align: baseline;
+        }
+
+        .person-header {
+            flex-grow: 1;
+        }
+    }
+
+    .waterfall-chart {
+        border: 1px solid var(--border);
+        padding: 4px;
+
+        .color-legend {
+            display: flex;
+            justify-content: center;
+            align-content: center;
+            cursor: pointer;
+
+            .color-block {
+                width: 32px;
+                height: 16px;
+                line-height: 32px;
+                display: inline-block;
+                margin-top: auto;
+                margin-bottom: auto;
+                margin-left: 4px;
+            }
+        }
+
+        .in-front {
+            z-index: 200;
+        }
+
+        .marker-row {
+            height: 32px;
+            margin-bottom: 1px;
+        }
+        .marker-name {
+            background-color: var(--bg-mid);
+        }
+        .positioned {
+            position: absolute;
+            min-width: 2px;
+            height: 32px;
+        }
+
+        .reduced-height {
+            height: 16px;
+            margin-top: 7px;
+        }
+
+        .vertical-marker {
+            height: 100%;
+            position: absolute;
+            width: 2px;
+        }
+    }
+}

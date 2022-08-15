@@ -1,0 +1,22 @@
+.persons-modal {
+    .persons-table {
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+    }
+
+    .person-ids {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .user-count-subheader {
+        color: var(--muted-alt);
+        > * {
+            vertical-align: middle;
+        }
+    }
+
+    .person-row-container {
+        padding: 0.5rem 1rem;
+    }
+}

@@ -1,11 +1,5 @@
-import json
-from typing import Any, Callable, Optional
-
-from dateutil.relativedelta import relativedelta
-from django.db.models import Q
 from freezegun.api import freeze_time
 
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.test.base import BaseTest
 
@@ -23,6 +17,7 @@ class TestFilter(BaseTest):
             filter.to_dict(),
             {
                 "display": "RetentionTable",
+                "date_from": "-7d",
                 "insight": "RETENTION",
                 "period": "Day",
                 "retention_type": "retention_recurring",
@@ -31,20 +26,25 @@ class TestFilter(BaseTest):
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
+                    "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
                 "target_entity": {
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
+                    "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
+                "breakdown_attribution_type": "first_touch",
             },
         )
 
@@ -69,20 +69,26 @@ class TestFilter(BaseTest):
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
+                    "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
                 "target_entity": {
                     "id": "$pageview",
                     "math": None,
                     "math_property": None,
+                    "math_group_type_index": None,
                     "name": "$pageview",
+                    "custom_name": None,
                     "order": None,
-                    "properties": [],
+                    "properties": {},
                     "type": "events",
                 },
+                "breakdown_attribution_type": "first_touch",
+                "date_from": "-7d",
             },
         )
 

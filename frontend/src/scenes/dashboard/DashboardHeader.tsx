@@ -1,286 +1,326 @@
-import { isMobile, Loading } from 'lib/utils'
-import { Button, Card, Dropdown, Input, Menu, Select, Tooltip } from 'antd'
-import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { ShareModal } from './ShareModal'
-import {
-    PushpinFilled,
-    PushpinOutlined,
-    EllipsisOutlined,
-    EditOutlined,
-    DeleteOutlined,
-    FullscreenOutlined,
-    FullscreenExitOutlined,
-    ShareAltOutlined,
-    PlusOutlined,
-} from '@ant-design/icons'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FullScreen } from 'lib/components/FullScreen'
-import dayjs from 'dayjs'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardMode, DashboardType } from '~/types'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { HotkeyButton } from 'lib/components/HotkeyButton'
-import { router } from 'kea-router'
-import { ObjectTags } from 'lib/components/ObjectTags'
+import { LemonButton } from 'lib/components/LemonButton'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonDivider } from 'lib/components/LemonDivider'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PageHeader } from 'lib/components/PageHeader'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import React from 'react'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { AvailableFeature, DashboardMode, DashboardType, ExporterFormat } from '~/types'
+import { dashboardLogic } from './dashboardLogic'
 import { dashboardsLogic } from './dashboardsLogic'
+import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
+import { privilegeLevelToName } from 'lib/constants'
+import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
+import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { IconLock } from 'lib/components/icons'
+import { urls } from 'scenes/urls'
+import { Link } from 'lib/components/Link'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { router } from 'kea-router'
+import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
-export function DashboardHeader(): JSX.Element {
-    const { dashboard, dashboardMode, lastDashboardModeSource } = useValues(dashboardLogic)
-    const { addNewDashboard, triggerDashboardUpdate, setDashboardMode, addGraph, saveNewTag, deleteTag } = useActions(
-        dashboardLogic
-    )
+export function DashboardHeader(): JSX.Element | null {
+    const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
+        useValues(dashboardLogic)
+    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { dashboardTags } = useValues(dashboardsLogic)
-    const { dashboards, dashboardsLoading, dashboardLoading } = useValues(dashboardsModel)
-    const { pinDashboard, unpinDashboard, deleteDashboard } = useActions(dashboardsModel)
-    const { user } = useValues(userLogic)
-    const [newName, setNewName] = useState(dashboard.name) // Used to update the input immediately, debouncing API calls
-    const [newDescription, setNewDescription] = useState(dashboard.description) // Used to update the input immediately, debouncing API calls
+    const { updateDashboard, pinDashboard, unpinDashboard, deleteDashboard, duplicateDashboard } =
+        useActions(dashboardsModel)
+    const { dashboardLoading } = useValues(dashboardsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
 
-    const nameInputRef = useRef<Input | null>(null)
-    const descriptionInputRef = useRef<HTMLInputElement | null>(null)
+    const { push } = useActions(router)
 
-    const actionsDefault = (
+    return dashboard || allItemsLoading ? (
         <>
-            <Dropdown
-                trigger={['click']}
-                overlay={
-                    <Menu>
-                        {dashboard.created_by && (
-                            <>
-                                <Menu.Item disabled>
-                                    Created by {dashboard.created_by.first_name || dashboard.created_by.email || '-'} on{' '}
-                                    {dayjs(dashboard.created_at).format(
-                                        dayjs(dashboard.created_at).year() === dayjs().year()
-                                            ? 'MMMM Do'
-                                            : 'MMMM Do YYYY'
-                                    )}
-                                </Menu.Item>
-                                <Menu.Divider />
-                            </>
-                        )}
-                        <Menu.Item
-                            icon={<EditOutlined />}
-                            onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.MoreDropdown)}
-                        >
-                            Edit mode (E)
-                        </Menu.Item>
-                        <Menu.Item
-                            icon={<FullscreenOutlined />}
-                            onClick={() =>
-                                setDashboardMode(DashboardMode.Fullscreen, DashboardEventSource.MoreDropdown)
-                            }
-                        >
-                            Full screen mode (F)
-                        </Menu.Item>
-                        {dashboard.pinned ? (
-                            <Menu.Item
-                                icon={<PushpinFilled />}
-                                onClick={() => unpinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)}
-                            >
-                                Unpin dashboard
-                            </Menu.Item>
-                        ) : (
-                            <Menu.Item
-                                icon={<PushpinOutlined />}
-                                onClick={() => pinDashboard(dashboard.id, DashboardEventSource.MoreDropdown)}
-                            >
-                                Pin dashboard
-                            </Menu.Item>
-                        )}
-
-                        <Menu.Divider />
-                        <Menu.Item
-                            icon={<DeleteOutlined />}
-                            onClick={() => deleteDashboard({ id: dashboard.id, redirect: true })}
-                            danger
-                        >
-                            Delete dashboard
-                        </Menu.Item>
-                    </Menu>
-                }
-                placement="bottomRight"
-            >
-                <Button type="link" className="btn-lg-2x" data-attr="dashboard-more" icon={<EllipsisOutlined />} />
-            </Dropdown>
-            <Button
-                type="link"
-                data-attr="dashboard-edit-mode"
-                icon={<EditOutlined />}
-                onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardHeader)}
-            />
-            <HotkeyButton
-                onClick={() => addGraph()}
-                data-attr="dashboard-add-graph-header"
-                icon={<PlusOutlined />}
-                hotkey="n"
-                className="hide-lte-md"
-            >
-                Add graph
-            </HotkeyButton>
-            <HotkeyButton
-                type="primary"
-                onClick={() => setDashboardMode(DashboardMode.Sharing, DashboardEventSource.DashboardHeader)}
-                data-attr="dashboard-share-button"
-                icon={<ShareAltOutlined />}
-                hotkey="s"
-            >
-                Send or share
-            </HotkeyButton>
-        </>
-    )
-
-    const actionsPresentationMode = (
-        <Button
-            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
-            data-attr="dashboard-exit-presentation-mode"
-            icon={<FullscreenExitOutlined />}
-        >
-            Exit full screen mode
-        </Button>
-    )
-
-    const actionsEditMode = (
-        <Button
-            data-attr="dashboard-edit-mode-save"
-            type="primary"
-            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
-            tabIndex={10}
-        >
-            Finish editing
-        </Button>
-    )
-
-    useEffect(() => {
-        if (dashboardMode === DashboardMode.Edit) {
-            if (lastDashboardModeSource === DashboardEventSource.AddDescription) {
-                setTimeout(() => descriptionInputRef.current?.focus(), 10)
-            } else if (!isMobile()) {
-                setTimeout(() => nameInputRef.current?.focus(), 10)
-            }
-        }
-    }, [dashboardMode])
-
-    return (
-        <>
-            <div className={`dashboard-header${dashboardMode === DashboardMode.Fullscreen ? ' full-screen' : ''}`}>
-                {dashboardMode === DashboardMode.Fullscreen && (
-                    <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
-                )}
-                <ShareModal
-                    onCancel={() => setDashboardMode(null, DashboardEventSource.Browser)}
-                    visible={dashboardMode === DashboardMode.Sharing}
-                />
-                {dashboardsLoading ? (
-                    <Loading />
-                ) : (
-                    <>
-                        {dashboardMode === DashboardMode.Edit ? (
-                            <Input
-                                placeholder="Dashboard name (e.g. Weekly KPIs)"
-                                value={newName}
-                                size="large"
-                                style={{ maxWidth: 400 }}
-                                onChange={(e) => {
-                                    setNewName(e.target.value) // To update the input immediately
-                                    triggerDashboardUpdate({ name: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        setDashboardMode(null, DashboardEventSource.InputEnter)
-                                    }
-                                }}
-                                ref={nameInputRef}
-                                tabIndex={0}
-                            />
-                        ) : (
-                            <div className="dashboard-select">
-                                <Select
-                                    value={dashboard?.id || null}
-                                    onChange={(id) => {
-                                        if (id === 'new') {
-                                            addNewDashboard()
-                                        } else {
-                                            router.actions.push(`/dashboard/${id}`)
-                                            eventUsageLogic.actions.reportDashboardDropdownNavigation()
-                                        }
-                                    }}
-                                    bordered={false}
-                                    dropdownMatchSelectWidth={false}
-                                >
-                                    {dashboards.map((dash: DashboardType) => (
-                                        <Select.Option key={dash.id} value={dash.id}>
-                                            {dash.name || <span style={{ color: 'var(--muted)' }}>Untitled</span>}
-                                            {dash.is_shared && (
-                                                <Tooltip title="This dashboard is publicly shared">
-                                                    <ShareAltOutlined style={{ marginLeft: 4, float: 'right' }} />
-                                                </Tooltip>
-                                            )}
-                                        </Select.Option>
-                                    ))}
-                                    <Select.Option value="new">+ New Dashboard</Select.Option>
-                                </Select>
-                            </div>
-                        )}
-
-                        <div className="dashboard-meta">
-                            {dashboardMode === DashboardMode.Edit
-                                ? actionsEditMode
-                                : dashboardMode === DashboardMode.Fullscreen
-                                ? actionsPresentationMode
-                                : actionsDefault}
-                        </div>
-                    </>
-                )}
-            </div>
-            {user?.organization?.available_features?.includes('dashboard_collaboration') && (
+            {dashboardMode === DashboardMode.Fullscreen && (
+                <FullScreen onExit={() => setDashboardMode(null, DashboardEventSource.Browser)} />
+            )}
+            {dashboard && (
                 <>
-                    <div className="mb" data-attr="dashboard-tags">
-                        <ObjectTags
-                            tags={dashboard.tags}
-                            onTagSave={saveNewTag}
-                            onTagDelete={deleteTag}
-                            saving={dashboardLoading}
-                            tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags.includes(tag))}
-                        />
-                    </div>
-                    <Card className="dashboard-description" bordered={!(dashboardMode === DashboardMode.Edit)}>
-                        {dashboardMode === DashboardMode.Edit ? (
-                            <Input.TextArea
-                                placeholder="Add a description to your dashboard that helps others understand it better."
-                                value={newDescription}
-                                onChange={(e) => {
-                                    setNewDescription(e.target.value) // To update the input immediately
-                                    triggerDashboardUpdate({ description: e.target.value }) // This is breakpointed (i.e. debounced) to avoid multiple API calls
-                                }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                        setDashboardMode(null, DashboardEventSource.InputEnter)
-                                    }
-                                }}
-                                ref={descriptionInputRef}
-                                tabIndex={5}
-                                allowClear
-                            />
-                        ) : (
-                            <div
-                                className="edit-box"
-                                onClick={() =>
-                                    setDashboardMode(DashboardMode.Edit, DashboardEventSource.AddDescription)
-                                }
-                            >
-                                {dashboard.description ? (
-                                    <span>{dashboard.description}</span>
-                                ) : (
-                                    <span className="add-description">Add a description...</span>
-                                )}
-                                <EditOutlined />
-                            </div>
-                        )}
-                    </Card>
+                    <SubscriptionsModal
+                        isOpen={showSubscriptions}
+                        closeModal={() => push(urls.dashboard(dashboard.id))}
+                        dashboardId={dashboard.id}
+                        subscriptionId={subscriptionId}
+                    />
+                    <SharingModal
+                        isOpen={dashboardMode === DashboardMode.Sharing}
+                        closeModal={() => push(urls.dashboard(dashboard.id))}
+                        dashboardId={dashboard.id}
+                    />
                 </>
             )}
+
+            <PageHeader
+                title={
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <EditableField
+                            name="name"
+                            value={dashboard?.name || (allItemsLoading ? 'Loading…' : '')}
+                            placeholder="Name this dashboard"
+                            onSave={
+                                dashboard ? (value) => updateDashboard({ id: dashboard.id, name: value }) : undefined
+                            }
+                            minLength={1}
+                            maxLength={400} // Sync with Dashboard model
+                            mode={!canEditDashboard ? 'view' : undefined}
+                            notice={
+                                dashboard && !canEditDashboard
+                                    ? {
+                                          icon: <IconLock />,
+                                          tooltip:
+                                              "You don't have edit permissions in this dashboard. Ask a dashboard collaborator with edit access to add you.",
+                                      }
+                                    : undefined
+                            }
+                        />
+                    </div>
+                }
+                buttons={
+                    dashboardMode === DashboardMode.Edit ? (
+                        <LemonButton
+                            data-attr="dashboard-edit-mode-save"
+                            type="primary"
+                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
+                            tabIndex={10}
+                            disabled={allItemsLoading}
+                        >
+                            Done editing
+                        </LemonButton>
+                    ) : dashboardMode === DashboardMode.Fullscreen ? (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeader)}
+                            data-attr="dashboard-exit-presentation-mode"
+                            disabled={allItemsLoading}
+                        >
+                            Exit full screen
+                        </LemonButton>
+                    ) : (
+                        <>
+                            <More
+                                data-tooltip="dashboard-three-dots-options-menu"
+                                overlay={
+                                    dashboard ? (
+                                        <>
+                                            {dashboard.created_by && (
+                                                <>
+                                                    <div className="flex p-2 text-muted-alt">
+                                                        Created by{' '}
+                                                        {dashboard.created_by.first_name ||
+                                                            dashboard.created_by.email ||
+                                                            '-'}{' '}
+                                                        on {humanFriendlyDetailedTime(dashboard.created_at)}
+                                                    </div>
+                                                    <LemonDivider />
+                                                </>
+                                            )}
+                                            {canEditDashboard && (
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        setDashboardMode(
+                                                            DashboardMode.Edit,
+                                                            DashboardEventSource.MoreDropdown
+                                                        )
+                                                    }
+                                                    status="stealth"
+                                                    fullWidth
+                                                >
+                                                    Edit layout (E)
+                                                </LemonButton>
+                                            )}
+                                            <LemonButton
+                                                onClick={() =>
+                                                    setDashboardMode(
+                                                        DashboardMode.Fullscreen,
+                                                        DashboardEventSource.MoreDropdown
+                                                    )
+                                                }
+                                                status="stealth"
+                                                fullWidth
+                                            >
+                                                Go full screen (F)
+                                            </LemonButton>
+                                            {canEditDashboard &&
+                                                (dashboard.pinned ? (
+                                                    <LemonButton
+                                                        onClick={() =>
+                                                            unpinDashboard(
+                                                                dashboard.id,
+                                                                DashboardEventSource.MoreDropdown
+                                                            )
+                                                        }
+                                                        status="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Unpin dashboard
+                                                    </LemonButton>
+                                                ) : (
+                                                    <LemonButton
+                                                        onClick={() =>
+                                                            pinDashboard(
+                                                                dashboard.id,
+                                                                DashboardEventSource.MoreDropdown
+                                                            )
+                                                        }
+                                                        status="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Pin dashboard
+                                                    </LemonButton>
+                                                ))}
+                                            <SubscribeButton dashboardId={dashboard.id} />
+                                            <ExportButton
+                                                fullWidth
+                                                status="stealth"
+                                                items={[
+                                                    {
+                                                        export_format: ExporterFormat.PNG,
+                                                        dashboard: dashboard?.id,
+                                                        export_context: {
+                                                            path: apiUrl(),
+                                                        },
+                                                    },
+                                                ]}
+                                            />
+                                            <LemonDivider />
+                                            <LemonButton
+                                                onClick={() =>
+                                                    duplicateDashboard({
+                                                        id: dashboard.id,
+                                                        name: dashboard.name,
+                                                        show: true,
+                                                    })
+                                                }
+                                                status="stealth"
+                                                fullWidth
+                                            >
+                                                Duplicate dashboard
+                                            </LemonButton>
+                                            {canEditDashboard && (
+                                                <LemonButton
+                                                    onClick={() =>
+                                                        deleteDashboard({ id: dashboard.id, redirect: true })
+                                                    }
+                                                    status="danger"
+                                                    fullWidth
+                                                >
+                                                    Delete dashboard
+                                                </LemonButton>
+                                            )}
+                                        </>
+                                    ) : undefined
+                                }
+                            />
+                            <LemonDivider vertical />
+                            {dashboard && (
+                                <>
+                                    <CollaboratorBubbles
+                                        dashboard={dashboard}
+                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                    />
+                                    <LemonButton
+                                        type="secondary"
+                                        data-attr="dashboard-share-button"
+                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                    >
+                                        Share
+                                    </LemonButton>
+                                </>
+                            )}
+                            {canEditDashboard && (
+                                <Link to={urls.insightNew(undefined, dashboard?.id)}>
+                                    <LemonButton type="primary" data-attr="dashboard-add-graph-header">
+                                        Add insight
+                                    </LemonButton>
+                                </Link>
+                            )}
+                        </>
+                    )
+                }
+                caption={
+                    <>
+                        {dashboard && !!(canEditDashboard || dashboard.description) && (
+                            <EditableField
+                                multiline
+                                name="description"
+                                value={dashboard.description || ''}
+                                placeholder="Description (optional)"
+                                onSave={(value) => updateDashboard({ id: dashboard.id, description: value })}
+                                compactButtons
+                                mode={!canEditDashboard ? 'view' : undefined}
+                                paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                            />
+                        )}
+                        {dashboard?.tags && (
+                            <>
+                                {canEditDashboard ? (
+                                    <ObjectTags
+                                        tags={dashboard.tags}
+                                        onChange={(_, tags) => triggerDashboardUpdate({ tags })}
+                                        saving={dashboardLoading}
+                                        tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
+                                        className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
+                                    />
+                                ) : dashboard.tags.length ? (
+                                    <ObjectTags
+                                        tags={dashboard.tags}
+                                        saving={dashboardLoading}
+                                        staticOnly
+                                        className="insight-metadata-tags"
+                                        data-tooltip="dashboard-tags"
+                                    />
+                                ) : null}
+                            </>
+                        )}
+                    </>
+                }
+                delimited
+            />
         </>
+    ) : null
+}
+
+function CollaboratorBubbles({
+    dashboard,
+    onClick,
+}: {
+    dashboard: DashboardType
+    onClick: () => void
+}): JSX.Element | null {
+    const { allCollaborators } = useValues(dashboardCollaboratorsLogic({ dashboardId: dashboard.id }))
+
+    if (!dashboard) {
+        return null
+    }
+
+    const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
+    const tooltipParts: string[] = []
+    if (typeof effectiveRestrictionLevelOption?.label === 'string') {
+        tooltipParts.push(effectiveRestrictionLevelOption.label)
+    }
+    if (dashboard.is_shared) {
+        tooltipParts.push('Shared publicly')
+    }
+
+    return (
+        <ProfileBubbles
+            people={allCollaborators.map((collaborator) => ({
+                email: collaborator.user.email,
+                name: collaborator.user.first_name,
+                title: `${collaborator.user.first_name} (${privilegeLevelToName[collaborator.level]})`,
+            }))}
+            tooltip={tooltipParts.join(' • ')}
+            onClick={onClick}
+        />
     )
 }

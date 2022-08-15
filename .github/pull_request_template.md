@@ -1,12 +1,15 @@
+## Problem
+
+<!-- Who are we building for, what are their needs, why is this important? -->
+
 ## Changes
 
-*Please describe.*  
-*If this affects the frontend, include screenshots.*  
+<!-- If there are frontend changes, please include screenshots. -->
+<!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
-## Checklist
+👉 *Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*
 
-- [ ] All querysets/queries filter by Organization, by Team, and by User
-- [ ] Django backend tests
-- [ ] Jest frontend tests
-- [ ] Cypress end-to-end tests
-- [ ] Migrations are safe to run at scale (e.g. PostHog Cloud) – present proof if not obvious
+## How did you test this code?
+
+<!-- Briefly describe the steps you took. -->
+<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->

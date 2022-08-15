@@ -1,16 +1,19 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters'
-import { FilterType } from '~/types'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { AnyPropertyFilter } from '~/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '~/models/groupsModel'
 
 export function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const handleChange = (filters: FilterType[]): void => {
+    const handleChange = (filters: AnyPropertyFilter[]): void => {
         updateCurrentTeam({ test_account_filters: filters })
         reportTestAccountFiltersUpdated(filters)
     }
@@ -23,6 +26,14 @@ export function TestAccountFiltersConfig(): JSX.Element {
                         pageKey="testaccountfilters"
                         propertyFilters={currentTeam?.test_account_filters}
                         onChange={handleChange}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
                     />
                 )}
             </div>

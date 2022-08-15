@@ -1,22 +1,23 @@
-// /api/event/?event=$autocapture&properties[pathname]=/docs/introduction/what-is-kea
-
 import { kea } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { elementToActionStep, elementToSelector, trimElement } from '~/toolbar/utils'
+import { elementToActionStep, toolbarFetch, trimElement } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { heatmapLogicType } from './heatmapLogicType'
+import type { heatmapLogicType } from './heatmapLogicType'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { ActionStepType } from '~/types'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { elementToSelector, escapeRegex } from 'lib/actionUtils'
+import { FilterType, PropertyOperator } from '~/types'
 
-export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLElement, ActionStepType>>({
+export const heatmapLogic = kea<heatmapLogicType>({
+    path: ['toolbar', 'elements', 'heatmapLogic'],
     actions: {
+        getEvents: true,
         enableHeatmap: true,
         disableHeatmap: true,
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
-        setHeatmapFilter: (filter: Record<string, any>) => ({ filter }),
+        setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
     },
 
     reducers: {
@@ -44,7 +45,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
             },
         ],
         heatmapFilter: [
-            {} as Record<string, any>,
+            {} as Partial<FilterType>,
             {
                 setHeatmapFilter: (_, { filter }) => filter,
             },
@@ -56,15 +57,22 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
             [] as ElementsEventType[],
             {
                 resetEvents: () => [],
-                getEvents: async ({ $current_url }: { $current_url: string }, breakpoint) => {
-                    const params: Record<string, any> = {
-                        properties: [{ key: '$current_url', value: $current_url }],
-                        temporary_token: toolbarLogic.values.temporaryToken,
+                getEvents: async (_, breakpoint) => {
+                    const { href, wildcardHref } = currentPageLogic.values
+
+                    const params: Partial<FilterType> = {
+                        properties: [
+                            wildcardHref === href
+                                ? { key: '$current_url', value: href, operator: PropertyOperator.Exact }
+                                : {
+                                      key: '$current_url',
+                                      value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                      operator: PropertyOperator.Regex,
+                                  },
+                        ],
                         ...values.heatmapFilter,
                     }
-
-                    const url = `${toolbarLogic.values.apiURL}api/element/stats/${encodeParams(params, '?')}`
-                    const response = await fetch(url)
+                    const response = await toolbarFetch(`/api/element/stats/${encodeParams(params, '?')}`)
                     const results = await response.json()
 
                     if (response.status === 403) {
@@ -86,8 +94,8 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
 
     selectors: {
         elements: [
-            (selectors) => [selectors.events],
-            (events) => {
+            (selectors) => [selectors.events, toolbarLogic.selectors.dataAttributes],
+            (events, dataAttributes) => {
                 // cache all elements in shadow roots
                 const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
@@ -95,7 +103,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                     let combinedSelector
                     let lastSelector
                     for (let i = 0; i < event.elements.length; i++) {
-                        const selector = elementToSelector(event.elements[i])
+                        const selector = elementToSelector(event.elements[i], dataAttributes) || '*'
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
@@ -145,7 +153,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
                             }
                         } catch (error) {
                             console.error('Invalid selector!', combinedSelector)
-                            throw error
+                            break
                         }
 
                         lastSelector = combinedSelector
@@ -205,20 +213,27 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
     events: ({ actions, values }) => ({
         afterMount() {
             if (values.heatmapEnabled) {
-                actions.getEvents({ $current_url: currentPageLogic.values.href })
+                actions.getEvents()
             }
         },
     }),
 
     listeners: ({ actions, values }) => ({
-        [currentPageLogic.actionTypes.setHref]: ({ href }) => {
+        [currentPageLogic.actionTypes.setHref]: () => {
             if (values.heatmapEnabled) {
                 actions.resetEvents()
-                actions.getEvents({ $current_url: href })
+                actions.getEvents()
+            }
+        },
+        [currentPageLogic.actionTypes.setWildcardHref]: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (values.heatmapEnabled) {
+                actions.resetEvents()
+                actions.getEvents()
             }
         },
         enableHeatmap: () => {
-            actions.getEvents({ $current_url: currentPageLogic.values.href })
+            actions.getEvents()
             posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
         disableHeatmap: () => {
@@ -236,7 +251,7 @@ export const heatmapLogic = kea<heatmapLogicType<ElementsEventType, CountedHTMLE
             }
         },
         setHeatmapFilter: () => {
-            actions.getEvents({ $current_url: currentPageLogic.values.href })
+            actions.getEvents()
         },
     }),
 })

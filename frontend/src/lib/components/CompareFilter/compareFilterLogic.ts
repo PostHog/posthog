@@ -1,58 +1,44 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { ViewType } from 'scenes/insights/insightLogic'
-import { InsightType } from '~/types'
-import { compareFilterLogicType } from './compareFilterLogicType'
+import { ChartDisplayType, InsightLogicProps, InsightType } from '~/types'
+import type { compareFilterLogicType } from './compareFilterLogicType'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-export const compareFilterLogic = kea<compareFilterLogicType<InsightType>>({
+export const compareFilterLogic = kea<compareFilterLogicType>({
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('new'),
+    path: (key) => ['lib', 'components', 'CompareFilter', 'compareFilterLogic', key],
+    connect: (props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setFilters']],
+        values: [insightLogic(props), ['filters', 'canEditInsight']],
+    }),
+
     actions: () => ({
         setCompare: (compare: boolean) => ({ compare }),
-        setDisabled: (disabled: boolean) => ({ disabled }),
         toggleCompare: true,
     }),
-    reducers: () => ({
-        compare: [
-            false,
-            {
-                setCompare: (_, { compare }) => compare,
-            },
-        ],
+
+    selectors: {
+        compare: [(s) => [s.filters], (filters) => !!filters?.compare],
         disabled: [
-            false,
-            {
-                setDisabled: (_, { disabled }) => disabled,
-            },
+            (s) => [s.filters, s.canEditInsight],
+            ({ insight, date_from, display }, canEditInsight) =>
+                !canEditInsight ||
+                insight === InsightType.LIFECYCLE ||
+                display === ChartDisplayType.WorldMap ||
+                date_from === 'all',
         ],
-    }),
-    listeners: ({ actions, values }) => ({
-        setCompare: () => {
-            const { compare, ...searchParams } = router.values.searchParams // eslint-disable-line
-            const { pathname } = router.values.location
+    },
 
-            searchParams.compare = values.compare
-
+    listeners: ({ values, actions }) => ({
+        setCompare: ({ compare }) => {
             if (!objectsEqual(compare, values.compare)) {
-                router.actions.push(pathname, searchParams)
+                actions.setFilters({ ...values.filters, compare })
             }
         },
         toggleCompare: () => {
             actions.setCompare(!values.compare)
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (
-            _: any,
-            { compare, insight, date_from }: { compare?: boolean; insight?: InsightType; date_from?: string }
-        ) => {
-            if (compare !== undefined) {
-                actions.setCompare(compare)
-            }
-            if (insight === ViewType.LIFECYCLE || date_from === 'all') {
-                actions.setDisabled(true)
-            } else {
-                actions.setDisabled(false)
-            }
         },
     }),
 })

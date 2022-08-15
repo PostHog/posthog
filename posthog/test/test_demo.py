@@ -1,6 +1,7 @@
 import random
 
-from posthog.models import Action, Dashboard, Event, EventDefinition, Person, SessionRecordingEvent, Team
+from posthog.client import sync_execute
+from posthog.models import Action, Dashboard, EventDefinition, Team
 from posthog.test.base import APIBaseTest
 
 
@@ -12,10 +13,10 @@ class TestDemo(APIBaseTest):
         demo_team = Team.objects.get(name__icontains="demo")
         self.assertEqual(demo_team.is_demo, True)
         self.assertEqual(Dashboard.objects.count(), 3)
-        self.assertGreaterEqual(Event.objects.count(), 900)
-        self.assertGreaterEqual(Person.objects.count(), 160)
+        self.assertGreaterEqual(len(sync_execute("SELECT * FROM events")), 900)
+        self.assertGreaterEqual(len(sync_execute("SELECT * FROM person")), 160)
         self.assertGreaterEqual(Action.objects.count(), 8)
-        self.assertGreaterEqual(SessionRecordingEvent.objects.count(), 60)
+        self.assertGreaterEqual(len(sync_execute("SELECT * FROM session_recording_events")), 60)
 
         # TODO: We need a better way to test this, inconsistent results locally and on CI
         # action_event_counts = [action.events.count() for action in Action.objects.all()]

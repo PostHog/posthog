@@ -1,15 +1,29 @@
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.constants import AvailableFeature
+from posthog.utils import absolute_uri
+
 
 class Dashboard(models.Model):
-    CREATION_MODE_CHOICES = (
-        ("default", "Default"),
-        ("template", "Template"),  # dashboard was created from a predefined template
-        ("duplicate", "Duplicate"),  # dashboard was duplicated from another dashboard (NOT YET SUPPORTED)
-    )
+    class CreationMode(models.TextChoices):
+        DEFAULT = "default", "Default"
+        TEMPLATE = "template", "Template"  # dashboard was created from a predefined template
+        DUPLICATE = "duplicate", "Duplicate"  # dashboard was duplicated from another dashboard
+
+    class RestrictionLevel(models.IntegerChoices):
+        """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
+
+        EVERYONE_IN_PROJECT_CAN_EDIT = 21, "Everyone in the project can edit"
+        ONLY_COLLABORATORS_CAN_EDIT = 37, "Only those invited to this dashboard can edit"
+
+    class PrivilegeLevel(models.IntegerChoices):
+        """Collaboration privilege level (which is a user property). Sync with RestrictionLevel."""
+
+        CAN_VIEW = 21, "Can view dashboard"
+        CAN_EDIT = 37, "Can edit dashboard"
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     description: models.TextField = models.TextField(blank=True)
@@ -18,12 +32,82 @@ class Dashboard(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
-    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    is_shared: models.BooleanField = models.BooleanField(default=False)
     last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     filters: models.JSONField = models.JSONField(default=dict)
-    creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CREATION_MODE_CHOICES)
-    tags: ArrayField = ArrayField(models.CharField(max_length=32), blank=True, default=list)
+    creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
+    restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
+    )
+    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
+
+    # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
+    deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
+    deprecated_tags_v2: ArrayField = ArrayField(
+        models.CharField(max_length=32), null=True, blank=True, default=None, db_column="tags"
+    )
+
+    # DEPRECATED: using the new "sharing" relation instead
+    share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    # DEPRECATED: using the new "is_sharing_enabled" relation instead
+    is_shared: models.BooleanField = models.BooleanField(default=False)
+
+    @property
+    def is_sharing_enabled(self):
+        sharing = self.sharingconfiguration_set.first()
+        return sharing.enabled if sharing else False
+
+    @property
+    def url(self):
+        return absolute_uri(f"/dashboard/{self.id}")
+
+    @property
+    def effective_restriction_level(self) -> RestrictionLevel:
+        return (
+            self.restriction_level
+            if self.team.organization.is_feature_available(AvailableFeature.DASHBOARD_PERMISSIONING)
+            else self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
+
+    def get_effective_privilege_level(self, user_id: int) -> PrivilegeLevel:
+        if (
+            # Checks can be skipped if the dashboard in on the lowest restriction level
+            self.effective_restriction_level == self.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            # Users with restriction rights can do anything
+            or self.can_user_restrict(user_id)
+        ):
+            # Returning the highest access level if no checks needed
+            return self.PrivilegeLevel.CAN_EDIT
+
+        try:
+            from ee.models import DashboardPrivilege
+        except ImportError:
+            return self.PrivilegeLevel.CAN_VIEW
+        else:
+            try:
+                return cast(
+                    Dashboard.PrivilegeLevel, self.privileges.values_list("level", flat=True).get(user_id=user_id)
+                )
+            except DashboardPrivilege.DoesNotExist:
+                # Returning the lowest access level if there's no explicit privilege for this user
+                return self.PrivilegeLevel.CAN_VIEW
+
+    def can_user_edit(self, user_id: int) -> bool:
+        if self.effective_restriction_level < self.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+            return True
+        return self.get_effective_privilege_level(user_id) >= self.PrivilegeLevel.CAN_EDIT
+
+    def can_user_restrict(self, user_id: int) -> bool:
+        # Sync conditions with frontend hasInherentRestrictionsRights
+        from posthog.models.organization import OrganizationMembership
+
+        # The owner (aka creator) has full permissions
+        if user_id == self.created_by_id:
+            return True
+        effective_project_membership_level = self.team.get_effective_membership_level(user_id)
+        return (
+            effective_project_membership_level is not None
+            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
+        )
 
     def get_analytics_metadata(self) -> Dict[str, Any]:
         """
@@ -31,9 +115,9 @@ class Dashboard(models.Model):
         """
         return {
             "pinned": self.pinned,
-            "item_count": self.items.count(),
-            "is_shared": self.is_shared,
+            "item_count": self.insights.count(),
+            "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,
             "has_description": self.description != "",
-            "tags_count": len(self.tags),
+            "tags_count": self.tagged_items.count(),
         }

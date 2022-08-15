@@ -1,18 +1,28 @@
-import React from 'react'
+import { urls } from 'scenes/urls'
+import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
-export const ACTIONS_LINE_GRAPH_LINEAR = 'ActionsLineGraph'
-export const ACTIONS_LINE_GRAPH_CUMULATIVE = 'ActionsLineGraphCumulative'
-export const ACTIONS_TABLE = 'ActionsTable'
-export const ACTIONS_PIE_CHART = 'ActionsPie'
-export const ACTIONS_BAR_CHART = 'ActionsBar'
-export const ACTIONS_BAR_CHART_VALUE = 'ActionsBarValue'
-export const PATHS_VIZ = 'PathsViz'
-export const FUNNEL_VIZ = 'FunnelViz'
+/** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
+export const NON_TIME_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+]
+/** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
+export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
+/** Display types which only work with a single series. */
+export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
     Owner = 15,
+}
+
+export enum TeamMembershipLevel {
+    Member = 1,
+    Admin = 8,
 }
 
 /** See posthog/api/organization.py for details. */
@@ -23,34 +33,51 @@ export enum PluginsAccessLevel {
     Root = 9,
 }
 
-export const organizationMembershipLevelToName = new Map<number, string>([
-    [OrganizationMembershipLevel.Member, 'member'],
-    [OrganizationMembershipLevel.Admin, 'administrator'],
-    [OrganizationMembershipLevel.Owner, 'owner'],
-])
-
-export enum AnnotationScope {
-    DashboardItem = 'dashboard_item',
-    Project = 'project',
-    Organization = 'organization',
-}
-
 export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.DashboardItem, 'dashboard item'],
+    [AnnotationScope.Insight, 'insight'],
     [AnnotationScope.Project, 'project'],
     [AnnotationScope.Organization, 'organization'],
 ])
 
+/** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
+export enum DashboardRestrictionLevel {
+    EveryoneInProjectCanEdit = 21,
+    OnlyCollaboratorsCanEdit = 37,
+}
+
+/** Collaboration privilege level (which is a user property). Sync with DashboardRestrictionLevel. */
+export enum DashboardPrivilegeLevel {
+    CanView = 21,
+    CanEdit = 37,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _ProjectAdmin = 888,
+    /** This is not a value that can be set in the DB – it's inferred. */
+    _Owner = 999,
+}
+
+export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
+    [DashboardPrivilegeLevel.CanView]: 'can view',
+    [DashboardPrivilegeLevel.CanEdit]: 'can edit',
+    [DashboardPrivilegeLevel._Owner]: 'owner',
+    [DashboardPrivilegeLevel._ProjectAdmin]: 'can edit',
+}
+
+// Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    'email',
+    'Email',
+    'name',
+    'Name',
+    'username',
+    'Username',
+    'UserName',
+]
 
 // Event constants
-export const PAGEVIEW = '$pageview'
-export const AUTOCAPTURE = '$autocapture'
-export const SCREEN = '$screen'
-export const CUSTOM_EVENT = 'custom_event'
-
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
+export const STALE_EVENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
 // TODO: Deprecated; should be removed once backend is updated
 export enum ShownAsValue {
@@ -66,164 +93,6 @@ export const RETENTION_FIRST_TIME = 'retention_first_time'
 // Properties constants
 export const PROPERTY_MATH_TYPE = 'property'
 export const EVENT_MATH_TYPE = 'event'
-export const MATHS: Record<string, any> = {
-    total: {
-        name: 'Total count',
-        description: (
-            <>
-                Total event count. Number of times the user performed the event.
-                <br />
-                <br />
-                <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
-            </>
-        ),
-        onProperty: false,
-        type: EVENT_MATH_TYPE,
-    },
-    dau: {
-        name: 'Unique users',
-        description: (
-            <>
-                Number of unique users who performed the event in the specified period.
-                <br />
-                <br />
-                <i>
-                    Example: If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
-                </i>
-            </>
-        ),
-        onProperty: false,
-        type: EVENT_MATH_TYPE,
-    },
-    weekly_active: {
-        name: 'Weekly Active',
-        description: (
-            <>
-                Users active in the past week (7 days). This is a trailing count that aggregates distinct users in the
-                past 7 days for each day in the time series
-            </>
-        ),
-        onProperty: false,
-        type: EVENT_MATH_TYPE,
-    },
-    monthly_active: {
-        name: 'Monthly Active',
-        description: (
-            <>
-                Users active in the past month (30 days).
-                <br />
-                This is a trailing count that aggregates distinct users in the past 30 days for each day in the time
-                series
-            </>
-        ),
-        onProperty: false,
-        type: EVENT_MATH_TYPE,
-    },
-    avg: {
-        name: 'Average',
-        description: (
-            <>
-                Event property average.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 14.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    sum: {
-        name: 'Sum',
-        description: (
-            <>
-                Event property sum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 42.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    min: {
-        name: 'Minimum',
-        description: (
-            <>
-                Event property minimum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 10.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    max: {
-        name: 'Maximum',
-        description: (
-            <>
-                Event property maximum.
-                <br />
-                <br />
-                For example 3 events captured with property <code>amount</code> equal to 10, 12 and 20, result in 20.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    median: {
-        name: 'Median',
-        description: (
-            <>
-                Event property median (50th percentile).
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    p90: {
-        name: '90th percentile',
-        description: (
-            <>
-                Event property 90th percentile.
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 190.
-            </>
-        ),
-        onProperty: true,
-        type: 'property',
-    },
-    p95: {
-        name: '95th percentile',
-        description: (
-            <>
-                Event property 95th percentile.
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 195.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-    p99: {
-        name: '99th percentile',
-        description: (
-            <>
-                Event property 90th percentile.
-                <br />
-                <br />
-                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 199.
-            </>
-        ),
-        onProperty: true,
-        type: PROPERTY_MATH_TYPE,
-    },
-}
 
 export const WEBHOOK_SERVICES: Record<string, string> = {
     Slack: 'slack.com',
@@ -231,17 +100,94 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
     Teams: 'office.com',
 }
 
-export const FEATURE_FLAGS: Record<string, string> = {
-    INGESTION_GRID: 'ingestion-grid-exp-3',
-    PROJECT_HOME: 'project-home-exp-5',
-    QUERY_UX_V2: '4050-query-ui-optB',
-    EVENT_COLUMN_CONFIG: '4141-event-columns',
-    INGESTION_TAXONOMY: 'event-property-taxonomy',
+export const FEATURE_FLAGS = {
+    // Cloud-only
+    CLOUD_ANNOUNCEMENT: 'cloud-announcement',
+    NPS_PROMPT: '4562-nps', // owner: @marcushyett-ph
+    // Experiments / beta features
+    NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
+    BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
+    FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
+    RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
+    INSIGHT_LEGENDS: 'insight-legends', // owner: @alexkim205
+    RECORDINGS_IN_INSIGHTS: 'recordings-in-insights', // owner: @rcmarron
+    WEB_PERFORMANCE: 'hackathon-apm', //owner: @pauldambra
+    NEW_INSIGHT_COHORTS: '7569-insight-cohorts', // owner: @EDsCODE
+    INVITE_TEAMMATES_BANNER: 'invite-teammates-prompt', // owner: @marcushyett-ph
+    DASHBOARD_PERMISSIONS: 'dashboard-permissions', // owner: @Twixes
+    SESSION_CONSOLE: 'session-recording-console', // owner: @timgl
+    SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
+    BILLING_LIMIT: 'billing-limit', // owner: @timgl
+    KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
+    INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
+    FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
+    BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
+    SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
+    TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
+    FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
+    // Re-enable person modal CSV downloads when frontend can support new entity properties
+    PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
+    BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
+    IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
+    SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner @alexkim205
 }
 
-export const ENVIRONMENT_LOCAL_STORAGE_KEY = '$environment'
-
-export enum Environments {
-    PRODUCTION = 'production',
-    TEST = 'test',
+/** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
+export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
+export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
+    [AvailableFeature.ZAPIER]: LicensePlan.Scale,
+    [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
+    [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_COLLABORATION]: LicensePlan.Scale,
+    [AvailableFeature.INGESTION_TAXONOMY]: LicensePlan.Scale,
+    [AvailableFeature.PATHS_ADVANCED]: LicensePlan.Scale,
+    [AvailableFeature.CORRELATION_ANALYSIS]: LicensePlan.Scale,
+    [AvailableFeature.GROUP_ANALYTICS]: LicensePlan.Scale,
+    [AvailableFeature.MULTIVARIATE_FLAGS]: LicensePlan.Scale,
+    [AvailableFeature.EXPERIMENTATION]: LicensePlan.Scale,
+    [AvailableFeature.TAGGING]: LicensePlan.Scale,
+    [AvailableFeature.BEHAVIORAL_COHORT_FILTERING]: LicensePlan.Scale,
+    [AvailableFeature.WHITE_LABELLING]: LicensePlan.Scale,
+    [AvailableFeature.DASHBOARD_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.PROJECT_BASED_PERMISSIONING]: LicensePlan.Enterprise,
+    [AvailableFeature.SAML]: LicensePlan.Enterprise,
+    [AvailableFeature.SSO_ENFORCEMENT]: LicensePlan.Enterprise,
+    [AvailableFeature.SUBSCRIPTIONS]: LicensePlan.Scale,
 }
+
+export const ENTITY_MATCH_TYPE = 'entities'
+export const PROPERTY_MATCH_TYPE = 'properties'
+
+export enum FunnelLayout {
+    horizontal = 'horizontal',
+    vertical = 'vertical',
+}
+
+export const BIN_COUNT_AUTO = 'auto'
+
+// Cohort types
+export enum CohortTypeEnum {
+    Static = 'static',
+    Dynamic = 'dynamic',
+}
+
+/**
+ * Mock Node.js `process`, which is required by VFile that is used by ReactMarkdown.
+ * See https://github.com/remarkjs/react-markdown/issues/339.
+ */
+export const MOCK_NODE_PROCESS = { cwd: () => '', env: {} } as unknown as NodeJS.Process
+
+export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
+    'google-oauth2': 'Google',
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    saml: 'single sign-on (SAML)',
+}
+
+// TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the
+// pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
+export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
+    cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
+
+export const DOMAIN_REGEX = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/
+export const SECURE_URL_REGEX = /^(?:http(s)?:\/\/)[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:\/?#[\]@!\$&'\(\)\*\+,;=.]+$/gi

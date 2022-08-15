@@ -1,0 +1,142 @@
+$slider-height: 16px;
+$thumb_size: 15px;
+$tick_size: 9px;
+$tick_hover_size: 5px;
+
+.rrweb-controller-slider {
+    width: 100%;
+    height: $slider-height;
+    position: relative;
+
+    .slider {
+        z-index: 2;
+        position: relative;
+        height: 100%;
+
+        .thumb {
+            z-index: 5;
+            backface-visibility: hidden;
+            top: 0;
+            position: absolute;
+            border-radius: 50%;
+            width: $thumb_size;
+            height: $thumb_size;
+            border: 2px solid var(--bg-light);
+            background-color: var(--recording-seekbar-red);
+            transform-origin: center;
+            transform: translateX(-$thumb_size / 2);
+            transition: transform 50ms;
+        }
+
+        .slider-bar,
+        .current-bar,
+        .buffer-bar {
+            width: 100%;
+            border-radius: 4px;
+            position: absolute;
+        }
+
+        .slider-bar {
+            z-index: 1;
+            background-color: var(--border);
+            height: 4px;
+            top: ($slider-height - 4px) / 2;
+        }
+
+        .buffer-bar {
+            z-index: 2;
+            transition: width 200ms;
+            background-color: var(--recording-buffer-bg);
+            position: absolute;
+            height: 2px;
+            top: ($slider-height - 2px) / 2;
+            left: 1px;
+            width: 0; // starting point
+        }
+
+        .current-bar {
+            z-index: 3;
+            background-color: var(--recording-seekbar-red);
+            position: absolute;
+            height: 2px;
+            top: ($slider-height - 2px) / 2;
+            left: 1px;
+            width: 0; // starting point
+        }
+
+        .inactivity-bar {
+            z-index: 4;
+            position: absolute;
+            height: 2px;
+            top: ($slider-height - 2px) / 2;
+            left: 1px;
+            width: 100%;
+            .activity-section {
+                float: left;
+                height: 100%;
+            }
+            .inactive-section {
+                background: repeating-linear-gradient(325deg, transparent, transparent 2px, #fff 2px, #fff 4px);
+            }
+        }
+    }
+
+    .ticks {
+        z-index: 1;
+        position: relative;
+        width: 100%;
+        bottom: 100%;
+
+        .tick-hover-box {
+            cursor: pointer;
+            position: absolute;
+            height: 100%;
+            top: -12px;
+            width: $tick_hover_size;
+            background-color: green;
+            right: -1 * ceil($tick_hover_size / 2);
+
+            .tick-marker {
+                position: absolute;
+                width: 1px;
+                height: 21px;
+                background-color: var(--recording-player-container-bg);
+                right: floor($tick_hover_size / 2);
+            }
+
+            .tick-info {
+                border-radius: var(--radius);
+                padding: 0.25rem 0.5rem;
+                position: absolute;
+                top: -4 * $tick_size;
+                background-color: var(--bg-charcoal);
+                display: none;
+                color: var(--light);
+                white-space: nowrap;
+                // Next 2 lines centers the absolute positioned tick info
+                left: 50%;
+                transform: translate(-50%, 0);
+                &.show {
+                    display: flex;
+                }
+            }
+
+            .tick-thumb {
+                position: absolute;
+                width: $tick_size;
+                height: $tick_size;
+                border-radius: 50%;
+                right: -1 * floor($tick_size / 2) + floor($tick_hover_size / 2);
+                top: -1 * floor($tick_size / 2);
+                border: 0.5px solid var(--recording-player-container-bg);
+                background-color: var(--bg-light);
+                transform-origin: center;
+                transition: transform 200ms;
+
+                &.big {
+                    transform: scale(1.3);
+                }
+            }
+        }
+    }
+}

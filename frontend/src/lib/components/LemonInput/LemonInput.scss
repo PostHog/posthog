@@ -1,0 +1,49 @@
+.LemonInput {
+    color: var(--default);
+    cursor: text;
+
+    &:not(.LemonInput--focused):not(.LemonRow--disabled):hover {
+        border: 1px solid var(--primary-light);
+    }
+
+    .LemonInput__input {
+        border: none;
+        outline: none;
+        background-color: inherit;
+        width: 100%;
+        text-overflow: ellipsis;
+
+        &:disabled {
+            opacity: var(--opacity-disabled);
+            cursor: not-allowed;
+        }
+
+        &:placeholder-shown {
+            font-style: italic;
+        }
+    }
+
+    &.LemonRow {
+        padding: 0.25rem 0.5rem;
+    }
+}
+
+.LemonRow__icon:first-child {
+    .LemonInput & {
+        .LemonIcon {
+            color: var(--muted-alt);
+        }
+    }
+    .LemonInput.LemonInput--hasContent & {
+        .LemonIcon {
+            color: var(--primary);
+        }
+    }
+}
+
+.LemonInput--focused {
+    &:not(.LemonRow--disabled) {
+        transition: 100ms border;
+        border: 1px solid var(--primary);
+    }
+}

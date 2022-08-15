@@ -3,17 +3,21 @@
     body,
     .main {
         width: 100%;
-        font-size: 14px;
-        font-family: 'Helvetica Neue', helvetica, sans-serif;
+        font-family: 'MatterSQ', 'Helvetica Neue', helvetica, sans-serif;
         padding: 0;
         margin: 0;
-        background-color: #fff;
         color: #2d2d2d;
         line-height: 1.4;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
+        font-size: 16px;
+        background-color: #fafaf9;
     }
 
     .main {
-        max-width: 700px;
+        max-width: 600px;
         margin: 15px auto;
         border-collapse: separate;
         border-spacing: 0;
@@ -22,7 +26,8 @@
     .logo {
         /* Styling for alt text */
         font-weight: 600;
-        color: #35416b;
+        color: #5375ff;
+        padding-left: 16px;
     }
 
     /* General styles */
@@ -54,11 +59,7 @@
     }
 
     .inner {
-        padding: 30px 0 20px;
-    }
-
-    .section {
-        margin-bottom: 96px;
+        padding: 30px 0 0px;
     }
 
     .preheader {
@@ -66,6 +67,10 @@
         font-size: 0;
         max-height: 0;
         line-height: 0;
+    }
+
+    h1 {
+        font-size: 36px;
     }
 
     h1,
@@ -88,32 +93,102 @@
         text-align: center;
     }
 
+    .danger {
+        color: #df4313;
+    }
+
+    .muted {
+        color: #5F5F5F;
+        font-size: 12px;
+    }
+    .muted a {
+        color: #5F5F5F;
+        font-weight: 600;
+    }
+
+    .font-bold {
+        font-weight: 600;
+    }
+
+    .action-btn {
+        background-color: #1d4aff;
+        color: white;
+        padding: 16px 40px 16px 40px;
+        font-size: 18px;
+        font-weight: 600;
+        border: none;
+        border-radius: 4px;
+    }
+
     .button {
-        padding: 8px 16px;
-        height: 40px;
-        background-color: #5375ff;
+        display: inline-block;
+        padding-top: 16px;
+        padding-bottom: 16px;
+        padding-left: 48px;
+        padding-right: 48px;
+        border-radius: 4px;
+        background-color: #1d4aff;
+        font-weight: 500;
         color: #fff;
-        border-top-left-radius: 2px;
-        border-top-right-radius: 2px;
-        border-bottom-left-radius: 2px;
-        border-bottom-right-radius: 2px;
+        border-radius: 4px;
+        text-decoration: none;
     }
 
     .mt {
-        margin-top: 16px;
+        margin-top: 24px;
     }
 
     .mb {
-        margin-bottom: 16px;
+        margin-bottom: 24px;
+    }
+
+    .invite-header {
+        font-weight: 400;
+        text-align: center;
+        margin-top: -24px;
+    }
+
+    .dashed-border {
+        border-bottom: 3px dashed #bdbdbd;
+        padding-bottom: 16px;
+    }
+
+    .invite-bottom {
+        text-align: center;
+        padding-top: 8px;
+    }
+
+    .invite-message {
+        display: flex;
+        font-size: 18px;
+        font-weight: 500;
+        background-color: white;
+        padding: 16px;
+        margin-bottom: 8px;
+    }
+
+    .invite-message-divider {
+        height: auto;
+        width: 4px;
+        margin-right: 16px;
+        background-color: #db3707;
+    }
+
+    .insight-image {
+        display: block;
+        min-height: 200px;
+        width: 100%;
+        border-color: #d9d9d9;
+        border-width: 1px;
+        border-radius: 3px;
+        border-style: solid;
+        box-shadow: 0px 16px 16px -16px rgba(0, 0, 0, 0.25);
     }
 
     /* Header & Footer */
 
     .header {
         text-align: left;
-        border-bottom-color: #5375ff;
-        border-bottom-width: 5px;
-        border-bottom-style: solid;
     }
 
     .mainTitle div,
@@ -134,39 +209,27 @@
     }
 
     .footer {
-        border-top-color: #a7b7be;
-        border-top-width: 1px;
-        border-top-style: solid;
-        padding-top: 32px;
-        color: #a5a5a5;
-        font-size: 12px;
         text-align: center;
+        margin-top: 24px;
+        margin-bottom: 24px;
     }
 
-    .footer a {
-        color: #a5a5a5;
+    .divider {
+        border-bottom: 2px dashed #989a9b;
+        max-width: 200px;
+        margin: 1rem auto;
     }
-
-    .footer div:not(.socialLinks) a {
-        text-decoration: underline;
-    }
-
-    .footer .socialLinks a {
-        font-weight: 600;
-    }
-
-    .footer .socialLinks span {
-        padding: 0 8px;
-    }
-
+    
     /* Temporary */
     .beta {
         color: #f7a501;
     }
+
 </style>
 
 <style type="text/css" inline="false">
     @media only screen and (max-width: 480px) {
+
         /* General styles */
         .grid {
             width: 100% !important;
@@ -176,10 +239,6 @@
             display: block !important;
             width: 100% !important;
             margin-top: 32px !important;
-        }
-
-        .section {
-            margin-bottom: 48px !important;
         }
 
         /* Header & Footer */
@@ -197,4 +256,5 @@
             margin-bottom: 16px;
         }
     }
+
 </style>

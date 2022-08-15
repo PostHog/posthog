@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+set -e
+
+echo "Upgrading PostHog. This will cause a few minutes of downtime."
+read -r -p "Do you want to upgarde PostHog? [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK!"
+else
+    exit
+fi
+
+echo ""
+echo ""
+echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+echo "🚨🚨🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨🚨"
+echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+echo ""
+echo ""
+echo "PRIOR TO THIS VERISON, the Postgres and Clickhouse containers did NOT have persistent named volumes."
+echo "If you choose to upgrade, you 💣 may lose data 💣 contained in anonymous volumes."
+echo ""
+echo "See the discussion here for more information: https://github.com/PostHog/posthog/pull/11256"
+echo ""
+echo "WE STRONGLY RECOMMEND YOU:"
+echo ""
+echo "✅ back up your entire environment/installation (vm, host, etc.), including all docker containers and volumes:"
+echo "✅ specifically back up the contents of :"
+echo "  ☑ /var/lib/postgresql/data in the postgres (root_db_1) container"
+echo "  ☑ /var/lib/clickhouse in the root_clickhouse_1 (root_clickhouse_1) container"
+echo "and be ready to check/recopy the data before you boot Posthog next."
+read -r -p "Do you want to upgarde PostHog? [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK!"
+else
+    exit
+fi
+
+[[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+
+cd posthog
+git pull
+cd ../
+
+rm -f docker-compose.yml
+cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
+envsubst < docker-compose.yml.tmpl > docker-compose.yml
+rm docker-compose.yml.tmpl
+
+docker-compose pull
+
+echo "Checking if async migrations are up to date"
+sudo -E docker-compose run asyncmigrationscheck
+
+echo "Stopping the stack!"
+docker-compose stop
+
+
+echo ""
+echo ""
+echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+echo "🚨🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨🚨🚨🚨"
+echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+echo ""
+echo ""
+echo "Before we restart the stack, you should restore data you have backed up from the previous warning."
+echo ""
+echo ""
+
+read -r -p "Do you want to restart the Posthog stack now ? (docker-compose up) [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK, Restarting the stack!"
+    sudo -E docker-compose up -d
+else
+    echo "OK, we are leaving the stack OFFLINE. Run 'sudo -E docker-compose up -d' when you are ready to start it."
+    exit
+fi
+
+echo "PostHog upgraded successfully!"

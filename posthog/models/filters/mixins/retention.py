@@ -1,13 +1,12 @@
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Tuple, Union
+from typing import Literal, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
-from django.db.models.query_utils import Q
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
-    DISTINCT_ID_FILTER,
     PERIOD,
     RETENTION_RECURRING,
     RETENTION_TYPE,
@@ -25,12 +24,12 @@ from posthog.utils import relative_date_parse
 
 class RetentionTypeMixin(BaseParamMixin):
     @cached_property
-    def retention_type(self) -> str:
+    def retention_type(self) -> Literal["retention_recurring", "retention_first_time"]:
         return self._data.get(RETENTION_TYPE, RETENTION_RECURRING)
 
     @include_dict
     def retention_type_to_dict(self):
-        return {"retention_type": self.retention_type} if self.retention_type else {}
+        return {"retention_type": self.retention_type}
 
 
 RETENTION_DEFAULT_INTERVALS = 11
@@ -100,31 +99,6 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
         _, t1 = RetentionDateDerivedMixin.determine_time_delta(self.total_intervals, self.period)
         return t1
 
-    def reference_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from
-        date_to = self.date_from + self.period_increment
-        date_from = self.date_from
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{"{}__gte".format(field): date_from})
-        if date_to:
-            filter &= Q(**{"{}__lte".format(field): date_to})
-        return filter
-
-    def recurring_date_filter_Q(self, field: str = "timestamp") -> Q:
-        date_from = self.date_from + self.selected_interval * self.period_increment
-        date_to = date_from + self.period_increment
-        if self._date_from == "all":
-            return Q()
-        if not date_from:
-            date_from = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=7)
-        filter = Q(**{"{}__gte".format(field): date_from})
-        if date_to:
-            filter &= Q(**{"{}__lte".format(field): date_to})
-        return filter
-
     @staticmethod
     def determine_time_delta(
         total_intervals: int, period: str
@@ -138,7 +112,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
         elif period == "Day":
             return timedelta(days=total_intervals), timedelta(days=1)
         else:
-            raise ValueError(f"Period {period} is unsupported.")
+            raise ValidationError(f"Period {period} is unsupported.")
 
 
 class EntitiesDerivedMixin(EntitiesMixin):

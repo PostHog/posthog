@@ -1,20 +1,20 @@
-@import '~/vars';
+@import '../../styles/mixins';
 @import './authenticationShared';
 
 .invite-signup {
     height: 100vh;
 
     &.authenticated {
-        height: calc(100vh - #{$top_nav_height});
+        height: calc(100vh - 3.5rem);
     }
 
     .inner {
         text-align: center;
         max-width: 400px;
-        padding: 0 $default_spacing;
-        color: $text_light;
+        padding: 0 1rem;
+        color: var(--light);
         h1 {
-            color: $text_light;
+            color: var(--light);
         }
     }
 
@@ -25,17 +25,17 @@
         height: 100%;
         .inner {
             .error-message {
-                margin-top: $default_spacing * 2;
+                margin-top: 2rem;
             }
 
             .actions {
-                margin-top: $default_spacing * 2;
+                margin-top: 2rem;
             }
         }
     }
 
     .authenticated-invite {
-        background: $dusk_sky;
+        background: linear-gradient(180deg, #20305a 0%, #373088 33.85%, #d05783 100%);
         height: 100%;
         display: flex;
         align-items: center;
@@ -43,7 +43,7 @@
 
         .inner {
             > div {
-                margin-bottom: $default_spacing;
+                margin-bottom: 1rem;
 
                 &:last-of-type {
                     margin-bottom: 0;
@@ -61,33 +61,24 @@
                 display: inline-block;
                 .whoami {
                     cursor: default !important;
-                    border: 1px $text_light dashed;
-                    border-radius: $radius;
+                    border: 1px var(--light) dashed;
+                    border-radius: var(--radius);
                     background-color: rgba(white, 0.3);
                     padding: 4px;
                 }
                 .whoami,
                 span {
-                    color: $text_light !important;
+                    color: var(--light) !important;
                 }
             }
         }
     }
 
     a.plain-link {
-        color: $text_light;
+        color: var(--light);
         font-weight: bold;
-        &:after {
-            content: ' | ';
-            &:hover {
-                color: $text_light;
-            }
-        }
-        &:last-of-type:after {
-            content: '';
-        }
         &:hover {
-            color: darken($text_light, 20%);
+            color: var(--primary-light);
         }
     }
 
@@ -101,14 +92,13 @@
 
         .image-showcase-container {
             .company {
-                font-family: $gosha_sans;
                 font-size: 2.7rem;
                 margin-bottom: 0;
             }
 
             .showcase-content {
-                z-index: $z_city_background_content;
-                color: $text_light;
+                z-index: var(--z-city-background-content);
+                color: var(--light);
                 height: calc(100% - 100px);
                 width: 100%;
                 display: flex;
@@ -116,7 +106,7 @@
                 align-items: center;
                 justify-content: center;
                 text-align: center;
-                padding: 0 $default_spacing * 2;
+                padding: 0 2rem;
                 position: relative;
 
                 h1,
@@ -132,7 +122,7 @@
                 }
 
                 h3 {
-                    color: $text_light;
+                    color: var(--light);
                 }
 
                 .mobile-continue {
@@ -145,16 +135,16 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            padding-top: $default_spacing * 2;
+            padding-top: 2rem;
 
             .rhs-inner {
                 width: 100%;
                 max-width: 382px; // 350px + 32px padding
-                padding: 0 $default_spacing;
+                padding: 0 1rem;
             }
 
             .password-login {
-                margin-top: $default_spacing * 2;
+                margin-top: 2rem;
             }
         }
 
@@ -174,7 +164,7 @@
 
                 .mobile-continue {
                     display: block !important;
-                    padding-top: $default_spacing;
+                    padding-top: 1rem;
                 }
             }
 
@@ -185,13 +175,35 @@
                 .top-helper {
                     text-align: left;
                     margin-right: 0;
-                    padding: 0 $default_spacing;
-                    color: $text_muted;
+                    padding: 0 1rem;
+                    color: var(--muted);
                     b {
                         font-weight: normal;
                     }
                 }
             }
+        }
+    }
+}
+
+.whoami {
+    height: 100%;
+    display: flex;
+    align-items: center;
+
+    .details {
+        flex-direction: column;
+        font-weight: bold;
+        align-items: flex-start;
+        padding: 0 8px;
+
+        span {
+            display: block;
+        }
+
+        span:last-of-type {
+            font-size: 12px;
+            color: var(--muted);
         }
     }
 }

@@ -23,16 +23,16 @@
             "essential": true,
             "environment": [
                 {
+                    "name": "MULTI_TENANCY",
+                    "value": "True"
+                },
+                {
                     "name": "USING_PGBOUNCER",
                     "value": "True"
                 },
                 {
                     "name": "DISABLE_SERVER_SIDE_CURSORS",
                     "value": "True"
-                },
-                {
-                    "name": "CLICKHOUSE_ASYNC",
-                    "value": "False"
                 },
                 {
                     "name": "CLICKHOUSE_DATABASE",
@@ -71,16 +71,12 @@
                     "value": "True"
                 },
                 {
-                    "name": "KAFKA_BASE64_KEYS",
-                    "value": "True"
-                },
-                {
-                    "name": "PRIMARY_DB",
-                    "value": "clickhouse"
-                },
-                {
                     "name": "SITE_URL",
                     "value": "https://app.posthog.com"
+                },
+                {
+                    "name": "JS_URL",
+                    "value": "https://app-static.posthog.com"
                 },
                 {
                     "name": "EMAIL_DEFAULT_FROM",
@@ -89,10 +85,6 @@
                 {
                     "name": "DEPLOYMENT",
                     "value": "Posthog Cloud"
-                },
-                {
-                    "name": "CLICKHOUSE_DENORMALIZED_PROPERTIES",
-                    "value": "issampledevent,currentscreen,objectname"
                 },
                 {
                     "name": "BILLING_TRIAL_DAYS",
@@ -107,12 +99,48 @@
                     "value": "True"
                 },
                 {
-                    "name": "ASYNC_EVENT_PROPERTY_USAGE",
-                    "value": "1"
+                    "name": "EVENT_PROPERTY_USAGE_INTERVAL_SECONDS",
+                    "value": "3600"
                 },
                 {
                     "name": "CAPTURE_INTERNAL_METRICS",
+                    "value": "False"
+                },
+                {
+                    "name": "USING_PGBOUNCER",
                     "value": "True"
+                },
+                {
+                    "name": "CALCULATE_X_COHORTS_PARALLEL",
+                    "value": "50"
+                },
+                {
+                    "name": "PERSON_DISTINCT_ID_OPTIMIZATION_TEAM_IDS",
+                    "value": "2,2635"
+                },
+                {
+                    "name": "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
+                    "value": "1"
+                },
+                {
+                    "name": "UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS",
+                    "value": "60"
+                },
+                {
+                    "name": "PARALLEL_DASHBOARD_ITEM_CACHE",
+                    "value": "7"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENABLED",
+                    "value": "True"
+                },
+                {
+                    "name": "KAFKA_SECURITY_PROTOCOL",
+                    "value": "SSL"
+                },
+                {
+                    "name": "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+                    "value": "0 5 * * SUN"
                 }
             ],
             "secrets": [
@@ -125,8 +153,8 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_HOST::"
                 },
                 {
-                    "name": "CLICKHOUSE_MIGRATION_HOSTS",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_MIGRATION_HOSTS::"
+                    "name": "CLICKHOUSE_STABLE_HOST",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:CLICKHOUSE_STABLE_HOST::"
                 },
                 {
                     "name": "CLICKHOUSE_PASSWORD",
@@ -157,20 +185,8 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:EMAIL_USE_TLS::"
                 },
                 {
-                    "name": "KAFKA_CLIENT_CERT_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_B64::"
-                },
-                {
-                    "name": "KAFKA_CLIENT_CERT_KEY_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_CLIENT_CERT_KEY_B64::"
-                },
-                {
-                    "name": "KAFKA_TRUSTED_CERT_B64",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_TRUSTED_CERT_B64::"
-                },
-                {
                     "name": "KAFKA_URL",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:KAFKA_URL::"
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:MSKProduction-ZnkrjC:KAFKA_URL::"
                 },
                 {
                     "name": "POSTHOG_PERSONAL_API_KEY",
@@ -237,12 +253,27 @@
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:STRIPE_WEBHOOK_SECRET::"
                 },
                 {
-                    "name": "NEW_RELIC_LICENSE_KEY",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:NEW_RELIC_LICENSE_KEY::"
+                    "name": "HUBSPOT_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:HUBSPOT_API_KEY::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_ENDPOINT",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_ENDPOINT::"
+                },
+                {
+                    "name": "OBJECT_STORAGE_BUCKET",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:795637471508:secret:Posthog_Production_Heroku-FQ2itU:OBJECT_STORAGE_BUCKET::"
                 }
             ],
             "entryPoint": ["sh", "-c"],
-            "command": ["./bin/docker-server-newrelic"],
+            "command": ["./bin/docker-server"],
+            "ulimits": [
+                {
+                    "name": "nofile",
+                    "softLimit": 1024000,
+                    "hardLimit": 1024000
+                }
+            ],
             "linuxParameters": {
                 "initProcessEnabled": true
             }

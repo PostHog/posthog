@@ -1,87 +1,66 @@
-import React from 'react'
-import { Tooltip, Input } from 'antd'
-import { CopyOutlined } from '@ant-design/icons'
+import React, { HTMLProps } from 'react'
 import { copyToClipboard } from 'lib/utils'
+import { Tooltip } from 'lib/components/Tooltip'
+import { IconCopy } from './icons'
+import { LemonButton } from './LemonButton'
 
-interface InlineProps {
+interface InlineProps extends HTMLProps<HTMLSpanElement> {
     children?: JSX.Element | string
     explicitValue?: string
     description?: string
+    /** Makes text selectable instead of copying on click anywhere */
+    selectable?: boolean
     isValueSensitive?: boolean
-    tooltipMessage?: string
+    tooltipMessage?: string | null
     iconStyle?: Record<string, string | number>
     iconPosition?: 'end' | 'start'
-}
-
-interface InputProps {
-    value: string
-    placeholder?: string
-    description?: string
-    isValueSensitive?: boolean
+    style?: React.CSSProperties
 }
 
 export function CopyToClipboardInline({
     children,
     explicitValue,
     description,
+    selectable = false,
     isValueSensitive = false,
-    tooltipMessage = 'Click to copy',
-    iconStyle = {},
+    tooltipMessage = null,
     iconPosition = 'end',
+    style,
     ...props
 }: InlineProps): JSX.Element {
-    return (
-        <Tooltip title={tooltipMessage}>
-            <span
-                className={isValueSensitive ? 'ph-no-capture' : ''}
-                style={{
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
-                    flexWrap: iconPosition === 'end' ? 'wrap' : 'wrap-reverse',
-                }}
-                onClick={() => {
-                    copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
-                }}
-                {...props}
-            >
-                <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
-                <CopyOutlined
-                    style={iconPosition === 'end' ? { marginLeft: 4, ...iconStyle } : { marginRight: 4, ...iconStyle }}
-                />
-            </span>
-        </Tooltip>
-    )
-}
+    const copy = (): boolean => copyToClipboard(explicitValue ?? (children ? children.toString() : ''), description)
 
-export function CopyToClipboardInput({
-    value,
-    placeholder,
-    description,
-    isValueSensitive = false,
-    ...props
-}: InputProps): JSX.Element {
-    return (
-        <Input
+    const content = (
+        <span
             className={isValueSensitive ? 'ph-no-capture' : ''}
-            type="text"
-            value={value}
-            placeholder={placeholder || 'nothing to show here'}
-            disabled={!value}
-            suffix={
-                value ? (
-                    <Tooltip title="Copy to Clipboard">
-                        <CopyOutlined
-                            onClick={() => {
-                                copyToClipboard(value, description)
-                            }}
-                        />
-                    </Tooltip>
-                ) : null
-            }
+            style={{
+                position: 'relative',
+                overflow: 'hidden',
+                cursor: selectable ? 'text' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                flexDirection: iconPosition === 'end' ? 'row' : 'row-reverse',
+                flexWrap: 'nowrap',
+                width: 'fit-content',
+                wordBreak: 'break-all',
+                ...style,
+            }}
+            onClick={!selectable ? copy : undefined}
             {...props}
-        />
+        >
+            <span style={iconPosition === 'start' ? { flexGrow: 1 } : {}}>{children}</span>
+            <LemonButton
+                size="small"
+                icon={<IconCopy />}
+                noPadding
+                className="copy-icon"
+                onClick={!selectable ? undefined : copy}
+            />
+        </span>
+    )
+    return !selectable || tooltipMessage !== null ? (
+        <Tooltip title={tooltipMessage || 'Click to copy'}>{content}</Tooltip>
+    ) : (
+        <>{content}</>
     )
 }

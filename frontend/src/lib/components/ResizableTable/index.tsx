@@ -4,23 +4,22 @@ import { ColumnType } from 'antd/lib/table'
 import { ResizableProps } from 'react-resizable'
 import ResizeObserver from 'resize-observer-polyfill'
 import { RenderedCell } from 'rc-table/lib/interface'
-import { getActiveBreakpoint, getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from './responsiveUtils'
+import { getFullwidthColumnSize, getMinColumnWidth, parsePixelValue } from 'lib/utils/responsiveUtils'
 import VirtualTableHeader from './VirtualTableHeader'
-import { TableConfig as _TableConfig } from './TableConfig'
+import { useBreakpoint } from 'lib/hooks/useBreakpoint'
 
 import './index.scss'
-
-export const TableConfig = _TableConfig
 
 export interface ResizableColumnType<RecordType> extends ColumnType<RecordType> {
     title: string | JSX.Element
     key?: string
     dataIndex?: string
     render?:
-        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
-        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType>)
+        | ((record: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType> | null)
+        | ((value: any, record?: RecordType, ...rest: any) => JSX.Element | string | RenderedCell<RecordType> | null)
     ellipsis?: boolean
     span: number
+    defaultWidth?: number
     eventProperties?: string[]
     widthConstraints?: [number, number] // Override default min and max width (px). To specify no max, use Infinity.
 }
@@ -31,6 +30,7 @@ export interface InternalColumnType<RecordType> extends ResizableColumnType<Reco
 
 export type ResizeHandler = Exclude<ResizableProps['onResize'], undefined>
 
+// https://github.com/ant-design/ant-design/blob/4cdd24f4ec1ffb638175bb6c2dbb4fd7f103d60f/components/table/style/index.less#L422-L424
 export const ANTD_EXPAND_BUTTON_WIDTH = 48
 
 interface ResizableTableProps<RecordType> extends TableProps<RecordType> {
@@ -43,7 +43,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
     components,
     ...props
 }: ResizableTableProps<RecordType>): JSX.Element {
-    const breakpoint = getActiveBreakpoint()
+    const breakpoint = useBreakpoint()
     const minColumnWidth = getMinColumnWidth(breakpoint)
     const [columns, setColumns] = useState(() => {
         const lastIndex = initialColumns.length
@@ -114,16 +114,18 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         unsetLastColumnStyle()
     }
 
-    const handleColumnResize = (index: number): ResizeHandler => (_, { size: { width } }) => {
-        if (timeout.current) {
-            cancelAnimationFrame(timeout.current)
+    const handleColumnResize =
+        (index: number): ResizeHandler =>
+        (_, { size: { width } }) => {
+            if (timeout.current) {
+                cancelAnimationFrame(timeout.current)
+            }
+            timeout.current = requestAnimationFrame(function () {
+                updateColumnWidth(index, width)
+                updateTableWidth()
+            })
+            updateScrollGradient()
         }
-        timeout.current = requestAnimationFrame(function () {
-            updateColumnWidth(index, width)
-            updateTableWidth()
-        })
-        updateScrollGradient()
-    }
 
     function handleWrapperResize(newWidth: number): void {
         // Recalculate column widths if the wrapper changes size.
@@ -170,7 +172,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
         // Update render prop when parent columns change
         setColumns((cols) => {
             const lastIndex = cols.length
-            const nextColumns = cols.map((column, index) =>
+            return cols.map((column, index) =>
                 index === lastIndex
                     ? column
                     : {
@@ -178,7 +180,6 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                           render: initialColumns[index].render,
                       }
             )
-            return nextColumns
         })
     }, [initialColumns])
 
@@ -196,7 +197,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         ? column
                         : {
                               ...column,
-                              width: Math.max(columnSpanWidth * column.span, minColumnWidth),
+                              width: Math.max(column.defaultWidth || columnSpanWidth * column.span, minColumnWidth),
                           }
                 )
                 setHeaderColumns(nextColumns)
@@ -216,7 +217,7 @@ export function ResizableTable<RecordType extends Record<any, any> = any>({
                         handleResize={handleColumnResize}
                         layoutEffect={updateTableWidth}
                         minColumnWidth={minColumnWidth}
-                        expandable={!!props.expandable}
+                        expandable={props.expandable}
                     />
                 )}
                 <Table

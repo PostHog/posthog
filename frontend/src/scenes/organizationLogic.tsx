@@ -1,16 +1,17 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { organizationLogicType } from './organizationLogicType'
-import { OrganizationType, PersonalizationData } from '~/types'
-import { toast } from 'react-toastify'
+import type { organizationLogicType } from './organizationLogicType'
+import { AvailableFeature, OrganizationType } from '~/types'
 import { userLogic } from './userLogic'
+import { getAppContext } from '../lib/utils/getAppContext'
+import { OrganizationMembershipLevel } from '../lib/constants'
+import { isUserLoggedIn } from 'lib/utils'
+import { lemonToast } from 'lib/components/lemonToast'
 
-interface OrganizationUpdatePayload {
-    name?: string
-    personalization?: PersonalizationData
-}
+export type OrganizationUpdatePayload = Partial<Pick<OrganizationType, 'name' | 'is_member_join_email_enabled'>>
 
-export const organizationLogic = kea<organizationLogicType<OrganizationType, PersonalizationData>>({
+export const organizationLogic = kea<organizationLogicType>({
+    path: ['scenes', 'organizationLogic'],
     actions: {
         deleteOrganization: (organization: OrganizationType) => ({ organization }),
         deleteOrganizationSuccess: true,
@@ -26,11 +27,38 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
             },
         ],
     },
+    selectors: {
+        hasDashboardCollaboration: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) =>
+                currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
+        ],
+        hasIngestionTaxonomy: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) =>
+                currentOrganization?.available_features?.includes(AvailableFeature.INGESTION_TAXONOMY),
+        ],
+        isCurrentOrganizationUnavailable: [
+            (s) => [s.currentOrganization, s.currentOrganizationLoading],
+            (currentOrganization, currentOrganizationLoading): boolean =>
+                !currentOrganization?.membership_level && !currentOrganizationLoading,
+        ],
+        isProjectCreationForbidden: [
+            (s) => [s.currentOrganization],
+            (currentOrganization) =>
+                !currentOrganization?.membership_level ||
+                currentOrganization.membership_level < OrganizationMembershipLevel.Admin,
+        ],
+    },
     loaders: ({ values }) => ({
         currentOrganization: [
             null as OrganizationType | null,
             {
                 loadCurrentOrganization: async () => {
+                    if (!isUserLoggedIn()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
+                        return null
+                    }
                     try {
                         return await api.get('api/organizations/@current')
                     } catch {
@@ -38,20 +66,16 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
                     }
                 },
                 createOrganization: async (name: string) => await api.create('api/organizations/', { name }),
-                updateOrganization: async (payload: OrganizationUpdatePayload) =>
-                    await api.update('api/organizations/@current', payload),
-                renameCurrentOrganization: async (newName: string) => {
+                updateOrganization: async (payload: OrganizationUpdatePayload) => {
                     if (!values.currentOrganization) {
-                        throw new Error('Current organization has not been loaded yet, so it cannot be renamed!')
+                        throw new Error('Current organization has not been loaded yet.')
                     }
-                    const renamedOrganization = (await api.update(
+                    const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
-                        {
-                            name: newName,
-                        }
-                    )) as OrganizationType
+                        payload
+                    )
                     userLogic.actions.loadUser()
-                    return renamedOrganization
+                    return updatedOrganization
                 },
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
             },
@@ -61,8 +85,8 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
         createOrganizationSuccess: () => {
             window.location.href = '/organization/members'
         },
-        renameCurrentOrganizationSuccess: () => {
-            toast.success('Organization has been renamed')
+        updateOrganizationSuccess: () => {
+            lemonToast.success('Your configuration has been saved')
         },
         deleteOrganization: async ({ organization }) => {
             try {
@@ -74,10 +98,20 @@ export const organizationLogic = kea<organizationLogicType<OrganizationType, Per
             }
         },
         deleteOrganizationSuccess: () => {
-            toast.success('Organization has been deleted')
+            lemonToast.success('Organization has been deleted')
         },
     }),
     events: ({ actions }) => ({
-        afterMount: [actions.loadCurrentOrganization],
+        afterMount: () => {
+            const appContext = getAppContext()
+            const contextualOrganization = appContext?.current_user?.organization
+            if (contextualOrganization) {
+                // If app context is available (it should be practically always) we can immediately know currentOrganization
+                actions.loadCurrentOrganizationSuccess(contextualOrganization)
+            } else {
+                // If app context is not available, a traditional request is needed
+                actions.loadCurrentOrganization()
+            }
+        },
     }),
 })

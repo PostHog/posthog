@@ -1,129 +1,161 @@
-import React, { useEffect } from 'react'
-import { useActions, useValues } from 'kea'
+import React from 'react'
+import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
-
-import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
-import { BillingAlerts } from 'lib/components/BillingAlerts'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
-import { sceneLogic, Scene } from 'scenes/sceneLogic'
-import { SceneLoading } from 'lib/utils'
-import { router } from 'kea-router'
-import { CommandPalette } from 'lib/components/CommandPalette'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Loading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from './PreflightCheck/logic'
-import { BackTo } from 'lib/components/BackTo'
-import { Papercups } from 'lib/components/Papercups'
+import type { appLogicType } from './AppType'
+import { models } from '~/models'
+import { teamLogic } from './teamLogic'
+import { LoadedScene } from 'scenes/sceneTypes'
+import { appScenes } from 'scenes/appScenes'
+import { Navigation } from '~/layout/navigation/Navigation'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { ToastCloseButton } from 'lib/components/lemonToast'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 
-function Toast(): JSX.Element {
-    return <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
-}
+export const appLogic = kea<appLogicType>({
+    path: ['scenes', 'App'],
+    connect: [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic],
+    actions: {
+        enableDelayedSpinner: true,
+        ignoreFeatureFlags: true,
+    },
+    reducers: {
+        showingDelayedSpinner: [false, { enableDelayedSpinner: () => true }],
+        featureFlagsTimedOut: [false, { ignoreFeatureFlags: () => true }],
+    },
+    selectors: {
+        showApp: [
+            (s) => [
+                userLogic.selectors.userLoading,
+                userLogic.selectors.user,
+                featureFlagLogic.selectors.receivedFeatureFlags,
+                s.featureFlagsTimedOut,
+                preflightLogic.selectors.preflightLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (userLoading, user, receivedFeatureFlags, featureFlagsTimedOut, preflightLoading, preflight) => {
+                return (
+                    (!userLoading || user) &&
+                    (receivedFeatureFlags || featureFlagsTimedOut) &&
+                    (!preflightLoading || preflight)
+                )
+            },
+        ],
+    },
+    events: ({ actions, cache }) => ({
+        afterMount: () => {
+            cache.spinnerTimeout = window.setTimeout(() => actions.enableDelayedSpinner(), 1000)
+            cache.featureFlagTimeout = window.setTimeout(() => actions.ignoreFeatureFlags(), 3000)
+        },
+        beforeUnmount: () => {
+            window.clearTimeout(cache.spinnerTimeout)
+            window.clearTimeout(cache.featureFlagTimeout)
+        },
+    }),
+})
 
 export function App(): JSX.Element | null {
-    const { user, userLoading } = useValues(userLogic)
-    const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
-    const { preflight, preflightLoading } = useValues(preflightLogic)
-    const { location } = useValues(router)
-    const { replace } = useActions(router)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { showApp, showingDelayedSpinner } = useValues(appLogic)
+    const { user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    useMountedLogic(sceneLogic({ scenes: appScenes }))
 
-    useEffect(() => {
-        if (scene === Scene.Signup && preflight && !preflight.cloud && preflight.initiated) {
-            // If user is on an initiated self-hosted instance, redirect away from signup
-            replace('/login')
-            return
-        }
-    }, [scene, preflight])
-
-    useEffect(() => {
-        if (user) {
-            // If user is already logged in, redirect away from unauthenticated-only routes like signup
-            if (sceneConfig.onlyUnauthenticated) {
-                replace('/')
-                return
-            }
-
-            // Redirect to org/project creation if there's no org/project respectively, unless using invite
-            if (scene !== Scene.InviteSignup) {
-                if (!user.organization) {
-                    if (location.pathname !== '/organization/create') {
-                        replace('/organization/create')
-                    }
-                    return
-                } else if (!user.team) {
-                    if (location.pathname !== '/project/create') {
-                        replace('/project/create')
-                    }
-                    return
-                }
-
-                // If ingestion tutorial not completed, redirect to it
-                if (
-                    !user.team?.completed_snippet_onboarding &&
-                    !location.pathname.startsWith('/ingestion') &&
-                    !location.pathname.startsWith('/personalization')
-                ) {
-                    replace('/ingestion')
-                    return
-                }
-            }
-        }
-    }, [scene, user])
-
-    if ((userLoading && !user) || (preflightLoading && !preflight)) {
-        return <SceneLoading />
+    if (showApp) {
+        return (
+            <>
+                {user && currentTeamId ? <Models /> : null}
+                <LoadedSceneLogics />
+                <AppScene />
+            </>
+        )
     }
 
-    const SceneComponent = loadedScenes[scene]?.component || (() => <SceneLoading />)
+    return showingDelayedSpinner ? <Loading /> : null
+}
 
-    const essentialElements = (
-        // Components that should always be mounted inside Layout
+function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
+    if (!scene.logic) {
+        throw new Error('Loading scene without a logic')
+    }
+    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
+    return null
+}
+
+function LoadedSceneLogics(): JSX.Element {
+    const { loadedScenes } = useValues(sceneLogic)
+    return (
         <>
-            {featureFlags['papercups-enabled'] && <Papercups />}
-            <Toast />
+            {Object.entries(loadedScenes)
+                .filter(([, { logic }]) => !!logic)
+                .map(([key, loadedScene]) => (
+                    <LoadedSceneLogic key={key} scene={loadedScene} />
+                ))}
         </>
+    )
+}
+
+/** Loads every logic in the "src/models" folder */
+function Models(): null {
+    useMountedLogic(models)
+    return null
+}
+
+function AppScene(): JSX.Element | null {
+    useMountedLogic(breadcrumbsLogic)
+    const { user } = useValues(userLogic)
+    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { showingDelayedSpinner } = useValues(appLogic)
+
+    const SceneComponent: (...args: any[]) => JSX.Element | null =
+        (activeScene ? loadedScenes[activeScene]?.component : null) ||
+        (() => (showingDelayedSpinner ? <Loading /> : null))
+
+    const toastContainer = (
+        <ToastContainer
+            autoClose={6000}
+            transition={Slide}
+            closeOnClick={false}
+            draggable={false}
+            closeButton={<ToastCloseButton />}
+            position="bottom-right"
+        />
+    )
+
+    const protectedBoundActiveScene = (
+        <ErrorBoundary key={activeScene}>
+            {activeLoadedScene?.logic ? (
+                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+                    <SceneComponent user={user} {...params} />
+                </BindLogic>
+            ) : (
+                <SceneComponent user={user} {...params} />
+            )}
+        </ErrorBoundary>
     )
 
     if (!user) {
-        return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
+        return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} />
-                {essentialElements}
+                {protectedBoundActiveScene}
+                {toastContainer}
             </Layout>
         ) : null
     }
 
-    if (sceneConfig.plain) {
-        return (
-            <Layout style={{ minHeight: '100vh' }}>
-                {!sceneConfig.hideTopNav && <TopNavigation />}
-                <SceneComponent user={user} {...params} />
-                {essentialElements}
-            </Layout>
-        )
-    }
-
     return (
         <>
-            <Layout>
-                <MainNavigation />
-                <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
-                    {!sceneConfig.hideTopNav && <TopNavigation />}
-                    {scene ? (
-                        <Layout.Content className="main-app-content" data-attr="layout-content">
-                            {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
-
-                            <BillingAlerts />
-                            <BackTo />
-                            <SceneComponent user={user} {...params} />
-                        </Layout.Content>
-                    ) : null}
-                </Layout>
-                {essentialElements}
-            </Layout>
+            <Navigation>{protectedBoundActiveScene}</Navigation>
+            {toastContainer}
             <UpgradeModal />
-            <CommandPalette />
         </>
     )
 }

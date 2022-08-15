@@ -1,0 +1,67 @@
+[
+    {
+        "id": "$pageview",
+        "event": "$pageview",
+        "name": "$event_before_recording_starts",
+        "type": "events",
+        "order": 0,
+        "timestamp": "2021-12-09T19:35:59.223000Z",
+        "properties": {
+            "$window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "$pageview",
+        "name": "$pageview",
+        "event": "$pageview",
+        "type": "events",
+        "order": 1,
+        "timestamp": "2021-12-09T19:36:59.223000Z",
+        "properties": {
+            "$window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "blah",
+        "name": "blah",
+        "event": "blah",
+        "type": "events",
+        "order": 2,
+        "timestamp": "2021-12-09T19:37:39.223000Z",
+        "properties": {
+            "$window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "$autocapture",
+        "name": "$autocapture",
+        "event": "$autocapture",
+        "type": "events",
+        "order": 3,
+        "timestamp": "2021-12-09T19:37:39.223000Z",
+        "properties": {
+            "$window_id": "wrong_window_id"
+        },
+        "elements": [],
+        "elements_hash": ""
+    },
+    {
+        "id": "backend event",
+        "name": "backend event",
+        "event": "backend event",
+        "type": "events",
+        "order": 4,
+        "timestamp": "2021-12-09T19:37:40.223000Z",
+        "properties": {
+            "$window_id": null
+        },
+        "elements": [],
+        "elements_hash": ""
+    }
+]

@@ -1,0 +1,49 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<h3>Welcome, {{ first_name }}!</h3>
+<div>
+    <p>
+        We can't wait for you to try everything PostHog offers, from funnel analysis and feature flags to session
+        recordings and experimentation. But first you'll need to send us some events…
+    </p>
+    <ul>
+        <li class="mb">
+            <strong>If you're an engineer:</strong> Integrate PostHog using
+            <a
+                href="https://posthog.com/docs/integrate/client/js?{{ utm_tags }}"
+                ><b>client libraries</b></a
+            >,
+            <a
+                href="https://posthog.com/docs/integrate/server/python?{{ utm_tags }}"
+                ><strong>server libraries</strong></a
+            >, or a
+            <a
+                href="https://posthog.com/docs/integrate/third-party/segment?{{ utm_tags }}"
+                ><strong>third-party platform</strong></a
+            >. It’s easy. Our docs will show you how!
+        </li>
+        <li class="mb">
+            <strong>If you're <i>not</i> an engineer:</strong>
+
+            <a href="{% absolute_uri '/organization/settings' %}?{{ utm_tags }}" target="_blank"><strong>Invite a colleague with code access</strong></a> so
+            they can set it up for you. PostHog works best with friends anyway.
+        </li>
+        <li class="mb">
+            <strong>If you just want to play around:</strong>
+            <a
+                target="_blank"
+                href="https://demo.posthog.com/?{{ utm_tags }}"
+                ><b>Try our demo environment</b></a
+            >
+            to get hands-on with some sample data straight away. All the fun, none of the installation.
+        </li>
+    </ul>
+
+    <p>
+        Thanks,<br />
+        The PostHog Team
+    </p>
+</div>
+<div class="text-center">
+    <a href="{% absolute_uri '/ingestion' %}?{{ utm_tags }}" target="_blank"><button class="action-btn">Send some events!</button></a>
+</div>
+{% endblock %}

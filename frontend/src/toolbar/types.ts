@@ -21,10 +21,11 @@ export interface ElementWithMetadata {
     rect?: DOMRect
     index?: number
     count?: number
+    position?: number
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {
-    action?: ActionType
+    action: ActionType
     step?: ActionStepType
 }
 
@@ -34,6 +35,8 @@ export type BoxColor = {
     boxShadow: string
 }
 
+export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by'>
+
 export interface ActionStepForm extends ActionStepType {
     href_selected?: boolean
     text_selected?: boolean
@@ -41,7 +44,7 @@ export interface ActionStepForm extends ActionStepType {
     url_selected?: boolean
 }
 
-export interface ActionForm extends ActionType {
+export interface ActionForm extends ActionDraftType {
     steps?: ActionStepForm[]
 }
 

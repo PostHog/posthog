@@ -1,0 +1,36 @@
+.ActionFilter {
+    .ActionFilterRow {
+        &:not(:last-child) {
+            margin-bottom: 0.5rem;
+        }
+    }
+
+    .ActionFilterRow-filters {
+        margin: 0;
+        padding: 1em 0.5em;
+    }
+
+    &.ActionFilter--bordered {
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+
+        .ActionFilterRow {
+            margin-bottom: 0;
+
+            .ActionFilterRow-content {
+                margin-bottom: 0px;
+                padding: 1rem 0.5rem;
+                border-bottom: 1px solid var(--border);
+            }
+        }
+
+        .ActionFilter-footer {
+            padding: 0.5rem;
+        }
+
+        .ActionFilterRow-filters {
+            background-color: var(--bg-side);
+            border-bottom: 1px solid var(--border);
+        }
+    }
+}

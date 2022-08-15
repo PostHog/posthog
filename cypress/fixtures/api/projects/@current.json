@@ -3,7 +3,7 @@
     "organization": "01777279-f5a2-0000-b1d5-dbfc148b9426",
     "api_token": "JqcIEQVjX-CxbPiittsio2ZTIB2pHUBmGVGgQE4Io0I",
     "app_urls": [],
-    "name": "HogFlix Demo App",
+    "name": "Hogflix Demo App",
     "slack_incoming_webhook": null,
     "event_names": [
         "watched_movie",
@@ -14,7 +14,6 @@
         "$identify",
         "$pageview",
         "$autocapture",
-        "personalization skipped",
         "insight viewed",
         "$pageleave",
         "$capture_metrics"

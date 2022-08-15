@@ -1,0 +1,28 @@
+.variant-form-list {
+    .ant-form-item {
+        min-height: 32px;
+    }
+    .label-row {
+        font-weight: bold;
+
+        .ant-col {
+            min-height: 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+    }
+}
+
+.feature-flag-form-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+
+    .centered {
+        display: flex;
+        align-items: center;
+        white-space: pre-wrap;
+    }
+}

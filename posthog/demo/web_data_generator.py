@@ -1,16 +1,14 @@
 import json
-import os
 import random
-import secrets
 from datetime import timedelta
+from typing import Any, Dict, List
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.demo.data_generator import DataGenerator
-from posthog.models import Action, ActionStep, Dashboard, DashboardItem, Person, PropertyDefinition
-from posthog.models.event_definition import EventDefinition
+from posthog.models import Action, ActionStep, Dashboard, DashboardTile, Insight, Person, PropertyDefinition
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 from posthog.utils import get_absolute_path
@@ -27,10 +25,10 @@ class WebDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
 
     def create_actions_dashboards(self):
-        homepage = Action.objects.create(team=self.team, name="HogFlix homepage view")
+        homepage = Action.objects.create(team=self.team, name="Hogflix homepage view")
         ActionStep.objects.create(action=homepage, event="$pageview", url="http://hogflix.com", url_matching="exact")
 
-        user_signed_up = Action.objects.create(team=self.team, name="HogFlix signed up")
+        user_signed_up = Action.objects.create(team=self.team, name="Hogflix signed up")
         ActionStep.objects.create(
             action=user_signed_up,
             event="$autocapture",
@@ -39,7 +37,7 @@ class WebDataGenerator(DataGenerator):
             selector="button",
         )
 
-        user_paid = Action.objects.create(team=self.team, name="HogFlix paid")
+        user_paid = Action.objects.create(team=self.team, name="Hogflix paid")
         ActionStep.objects.create(
             action=user_paid,
             event="$autocapture",
@@ -48,28 +46,27 @@ class WebDataGenerator(DataGenerator):
             selector="button",
         )
 
-        dashboard = Dashboard.objects.create(
-            name="Web Analytics", pinned=True, team=self.team, share_token=secrets.token_urlsafe(22)
-        )
-        DashboardItem.objects.create(
+        dashboard = Dashboard.objects.create(name="Web Analytics", pinned=True, team=self.team)
+        insight = Insight.objects.create(
             team=self.team,
-            dashboard=dashboard,
-            name="HogFlix signup -> watching movie",
+            name="Hogflix signup -> watching movie",
             description="Shows a conversion funnel from sign up to watching a movie.",
             filters={
                 "actions": [
-                    {"id": homepage.id, "name": "HogFlix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
+                    {"id": homepage.id, "name": "Hogflix homepage view", "order": 0, "type": TREND_FILTER_TYPE_ACTIONS},
                     {
                         "id": user_signed_up.id,
-                        "name": "HogFlix signed up",
+                        "name": "Hogflix signed up",
                         "order": 1,
                         "type": TREND_FILTER_TYPE_ACTIONS,
                     },
-                    {"id": user_paid.id, "name": "HogFlix paid", "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
+                    {"id": user_paid.id, "name": "Hogflix paid", "order": 2, "type": TREND_FILTER_TYPE_ACTIONS},
                 ],
                 "insight": "FUNNELS",
             },
         )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        dashboard.save()  # to update the insight's filter hash
 
     def populate_person_events(self, person: Person, distinct_id: str, index: int):
         start_day = random.randint(1, 7) if index > 0 else 0
@@ -92,19 +89,6 @@ class WebDataGenerator(DataGenerator):
                 "$event_type": "click",
             },
             timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=14),
-            # elements=[
-            #     Element(
-            #         tag_name="a",
-            #         href="/demo/1",
-            #         attr_class=["btn", "btn-success"],
-            #         attr_id="sign-up",
-            #         text="Sign up",
-            #     ),
-            #     Element(tag_name="form", attr_class=["form"]),
-            #     Element(tag_name="div", attr_class=["container"]),
-            #     Element(tag_name="body"),
-            #     Element(tag_name="html"),
-            # ],
         )
 
         if index % 4 == 0:
@@ -118,13 +102,6 @@ class WebDataGenerator(DataGenerator):
                     "$event_type": "click",
                 },
                 timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=29),
-                # elements=[
-                #     Element(tag_name="button", attr_class=["btn", "btn-success"], text="Sign up!",),
-                #     Element(tag_name="form", attr_class=["form"]),
-                #     Element(tag_name="div", attr_class=["container"]),
-                #     Element(tag_name="body"),
-                #     Element(tag_name="html"),
-                # ],
             )
             self.add_event(
                 event="$pageview",
@@ -143,13 +120,6 @@ class WebDataGenerator(DataGenerator):
                         "$event_type": "click",
                     },
                     timestamp=now() - relativedelta(days=start_day) + relativedelta(seconds=59),
-                    # elements=[
-                    #     Element(tag_name="button", attr_class=["btn", "btn-success"], text="Pay $10",),
-                    #     Element(tag_name="form", attr_class=["form"]),
-                    #     Element(tag_name="div", attr_class=["container"]),
-                    #     Element(tag_name="body"),
-                    #     Element(tag_name="html"),
-                    # ],
                 )
                 self.add_event(
                     event="purchase",
@@ -171,11 +141,13 @@ class WebDataGenerator(DataGenerator):
         date = now()
         start_time = self.demo_recording["result"]["snapshots"][0]["timestamp"]
         session_id = str(UUIDT())
+        window_id = str(UUIDT())
 
         for snapshot in self.demo_recording["result"]["snapshots"]:
             self.snapshots.append(
                 {
                     "session_id": session_id,
+                    "window_id": window_id,
                     "distinct_id": distinct_id,
                     "timestamp": date + timedelta(milliseconds=snapshot["timestamp"] - start_time),
                     "snapshot_data": snapshot,
@@ -191,11 +163,11 @@ class WebDataGenerator(DataGenerator):
             return super().make_person(index)
 
     @cached_property
-    def demo_data(self):
-        with open(get_absolute_path("demo/demo_data.json"), "r") as demo_data_file:
+    def demo_data(self) -> List[Dict[str, Any]]:
+        with open(get_absolute_path("demo/demo_people.json"), "r") as demo_data_file:
             return json.load(demo_data_file)
 
     @cached_property
-    def demo_recording(self):
-        with open(get_absolute_path("demo/demo_session_recording.json"), "r") as demo_session_file:
+    def demo_recording(self) -> Dict[str, Any]:
+        with open(get_absolute_path("demo/hogflix_session_recording.json"), "r") as demo_session_file:
             return json.load(demo_session_file)

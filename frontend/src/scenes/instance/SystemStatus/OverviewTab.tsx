@@ -1,82 +1,66 @@
 import React from 'react'
-import { Table, Tag, Card } from 'antd'
 import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
-import { SystemStatusSubrows } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { SystemStatusRow, SystemStatusSubrows } from '~/types'
+import { IconOpenInNew } from 'lib/components/icons'
+import { Link } from 'lib/components/Link'
+import { RenderMetricValue } from './RenderMetricValue'
+import { LemonTable } from '@posthog/lemon-ui'
 
-function RenderValue(value: any): JSX.Element | string {
-    if (typeof value === 'boolean') {
-        return <Tag color={value ? 'success' : 'error'}>{value ? 'Yes' : 'No'}</Tag>
-    }
-    if (value === null || value === undefined || value === '') {
-        return <Tag>Unknown</Tag>
-    }
-    return value.toString()
+const METRIC_KEY_TO_INTERNAL_LINK = {
+    async_migrations_ok: '/instance/async_migrations',
+}
+
+function RenderMetric(_: any, systemStatusRow: SystemStatusRow): JSX.Element {
+    return (
+        <span>
+            {systemStatusRow.metric}{' '}
+            {METRIC_KEY_TO_INTERNAL_LINK[systemStatusRow.key] ? (
+                <Link to={METRIC_KEY_TO_INTERNAL_LINK[systemStatusRow.key]}>
+                    <IconOpenInNew style={{ verticalAlign: 'middle' }} />
+                </Link>
+            ) : null}
+        </span>
+    )
 }
 
 export function OverviewTab(): JSX.Element {
     const { overview, systemStatusLoading } = useValues(systemStatusLogic)
-    const { configOptions, preflightLoading } = useValues(preflightLogic)
-
-    const columns = [
-        {
-            title: 'Metric',
-            dataIndex: 'metric',
-            className: 'metric-column',
-        },
-        {
-            title: 'Value',
-            dataIndex: 'value',
-            render: RenderValue,
-        },
-    ]
 
     return (
-        <>
-            <Card>
-                <h3 className="l3">Key metrics</h3>
-                <Table
-                    className="system-status-table"
-                    size="small"
-                    rowKey="metric"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                    dataSource={overview}
-                    columns={columns}
-                    loading={systemStatusLoading}
-                    expandable={{
-                        expandedRowRender: function renderExpand(row) {
-                            return row.subrows ? <Subrows {...row.subrows} /> : null
-                        },
-                        rowExpandable: (row) => !!row.subrows && row.subrows.rows.length > 0,
-                        expandRowByClick: true,
-                    }}
-                />
-
-                <h3 className="l3" style={{ marginTop: 32 }}>
-                    Configuration options
-                </h3>
-                <Table
-                    className="system-config-table"
-                    size="small"
-                    rowKey="metric"
-                    pagination={{ pageSize: 99999, hideOnSinglePage: true }}
-                    dataSource={configOptions}
-                    columns={columns}
-                    loading={preflightLoading}
-                />
-            </Card>
-        </>
+        <LemonTable
+            className="system-status-table"
+            rowKey="metric"
+            dataSource={overview}
+            columns={[
+                {
+                    title: 'Metric',
+                    className: 'metric-column',
+                    render: RenderMetric,
+                },
+                {
+                    title: 'Value',
+                    render: RenderMetricValue,
+                },
+            ]}
+            loading={systemStatusLoading}
+            expandable={{
+                expandedRowRender: function renderExpand(row) {
+                    return !!row.subrows?.rows.length ? <Subrows {...row.subrows} /> : null
+                },
+                rowExpandable: (row) => !!row.subrows?.rows.length,
+            }}
+        />
     )
 }
 
 function Subrows(props: SystemStatusSubrows): JSX.Element {
+    console.log(props)
     return (
-        <Table
-            rowKey="metric"
-            pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+        <LemonTable
             dataSource={props.rows}
             columns={props.columns.map((title, dataIndex) => ({ title, dataIndex }))}
+            embedded
         />
     )
 }

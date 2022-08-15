@@ -1,26 +1,62 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { loginLogicType } from './loginLogicType'
+import type { loginLogicType } from './loginLogicType'
+import { router } from 'kea-router'
+import { SSOProviders } from '~/types'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-interface AuthenticateResponseType {
+export interface AuthenticateResponseType {
     success: boolean
     errorCode?: string
     errorDetail?: string
 }
 
-export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
-    actions: {
-        setNext: (next: string) => ({ next }),
+export interface PrecheckResponseType {
+    sso_enforcement?: SSOProviders | null
+    saml_available: boolean
+    status: 'pending' | 'completed'
+}
+
+export function handleLoginRedirect(): void {
+    let nextURL = '/'
+    try {
+        const nextPath = router.values.searchParams['next'] || '/'
+        const url = new URL(nextPath.startsWith('/') ? location.origin + nextPath : nextPath)
+        if (url.protocol === 'http:' || url.protocol === 'https:') {
+            nextURL = url.pathname + url.search + url.hash
+        }
+    } catch (e) {}
+    // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change.
+    router.actions.replace(nextURL)
+}
+
+export const loginLogic = kea<loginLogicType>({
+    path: ['scenes', 'authentication', 'loginLogic'],
+    connect: {
+        values: [preflightLogic, ['preflight']],
     },
-    reducers: {
-        nextUrl: [
-            null as string | null,
+    loaders: () => ({
+        precheckResponse: [
+            { status: 'pending' } as PrecheckResponseType,
             {
-                setNext: (_, { next }) => next,
+                precheck: async (
+                    {
+                        email,
+                    }: {
+                        email: string
+                    },
+                    breakpoint
+                ) => {
+                    if (!email) {
+                        return { status: 'pending' }
+                    }
+
+                    await breakpoint()
+                    const response = await api.create('api/login/precheck', { email })
+                    return { status: 'completed', ...response }
+                },
             },
         ],
-    },
-    loaders: {
         authenticateResponse: [
             null as AuthenticateResponseType | null,
             {
@@ -29,23 +65,30 @@ export const loginLogic = kea<loginLogicType<AuthenticateResponseType>>({
                         await api.create('api/login', { email, password })
                         return { success: true }
                     } catch (e) {
-                        return { success: false, errorCode: e.code, errorDetail: e.detail }
+                        return {
+                            success: false,
+                            errorCode: (e as Record<string, any>).code,
+                            errorDetail: (e as Record<string, any>).detail,
+                        }
                     }
                 },
             },
         ],
-    },
-    listeners: ({ values }) => ({
-        authenticateSuccess: () => {
-            if (values.authenticateResponse?.success) {
-                window.location.href = values.nextUrl ? values.nextUrl : '/'
+    }),
+    listeners: {
+        authenticateSuccess: ({ authenticateResponse }) => {
+            if (authenticateResponse?.success) {
+                handleLoginRedirect()
+                // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+                window.location.reload()
             }
         },
-    }),
+    },
     urlToAction: ({ actions }) => ({
-        '/login': (_: any, { next }: { next: string }) => {
-            if (next) {
-                actions.setNext(next)
+        '/login': ({}, { error_code, error_detail }) => {
+            if (error_code) {
+                actions.authenticateSuccess({ success: false, errorCode: error_code, errorDetail: error_detail })
+                router.actions.replace('/login', {})
             }
         },
     }),

@@ -1,26 +1,57 @@
-import React, { useState } from 'react'
-import { PropertyOperator } from '~/types'
+import React, { useEffect, useState } from 'react'
+import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import { Col, Select, SelectProps } from 'antd'
-import { isOperatorFlag, isOperatorMulti, operatorMap } from 'lib/utils'
+import {
+    allOperatorsMapping,
+    chooseOperatorMap,
+    isMobile,
+    isOperatorFlag,
+    isOperatorMulti,
+    isOperatorRange,
+    isOperatorRegex,
+} from 'lib/utils'
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
+import { dayjs } from 'lib/dayjs'
 
-export type OperatorValueFilterType = string | number | Array<string | number> | null
-
-interface OperatorValueSelectProps {
-    type: string
-    propkey: string
-    operator: PropertyOperator | undefined
-    value: string | number | Array<string | number> | null
+export interface OperatorValueSelectProps {
+    type?: string
+    propkey?: string
+    operator?: PropertyOperator | null
+    value?: string | number | Array<string | number> | null
     columnOptions?: ColProps | [ColProps, ColProps]
-    onChange: (operator: PropertyOperator, value: OperatorValueFilterType) => void
+    placeholder?: string
+    endpoint?: string
+    onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
+    propertyDefinitions: PropertyDefinition[]
+    defaultOpen?: boolean
 }
 
 interface OperatorSelectProps extends SelectProps<any> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
+    defaultOpen?: boolean
+}
+
+function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
+    if (isOperatorRegex(operator)) {
+        try {
+            new RegExp(value)
+        } catch (e: any) {
+            return e.message
+        }
+    }
+    if (isOperatorRange(operator) && isNaN(value)) {
+        let message = `Range operators only work with numeric values`
+        if (dayjs(value).isValid()) {
+            const propertyReference = property ? `property ${property}` : 'this property'
+            message += `. If you'd like to compare dates and times, make sure ${propertyReference} is typed as DateTime in Data Management. You will then be able to use operators "before" and "after"`
+        }
+        return message
+    }
+    return null
 }
 
 export function OperatorValueSelect({
@@ -29,18 +60,51 @@ export function OperatorValueSelect({
     operator,
     value,
     columnOptions,
+    placeholder,
+    endpoint,
     onChange,
     operatorSelectProps,
+    propertyDefinitions = [],
+    defaultOpen,
 }: OperatorValueSelectProps): JSX.Element {
-    const [currentOperator, setCurrentOperator] = useState(operator)
+    const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
+
+    // DateTime properties should not default to Exact
+    const startingOperator =
+        propertyDefinition?.property_type == PropertyType.DateTime && (!operator || operator == PropertyOperator.Exact)
+            ? PropertyOperator.IsDateExact
+            : operator || PropertyOperator.Exact
+    const [currentOperator, setCurrentOperator] = useState(startingOperator)
+    const [validationError, setValidationError] = useState<string | null>(null)
+
+    const [operators, setOperators] = useState([] as Array<PropertyOperator>)
+    useEffect(() => {
+        const isAutocaptureElementProperty = propkey === 'selector'
+        const operatorMapping: Record<string, string> = chooseOperatorMap(
+            isAutocaptureElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
+        )
+        setOperators(Object.keys(operatorMapping) as Array<PropertyOperator>)
+
+        if (isAutocaptureElementProperty) {
+            setCurrentOperator(PropertyOperator.Exact)
+        }
+    }, [propertyDefinition, propkey])
 
     return (
         <>
             <Col {...(Array.isArray(columnOptions) ? columnOptions[0] : columnOptions)}>
                 <OperatorSelect
                     operator={currentOperator || PropertyOperator.Exact}
-                    operators={Object.keys(operatorMap) as Array<PropertyOperator>}
+                    operators={operators}
                     onChange={(newOperator: PropertyOperator) => {
+                        const tentativeValidationError =
+                            newOperator && value ? getValidationError(newOperator, value, propkey) : null
+                        if (tentativeValidationError) {
+                            setValidationError(tentativeValidationError)
+                            return
+                        } else {
+                            setValidationError(null)
+                        }
                         setCurrentOperator(newOperator)
                         if (isOperatorFlag(newOperator)) {
                             onChange(newOperator, newOperator)
@@ -57,22 +121,38 @@ export function OperatorValueSelect({
                         }
                     }}
                     {...operatorSelectProps}
+                    defaultOpen={defaultOpen}
                 />
             </Col>
-            {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && (
+            {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
                 <Col {...(Array.isArray(columnOptions) ? columnOptions[1] : columnOptions)}>
                     <PropertyValue
                         type={type}
                         key={propkey}
                         propertyKey={propkey}
+                        endpoint={endpoint}
                         operator={currentOperator || PropertyOperator.Exact}
+                        placeholder={placeholder}
                         value={value}
                         onSet={(newValue: string | number | string[] | null) => {
+                            const tentativeValidationError =
+                                currentOperator && newValue
+                                    ? getValidationError(currentOperator, newValue, propkey)
+                                    : null
+                            if (tentativeValidationError) {
+                                setValidationError(tentativeValidationError)
+                                return
+                            } else {
+                                setValidationError(null)
+                            }
                             onChange(currentOperator || PropertyOperator.Exact, newValue)
                         }}
+                        // open automatically only if new filter
+                        autoFocus={!isMobile() && value === null}
                     />
                 </Col>
             )}
+            {validationError && <span className="taxonomic-validation-error">{validationError}</span>}
         </>
     )
 }
@@ -90,7 +170,7 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             labelInValue
             value={{
                 value: operator || '=',
-                label: operatorMap[operator || PropertyOperator.Exact],
+                label: allOperatorsMapping[operator || PropertyOperator.Exact],
             }}
             placeholder="Property key"
             onChange={(_value, op) => {
@@ -100,8 +180,8 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             {...props}
         >
             {operators.map((op) => (
-                <Select.Option key={op} value={op || PropertyOperator.Exact}>
-                    {operatorMap[op || PropertyOperator.Exact]}
+                <Select.Option key={op} value={op || PropertyOperator.Exact} className={'operator-value-option'}>
+                    {allOperatorsMapping[op || PropertyOperator.Exact]}
                 </Select.Option>
             ))}
         </Select>

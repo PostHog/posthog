@@ -3,8 +3,8 @@ import { Button, Card, Col, Input, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import Title from 'antd/es/typography/Title'
-import Paragraph from 'antd/es/typography/Paragraph'
+import Title from 'antd/lib/typography/Title'
+import Paragraph from 'antd/lib/typography/Paragraph'
 
 export function CustomPlugin(): JSX.Element {
     const { customPluginUrl, pluginError, loading } = useValues(pluginsLogic)
@@ -15,7 +15,7 @@ export function CustomPlugin(): JSX.Element {
             <Card>
                 <Title level={5}>Install from GitHub, GitLab or npm</Title>
                 <Paragraph>
-                    To install a third-party or custom plugin, paste its URL below. For{' '}
+                    To install a third-party or custom app, paste its URL below. For{' '}
                     <a
                         href="https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token"
                         target="_blank"
@@ -41,7 +41,7 @@ export function CustomPlugin(): JSX.Element {
                     </a>{' '}
                     private repositories, append <code>?private_token=TOKEN</code> to the end of the URL.
                     <br />
-                    <b className="text-warning">Warning: Only install plugins from trusted sources.</b>
+                    <b className="text-warning">Warning: Only install apps from trusted sources.</b>
                 </Paragraph>
 
                 <Row style={{ width: '100%' }} gutter={16}>

@@ -2,43 +2,14 @@ from unittest.mock import patch
 
 import pytest
 
-from posthog.models import Action, ActionStep, Cohort, Event, Person, Team
+from posthog.client import sync_execute
+from posthog.models import Cohort, FeatureFlag, Person, Team
+from posthog.models.cohort import CohortPeople, batch_delete_cohort_people
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.test.base import BaseTest
 
 
 class TestCohort(BaseTest):
-    def test_postgres_get_distinct_ids_from_cohort(self):
-        person1 = Person.objects.create(distinct_ids=["person_1"], team=self.team)
-        Event.objects.create(event="user signed up", team=self.team, distinct_id="person_1")
-        action = Action.objects.create(team=self.team)
-        ActionStep.objects.create(action=action, event="user signed up")
-        action.calculate_events()
-
-        person2 = Person.objects.create(distinct_ids=["person_2"], team=self.team, properties={"$os": "Chrome"})
-        Person.objects.create(distinct_ids=["person_3"], team=self.team)
-        Person.objects.create(distinct_ids=["person_4"], team=self.team)
-
-        cohort = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": "7"}])
-        cohort.calculate_people(use_clickhouse=False)
-        with self.assertNumQueries(1):
-            self.assertEqual([p for p in cohort.people.all()], [person1])
-
-        cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
-        )
-        cohort.calculate_people(use_clickhouse=False)
-        self.assertEqual([p for p in cohort.people.all()], [person2])
-
-        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": {"$os__icontains": "Chr"}}])
-        cohort.calculate_people(use_clickhouse=False)
-        self.assertEqual([p for p in cohort.people.all()], [person2])
-
-        cohort = Cohort.objects.create(
-            team=self.team, groups=[{"action_id": action.pk}, {"properties": {"$os": "Chrome"}}],
-        )
-        cohort.calculate_people(use_clickhouse=False)
-        self.assertCountEqual([p for p in cohort.people.all()], [person1, person2])
-
     def test_insert_by_distinct_id_or_email(self):
         Person.objects.create(team=self.team, distinct_ids=["000"])
         Person.objects.create(team=self.team, distinct_ids=["123"])
@@ -54,7 +25,7 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
         #  If we accidentally call calculate_people it shouldn't erase people
-        cohort.calculate_people()
+        cohort.calculate_people_ch(pending_version=0)
         self.assertEqual(cohort.people.count(), 2)
 
         # if we add people again, don't increase the number of people in cohort
@@ -64,49 +35,219 @@ class TestCohort(BaseTest):
         self.assertEqual(cohort.is_calculating, False)
 
     @pytest.mark.ee
-    @patch("ee.clickhouse.models.cohort.get_person_ids_by_cohort_id")
-    def test_calculating_cohort_clickhouse(self, get_person_ids_by_cohort_id):
+    def test_calculating_cohort_clickhouse(self):
         person1 = Person.objects.create(
             distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
-        person2 = Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
         person3 = Person.objects.create(
             distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"}
         )
         cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "something"}}], name="cohort1",
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
         )
 
-        get_person_ids_by_cohort_id.return_value = [person1.uuid, person2.uuid]
+        cohort.calculate_people_ch(pending_version=0)
 
-        cohort.calculate_people(use_clickhouse=True)
-
-        self.assertCountEqual(list(cohort.people.all()), [person1, person2])
-
-    @pytest.mark.ee
-    def test_clickhouse_empty_query(self):
-        cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
-        )
-
-        cohort2.calculate_people(use_clickhouse=True)
-        self.assertFalse(Cohort.objects.get().is_calculating)
+        uuids = [
+            row[0]
+            for row in sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"cohort_id": cohort.pk, "team_id": self.team.pk},)
+        ]
+        self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "nomatchihope", "type": "person"}]}],
+            name="cohort1",
         )
 
-        cohort2.calculate_people()
+        cohort2.calculate_people_ch(pending_version=0)
         self.assertFalse(Cohort.objects.get().is_calculating)
 
-    def test_error_while_calculating(self):
-        cohort2 = Cohort.objects.create(
-            team=self.team, groups=[{"properties": {"$some_prop": "nomatchihope"}}], name="cohort1",
+    @patch("time.sleep", return_value=None)
+    def test_batch_delete_cohort_people(self, patch_sleep):
+        Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        Person.objects.create(distinct_ids=["person2"], team_id=self.team.pk, properties={})
+        Person.objects.create(distinct_ids=["person3"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
         )
 
-        with patch("posthog.models.cohort.Cohort._postgres_persons_query") as pp:
-            pp.return_value = lambda x: Exception()
-            cohort2.calculate_people()
-        self.assertFalse(Cohort.objects.get().is_calculating)
-        self.assertEqual(Cohort.objects.get().errors_calculating, 1)
+        cohort.calculate_people_ch(pending_version=0)
+
+        flag: FeatureFlag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": None}
+                ]
+            },
+            key="default-flag-1",
+            created_by=self.user,
+        )
+        flag.update_cohorts()
+
+        self.assertEqual(CohortPeople.objects.count(), 2)
+        batch_delete_cohort_people(cohort_id=cohort.pk, version=1, batch_size=1)
+        self.assertEqual(CohortPeople.objects.count(), 0)
+
+    def test_group_to_property_conversion(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "$some_prop", "value": "something", "type": "person", "operator": "contains"},
+                        {"key": "other_prop", "value": "other_value", "type": "person"},
+                    ]
+                },
+                {"days": "4", "count": "3", "label": "$pageview", "action_id": 1, "count_operator": "eq"},
+            ],
+            name="cohort1",
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
+                            {"key": "other_prop", "type": "person", "value": "other_value"},
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": 1,
+                                "type": "behavioral",
+                                "value": "performed_event_multiple",
+                                "event_type": "actions",
+                                "operator": "eq",
+                                "operator_value": 3,
+                                "time_interval": "day",
+                                "time_value": "4",
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+
+    def test_group_to_property_conversion_with_valid_zero_count(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "$some_prop", "value": "something", "type": "person", "operator": "contains"},
+                        {"key": "other_prop", "value": "other_value", "type": "person"},
+                    ]
+                },
+                {"days": "4", "count": "0", "label": "$pageview", "event_id": "$pageview", "count_operator": "gte"},
+            ],
+            name="cohort1",
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$some_prop", "type": "person", "value": "something", "operator": "contains"},
+                            {"key": "other_prop", "type": "person", "value": "other_value"},
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 0,
+                                "time_interval": "day",
+                                "time_value": "4",
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+
+    def test_group_to_property_conversion_with_valid_zero_count_different_operator(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"days": "4", "count": "0", "label": "$pageview", "event_id": "$pageview", "count_operator": "lte"},
+            ],
+            name="cohort1",
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator": "lte",
+                                "operator_value": 0,
+                                "time_interval": "day",
+                                "time_value": "4",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+    def test_group_to_property_conversion_with_missing_days_and_invalid_count(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"count": -3, "label": "$pageview", "event_id": "$pageview", "count_operator": "gte"},],
+            name="cohort1",
+        )
+
+        self.assertEqual(
+            cohort.properties.to_dict(),
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 0,
+                                "time_interval": "day",
+                                "time_value": 365,
+                            }
+                        ],
+                    }
+                ],
+            },
+        )

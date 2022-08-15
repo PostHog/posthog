@@ -1,0 +1,37 @@
+.merge-split-person {
+    .activity-header {
+        background-color: var(--bg-mid);
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        margin-left: -24px;
+        margin-right: -24px;
+        padding: 8px 0;
+        display: flex;
+        justify-content: center;
+        margin-bottom: 1rem;
+    }
+
+    .ant-modal-header {
+        border-bottom: 0;
+    }
+
+    .ant-modal-body {
+        padding-top: 0;
+    }
+
+    .ant-radio-wrapper {
+        margin-right: 2px;
+    }
+
+    .ant-col {
+        margin-right: 1rem;
+    }
+
+    // TODO: consider moving this style globally
+    code {
+        background-color: var(--bg-mid);
+        color: var(--primary-alt);
+        padding: 4px 8px;
+        border-radius: var(--radius);
+    }
+}

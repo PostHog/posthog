@@ -1,0 +1,109 @@
+@import '../../styles/mixins';
+
+.saved-insights {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+
+    > .LemonTable td {
+        padding-bottom: 0.75rem !important;
+        padding-top: 0.75rem !important;
+        &.icon-column .ant-skeleton-title {
+            height: 2rem;
+            width: 2rem;
+        }
+    }
+
+    .new-insight-dropdown-btn {
+        cursor: pointer;
+        height: 40px;
+        background-color: var(--primary);
+        padding: 8px 12px 8px 16px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: white;
+    }
+    .insight-dropdown-actions {
+        font-size: 24px;
+        &:hover {
+            background: rgba(83, 117, 255, 0.05);
+        }
+    }
+
+    .star-outlined {
+        color: var(--border-dark);
+    }
+
+    .saved-insight-empty-state {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+
+        .insight-empty-state__wrapper {
+            max-width: 600px;
+            margin-top: 5rem;
+            margin-bottom: 17rem;
+
+            .illustration-main {
+                font-size: 5rem;
+                line-height: 1em;
+                text-align: center;
+                margin-bottom: 1rem;
+                color: var(--border);
+            }
+
+            .empty-state__title {
+                font-weight: 600;
+                font-size: 1.5rem;
+                line-height: 1.6rem;
+            }
+
+            .empty-state__description {
+                font-weight: 500;
+                font-size: 1rem;
+                line-height: 1.7rem;
+                color: var(--muted);
+            }
+
+            button.add-insight-button {
+                height: 50px;
+                padding: 0 3rem;
+            }
+        }
+    }
+}
+
+.new-insight-overlay {
+    max-width: 18rem;
+}
+
+.insight-type-icon-wrapper {
+    display: flex;
+    align-items: center;
+    .icon-container {
+        height: 22px;
+        width: 22px;
+        margin-right: 8px;
+        position: relative;
+        .icon-container-inner {
+            font-size: 22px;
+            margin-left: -2px;
+        }
+    }
+}
+
+.saved-insights-grid {
+    position: relative;
+    display: grid;
+    grid-gap: 1rem;
+    @include screen($xl) {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    @include screen($xxl) {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    .loading-overlay {
+        min-height: 30rem;
+    }
+}

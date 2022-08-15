@@ -1,14 +1,16 @@
 import React, { useMemo, useState } from 'react'
-import { Button, Card, Checkbox, Collapse, Table } from 'antd'
+import { Button, Checkbox, Collapse, Table } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { QuerySummary } from '~/types'
+import { DashboardPlacement, QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
+import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
+import { Link } from 'lib/components/Link'
 
 export function InternalMetricsTab(): JSX.Element {
-    const { openSections, systemStatus, queries, queriesLoading } = useValues(systemStatusLogic)
+    const { openSections, systemStatus, queries, queriesLoading, showAnalyzeQueryButton } = useValues(systemStatusLogic)
     const { setOpenSections, loadQueries } = useActions(systemStatusLogic)
 
     const [showIdle, setShowIdle] = useState(false)
@@ -25,15 +27,19 @@ export function InternalMetricsTab(): JSX.Element {
     }
 
     return (
-        <Card>
+        <>
             <Collapse activeKey={openSections} onChange={(keys) => setOpenSections(keys as string[])}>
                 {dashboard ? (
                     <Collapse.Panel header="Dashboards" key="0">
-                        <Dashboard id={dashboard.id.toString()} shareToken={dashboard.share_token} internal />
+                        <Dashboard
+                            id={dashboard.id.toString()}
+                            dashboard={dashboard}
+                            placement={DashboardPlacement.InternalMetrics}
+                        />
                     </Collapse.Panel>
                 ) : null}
                 <Collapse.Panel header="PostgreSQL - currently running queries" key="1">
-                    <div className="mb float-right">
+                    <div className="mb-4 float-right">
                         <Checkbox
                             checked={showIdle}
                             onChange={(e) => {
@@ -50,34 +56,45 @@ export function InternalMetricsTab(): JSX.Element {
                 </Collapse.Panel>
                 {queries?.clickhouse_running != undefined ? (
                     <Collapse.Panel header="Clickhouse - currently running queries" key="2">
-                        <div className="mb float-right">
+                        <div className="mb-4 float-right">
                             <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
                                 <ReloadOutlined /> Reload Queries
                             </Button>
                         </div>
-                        <QueryTable queries={queries?.clickhouse_running} loading={queriesLoading} />
+                        <QueryTable
+                            queries={queries?.clickhouse_running}
+                            loading={queriesLoading}
+                            showAnalyze={showAnalyzeQueryButton}
+                        />
                     </Collapse.Panel>
                 ) : null}
                 {queries?.clickhouse_slow_log != undefined ? (
                     <Collapse.Panel header="Clickhouse - slow query log (past 6 hours)" key="3">
-                        <div className="mb float-right">
+                        <div className="mb-4 float-right">
                             <Button style={{ marginLeft: 8 }} onClick={reloadQueries}>
                                 <ReloadOutlined /> Reload Queries
                             </Button>
                         </div>
-                        <QueryTable queries={queries?.clickhouse_slow_log} loading={queriesLoading} />
+                        <QueryTable
+                            queries={queries?.clickhouse_slow_log}
+                            loading={queriesLoading}
+                            showAnalyze={showAnalyzeQueryButton}
+                        />
                     </Collapse.Panel>
                 ) : null}
             </Collapse>
-        </Card>
+            <AnalyzeQueryModal />
+        </>
     )
 }
 
 function QueryTable(props: {
+    showAnalyze?: boolean
     queries?: QuerySummary[]
     loading: boolean
     columnExtra?: Record<string, any>
 }): JSX.Element {
+    const { openAnalyzeModalWithQuery } = useActions(systemStatusLogic)
     const columns: ColumnsType<QuerySummary> = [
         {
             title: 'duration',
@@ -88,6 +105,16 @@ function QueryTable(props: {
         {
             title: 'query',
             dataIndex: 'query',
+            render: function RenderAnalyze({}, item: QuerySummary) {
+                if (!props.showAnalyze) {
+                    return item.query
+                }
+                return (
+                    <Link to="#" onClick={() => openAnalyzeModalWithQuery(item.query)}>
+                        {item.query}
+                    </Link>
+                )
+            },
             key: 'query',
         },
     ]

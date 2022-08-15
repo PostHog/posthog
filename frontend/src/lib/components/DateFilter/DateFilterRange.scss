@@ -1,0 +1,19 @@
+.DateFilterRange__calendartoday {
+    display: inline-block;
+    position: relative;
+}
+
+.DateFilterRange__calendartoday::before {
+    content: '•' !important;
+    top: 0.5rem !important;
+    border: 0 !important;
+    font-size: 0.625em;
+}
+
+.ant-picker-range-arrow {
+    border-top: 1px solid var(--primary);
+    border-right: 1px solid var(--primary);
+}
+.ant-picker-range-wrapper {
+    border: 1px solid var(--primary);
+}

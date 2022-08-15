@@ -11,7 +11,7 @@ export function PluginField({
     fieldConfig,
 }: {
     value?: any
-    onChange?: (value: any) => void
+    onChange: (value: any) => void
     fieldConfig: PluginConfigSchema
 }): JSX.Element {
     const [editingSecret, setEditingSecret] = useState(false)
@@ -25,7 +25,7 @@ export function PluginField({
             <Button
                 icon={<EditOutlined />}
                 onClick={() => {
-                    onChange?.(fieldConfig.default || '')
+                    onChange(fieldConfig.default || '')
                     setEditingSecret(true)
                 }}
             >
@@ -37,9 +37,9 @@ export function PluginField({
     return fieldConfig.type === 'attachment' ? (
         <UploadField value={value} onChange={onChange} />
     ) : fieldConfig.type === 'string' ? (
-        <Input value={value} onChange={onChange} autoFocus={editingSecret} className="ph-ignore-input" />
+        <Input value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
     ) : fieldConfig.type === 'choice' ? (
-        <Select dropdownMatchSelectWidth={false} value={value} onChange={onChange}>
+        <Select dropdownMatchSelectWidth={false} value={value} className="ph-no-capture" onChange={onChange} showSearch>
             {fieldConfig.choices.map((choice) => (
                 <Select.Option value={choice} key={choice}>
                     {choice}

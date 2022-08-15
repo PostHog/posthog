@@ -1,17 +1,17 @@
-from datetime import datetime
 from enum import Enum
 from functools import wraps
-from typing import Callable, Dict, List, Union, cast
+from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
+from django.conf import settings
 from django.core.cache import cache
-from django.http.request import HttpRequest
 from django.utils.timezone import now
+from rest_framework.request import Request
+from rest_framework.viewsets import GenericViewSet
 
-from posthog.models import Filter, Team, User
-from posthog.models.dashboard_item import DashboardItem
+from posthog.models import DashboardTile, User
 from posthog.models.filters.utils import get_filter
-from posthog.settings import TEMP_CACHE_RESULTS_TTL
-from posthog.utils import generate_cache_key
+from posthog.models.insight import Insight
+from posthog.utils import should_refresh
 
 from .utils import generate_cache_key, get_safe_cache
 
@@ -20,42 +20,52 @@ class CacheType(str, Enum):
     TRENDS = "Trends"
     FUNNEL = "Funnel"
     RETENTION = "Retention"
-    SESSION = "Session"
     STICKINESS = "Stickiness"
     PATHS = "Path"
 
 
-def cached_function():
-    def parameterized_decorator(f: Callable):
-        @wraps(f)
-        def wrapper(*args, **kwargs) -> Dict[str, Union[List, datetime, bool, str]]:
-            # prepare caching params
-            request: HttpRequest = args[1]
-            team = cast(User, request.user).team
-            filter = None
-            if not team:
-                return f(*args, **kwargs)
+ResultPackage = Union[Dict[str, Any], List[Dict[str, Any]]]
 
-            filter = get_filter(request=request, team=team)
-            cache_key = generate_cache_key("{}_{}".format(filter.toJSON(), team.pk))
-            # return cached result if possible
-            if not request.GET.get("refresh", False):
-                cached_result = get_safe_cache(cache_key)
-                if cached_result and cached_result.get("result"):
-                    return {**cached_result, "is_cached": True}
-            # call function being wrapped
-            result = f(*args, **kwargs)
+T = TypeVar("T", bound=ResultPackage)
+U = TypeVar("U", bound=GenericViewSet)
 
-            # cache new data
-            if result is not None and not (isinstance(result.get("result"), dict) and result["result"].get("loading")):
+
+def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
+    @wraps(f)
+    def wrapper(self, request) -> T:
+        # prepare caching params
+        team = cast(User, request.user).team
+        if not team:
+            return f(self, request)
+
+        filter = get_filter(request=request, team=team)
+        cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
+
+        # return cached result when possible
+        if not should_refresh(request):
+            cached_result_package = get_safe_cache(cache_key)
+            if cached_result_package and cached_result_package.get("result"):
+                cached_result_package["is_cached"] = True
+                return cached_result_package
+
+        # call function being wrapped
+        fresh_result_package = cast(T, f(self, request))
+        # cache new data
+        if isinstance(fresh_result_package, dict):
+            result = fresh_result_package.get("result")
+            if not isinstance(result, dict) or not result.get("loading"):
+                fresh_result_package["last_refresh"] = now()
+                fresh_result_package["is_cached"] = False
                 cache.set(
-                    cache_key, {"result": result["result"], "last_refresh": now()}, TEMP_CACHE_RESULTS_TTL,
+                    cache_key, fresh_result_package, settings.CACHED_RESULTS_TTL,
                 )
                 if filter:
-                    dashboard_items = DashboardItem.objects.filter(team_id=team.pk, filters_hash=cache_key)
-                    dashboard_items.update(last_refresh=now())
-            return result
+                    Insight.objects.filter(team_id=team.pk, filters_hash=cache_key).update(last_refresh=now())
 
-        return wrapper
+                    DashboardTile.objects.filter(insight__team_id=team.pk, filters_hash=cache_key).update(
+                        last_refresh=now()
+                    )
 
-    return parameterized_decorator
+        return fresh_result_package
+
+    return wrapper

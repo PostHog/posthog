@@ -1,0 +1,70 @@
+.FrameworkPanel {
+    max-width: 400px;
+}
+
+.welcome-panel {
+    max-width: 480px;
+    border-radius: var(--radius);
+    padding: 40px;
+    padding-bottom: 1rem;
+    background-color: white;
+    box-shadow: var(--shadow-elevation);
+}
+
+.bookmarklet-warning {
+    border: 2px dashed var(--border);
+    padding: 8px;
+
+    p {
+        margin-bottom: 0;
+    }
+
+    .warning-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-right: 2px dashed var(--border);
+    }
+}
+
+.bookmarklet-steps {
+    margin-top: 0.5rem;
+}
+
+.panel-footer {
+    background-color: white;
+    margin-bottom: 1rem;
+    bottom: 0;
+}
+
+.ingestion-card-container {
+    padding: 40px;
+    margin-bottom: 40px;
+    box-shadow: var(--shadow-elevation);
+    max-width: 65vw;
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    background-color: white;
+
+    .ant-card-head-title {
+        padding-bottom: 0;
+    }
+}
+
+.ingestion-title {
+    font-size: 28px;
+    font-weight: 800;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.ingestion-listening-for-events {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 1rem;
+}

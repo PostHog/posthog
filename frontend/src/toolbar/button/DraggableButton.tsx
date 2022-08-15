@@ -4,19 +4,32 @@ import Draggable from 'react-draggable'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { useActions, useValues } from 'kea'
 import { HeatmapStats } from '~/toolbar/stats/HeatmapStats'
-import { Fire } from '~/toolbar/button/icons/Fire'
-import { Flag } from '~/toolbar/button/icons/Flag'
 import { ActionsTab } from '~/toolbar/actions/ActionsTab'
 import { ButtonWindow } from '~/toolbar/button/ButtonWindow'
 import { posthog } from '~/toolbar/posthog'
+import { FeatureFlags } from '~/toolbar/flags/FeatureFlags'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 export function DraggableButton(): JSX.Element {
-    const { dragPosition, heatmapPosition, heatmapWindowVisible, actionsWindowVisible, actionsPosition } = useValues(
-        toolbarButtonLogic
-    )
-    const { saveDragPosition, saveHeatmapPosition, saveActionsPosition, hideActionsInfo, hideHeatmapInfo } = useActions(
-        toolbarButtonLogic
-    )
+    const {
+        dragPosition,
+        heatmapPosition,
+        heatmapWindowVisible,
+        actionsWindowVisible,
+        actionsPosition,
+        flagsVisible,
+        flagsPosition,
+    } = useValues(toolbarButtonLogic)
+    const {
+        saveDragPosition,
+        saveHeatmapPosition,
+        saveActionsPosition,
+        hideActionsInfo,
+        hideHeatmapInfo,
+        hideFlags,
+        saveFlagsPosition,
+    } = useActions(toolbarButtonLogic)
+    const { countFlagsOverridden, shouldSimplifyActions } = useValues(featureFlagsLogic)
 
     return (
         <>
@@ -39,7 +52,6 @@ export function DraggableButton(): JSX.Element {
             <ButtonWindow
                 name="heatmap"
                 label="Heatmap"
-                icon={<Fire engaged />}
                 visible={heatmapWindowVisible}
                 close={hideHeatmapInfo}
                 position={heatmapPosition}
@@ -51,15 +63,30 @@ export function DraggableButton(): JSX.Element {
             </ButtonWindow>
 
             <ButtonWindow
-                name="actions"
-                label="Actions"
-                icon={<Flag engaged />}
+                name={shouldSimplifyActions ? 'calculated events' : 'actions'}
+                label={shouldSimplifyActions ? 'Calculated Events' : 'Actions'}
                 visible={actionsWindowVisible}
                 close={hideActionsInfo}
                 position={actionsPosition}
                 savePosition={saveActionsPosition}
             >
                 <ActionsTab />
+            </ButtonWindow>
+
+            <ButtonWindow
+                name="flags"
+                label="Feature Flags"
+                tagComponent={
+                    countFlagsOverridden > 0 ? (
+                        <span className="overridden-tag">{`${countFlagsOverridden} overridden`}</span>
+                    ) : null
+                }
+                visible={flagsVisible}
+                close={hideFlags}
+                position={flagsPosition}
+                savePosition={saveFlagsPosition}
+            >
+                <FeatureFlags />
             </ButtonWindow>
         </>
     )

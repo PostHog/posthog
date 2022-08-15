@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandPaletteLogicType } from './commandPaletteLogicType'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
@@ -14,7 +14,6 @@ import {
     ProjectOutlined,
     CheckOutlined,
     TagOutlined,
-    ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
     FlagOutlined,
@@ -34,8 +33,9 @@ import {
     LineChartOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
-import { DashboardType } from '~/types'
+import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -43,7 +43,11 @@ import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -110,19 +114,12 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<
-    commandPaletteLogicType<
-        Command,
-        CommandRegistrations,
-        CommandResult,
-        CommandFlow,
-        RegExpCommandPairs,
-        CommandResultDisplayable
-    >
->({
+export const commandPaletteLogic = kea<commandPaletteLogicType>({
+    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
+        logic: [preflightLogic, dashboardsModel],
     },
     actions: {
         hidePalette: true,
@@ -140,7 +137,6 @@ export const commandPaletteLogic = kea<
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
-        shareFeedbackCommand: (instruction?: string) => ({ instruction }),
     },
     reducers: {
         isPaletteShown: [
@@ -197,7 +193,7 @@ export const commandPaletteLogic = kea<
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
-                    const { [commandKey]: _, ...cleanedCommands } = commands // eslint-disable-line
+                    const { [commandKey]: _discard, ...cleanedCommands } = commands
                     return cleanedCommands
                 },
             },
@@ -225,9 +221,7 @@ export const commandPaletteLogic = kea<
                 }
             }
             // Capture command execution, without useless data
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { icon, index, ...cleanedResult }: Record<string, any> = result
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
             cleanedResult.isMobile = isMobile()
@@ -243,7 +237,7 @@ export const commandPaletteLogic = kea<
         setInput: async ({ input }, breakpoint) => {
             await breakpoint(300)
             if (input.length > 8) {
-                const response = await api.get('api/person/?key_identifier=' + input)
+                const response = await api.get('api/person/?search=' + encodeURIComponent(input))
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({
@@ -254,7 +248,7 @@ export const commandPaletteLogic = kea<
                                 display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
-                                    push(`/person/${person.distinct_ids[0]}`)
+                                    push(urls.person(person.distinct_ids[0]))
                                 },
                             },
                         ],
@@ -262,30 +256,6 @@ export const commandPaletteLogic = kea<
                     })
                 }
             }
-        },
-        shareFeedbackCommand: ({ instruction = "What's on your mind?" }) => {
-            actions.showPalette()
-            actions.activateFlow({
-                scope: 'Sharing Feedback',
-                instruction,
-                icon: CommentOutlined,
-                resolver: (argument) => ({
-                    icon: SendOutlined,
-                    display: 'Send',
-                    executor: !argument?.length
-                        ? undefined
-                        : () => {
-                              posthog.capture('palette feedback', { message: argument })
-                              return {
-                                  resolver: {
-                                      icon: CheckOutlined,
-                                      display: 'Message Sent!',
-                                      executor: true,
-                                  },
-                              }
-                          },
-                }),
-            })
         },
     }),
     selectors: {
@@ -304,7 +274,7 @@ export const commandPaletteLogic = kea<
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
-                dashboardsModel.selectors.dashboards,
+                dashboardsModel.selectors.nameSortedDashboards,
                 teamLogic.selectors.currentTeam,
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
@@ -314,10 +284,10 @@ export const commandPaletteLogic = kea<
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
                         icon: LineChartOutlined,
-                        display: `Go to Dashboard ${dashboard.name}`,
+                        display: `Go to Dashboard: ${dashboard.name}`,
                         executor: () => {
                             const { push } = router.actions
-                            push(`/dashboard/${dashboard.id}`)
+                            push(urls.dashboard(dashboard.id))
                         },
                     })),
                     scope: GLOBAL_COMMAND_SCOPE,
@@ -396,7 +366,9 @@ export const commandPaletteLogic = kea<
         commandSearchResultsGrouped: [
             (selectors) => [selectors.commandSearchResults, selectors.activeFlow],
             (commandSearchResults: CommandResult[], activeFlow: CommandFlow | null) => {
-                const resultsGrouped: { [scope: string]: CommandResult[] } = {}
+                const resultsGrouped: {
+                    [scope: string]: CommandResult[]
+                } = {}
                 if (activeFlow) {
                     resultsGrouped[activeFlow.scope ?? '?'] = []
                 }
@@ -435,90 +407,79 @@ export const commandPaletteLogic = kea<
                         icon: FundOutlined,
                         display: 'Go to Dashboards',
                         executor: () => {
-                            push('/dashboard')
+                            push(urls.dashboards())
                         },
                     },
                     {
                         icon: RiseOutlined,
                         display: 'Go to Insights',
                         executor: () => {
-                            push('/insights')
+                            push(urls.savedInsights())
                         },
                     },
                     {
                         icon: RiseOutlined,
                         display: 'Go to Trends',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=TRENDS')
-                        },
-                    },
-                    {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Sessions',
-                        executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=SESSIONS')
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.TRENDS }))
                         },
                     },
                     {
                         icon: FunnelPlotOutlined,
                         display: 'Go to Funnels',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=FUNNELS')
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.FUNNELS }))
                         },
                     },
                     {
                         icon: GatewayOutlined,
                         display: 'Go to Retention',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=RETENTION')
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.RETENTION }))
                         },
                     },
                     {
                         icon: InteractionOutlined,
-                        display: 'Go to User Paths',
+                        display: 'Go to Paths',
                         executor: () => {
-                            // FIXME: Don't reset insight on change
-                            push('/insights?insight=PATHS')
+                            // TODO: Don't reset insight on change
+                            push(urls.insightNew({ insight: InsightType.PATHS }))
                         },
                     },
                     {
                         icon: ContainerOutlined,
                         display: 'Go to Events',
                         executor: () => {
-                            push('/events')
+                            push(urls.events())
                         },
                     },
-                    {
-                        icon: AimOutlined,
-                        display: 'Go to Actions',
-                        executor: () => {
-                            push('/actions')
-                        },
-                    },
-                    {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Live Sessions',
-                        executor: () => {
-                            push('/sessions')
-                        },
-                    },
+                    ...(featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS]
+                        ? []
+                        : [
+                              {
+                                  icon: AimOutlined,
+                                  display: 'Go to Actions',
+                                  executor: () => {
+                                      push(urls.actions())
+                                  },
+                              },
+                          ]),
                     {
                         icon: UserOutlined,
                         display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
-                            push('/persons')
+                            push(urls.persons())
                         },
                     },
                     {
                         icon: UsergroupAddOutlined,
                         display: 'Go to Cohorts',
                         executor: () => {
-                            push('/cohorts')
+                            push(urls.cohorts())
                         },
                     },
                     {
@@ -526,37 +487,44 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Feature Flags',
                         synonyms: ['feature flags', 'a/b tests'],
                         executor: () => {
-                            push('/feature_flags')
+                            push(urls.featureFlags())
                         },
                     },
                     {
                         icon: MessageOutlined,
                         display: 'Go to Annotations',
                         executor: () => {
-                            push('/annotations')
+                            push(urls.annotations())
                         },
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Team Members',
-                        synonyms: ['organization', 'members', 'invites'],
+                        display: 'Go to Team members',
+                        synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
-                            push('/organization/members')
+                            push(urls.organizationSettings())
+                        },
+                    },
+                    {
+                        icon: HomeOutlined,
+                        display: 'Go to project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
                         },
                     },
                     {
                         icon: ProjectOutlined,
-                        display: 'Go to Project Settings',
+                        display: 'Go to Project settings',
                         executor: () => {
-                            push('/project/settings')
+                            push(urls.projectSettings())
                         },
                     },
                     {
                         icon: SmileOutlined,
-                        display: 'Go to My Settings',
+                        display: 'Go to My settings',
                         synonyms: ['account'],
                         executor: () => {
-                            push('/me/settings')
+                            push(urls.mySettings())
                         },
                     },
                     {
@@ -564,27 +532,27 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Plugins',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push('/project/plugins')
+                            push(urls.projectApps())
                         },
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System Status Page',
+                        display: 'Go to Instance status & settings',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
-                            push('/instance/status')
+                            push(urls.instanceStatus())
                         },
                     },
                     {
                         icon: PlusOutlined,
-                        display: 'Create Action',
+                        display: 'Create action',
                         executor: () => {
-                            push('/action')
+                            push(urls.createAction())
                         },
                     },
                     {
                         icon: LogoutOutlined,
-                        display: 'Log Out',
+                        display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
                         },
@@ -597,11 +565,12 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver:
                     userLogic.values.user?.is_staff ||
+                    userLogic.values.user?.is_impersonated ||
                     preflightLogic.values.preflight?.is_debug ||
-                    userLogic.values.user?.is_impersonated
+                    preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: PlusOutlined,
-                              display: 'Debug ClickHouse Queries',
+                              display: 'Debug queries (ClickHouse)',
                               executor: () => {
                                   debugCHQueries()
                               },
@@ -689,7 +658,7 @@ export const commandPaletteLogic = kea<
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
-                                        push('/me/settings', {}, 'personal-api-keys')
+                                        push(urls.mySettings(), {}, 'personal-api-keys')
                                     },
                                 }
                             }
@@ -715,7 +684,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, push: true })
+                                        newDashboardLogic.actions.addDashboard({ name: argument })
                                     },
                                 }
                             }
