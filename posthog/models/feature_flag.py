@@ -1,6 +1,6 @@
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.core.cache import cache
 from django.db import models
@@ -260,7 +260,7 @@ class FeatureFlagMatcher:
             team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id,
         )
         basic_group_query: QuerySet = Group.objects.filter(team_id=team_id,)
-        group_query_per_group_type_mapping = {}
+        group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
         # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
         # If no groups for a group type are passed in, we can skip querying for that group type,
         # since the result will always be `false`.
@@ -318,7 +318,7 @@ class FeatureFlagMatcher:
         for group_query, group_fields in group_query_per_group_type_mapping.values():
             group_query = group_query.values(*group_fields)
             if len(group_query) > 0:
-                assert len(group_query) == 1
+                assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                 all_conditions = {**all_conditions, **group_query[0]}
 
         return all_conditions
