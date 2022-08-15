@@ -42,9 +42,14 @@ class SignupSerializer(serializers.Serializer):
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
     # Slightly hacky: self vars for internal use
+    is_social_signup: bool
     _user: User
     _team: Team
     _organization: Organization
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.is_social_signup = False
 
     def validate_password(self, value):
         if value is not None:
@@ -88,11 +93,14 @@ class SignupSerializer(serializers.Serializer):
         email = validated_data["email"]
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
-        matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=50,)
+        # In the demo env, social signups gets staff privileges
+        # - grep SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS for more info
+        is_staff = self.is_social_signup
+        matrix = HedgeboxMatrix(n_clusters=3)
         with transaction.atomic():
             self._organization, self._team, self._user = MatrixManager(
-                matrix, use_pre_save=True
-            ).ensure_account_and_save(email, first_name, organization_name)
+                matrix, use_pre_save=False
+            ).ensure_account_and_save(email, first_name, organization_name, is_staff=is_staff)
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
@@ -261,6 +269,7 @@ class SocialSignupSerializer(serializers.Serializer):
             data={"organization_name": organization_name, "first_name": first_name, "email": email, "password": None,},
             context={"request": request},
         )
+        serializer.is_social_signup = True
 
         serializer.is_valid(raise_exception=True)
         user = serializer.save()

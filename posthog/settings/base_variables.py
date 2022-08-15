@@ -10,6 +10,8 @@ DEBUG = get_from_env("DEBUG", False, type_cast=str_to_bool)
 TEST = (
     "test" in sys.argv or sys.argv[0].endswith("pytest") or get_from_env("TEST", False, type_cast=str_to_bool)
 )  # type: bool
+DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
+SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING = get_from_env(
     "E2E_TESTING", False, type_cast=str_to_bool,
 )  # whether the app is currently running for E2E tests

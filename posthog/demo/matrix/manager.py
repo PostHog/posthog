@@ -44,6 +44,7 @@ class MatrixManager:
         organization_name: str,
         *,
         password: Optional[str] = None,
+        is_staff: bool = False,
         disallow_collision: bool = False,
         print_steps: bool = False,
     ) -> Tuple[Organization, Team, User]:
@@ -57,7 +58,7 @@ class MatrixManager:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
             organization = Organization.objects.create(**organization_kwargs)
             new_user = User.objects.create_and_join(
-                organization, email, password, first_name, OrganizationMembership.Level.ADMIN
+                organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
             )
             team = self.create_team(organization)
             if print_steps:
@@ -110,7 +111,14 @@ class MatrixManager:
                 )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         sim_persons = self.matrix.people
+        distinct_ids_seen = {}
         for sim_person in sim_persons:
+            for distinct_id in sim_person.distinct_ids_at_now:
+                if distinct_id in distinct_ids_seen:
+                    raise ValueError(
+                        f"Duplicate distinct_id {distinct_id}: {distinct_ids_seen[distinct_id]} and {sim_person}"
+                    )
+                distinct_ids_seen[distinct_id] = sim_person
             self._save_sim_person(target_team, sim_person)
 
     @classmethod

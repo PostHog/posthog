@@ -4,7 +4,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 from typing import Dict, List
 
-from posthog.settings import AUTHENTICATION_BACKENDS, SITE_URL, get_from_env
+from posthog.settings import AUTHENTICATION_BACKENDS, DEMO, SITE_URL, get_from_env
 
 # Zapier REST hooks
 HOOK_EVENTS: Dict[str, str] = {
@@ -42,6 +42,10 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
     ].split(",")
+elif DEMO:
+    # Only PostHog team members can use social auth in the demo environment
+    # This is because in the demo env social signups get is_staff=True to facilitate instance management
+    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = ["posthog.com"]
 
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing
