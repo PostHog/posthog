@@ -13,7 +13,7 @@ from posthog.models.feature_flag import (
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
-from posthog.test.base import BaseTest, QueryMatchingTest
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
@@ -64,7 +64,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
 
+    @snapshot_postgres_queries
     def test_multiple_flags(self):
+        FeatureFlag.objects.all().delete()
         Person.objects.create(
             team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"},
         )
@@ -115,6 +117,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
             key="group_property_match",
         )
+        feature_flag_group_property_match_for_different_group_key = self.create_feature_flag(
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": "name",
+                                "value": ["foo2.inc"],
+                                "operator": "exact",
+                                "type": "group",
+                                "group_type_index": 0,
+                            }
+                        ],
+                    }
+                ],
+            },
+            key="group_property_different_match",
+        )
         feature_flag_variant = self.create_feature_flag(
             filters={
                 "groups": [{"properties": [], "rollout_percentage": None}],
@@ -130,8 +152,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with self.assertNumQueries(
-            3
-        ):  # 1 to fill group cache, 1 to match feature flags with group properties, 1 to match feature flags with person properties
+            4
+        ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
 
             matches = FeatureFlagMatcher(
                 [
@@ -142,6 +164,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     feature_flag_group_no_match,
                     feature_flag_variant,
                     feature_flag_group_property_match,
+                    feature_flag_group_property_match_for_different_group_key,
                 ],
                 "test_id",
                 {"project": "group_key", "organization": "foo"},
@@ -157,6 +180,40 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     "variant": "first-variant",
                     "group_property_match": True,
                     # never_match and group_no_match don't match
+                    # group_property_different_match doesn't match because we're dealing with a different group key
+                },
+            )
+
+        with self.assertNumQueries(
+            3
+        ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
+
+            matches = FeatureFlagMatcher(
+                [
+                    feature_flag_one,
+                    feature_flag_always_match,
+                    feature_flag_never_match,
+                    feature_flag_group_match,
+                    feature_flag_group_no_match,
+                    feature_flag_variant,
+                    feature_flag_group_property_match,
+                    feature_flag_group_property_match_for_different_group_key,
+                ],
+                "test_id",
+                {"organization": "foo2"},
+                FlagsMatcherCache(self.team.id),
+            ).get_matches()
+
+            self.assertEqual(
+                matches,
+                {
+                    "one": True,
+                    "always_match": True,
+                    "variant": "first-variant",
+                    "group_property_different_match": True,
+                    # never_match and group_no_match don't match
+                    # group_match doesn't match because no project (group type index 1) given.
+                    # group_property_match doesn't match because we're dealing with a different group key
                 },
             )
 
@@ -504,12 +561,31 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     def create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="project", group_type_index=1)
+
+        # Add other irrelevant groups
+        for i in range(5):
+            Group.objects.create(
+                team=self.team,
+                group_type_index=0,
+                group_key=f"foo{i}",
+                group_properties={"name": f"foo{i}.inc"},
+                version=1,
+            )
         Group.objects.create(
             team=self.team, group_type_index=0, group_key="foo", group_properties={"name": "foo.inc"}, version=1
         )
         Group.objects.create(
             team=self.team, group_type_index=0, group_key="bar", group_properties={"name": "var.inc"}, version=1
         )
+        # Add other irrelevant groups
+        for i in range(5):
+            Group.objects.create(
+                team=self.team,
+                group_type_index=1,
+                group_key=f"group_key{i}",
+                group_properties={"name": "var.inc"},
+                version=1,
+            )
         Group.objects.create(
             team=self.team, group_type_index=1, group_key="group_key", group_properties={"name": "var.inc"}, version=1
         )
