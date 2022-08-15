@@ -195,6 +195,9 @@ class EventIngestionContext:
 
     team_id: int
     anonymize_ips: bool
+    # PostHog-JS sends library version in the URL as well as in the event body.
+    # It is used in the case that decompression fails
+    library_version_from_url: str
 
 
 def get_event_ingestion_context(
@@ -205,7 +208,7 @@ def get_event_ingestion_context(
     error_response = None
 
     try:
-        ingestion_context = get_event_ingestion_context_for_token(token)
+        ingestion_context = get_event_ingestion_context_for_token(token, request.GET.get("ver", "unknown"))
     except Exception as e:
         capture_exception(e)
         statsd.incr("capture_endpoint_fetch_team_fail")
@@ -240,7 +243,7 @@ def get_event_ingestion_context(
             return None, db_error, error_response
 
         ingestion_context = get_event_ingestion_context_for_personal_api_key(
-            personal_api_key=token, project_id=project_id
+            personal_api_key=token, project_id=project_id, library_version=request.GET.get("ver", "unknown")
         )
         if ingestion_context is None:
             error_response = cors_response(
@@ -271,7 +274,7 @@ def get_event_ingestion_context(
     return ingestion_context, db_error, error_response
 
 
-def get_event_ingestion_context_for_token(token: str) -> Optional[EventIngestionContext]:
+def get_event_ingestion_context_for_token(token: str, library_version: str) -> Optional[EventIngestionContext]:
     """
     Based on a token associated with a Team, retrieve the context that is
     required to ingest events.
@@ -282,13 +285,15 @@ def get_event_ingestion_context_for_token(token: str) -> Optional[EventIngestion
         # `Optional[bool]` instead of `bool` from mypy, even though
         # anonymize_ips is non-null in the model
         anonymize_ips = cast(bool, anonymize_ips)
-        return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
+        return EventIngestionContext(
+            team_id=team_id, anonymize_ips=anonymize_ips, library_version_from_url=library_version
+        )
     except Team.DoesNotExist:
         return None
 
 
 def get_event_ingestion_context_for_personal_api_key(
-    personal_api_key: str, project_id: int
+    personal_api_key: str, project_id: int, library_version: str
 ) -> Optional[EventIngestionContext]:
     """
     Some events use the personal_api_key on a `User` for authentication, along
@@ -301,7 +306,9 @@ def get_event_ingestion_context_for_personal_api_key(
 
     try:
         team_id, anonymize_ips = user.teams.values_list("id", "anonymize_ips").get(id=project_id)
-        return EventIngestionContext(team_id=team_id, anonymize_ips=anonymize_ips)
+        return EventIngestionContext(
+            team_id=team_id, anonymize_ips=anonymize_ips, library_version_from_url=library_version
+        )
     except Team.DoesNotExist:
         return None
 

@@ -243,6 +243,53 @@ class TestCapture(BaseTest):
 
         mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "unknown")])
 
+    @patch("posthog.api.capture.configure_scope")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
+    def test_capture_event_adds_library_version_to_sentry_when_ver_in_url(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s&ver=the-value-to-expect" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
+
+        mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "the-value-to-expect")])
+
+    @patch("posthog.api.capture.configure_scope")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce", MagicMock())
+    def test_capture_event_prefers_poperties_library_version_to_ver_in_url_for_sentry_scope(self, patched_scope):
+        mock_set_tag = mock_sentry_context_for_tagging(patched_scope)
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "$lib_version": "1.14.1",
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm",},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻",},
+                ],
+            },
+        }
+        with freeze_time(timezone.now()):
+            self.client.get(
+                "/e/?data=%s&ver=the-value-to-ignore" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost",
+            )
+
+        mock_set_tag.assert_has_calls([call("library", "unknown"), call("library.version", "1.14.1")])
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_personal_api_key(self, kafka_produce):
         key = PersonalAPIKey(label="X", user=self.user)

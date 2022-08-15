@@ -378,7 +378,9 @@ def parse_event(event, distinct_id, ingestion_context):
 
     with configure_scope() as scope:
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))
-        scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
+        scope.set_tag(
+            "library.version", event["properties"].get("$lib_version", ingestion_context.library_version_from_url)
+        )
 
     if ingestion_context:
         _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
