@@ -578,11 +578,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # Add other irrelevant groups
         for i in range(5):
             Group.objects.create(
-                team=self.team,
-                group_type_index=1,
-                group_key=f"group_key{i}",
-                group_properties={"name": "var.inc"},
-                version=1,
+                team=self.team, group_type_index=1, group_key=f"group_key{i}", group_properties={}, version=1,
             )
         Group.objects.create(
             team=self.team, group_type_index=1, group_key="group_key", group_properties={"name": "var.inc"}, version=1
