@@ -1,3 +1,4 @@
+import functools
 from typing import Any
 
 from statshog.defaults.django import statsd
@@ -5,6 +6,7 @@ from statshog.defaults.django import statsd
 
 def timed(name: str):
     def timed_decorator(func: Any) -> Any:
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             timer = statsd.timer(name).start()
             try:

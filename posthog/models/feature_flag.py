@@ -1,10 +1,9 @@
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from django.core.cache import cache
 from django.db import models
-from django.db.models import Q
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
@@ -260,9 +259,21 @@ class FeatureFlagMatcher:
         person_query: QuerySet = Person.objects.filter(
             team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id,
         )
-        group_query: QuerySet = Group.objects.filter(team_id=team_id,)
+        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id,)
+        group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
+        # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
+        # If no groups for a group type are passed in, we can skip querying for that group type,
+        # since the result will always be `false`.
+        for group_type, group_key in self.groups.items():
+            group_type_index = self.cache.group_types_to_indexes.get(group_type)
+            if group_type_index is not None:
+                # a tuple of querySet and field names
+                group_query_per_group_type_mapping[group_type_index] = (
+                    basic_group_query.filter(group_type_index=group_type_index, group_key=group_key),
+                    [],
+                )
+
         person_fields = []
-        group_fields = []
 
         for feature_flag in self.feature_flags:
             for index, condition in enumerate(feature_flag.conditions):
@@ -283,25 +294,31 @@ class FeatureFlagMatcher:
                     )
                     person_fields.append(key)
                 else:
-                    group_filter = Q(
-                        group_type_index=feature_flag.aggregation_group_type_index,
-                        group_key=self.hashed_identifier(feature_flag),
+                    if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
+                        # ignore flags that didn't have the right groups passed in
+                        continue
+                    group_query, group_fields = group_query_per_group_type_mapping[
+                        feature_flag.aggregation_group_type_index
+                    ]
+                    group_query = group_query.annotate(
+                        **{key: ExpressionWrapper(expr if expr else RawSQL("true", []), output_field=BooleanField())}
                     )
-                    if expr:
-                        expr = expr & group_filter
-                    else:
-                        expr = group_filter
-                    group_query = group_query.annotate(**{key: ExpressionWrapper(expr, output_field=BooleanField())})
                     group_fields.append(key)
+                    group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
+                        group_query,
+                        group_fields,
+                    )
 
         all_conditions = {}
         if len(person_fields) > 0:
             person_query = person_query.values(*person_fields)
             if len(person_query) > 0:
                 all_conditions = {**person_query[0]}
-        if len(group_fields) > 0:
+
+        for group_query, group_fields in group_query_per_group_type_mapping.values():
             group_query = group_query.values(*group_fields)
             if len(group_query) > 0:
+                assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
                 all_conditions = {**all_conditions, **group_query[0]}
 
         return all_conditions

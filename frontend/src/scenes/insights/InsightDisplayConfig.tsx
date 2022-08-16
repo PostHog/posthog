@@ -166,8 +166,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                                             setFilters({ ...filters, aggregation_axis_format: value })
                                         }
                                     }}
-                                    type="secondary"
-                                    status="stealth"
                                     dropdownPlacement={'bottom-end'}
                                     dropdownMatchSelectWidth={false}
                                     data-attr="chart-aggregation-axis-format"

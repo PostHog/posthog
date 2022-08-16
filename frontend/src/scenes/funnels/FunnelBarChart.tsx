@@ -211,6 +211,7 @@ export function FunnelBarChart({ showPersonsModal = true }: ChartParams): JSX.El
 
     const table = useMemo(() => {
         /** Average conversion time is only shown if it's known for at least one step. */
+        // != is intentional to catch undefined too
         const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
         const barRowHeight = `calc(${height}px - 3rem - (1.75rem * ${showTime ? 3 : 2}) - 1px)`
 

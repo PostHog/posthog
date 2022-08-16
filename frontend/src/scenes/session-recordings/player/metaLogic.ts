@@ -31,7 +31,7 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingPlayerLogic,
             ['currentPlayerPosition', 'scale'],
             eventsListLogic,
-            ['currentEventStartIndex'],
+            ['currentStartIndex'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
     }),
@@ -104,7 +104,7 @@ export const metaLogic = kea<metaLogicType>({
             },
         ],
         currentUrl: [
-            (selectors) => [selectors.eventsToShow, selectors.currentEventStartIndex],
+            (selectors) => [selectors.eventsToShow, selectors.currentStartIndex],
             (events, startIndex) => {
                 if (startIndex === -1 || !events?.length) {
                     return ''

@@ -28,7 +28,8 @@ export function InsightLegendButton(): JSX.Element | null {
         !(
             ((activeView === InsightType.TRENDS &&
                 filters.display !== ChartDisplayType.WorldMap &&
-                filters.display !== ChartDisplayType.ActionsTable) ||
+                filters.display !== ChartDisplayType.ActionsTable &&
+                filters.display !== ChartDisplayType.BoldNumber) ||
                 activeView === InsightType.STICKINESS) &&
             featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS]
         )

@@ -72,11 +72,9 @@ export function CohortCriteriaRowBuilder({
                             >
                                 {kids}
                                 {error && (
-                                    <Row className="CohortCriteriaRow__Criteria__error-row">
-                                        <AlertMessage type="error" style={{ width: '100%' }}>
-                                            <>{error}</>
-                                        </AlertMessage>
-                                    </Row>
+                                    <AlertMessage className="my-2" type="error">
+                                        {error}
+                                    </AlertMessage>
                                 )}
                             </div>
                         </>
@@ -133,7 +131,7 @@ export function CohortCriteriaRowBuilder({
                         <Col>
                             <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
                         </Col>
-                        <div>
+                        <Col>
                             <Row align="middle">
                                 {rowShape.fields.map((field, i) => {
                                     return (
@@ -167,7 +165,7 @@ export function CohortCriteriaRowBuilder({
                                     )
                                 })}
                             </Row>
-                        </div>
+                        </Col>
                     </div>
                 </>
             </KeaField>

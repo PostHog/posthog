@@ -449,11 +449,7 @@ function InsightMeta({
 }
 
 function VizComponentFallback(): JSX.Element {
-    return (
-        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
-            Unknown insight display type
-        </AlertMessage>
-    )
+    return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
 }
 
 export interface InsightVizProps

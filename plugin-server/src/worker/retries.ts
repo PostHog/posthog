@@ -112,8 +112,8 @@ export async function runRetriableFunction(
         event,
         tryFn,
         catchFn,
-        finallyFn: (attempts) => {
-            finallyFn?.(attempts)
+        finallyFn: async (attempts) => {
+            await finallyFn?.(attempts)
             hub.statsd?.timing(`plugin.${tag}`, timer, {
                 plugin: pluginConfig.plugin?.name ?? '?',
                 teamId: event.team_id.toString(),

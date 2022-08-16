@@ -1,6 +1,7 @@
 import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export default {
     title: 'Lemon UI/Lemon Select',
@@ -18,8 +19,13 @@ export default {
 
 const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<LemonSelectOptions>) => {
     return (
-        <div className="w-full border p-4">
-            <LemonSelect {...props} />
+        <div className="flex flex-row items-center w-full border p-4 gap-2">
+            {(['small', undefined] as const).map((size, index) => (
+                <div className="flex flex-col" key={index}>
+                    <h5>size={capitalizeFirstLetter(size || 'unspecified')}</h5>
+                    <LemonSelect {...props} size={size} />
+                </div>
+            ))}
         </div>
     )
 }
