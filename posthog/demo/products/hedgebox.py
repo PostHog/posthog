@@ -10,7 +10,19 @@ import pytz
 from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimPerson, SimSessionIntent
-from posthog.models import Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
+from posthog.models import (
+    Action,
+    ActionStep,
+    Cohort,
+    Dashboard,
+    DashboardTile,
+    Experiment,
+    FeatureFlag,
+    Insight,
+    InsightViewed,
+)
+
+from ..matrix.randomization import Industry
 
 # This is a simulation of an online drive SaaS called Hedgebox
 # See this RFC for the reasoning behind it:
@@ -68,7 +80,7 @@ EVENT_PAID_BILL = "paid_bill"  # Properties: plan, amount_usd
 
 # Group taxonomy
 
-GROUP_TYPE_ACCOUNT = "account"  # Properties: name, used_mb, plan, team_size
+GROUP_TYPE_ACCOUNT = "account"  # Properties: name, industry, used_mb, plan, team_size
 
 # Feature flags
 
@@ -231,7 +243,7 @@ class HedgeboxPerson(SimPerson):
         self._personal_account = None
         while True:
             self.country_code = (
-                "US" if self.cluster.random.random() < 0.9132 else self.cluster.address_provider.country_code()
+                "US" if self.cluster.random.random() < 0.7132 else self.cluster.address_provider.country_code()
             )
             try:  # Some tiny regions aren't in pytz - we want to omit those
                 self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
@@ -266,11 +278,11 @@ class HedgeboxPerson(SimPerson):
 
     @property
     def account(self) -> Optional[HedgeboxAccount]:
-        return self.cluster._business_account if self.cluster.company_name else self._personal_account
+        return self.cluster._business_account if self.cluster.company else self._personal_account
 
     @account.setter
     def account(self, value):
-        if self.cluster.company_name:
+        if self.cluster.company:
             self.cluster._business_account = value
         else:
             self._personal_account = value
@@ -305,15 +317,15 @@ class HedgeboxPerson(SimPerson):
             # Check if it's 9 to 5 on a work day
             elif next_session_datetime.weekday() <= 5 and 9 <= next_session_datetime.hour <= 17:
                 # Business users most likely to be active during the work day, personal users just the opposite
-                time_appropriateness = 1 if self.cluster.company_name else 0.3
+                time_appropriateness = 1 if self.cluster.company else 0.3
             else:
-                time_appropriateness = 0.2 if self.cluster.company_name else 1
+                time_appropriateness = 0.2 if self.cluster.company else 1
 
             if self.cluster.random.random() < time_appropriateness:
                 return next_session_datetime  # If the time is right, let's act - otherwise, let's advance further
 
     def determine_session_intent(self) -> Optional[HedgeboxSessionIntent]:
-        if self.affinity < 0.1 or not self.kernel and self.cluster.company_name:
+        if self.affinity < 0.1 or not self.kernel and self.cluster.company:
             # Very low affinity users aren't interested
             # Non-kernel business users can't log in or sign up
             return None
@@ -469,7 +481,7 @@ class HedgeboxPerson(SimPerson):
             self.go_to_files()
             return
 
-        if not self.kernel and self.cluster.company_name:
+        if not self.kernel and self.cluster.company:
             raise ValueError("Only the kernel can sign up in a company cluster")
 
         self.active_client.capture_pageview(URL_SIGNUP)  # Visiting the sign-up page
@@ -626,7 +638,13 @@ class HedgeboxPerson(SimPerson):
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
-            {"name": self.cluster.company_name or self.name, "used_mb": 0, "plan": self.account.plan, "team_size": 1,},
+            {
+                "name": self.cluster.company.name if self.cluster.company else self.name,
+                "industry": self.cluster.company.industry if self.cluster.company else None,
+                "used_mb": 0,
+                "plan": self.account.plan,
+                "team_size": 1,
+            },
         )
         self.satisfaction += (self.cluster.random.betavariate(1.5, 1.2) - 0.3) * 0.2
         self.active_session_intent = HedgeboxSessionIntent.UPLOAD_FILE_S  # Session intent changes
@@ -741,6 +759,12 @@ class HedgeboxPerson(SimPerson):
         ]
 
 
+@dataclass
+class HedgdboxCompany:
+    name: str
+    industry: Industry
+
+
 class HedgeboxCluster(Cluster):
     matrix: "HedgeboxMatrix"
 
@@ -748,7 +772,7 @@ class HedgeboxCluster(Cluster):
     MAX_RADIUS: int = 6
 
     # Properties
-    company_name: Optional[str]  # None means the cluster is a social circle instead of a company
+    company: Optional[HedgdboxCompany]  # None means the cluster is a social circle instead of a company
 
     # Internal state - plain
     _business_account: Optional[HedgeboxAccount]  # In social circle clusters the person-level account is used
@@ -756,11 +780,16 @@ class HedgeboxCluster(Cluster):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         is_company = self.random.random() < COMPANY_CLUSTERS_PROPORTION
-        self.company_name = self.finance_provider.company() if is_company else None
+        if is_company:
+            self.company = HedgdboxCompany(
+                name=self.finance_provider.company(), industry=self.properties_provider.industry()
+            )
+        else:
+            self.company = None
         self._business_account = None
 
     def __str__(self) -> str:
-        return self.company_name or f"Social Circle #{self.index+1}"
+        return self.company.name if self.company else f"Social Circle #{self.index+1}"
 
     def radius_distribution(self) -> float:
         return self.random.betavariate(1.5, 5)
@@ -785,6 +814,37 @@ class HedgeboxMatrix(Matrix):
 
     def set_project_up(self, team, user):
         super().set_project_up(team, user)
+
+        # Actions
+        interacted_with_file_action = Action.objects.create(
+            name="Interacted with file", team=team, description="Logged-in interaction with a file.", created_by=user,
+        )
+        ActionStep.objects.bulk_create(
+            (
+                ActionStep(action=interacted_with_file_action, event=EVENT_DELETED_FILE),
+                ActionStep(action=interacted_with_file_action, event=EVENT_UPLOADED_FILE),
+                ActionStep(action=interacted_with_file_action, event=EVENT_DOWNLOADED_FILE),
+                ActionStep(action=interacted_with_file_action, event=EVENT_SHARED_FILE_LINK),
+            )
+        )
+
+        # Cohorts
+        Cohort.objects.create(
+            team=team,
+            name="Signed-up users",
+            created_by=user,
+            groups=[{"properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}]}],
+        )
+        real_users_cohort = Cohort.objects.create(
+            team=team,
+            name="Real users",
+            description="People who don't belong to the Hedgebox team.",
+            created_by=user,
+            groups=[
+                {"properties": [{"key": "email", "type": "person", "value": "@hedgebox.net$", "operator": "not_regex"}]}
+            ],
+        )
+        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
@@ -841,9 +901,131 @@ class HedgeboxMatrix(Matrix):
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
-        signup_from_homepage_funnel = Insight.objects.create(
+        activation_funnel = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
+            saved=True,
+            name="Activation",
+            filters={
+                "events": [
+                    {
+                        "custom_name": "Signed up",
+                        "id": EVENT_SIGNED_UP,
+                        "name": EVENT_SIGNED_UP,
+                        "type": "events",
+                        "order": 2,
+                    },
+                    {
+                        "custom_name": "Upgraded plan",
+                        "id": EVENT_UPGRADED_PLAN,
+                        "name": EVENT_UPGRADED_PLAN,
+                        "type": "events",
+                        "order": 4,
+                    },
+                ],
+                "actions": [
+                    {
+                        "id": interacted_with_file_action.pk,
+                        "name": interacted_with_file_action.name,
+                        "type": "actions",
+                        "order": 3,
+                    },
+                ],
+                "display": "FunnelViz",
+                "insight": "FUNNELS",
+                "interval": "day",
+                "funnel_viz_type": "steps",
+                "filter_test_accounts": True,
+                "date_from": "-1m",
+            },
+            last_modified_at=self.now - dt.timedelta(days=19),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=activation_funnel,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+        weekly_uploader_retention = Insight.objects.create(
+            team=team,
+            dashboard=key_metrics_dashboard,
+            saved=True,
+            name="App retention",
+            filters={
+                "period": "Week",
+                "display": "ActionsTable",
+                "insight": "RETENTION",
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}],
+                        }
+                    ],
+                },
+                "target_entity": {
+                    "id": interacted_with_file_action.pk,
+                    "name": interacted_with_file_action.name,
+                    "type": "actions",
+                    "order": 0,
+                },
+                "retention_type": "retention_recurring",
+                "total_intervals": 9,
+                "returning_entity": {
+                    "id": interacted_with_file_action.pk,
+                    "name": interacted_with_file_action.name,
+                    "type": "actions",
+                    "order": 0,
+                },
+            },
+            last_modified_at=self.now - dt.timedelta(days=34),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=weekly_uploader_retention,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+
+        # Dashboard: Revenue
+        revenue_dashboard = Dashboard.objects.create(team=team, name="💸 Revenue", pinned=True)
+        monthly_app_revenue = Insight.objects.create(
+            team=team,
+            dashboard=revenue_dashboard,
+            saved=True,
+            name="Monthly app revenue",
+            filters={
+                "events": [
+                    {"id": EVENT_PAID_BILL, "type": "events", "order": 0, "math": "sum", "math_property": "amount_usd"}
+                ],
+                "actions": [],
+                "display": TRENDS_LINEAR,
+                "insight": INSIGHT_TRENDS,
+                "interval": "month",
+                "date_from": "-6m",
+            },
+            last_modified_at=self.now - dt.timedelta(days=29),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=revenue_dashboard,
+            insight=monthly_app_revenue,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+
+        # Insight
+        Insight.objects.create(
+            team=team,
             saved=True,
             name="Homepage view to signup conversion",
             filters={
@@ -881,40 +1063,45 @@ class HedgeboxMatrix(Matrix):
             last_modified_at=self.now - dt.timedelta(days=19),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=signup_from_homepage_funnel,
-            layouts={
-                "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
-            },
-        )
-        weekly_uploader_retention = Insight.objects.create(
+        Insight.objects.create(
             team=team,
-            dashboard=key_metrics_dashboard,
             saved=True,
-            name="Weekly uploader retention",
+            name="User paths starting at homepage",
             filters={
-                "period": "Week",
-                "display": "ActionsTable",
-                "insight": "RETENTION",
-                "properties": [],
-                "target_entity": {"id": "uploaded_file", "name": "uploaded_file", "type": "events", "order": 0},
-                "retention_type": "retention_first_time",
-                "total_intervals": 11,
-                "returning_entity": {"id": "uploaded_file", "name": "uploaded_file", "type": "events", "order": 0},
-                "filter_test_accounts": True,
+                "date_to": None,
+                "insight": "PATHS",
+                "date_from": "-30d",
+                "edge_limit": 50,
+                "properties": {"type": "AND", "values": []},
+                "step_limit": 5,
+                "start_point": URL_HOME,
+                "funnel_filter": {},
+                "exclude_events": [],
+                "path_groupings": ["/files/*"],
+                "include_event_types": ["$pageview"],
+                "local_path_cleaning_filters": [],
             },
-            last_modified_at=self.now - dt.timedelta(days=34),
+            last_modified_at=self.now - dt.timedelta(days=9),
             last_modified_by=user,
         )
-        DashboardTile.objects.create(
-            dashboard=key_metrics_dashboard,
-            insight=weekly_uploader_retention,
-            layouts={
-                "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
+        Insight.objects.create(
+            team=team,
+            saved=True,
+            name="File interactions",
+            filters={
+                "events": [
+                    {"id": EVENT_UPLOADED_FILE, "type": "events", "order": 0},
+                    {"id": EVENT_DELETED_FILE, "type": "events", "order": 2},
+                    {"id": EVENT_DOWNLOADED_FILE, "type": "events", "order": 1},
+                ],
+                "actions": [],
+                "display": TRENDS_LINEAR,
+                "insight": INSIGHT_TRENDS,
+                "interval": "day",
+                "date_from": "-30d",
             },
+            last_modified_at=self.now - dt.timedelta(days=13),
+            last_modified_by=user,
         )
 
         # InsightViewed
@@ -931,23 +1118,6 @@ class HedgeboxMatrix(Matrix):
                 for insight in Insight.objects.filter(team=team)
             )
         )
-        # Cohorts
-        Cohort.objects.create(
-            team=team,
-            name="Signed-up users",
-            created_by=user,
-            groups=[{"properties": [{"key": "email", "type": "person", "value": "is_set", "operator": "is_set"}]}],
-        )
-        real_users_cohort = Cohort.objects.create(
-            team=team,
-            name="Real users",
-            description="People who don't belong to the Hedgebox team.",
-            created_by=user,
-            groups=[
-                {"properties": [{"key": "email", "type": "person", "value": "@hedgebox.net$", "operator": "not_regex"}]}
-            ],
-        )
-        team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
 
         # Feature flags
         new_signup_page_flag = FeatureFlag.objects.create(

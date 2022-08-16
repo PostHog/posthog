@@ -171,7 +171,7 @@ class Matrix(ABC):
         seed: Optional[str] = None,
         *,
         now: Optional[dt.datetime] = None,
-        days_past: int = 120,
+        days_past: int = 180,
         days_future: int = 30,
         n_clusters: int,
     ):

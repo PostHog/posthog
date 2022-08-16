@@ -207,7 +207,7 @@ class MatrixManager:
                 event_uuid=event_uuid,
                 event=event.event,
                 team=team,
-                distinct_id=event.properties["$distinct_id"],
+                distinct_id=event.distinct_id,
                 timestamp=event.timestamp,
                 properties=event.properties,
             )
@@ -221,7 +221,7 @@ class MatrixManager:
             timestamp_iso = event.timestamp.isoformat()
             payload = {
                 "eventPayload": {
-                    "distinct_id": event.properties["$distinct_id"],
+                    "distinct_id": event.distinct_id,
                     "team_id": team.pk,
                     "now": timestamp_iso,
                     "timestamp": timestamp_iso,

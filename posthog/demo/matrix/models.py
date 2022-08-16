@@ -84,7 +84,7 @@ class SimEvent:
         separator = (
             "-" if self.timestamp < dt.datetime.now(dt.timezone.utc) else "+"
         )  # Future events are denoted by a '+'
-        display = f"{self.timestamp} {separator} {self.event} # {self.properties['$distinct_id']}"
+        display = f"{self.timestamp} {separator} {self.event} # {self.distinct_id}"
         if current_url := self.properties.get("$current_url"):
             display += f" @ {current_url}"
         return display
@@ -103,7 +103,6 @@ class SimClient(ABC):
         person = self._get_person(distinct_id)
         timestamp = person.simulation_time
         combined_properties: Properties = {
-            "$distinct_id": distinct_id,
             "$lib": self.LIB_NAME,
             "$groups": deepcopy(person._groups),
             "$timestamp": timestamp.isoformat(),

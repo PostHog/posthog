@@ -1,7 +1,7 @@
 import datetime as dt
 import logging
 import secrets
-from time import time
+from time import monotonic
 from typing import cast
 
 from django.core import exceptions
@@ -11,6 +11,8 @@ from django.db import transaction
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.products.hedgebox import HedgeboxMatrix
+
+from ...demo.matrix.matrix import Matrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
@@ -46,7 +48,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        timer = time()
+        timer = monotonic()
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.timezone.utc)
         matrix = HedgeboxMatrix(
@@ -57,7 +59,33 @@ class Command(BaseCommand):
             n_clusters=options["n_clusters"],
         )
         matrix.simulate()
-        duration = time() - timer
+        self.print_results(matrix, seed=seed, duration=monotonic() - timer, list_events=options["list_events"])
+        if not options["dry_run"]:
+            email = options["email"]
+            password = options["password"]
+            with transaction.atomic():
+                try:
+                    MatrixManager(matrix, use_pre_save=False).ensure_account_and_save(
+                        email,
+                        "Employee 427",
+                        "Hedgebox Inc.",
+                        password=password,
+                        disallow_collision=True,
+                        print_steps=True,
+                    )
+                except exceptions.ValidationError as e:
+                    print(f"Error: {e}")
+                else:
+                    print(
+                        f"Demo data ready! Log in as {email} with password {password}.\n"
+                        "If running DEMO mode locally, log in with this link:\n"
+                        f"http://localhost:8000/signup?email={email}"
+                    )
+        else:
+            print("Dry run - not saving results.")
+
+    @staticmethod
+    def print_results(matrix: Matrix, *, seed: str, duration: float, list_events: bool):
         active_people_count = 0  # Active means they have at least one event
         total_event_count = 0
         future_event_count = 0
@@ -73,7 +101,7 @@ class Command(BaseCommand):
                     future_event_count += len(person.future_events)
                     if person.all_events:
                         active_people_count += 1
-                    if options["list_events"]:
+                    if list_events:
                         active_session_id = None
                         for event in person.all_events:
                             if session_id := event.properties.get("$session_id"):
@@ -101,20 +129,3 @@ class Command(BaseCommand):
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'} (of which {future_event_count} {'is' if future_event_count == 1 else 'are'} in the future)."
         )
         print("\n".join(summary_lines))
-        if not options["dry_run"]:
-            email = options["email"]
-            password = options["password"]
-            with transaction.atomic():
-                try:
-                    MatrixManager(matrix, use_pre_save=False).ensure_account_and_save(
-                        email,
-                        "Employee 427",
-                        "Hedgebox Inc.",
-                        password=password,
-                        disallow_collision=True,
-                        print_steps=True,
-                    )
-                except exceptions.ValidationError as e:
-                    print(f"Error: {e}")
-                else:
-                    print(f"Demo data ready! Log in as {email} with password {password}.")

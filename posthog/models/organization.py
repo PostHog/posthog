@@ -135,7 +135,9 @@ class Organization(UUIDModel):
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
-        elif realm in ("ee", "demo"):
+        elif realm == "demo":
+            self.available_features = License.ENTERPRISE_FEATURES
+        elif realm == "ee":
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
