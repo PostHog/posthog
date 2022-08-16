@@ -26,7 +26,6 @@ export enum AsyncMigrationStatus {
 export enum AsyncMigrationsTab {
     Management = 'management',
     FutureMigrations = 'future',
-    CompletedMigrations = 'completed',
     Settings = 'settings',
 }
 
@@ -173,39 +172,28 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
             (preflight) =>
                 function isFutureMigration(migration: AsyncMigration): boolean {
                     const posthogVersion = preflight?.posthog_version
-                    return !posthogVersion || isVersionLT(posthogVersion, migration.posthog_min_version)
+                    if (!posthogVersion || migration.status == AsyncMigrationStatus.CompletedSuccessfully) {
+                        return false
+                    }
+                    return isVersionLT(posthogVersion, migration.posthog_min_version)
                 },
         ],
         actionableMigrations: [
             (s) => [s.asyncMigrations, s.isFutureMigration],
             (asyncMigrations, isFutureMigration) =>
-                asyncMigrations.filter(
-                    (migration) =>
-                        migration.status !== AsyncMigrationStatus.CompletedSuccessfully && !isFutureMigration(migration)
-                ),
-        ],
-        completedMigrations: [
-            (s) => [s.asyncMigrations],
-            (asyncMigrations) =>
-                asyncMigrations.filter((migration) => migration.status === AsyncMigrationStatus.CompletedSuccessfully),
+                asyncMigrations.filter((migration) => !isFutureMigration(migration)),
         ],
         futureMigrations: [
             (s) => [s.asyncMigrations, s.isFutureMigration],
-            (asyncMigrations, isFutureMigration) =>
-                asyncMigrations.filter(
-                    (migration) =>
-                        migration.status !== AsyncMigrationStatus.CompletedSuccessfully && isFutureMigration(migration)
-                ),
+            (asyncMigrations, isFutureMigration) => asyncMigrations.filter((migration) => isFutureMigration(migration)),
         ],
         migrationsForCurrentTab: [
-            (s) => [s.activeTab, s.asyncMigrations, s.actionableMigrations, s.completedMigrations, s.futureMigrations],
-            (activeTab, asyncMigrations, actionableMigrations, completedMigrations, futureMigrations) => {
+            (s) => [s.activeTab, s.asyncMigrations, s.actionableMigrations, s.futureMigrations],
+            (activeTab, asyncMigrations, actionableMigrations, futureMigrations) => {
                 if (activeTab === AsyncMigrationsTab.Management) {
                     return actionableMigrations
                 } else if (activeTab === AsyncMigrationsTab.FutureMigrations) {
                     return futureMigrations
-                } else if (activeTab === AsyncMigrationsTab.CompletedMigrations) {
-                    return completedMigrations
                 } else {
                     // If no tab is set, show all migrations
                     return asyncMigrations

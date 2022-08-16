@@ -45,7 +45,6 @@ export function AsyncMigrations(): JSX.Element {
         activeAsyncMigrationModal,
         actionableMigrations,
         futureMigrations,
-        completedMigrations,
         migrationsForCurrentTab,
     } = useValues(asyncMigrationsLogic)
     const {
@@ -229,21 +228,18 @@ export function AsyncMigrations(): JSX.Element {
         },
     }
 
-    const columnsForCurrentTab =
-        activeTab === AsyncMigrationsTab.CompletedMigrations
-            ? [nameColumn, startedAtColumn, finishedAtColumn]
-            : activeTab === AsyncMigrationsTab.FutureMigrations
-            ? [nameColumn, statusColumn, minVersionColumn, maxVersionColumn]
-            : [
-                  nameColumn,
-                  progressColumn,
-                  statusColumn,
-                  lastOpColumn,
-                  queryIdColumn,
-                  startedAtColumn,
-                  finishedAtColumn,
-                  ActionsColumn,
-              ]
+    const columns = {}
+    columns[AsyncMigrationsTab.FutureMigrations] = [nameColumn, statusColumn, minVersionColumn, maxVersionColumn]
+    columns[AsyncMigrationsTab.Management] = [
+        nameColumn,
+        progressColumn,
+        statusColumn,
+        lastOpColumn,
+        queryIdColumn,
+        startedAtColumn,
+        finishedAtColumn,
+        ActionsColumn,
+    ]
 
     const rowExpansion = {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {
@@ -285,20 +281,10 @@ export function AsyncMigrations(): JSX.Element {
                                 key={AsyncMigrationsTab.FutureMigrations}
                             />
                         )}
-                        {completedMigrations.length > 0 && (
-                            <TabPane
-                                tab={`Completed Migrations (${completedMigrations.length})`}
-                                key={AsyncMigrationsTab.CompletedMigrations}
-                            />
-                        )}
                         <TabPane tab="Settings" key={AsyncMigrationsTab.Settings} />
                     </Tabs>
 
-                    {[
-                        AsyncMigrationsTab.Management,
-                        AsyncMigrationsTab.FutureMigrations,
-                        AsyncMigrationsTab.CompletedMigrations,
-                    ].includes(activeTab) ? (
+                    {[AsyncMigrationsTab.Management, AsyncMigrationsTab.FutureMigrations].includes(activeTab) ? (
                         <>
                             <div className="mb-4 float-right">
                                 <LemonButton
@@ -314,7 +300,7 @@ export function AsyncMigrations(): JSX.Element {
                             <LemonTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
-                                columns={columnsForCurrentTab}
+                                columns={columns[activeTab]}
                                 dataSource={migrationsForCurrentTab}
                                 expandable={rowExpansion}
                             />

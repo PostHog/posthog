@@ -88,7 +88,6 @@ export const urls = {
     instanceMetrics: (): string => `/instance/metrics`,
     asyncMigrations: (): string => '/instance/async_migrations',
     asyncMigrationsFuture: (): string => '/instance/async_migrations/future',
-    asyncMigrationsCompleted: (): string => '/instance/async_migrations/completed',
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     unsubscribe: (): string => '/unsubscribe',
