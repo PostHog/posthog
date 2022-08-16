@@ -73,6 +73,7 @@ export function Annotations(): JSX.Element {
             render: function RenderType(_, annotation: AnnotationType): JSX.Element {
                 return annotation.scope === AnnotationScope.Insight ? (
                     <LemonTag
+                        className="border"
                         style={{
                             // overriding tag color here to match antd for now
                             color: '#096dd9',
@@ -84,6 +85,7 @@ export function Annotations(): JSX.Element {
                     </LemonTag>
                 ) : annotation.scope === AnnotationScope.Project ? (
                     <LemonTag
+                        className="border"
                         style={{
                             // overriding tag color here to match antd for now
                             color: '#531dab',
