@@ -2,7 +2,7 @@ import { captureException } from '@sentry/node'
 import { StatsD } from 'hot-shots'
 import { format } from 'util'
 
-import { Action, Hook, IngestionEvent, IngestionPersonData } from '../../types'
+import { Action, Hook, IngestionPersonData, PostIngestionEvent } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
 import { stringify } from '../../utils/utils'
@@ -29,7 +29,7 @@ export function determineWebhookType(url: string): WebhookType {
 }
 
 export function getUserDetails(
-    event: IngestionEvent,
+    event: PostIngestionEvent,
     person: IngestionPersonData | undefined,
     siteUrl: string,
     webhookType: WebhookType
@@ -74,7 +74,7 @@ export function getTokens(messageFormat: string): [string[], string] {
 
 export async function getValueOfToken(
     action: Action,
-    event: IngestionEvent,
+    event: PostIngestionEvent,
     personContainer: LazyPersonContainer,
     siteUrl: string,
     webhookType: WebhookType,
@@ -128,7 +128,7 @@ export async function getValueOfToken(
 
 export async function getFormattedMessage(
     action: Action,
-    event: IngestionEvent,
+    event: PostIngestionEvent,
     personContainer: LazyPersonContainer,
     siteUrl: string,
     webhookType: WebhookType
@@ -189,7 +189,7 @@ export class HookCommander {
     }
 
     public async findAndFireHooks(
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         personContainer: LazyPersonContainer,
         actionMatches: Action[]
     ): Promise<void> {
@@ -232,7 +232,7 @@ export class HookCommander {
     private async postWebhook(
         webhookUrl: string,
         action: Action,
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         personContainer: LazyPersonContainer
     ): Promise<void> {
         const webhookType = determineWebhookType(webhookUrl)
@@ -267,7 +267,7 @@ export class HookCommander {
 
     public async postRestHook(
         hook: Hook,
-        event: IngestionEvent,
+        event: PostIngestionEvent,
         person: IngestionPersonData | undefined
     ): Promise<void> {
         let sendablePerson: Record<string, any> = {}

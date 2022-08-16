@@ -37,6 +37,11 @@ import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-man
 import { LazyPluginVM } from './worker/vm/lazy'
 import { PromiseManager } from './worker/vm/promise-manager'
 
+/** Re-export Element from scaffolding, for backwards compat. */
+export { Element } from '@posthog/plugin-scaffold'
+
+type Brand<K, T> = K & { __brand: T }
+
 export enum LogLevel {
     None = 'none',
     Debug = 'debug',
@@ -398,7 +403,7 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
+    runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
 
@@ -459,6 +464,28 @@ export interface PropertyUsage {
     volume: number | null
 }
 
+/** Raw Organization row from database. */
+export interface RawOrganization {
+    id: string
+    name: string
+    created_at: string
+    updated_at: string
+    available_features: string[]
+}
+
+/** Usable Team model. */
+export interface Team {
+    id: number
+    uuid: string
+    organization_id: string
+    name: string
+    anonymize_ips: boolean
+    api_token: string
+    slack_incoming_webhook: string
+    session_recording_opt_in: boolean
+    ingested_event: boolean
+}
+
 /** Properties shared by RawEventMessage and EventMessage. */
 export interface BaseEventMessage {
     distinct_id: string
@@ -487,42 +514,41 @@ export interface EventMessage extends BaseEventMessage {
     sent_at: DateTime | null
 }
 
-/** Raw Organization row from database. */
-export interface RawOrganization {
-    id: string
-    name: string
-    created_at: string
-    updated_at: string
-    available_features: string[]
-}
-
-/** Usable Team model. */
-export interface Team {
-    id: number
+/** Properties shared by RawClickHouseEvent and ClickHouseEvent. */
+interface BaseEvent {
     uuid: string
-    organization_id: string
-    name: string
-    anonymize_ips: boolean
-    api_token: string
-    slack_incoming_webhook: string
-    session_recording_opt_in: boolean
-    ingested_event: boolean
-}
-
-/** Re-export Element from scaffolding, for backwards compat. */
-export { Element } from '@posthog/plugin-scaffold'
-
-/** Usable Event model. */
-export interface Event {
-    id: number
-    event?: string
-    properties: Record<string, any>
-    elements?: Element[]
-    timestamp: string
+    event: string
     team_id: number
     distinct_id: string
-    elements_hash: string
-    created_at: string
+    /** Person UUID. */
+    person_id?: string
+}
+
+export type ISOTimestamp = Brand<string, 'ISOTimestamp'>
+export type ClickHouseTimestamp = Brand<string, 'ClickHouseTimestamp'>
+
+/** Raw event row from ClickHouse. */
+export interface RawClickHouseEvent extends BaseEvent {
+    timestamp: ClickHouseTimestamp
+    created_at: ClickHouseTimestamp
+    properties?: string
+    elements_chain: string
+    person_created_at?: ClickHouseTimestamp
+    person_properties?: string
+    group0_properties?: string
+    group1_properties?: string
+    group2_properties?: string
+    group3_properties?: string
+    group4_properties?: string
+}
+
+/** Parsed event row from ClickHouse. */
+export interface ClickHouseEvent extends BaseEvent {
+    timestamp: DateTime
+    created_at: DateTime
+    properties: Record<string, any>
+    elements_chain: Element[] | null
+    person_created_at: DateTime | null
     person_properties: Record<string, any>
     group0_properties: Record<string, any>
     group1_properties: Record<string, any>
@@ -531,23 +557,25 @@ export interface Event {
     group4_properties: Record<string, any>
 }
 
-export interface ClickHouseEvent extends Omit<Event, 'id' | 'elements' | 'elements_hash'> {
-    uuid: string
-    elements_chain: string | undefined
+/** Event in a database-agnostic shape, AKA an ingestion event.
+ * This is what should be passed around most of the time in the plugin server.
+ */
+interface BaseIngestionEvent {
+    eventUuid: string
+    event: string
+    ip: string | null
+    teamId: TeamId
+    distinctId: string
+    properties: Properties
+    timestamp: ISOTimestamp
+    elementsList: Element[]
 }
 
-// Clickhouse event as read from kafka
-export interface ClickhouseEventKafka {
-    event: string
-    timestamp: string
-    team_id: number
-    distinct_id: string
-    created_at: string
-    uuid: string
-    elements_chain: string
-    properties: string
-    person_properties: string | null
-}
+/** Ingestion event before saving, currently just an alias of BaseIngestionEvent. */
+export type PreIngestionEvent = BaseIngestionEvent
+
+/** Ingestion event after saving, currently just an alias of BaseIngestionEvent */
+export type PostIngestionEvent = BaseIngestionEvent
 
 export interface DeadLetterQueueEvent {
     id: string
@@ -804,7 +832,8 @@ export interface Action extends RawAction {
     hooks: Hook[]
 }
 
-export interface SessionRecordingEvent {
+/** Raw session recording event row from ClickHouse. */
+export interface RawSessionRecordingEvent {
     uuid: string
     timestamp: string
     team_id: number
@@ -813,10 +842,6 @@ export interface SessionRecordingEvent {
     window_id: string
     snapshot_data: string
     created_at: string
-}
-
-export interface PostgresSessionRecordingEvent extends Omit<SessionRecordingEvent, 'uuid'> {
-    id: string
 }
 
 export enum TimestampFormat {
@@ -916,16 +941,3 @@ export enum OrganizationMembershipLevel {
     Admin = 8,
     Owner = 15,
 }
-
-export interface PreIngestionEvent {
-    eventUuid: string
-    event: string
-    ip: string | null
-    teamId: TeamId
-    distinctId: string
-    properties: Properties
-    timestamp: DateTime | string
-    elementsList: Element[]
-}
-
-export type IngestionEvent = PreIngestionEvent

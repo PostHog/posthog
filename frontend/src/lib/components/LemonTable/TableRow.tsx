@@ -77,6 +77,7 @@ function TableRowRaw<T extends Record<string, any>>({
                     columnGroup.children.map((column, columnIndex) => {
                         const columnKeyRaw = column.key || column.dataIndex
                         const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
+                        // != is intentional to catch undefined too
                         const value = column.dataIndex != null ? record[column.dataIndex] : undefined
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                         const areContentsCellRepresentations: boolean =
