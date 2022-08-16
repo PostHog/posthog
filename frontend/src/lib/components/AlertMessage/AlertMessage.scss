@@ -7,7 +7,7 @@
     align-items: center;
     text-align: left;
     gap: 0.5rem;
-    line-height: 2rem;
+    min-height: 3rem;
 
     &.AlertMessage--info {
         background-color: var(--primary-alt-highlight);
