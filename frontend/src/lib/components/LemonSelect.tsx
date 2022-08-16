@@ -56,7 +56,7 @@ export interface LemonSelectProps<T>
     }
 }
 
-const isSection = <T extends any>(
+export const isLemonSelectSection = <T extends any>(
     candidate: LemonSelectSection<T> | LemonSelectOption<T>
 ): candidate is LemonSelectSection<T> => candidate && 'options' in candidate
 
@@ -73,7 +73,7 @@ const boxToSections = <T,>(
     const sections: LemonSelectSection<T>[] = []
     let implicitSection: LemonSelectSection<T> = { options: [] }
     for (const sectionOrOption of sectionsAndOptions) {
-        if (isSection(sectionOrOption)) {
+        if (isLemonSelectSection(sectionOrOption)) {
             if (implicitSection.options.length > 0) {
                 sections.push(implicitSection)
                 implicitSection = { options: [] }

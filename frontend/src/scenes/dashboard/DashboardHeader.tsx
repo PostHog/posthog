@@ -25,6 +25,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { isLemonSelectSection } from 'lib/components/LemonSelect'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
@@ -305,7 +306,10 @@ function CollaboratorBubbles({
 
     const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
     const tooltipParts: string[] = []
-    if ('title' in effectiveRestrictionLevelOption && typeof effectiveRestrictionLevelOption?.title === 'string') {
+    if (
+        isLemonSelectSection(effectiveRestrictionLevelOption) &&
+        typeof effectiveRestrictionLevelOption?.title === 'string'
+    ) {
         tooltipParts.push(effectiveRestrictionLevelOption.title)
     }
     if (dashboard.is_shared) {
