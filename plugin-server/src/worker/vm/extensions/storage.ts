@@ -56,7 +56,3 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
         del,
     }
 }
-
-// TODO:
-// 1. Add index to timestamp
-// 2. Add cron to deduplicate (or do on insert?)
