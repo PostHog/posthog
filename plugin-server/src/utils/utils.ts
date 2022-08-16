@@ -9,6 +9,7 @@ import { Readable } from 'stream'
 import { LogLevel, Plugin, PluginConfigId, PluginsServerConfig, TimestampFormat } from '../types'
 import { Hub } from './../types'
 import { status } from './status'
+import { lookup, LookupAddress } from 'dns'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
 const GRACEFUL_EXIT_PERIOD_SECONDS = 5
@@ -307,7 +308,28 @@ export async function tryTwice<T extends any>(
     }
 }
 
+export async function dnsLookupForPostHogRedis(redisHost: string): Promise<LookupAddress[]> {
+    return new Promise<LookupAddress[]>((resolve, reject) => {
+        lookup(redisHost, { all: true }, (err, addresses) => {
+            if (err) {
+                console.error(
+                    `Error occurred while dns lookup for ${redisHost}. Error details :: ${err} ${JSON.stringify(err)}`
+                )
+                reject(err)
+            } else {
+                console.log(`Addresses found after dns lookup :: ${JSON.stringify(addresses)}`)
+                resolve(addresses)
+            }
+        })
+    })
+}
+
 export async function createRedis(serverConfig: PluginsServerConfig): Promise<Redis.Redis> {
+    const addressesReturned = await dnsLookupForPostHogRedis(serverConfig.POSTHOG_REDIS_HOST)
+    if (addressesReturned.length > 0) {
+        serverConfig.POSTHOG_REDIS_HOST = addressesReturned[0].address
+        console.log(`Address updated to env for POSTHOG_REDIS_HOST as ${addressesReturned[0].address}`)
+    }
     const credentials: Partial<RedisOptions> | undefined = serverConfig.POSTHOG_REDIS_HOST
         ? {
               password: serverConfig.POSTHOG_REDIS_PASSWORD,
