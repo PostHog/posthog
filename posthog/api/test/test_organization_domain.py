@@ -212,11 +212,12 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(self.domain.is_verified, True)
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
-    def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query):
+    @pytest.mark.parametrize("ExcClass", (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN))
+    def test_domain_is_not_verified_with_missing_challenge(self, mock_dns_query, ExcClass):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        mock_dns_query.side_effect = dns.resolver.NoAnswer()
+        mock_dns_query.side_effect = ExcClass()
 
         with freeze_time("2021-10-10T10:10:10Z"):
             with self.settings(MULTI_TENANCY=True):
