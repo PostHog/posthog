@@ -19,18 +19,16 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
     }
 
     return (
-        <div
-            style={{ backgroundColor: 'var(--border-light)', borderRadius: 'var(--radius)', padding: 8, marginTop: 16 }}
-        >
+        <div className="bg-light radius p-2">
             <div>
                 <code>{metricKey}</code>
             </div>
-            <div style={{ color: 'var(--muted)' }}>
+            <div className="text-muted">
                 Value will be changed
                 {!isSecret && (
                     <>
                         {' from '}
-                        <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
+                        <span className="font-bold text-default">
                             {RenderMetricValue(null, {
                                 key: metricKey,
                                 value: oldValue,
@@ -41,11 +39,11 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                     </>
                 )}
                 {' to '}
-                <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
+                <span className="font-bold text-default">
                     {RenderMetricValue(null, { key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (
-                    <div className="text-danger">This field is secret – you won't see its value once saved</div>
+                    <div className="text-danger">This field is secret - you won't see its value once saved</div>
                 )}
             </div>
         </div>
