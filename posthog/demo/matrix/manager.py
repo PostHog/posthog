@@ -252,7 +252,4 @@ class MatrixManager:
 
     @classmethod
     def _is_demo_data_pre_saved(cls) -> bool:
-        from posthog.models.event.sql import GET_TOTAL_EVENTS_VOLUME
-
-        total_events_volume = sync_execute(GET_TOTAL_EVENTS_VOLUME, {"team_id": cls.MASTER_TEAM_ID})[0][0]
-        return total_events_volume > 0
+        return Team.objects.filter(pk=cls.MASTER_TEAM_ID).exists()

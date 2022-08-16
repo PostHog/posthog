@@ -590,15 +590,18 @@ class TestSignupAPI(APIBaseTest):
 
 @pytest.mark.ee
 @override_settings(DEMO=True)
-@patch("posthog.demo.graphile.bulk_queue_graphile_jobs", return_value=None)
-@patch("posthog.demo.graphile.copy_graphile_jobs_between_teams", return_value=None)
 class TestDemoSignupAPI(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         # Do not set up any test data
         pass
 
+    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_jobs")
+    @patch("posthog.demo.matrix.manager.copy_graphile_jobs_between_teams")
     def test_demo_signup(self, *args):
+        assert not User.objects.exists()
+        assert not Organization.objects.exists()
+
         # Password not needed
         response = self.client.post(
             "/api/signup/",
@@ -623,6 +626,9 @@ class TestDemoSignupAPI(APIBaseTest):
         assert user.is_staff is False
 
     def test_demo_login(self, *args):
+        assert not User.objects.exists()
+        assert not Organization.objects.exists()
+
         User.objects.bootstrap("Tech R Us", "charlie@tech-r-us.com", None, first_name="Charlie")
 
         # first_name and organization_name aren't used when logging in
@@ -632,21 +638,27 @@ class TestDemoSignupAPI(APIBaseTest):
         )
 
         user = auth.get_user(self.client)
-        organization = Organization.objects.filter(name="Tech R Us").first()
+        user_organization = Organization.objects.filter(name="Tech R Us").first()
 
         # 201 is not fully semantically correct here, but it's not really valuable to modify the viewset to return 200
         assert response.status_code == status.HTTP_201_CREATED
         assert Organization.objects.count() == 1
         assert User.objects.count() == 1
         assert isinstance(user, User)
-        assert organization is not None
-        assert user.organization == organization
+        assert user_organization is not None
+        assert user.organization == user_organization
         assert user.first_name == "Charlie"
         assert user.email == "charlie@tech-r-us.com"
         assert user.is_active is True
         assert user.is_staff is False
+        self.tearDown()
 
+    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_jobs")
+    @patch("posthog.demo.matrix.manager.copy_graphile_jobs_between_teams")
     def test_social_signup_give_staff_privileges(self, *args):
+        assert not User.objects.exists()
+        assert not Organization.objects.exists()
+
         # Simulate SSO process started
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "charlie@tech-r-us.com"})
@@ -659,23 +671,30 @@ class TestDemoSignupAPI(APIBaseTest):
         )
 
         user = auth.get_user(self.client)
-        organization = Organization.objects.filter(name="Tech R Us").first()
+        master_organization = Organization.objects.filter(id=0).first()
+        user_organization = Organization.objects.filter(name="Tech R Us").first()
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {"continue_url": "/complete/google-oauth2/"}
-        assert Organization.objects.count() == 1
+        assert Organization.objects.count() == 2  # Master organization "PostHog" & "Tech R Us"
         assert User.objects.count() == 1
         assert isinstance(user, User)
-        assert organization is not None
-        assert user.organization == organization
+        assert master_organization is not None
+        assert master_organization.name == "PostHog"
+        assert user_organization is not None
+        assert user.organization == user_organization
         assert user.first_name == "Charlie"
         assert user.email == "charlie@tech-r-us.com"
         assert user.is_active is True
         assert user.is_staff is True
 
     def test_social_login_give_staff_privileges(self, *args):
-        # This creates a user with is_staff=False
+        assert not User.objects.exists()
+        assert not Organization.objects.exists()
+
         User.objects.bootstrap("Tech R Us", "charlie@tech-r-us.com", None, first_name="Charlie")
+
+        assert User.objects.get().is_staff is False
 
         # Simulate SSO process started
         session = self.client.session
@@ -688,15 +707,15 @@ class TestDemoSignupAPI(APIBaseTest):
         )
 
         user = auth.get_user(self.client)
-        organization = Organization.objects.filter(name="Tech R Us").first()
+        user_organization = Organization.objects.filter(name="Tech R Us").first()
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {"continue_url": "/complete/google-oauth2/"}
         assert Organization.objects.count() == 1
         assert User.objects.count() == 1
         assert isinstance(user, User)
-        assert organization is not None
-        assert user.organization == organization
+        assert user_organization is not None
+        assert user.organization == user_organization
         assert user.first_name == "Charlie"
         assert user.email == "charlie@tech-r-us.com"
         assert user.is_active is True
