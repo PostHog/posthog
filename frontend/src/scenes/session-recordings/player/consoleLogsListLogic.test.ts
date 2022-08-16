@@ -65,6 +65,7 @@ describe('consoleLogsListLogic', () => {
                     consoleLogs: [
                         // Empty payload object
                         {
+                            colonTimestamp: '00:02:47',
                             level: undefined,
                             parsedPayload: undefined,
                             parsedTraceString: undefined,
@@ -73,9 +74,11 @@ describe('consoleLogsListLogic', () => {
                                 time: 167777,
                                 windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                             },
+                            playerTime: 167772,
                         },
                         // Empty trace and payload arrays
                         {
+                            colonTimestamp: '00:02:47',
                             level: 'log',
                             parsedPayload: '',
                             parsedTraceString: undefined,
@@ -84,9 +87,11 @@ describe('consoleLogsListLogic', () => {
                                 time: 167777,
                                 windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                             },
+                            playerTime: 167772,
                         },
                         // Payload has null object
                         {
+                            colonTimestamp: '00:02:47',
                             level: 'log',
                             parsedPayload: '',
                             parsedTraceString: 'file.js:123:456',
@@ -95,9 +100,11 @@ describe('consoleLogsListLogic', () => {
                                 time: 167777,
                                 windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                             },
+                            playerTime: 167772,
                         },
                         // Normal trace and payload
                         {
+                            colonTimestamp: '00:02:47',
                             level: 'warn',
                             parsedPayload: 'A big deal And a huge deal',
                             parsedTraceString: 'file.js:123:456',
@@ -106,9 +113,11 @@ describe('consoleLogsListLogic', () => {
                                 time: 167777,
                                 windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                             },
+                            playerTime: 167772,
                         },
                         // Bad data trace and payload
                         {
+                            colonTimestamp: '00:02:47',
                             level: 'error',
                             parsedPayload: undefined,
                             parsedTraceString: ':adcfvertyu$rf3423',
@@ -117,6 +126,7 @@ describe('consoleLogsListLogic', () => {
                                 time: 167777,
                                 windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                             },
+                            playerTime: 167772,
                         },
                     ],
                 })
