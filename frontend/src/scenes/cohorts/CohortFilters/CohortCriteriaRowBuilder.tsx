@@ -72,11 +72,9 @@ export function CohortCriteriaRowBuilder({
                             >
                                 {kids}
                                 {error && (
-                                    <Row className="CohortCriteriaRow__Criteria__error-row">
-                                        <AlertMessage type="error" style={{ width: '100%' }}>
-                                            <>{error}</>
-                                        </AlertMessage>
-                                    </Row>
+                                    <AlertMessage className="my-2" type="error">
+                                        {error}
+                                    </AlertMessage>
                                 )}
                             </div>
                         </>

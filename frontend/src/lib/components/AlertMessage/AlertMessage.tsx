@@ -8,7 +8,7 @@ export interface AlertMessageProps {
     type: 'info' | 'warning' | 'error' | 'success'
     /** If onClose is provided, a close button will be shown and this callback will be fired when it's clicked. */
     onClose?: () => void
-    children: React.ReactChild | React.ReactChild[]
+    children: React.ReactNode
     className?: string
 }
 
