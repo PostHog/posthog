@@ -13,7 +13,7 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-organization-name]').type('Hogflix Movies').should('have.value', 'Hogflix Movies')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.get('.ant-form-item-explain-error').should('contain', 'There is already an account with this email address.')
+        cy.get('.inline-message.danger').should('contain', 'There is already an account with this email address.')
     })
 
     it('Cannot signup without required attributes', () => {
