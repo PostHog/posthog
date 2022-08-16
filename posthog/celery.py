@@ -3,6 +3,7 @@ import time
 from random import randrange
 from typing import Any, Dict, List
 
+import structlog
 from celery import Celery
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
@@ -33,6 +34,8 @@ app.autodiscover_tasks()
 app.conf.broker_pool_limit = 0
 
 app.steps["worker"].add(DjangoStructLogInitStep)
+
+logger = structlog.get_logger(__name__)
 
 
 @setup_logging.connect
@@ -107,6 +110,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
+
+    sender.add_periodic_task(
+        crontab(hour=0, minute=randrange(0, 40)),  # every day at a random minute past midnight.
+        deduplicate_plugin_storage.s(),
+        name="deduplicate plugin storage table",
+    )
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
         sender.add_periodic_task(
@@ -565,3 +574,22 @@ def schedule_all_subscriptions():
         pass
     else:
         _schedule_all_subscriptions()
+
+
+# Deduplicate posthog_pluginstorage table which uses a timestamp-based mechanism to get the current value
+@app.task(ignore_result=True)
+def deduplicate_plugin_storage():
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM posthog_pluginstorage a
+                USING posthog_pluginstorage b
+                WHERE
+                    COALESCE(a.timestamp, to_timestamp(0)) < COALESCE(b.timestamp, to_timestamp(0)) AND
+                    a.key = b.key AND
+                    a.plugin_config_id = b.plugin_config_id
+            """
+            )
+    except Exception as e:
+        logger.error(e)
