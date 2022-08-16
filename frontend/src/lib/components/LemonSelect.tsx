@@ -31,7 +31,6 @@ export interface LemonSelectProps<T>
         | 'tooltip'
         | 'fullWidth'
         | 'disabled'
-        | 'noPadding'
         | 'data-attr'
         | 'data-tooltip'
         | 'aria-label'
