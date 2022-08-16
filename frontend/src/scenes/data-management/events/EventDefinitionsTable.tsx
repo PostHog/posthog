@@ -28,15 +28,15 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const eventTypeOptions: LemonSelectOptions<CombinedEventType> = [
-    { key: CombinedEventType.All, label: 'All types', 'data-attr': 'event-type-option-all' },
+    { value: CombinedEventType.All, label: 'All types', 'data-attr': 'event-type-option-all' },
     {
-        key: CombinedEventType.ActionEvent,
+        value: CombinedEventType.ActionEvent,
         label: 'Calculated events',
         icon: <ActionEvent />,
         'data-attr': 'event-type-option-action-event',
     },
     {
-        key: CombinedEventType.Event,
+        value: CombinedEventType.Event,
         label: 'Events',
         icon: <UnverifiedEvent />,
         'data-attr': 'event-type-option-event',

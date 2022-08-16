@@ -9,10 +9,10 @@ import clsx from 'clsx'
 import './RollingDateRangeFilter.scss'
 
 const dateOptions: LemonSelectOptions<'days' | 'weeks' | 'months' | 'quarter'> = [
-    { key: 'days', label: 'days' },
-    { key: 'weeks', label: 'weeks' },
-    { key: 'months', label: 'months' },
-    { key: 'quarter', label: 'quarters' },
+    { value: 'days', label: 'days' },
+    { value: 'weeks', label: 'weeks' },
+    { value: 'months', label: 'months' },
+    { value: 'quarter', label: 'quarters' },
 ]
 
 type RollingDateRangeFilterProps = {

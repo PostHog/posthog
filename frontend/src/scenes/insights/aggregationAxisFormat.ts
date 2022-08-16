@@ -6,11 +6,11 @@ const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage
 export type AggregationAxisFormat = typeof formats[number]
 
 export const aggregationAxisFormatSelectOptions: LemonSelectOptions<AggregationAxisFormat> = [
-    { key: 'numeric', label: 'None' },
-    { key: 'duration', label: 'Duration (s)' },
-    { key: 'duration_ms', label: 'Duration (ms)' },
-    { key: 'percentage', label: 'Percent (0-100)' },
-    { key: 'percentage_scaled', label: 'Percent (0-1)' },
+    { value: 'numeric', label: 'None' },
+    { value: 'duration', label: 'Duration (s)' },
+    { value: 'duration_ms', label: 'Duration (ms)' },
+    { value: 'percentage', label: 'Percent (0-100)' },
+    { value: 'percentage_scaled', label: 'Percent (0-1)' },
 ]
 
 export const formatAggregationAxisValue = (

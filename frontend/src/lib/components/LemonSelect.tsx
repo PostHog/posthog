@@ -7,7 +7,7 @@ import './LemonSelect.scss'
 import clsx from 'clsx'
 
 export interface LemonSelectOption<T> {
-    key: T
+    value: T
     label: string | JSX.Element
     icon?: React.ReactElement
     disabled?: boolean
@@ -137,20 +137,20 @@ export function LemonSelect<T>({
                                     key={index}
                                     icon={option.icon}
                                     onClick={() => {
-                                        if (option.key != localValue) {
-                                            onChange?.(option.key)
-                                            setLocalValue(option.key)
+                                        if (option.value != localValue) {
+                                            onChange?.(option.value)
+                                            setLocalValue(option.value)
                                         }
                                     }}
                                     status="stealth"
                                     /* Intentionally == instead of === because JS treats object number keys as strings, */
                                     /* messing comparisons up a bit */
-                                    active={option.key == localValue}
+                                    active={option.value == localValue}
                                     disabled={option.disabled}
                                     fullWidth
                                     data-attr={option['data-attr']}
                                 >
-                                    {option.label || option.key}
+                                    {option.label || option.value}
                                     {option.element}
                                 </LemonButton>
                             ))}
@@ -163,7 +163,7 @@ export function LemonSelect<T>({
                     className: popup?.className,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
-                icon={localValue && allOptions.find((o) => o.key == localValue)?.icon}
+                icon={localValue && allOptions.find((o) => o.value == localValue)?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -171,7 +171,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {(localValue && (allOptions.find((o) => o.key == localValue)?.label || localValue)) || (
+                    {(localValue && (allOptions.find((o) => o.value == localValue)?.label || localValue)) || (
                         <span className="text-muted">{placeholder}</span>
                     )}
                 </span>

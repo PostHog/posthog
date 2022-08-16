@@ -17,12 +17,12 @@ import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 
 export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrictionLevel> = [
     {
-        key: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
+        value: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         label: 'Everyone in the project can edit',
         icon: <IconLockOpen />,
     },
     {
-        key: DashboardRestrictionLevel.OnlyCollaboratorsCanEdit,
+        value: DashboardRestrictionLevel.OnlyCollaboratorsCanEdit,
         label: 'Only those invited to this dashboard can edit',
         icon: <IconLock />,
     },

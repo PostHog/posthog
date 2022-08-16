@@ -27,7 +27,7 @@ export function IntervalFilter({ disabled }: InvertalFilterProps): JSX.Element {
                 }
             }}
             data-attr="interval-filter"
-            options={Object.entries(intervals).map(([key, { label }]) => ({ key, label }))}
+            options={Object.entries(intervals).map(([value, { label }]) => ({ value, label }))}
         />
     )
 }

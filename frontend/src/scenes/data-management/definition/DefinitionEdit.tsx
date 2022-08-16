@@ -110,10 +110,10 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                     onChange={(val) => onChange(val)}
                                     value={value as 'DateTime' | 'String' | 'Numeric' | 'Boolean'}
                                     options={[
-                                        { key: 'DateTime', label: 'DateTime' },
-                                        { key: 'String', label: 'String' },
-                                        { key: 'Numeric', label: 'Numeric' },
-                                        { key: 'Boolean', label: 'Boolean' },
+                                        { value: 'DateTime', label: 'DateTime' },
+                                        { value: 'String', label: 'String' },
+                                        { value: 'Numeric', label: 'Numeric' },
+                                        { value: 'Boolean', label: 'Boolean' },
                                     ]}
                                 />
                             )}

@@ -85,10 +85,10 @@ const Template = (): JSX.Element => {
                 value={alertType ?? undefined}
                 onChange={setAlertType}
                 options={[
-                    { key: BillingAlertType.SetupBilling, label: 'SetupBilling' },
-                    { key: BillingAlertType.FreeUsageNearLimit, label: 'FreeUsageNearLimit' },
-                    { key: BillingAlertType.UsageLimitExceeded, label: 'UsageLimitExceeded' },
-                    { key: BillingAlertType.UsageNearLimit, label: 'UsageNearLimit' },
+                    { value: BillingAlertType.SetupBilling, label: 'SetupBilling' },
+                    { value: BillingAlertType.FreeUsageNearLimit, label: 'FreeUsageNearLimit' },
+                    { value: BillingAlertType.UsageLimitExceeded, label: 'UsageLimitExceeded' },
+                    { value: BillingAlertType.UsageNearLimit, label: 'UsageNearLimit' },
                 ]}
             />
         </div>

@@ -92,9 +92,9 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
-    { key: 'All types', label: 'All types' },
-    ...Object.entries(INSIGHT_TYPES_METADATA).map(([key, meta]) => ({
-        key,
+    { value: 'All types', label: 'All types' },
+    ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
+        value,
         label: meta.name,
         icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : undefined,
     })),
@@ -398,9 +398,9 @@ export function SavedInsights(): JSX.Element {
                                     <LemonSelect
                                         size="small"
                                         options={[
-                                            { key: 'All users' as number | 'All users', label: 'All Users' },
+                                            { value: 'All users' as number | 'All users', label: 'All Users' },
                                             ...meFirstMembers.map((x) => ({
-                                                key: x.user.id,
+                                                value: x.user.id,
                                                 label: x.user.first_name,
                                             })),
                                         ]}

@@ -33,45 +33,45 @@ export const urlForSubscription = (
 }
 
 export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
-    { key: 'email', label: 'Email', icon: <IconMail /> },
-    { key: 'slack', label: 'Slack', icon: <IconSlack /> },
-    // { key: 'webhook', label: 'Webhook', icon: <IconOpenInNew /> },
+    { value: 'email', label: 'Email', icon: <IconMail /> },
+    { value: 'slack', label: 'Slack', icon: <IconSlack /> },
+    // { value: 'webhook', label: 'Webhook', icon: <IconOpenInNew /> },
 ]
 
-export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ key: x, label: x.toString() }))
+export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
 
 export const frequencyOptions: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
-    { key: 'daily', label: 'days' },
-    { key: 'weekly', label: 'weeks' },
-    { key: 'monthly', label: 'months' },
+    { value: 'daily', label: 'days' },
+    { value: 'weekly', label: 'weeks' },
+    { value: 'monthly', label: 'months' },
 ]
 
 export const weekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 > = [
-    { key: 'monday', label: 'Monday' },
-    { key: 'tuesday', label: 'Tuesday' },
-    { key: 'wednesday', label: 'Wednesday' },
-    { key: 'thursday', label: 'Thursday' },
-    { key: 'friday', label: 'Friday' },
-    { key: 'saturday', label: 'Saturday' },
-    { key: 'sunday', label: 'Sunday' },
+    { value: 'monday', label: 'Monday' },
+    { value: 'tuesday', label: 'Tuesday' },
+    { value: 'wednesday', label: 'Wednesday' },
+    { value: 'thursday', label: 'Thursday' },
+    { value: 'friday', label: 'Friday' },
+    { value: 'saturday', label: 'Saturday' },
+    { value: 'sunday', label: 'Sunday' },
 ]
 
 export const monthlyWeekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'day'
-> = [...weekdayOptions, { key: 'day', label: 'day' }]
+> = [...weekdayOptions, { value: 'day', label: 'day' }]
 
 export const bysetposOptions: LemonSelectOptions<'1' | '2' | '3' | '4' | '-1'> = [
-    { key: '1', label: 'first' },
-    { key: '2', label: 'second' },
-    { key: '3', label: 'third' },
-    { key: '4', label: 'fourth' },
-    { key: '-1', label: 'last' },
+    { value: '1', label: 'first' },
+    { value: '2', label: 'second' },
+    { value: '3', label: 'third' },
+    { value: '4', label: 'fourth' },
+    { value: '-1', label: 'last' },
 ]
 
 export const timeOptions: LemonSelectOptions<string> = range(0, 24).map((x) => ({
-    key: String(x),
+    value: String(x),
     label: `${String(x).padStart(2, '0')}:00`,
 }))
 

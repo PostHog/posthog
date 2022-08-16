@@ -76,7 +76,7 @@ export function NewDashboardModal(): JSX.Element {
                         allowClear
                         options={[
                             {
-                                key: 'DEFAULT_APP',
+                                value: 'DEFAULT_APP',
                                 label: 'Website',
                                 'data-attr': 'dashboard-select-default-app',
                             },

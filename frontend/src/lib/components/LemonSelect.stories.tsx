@@ -9,9 +9,9 @@ export default {
     argTypes: {
         options: {
             defaultValue: [
-                { key: 'husky', label: 'Husky' },
-                { key: 'poodle', label: 'Poodle' },
-                { key: 'labrador', label: 'Labrador' },
+                { value: 'husky', label: 'Husky' },
+                { value: 'poodle', label: 'Poodle' },
+                { value: 'labrador', label: 'Labrador' },
             ] as LemonSelectOptions<string>,
         },
     },
@@ -40,16 +40,16 @@ SectionedOptions.args = {
         {
             title: 'Fruits',
             options: [
-                { key: 'orange', label: 'Orange' },
-                { key: 'pineapple', label: 'Pineapple' },
-                { key: 'apple', label: 'Apple' },
+                { value: 'orange', label: 'Orange' },
+                { value: 'pineapple', label: 'Pineapple' },
+                { value: 'apple', label: 'Apple' },
             ],
         },
         {
             title: 'Vegetables',
             options: [
-                { key: 'potato', label: 'Potato' },
-                { key: 'lettuce', label: 'Lettuce' },
+                { value: 'potato', label: 'Potato' },
+                { value: 'lettuce', label: 'Lettuce' },
             ],
         },
         {
@@ -59,7 +59,7 @@ SectionedOptions.args = {
                     <div className="text-muted mx-2 mb-2">I can put whatever I want here</div>
                 </div>
             ),
-            options: [{ key: 'tomato', label: 'Tomato??' }],
+            options: [{ value: 'tomato', label: 'Tomato??' }],
         },
     ] as LemonSelectOptions<string>,
 }
@@ -72,5 +72,5 @@ export const LongOptions = Template.bind({})
 LongOptions.args = {
     allowClear: true,
     value: '1',
-    options: [...Array(100)].map((_, x) => ({ key: `${x}`, label: `${x}` })),
+    options: [...Array(100)].map((_, x) => ({ value: `${x}`, label: `${x}` })),
 }

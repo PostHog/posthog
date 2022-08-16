@@ -13,37 +13,34 @@ export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.E
         <LemonSelect
             value={filters.breakdown_attribution_type || BreakdownAttributionType.FirstTouch}
             placeholder="Attribution"
-            options={{
-                [BreakdownAttributionType.FirstTouch]: { label: 'First touchpoint' },
-                [BreakdownAttributionType.LastTouch]: { label: 'Last touchpoint' },
-                [BreakdownAttributionType.AllSteps]: { label: 'All Steps' },
-                ...(filters.funnel_order_type === StepOrderValue.UNORDERED
-                    ? { [BreakdownAttributionType.Step]: { label: 'Any step' } }
+            options={[
+                { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
+                { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
+                { value: BreakdownAttributionType.AllSteps, label: 'All Steps' },
+                filters.funnel_order_type === StepOrderValue.UNORDERED
+                    ? { value: BreakdownAttributionType.Step, label: 'Any step' }
                     : {
-                          [BreakdownAttributionType.Step]: {
-                              label: 'Specific step',
-                              element: (
-                                  <LemonSelect
-                                      className="ml-2"
-                                      onChange={(value) => {
-                                          if (value) {
-                                              setFilters({
-                                                  breakdown_attribution_type: BreakdownAttributionType.Step,
-                                                  breakdown_attribution_value: parseInt(value),
-                                              })
-                                          }
-                                      }}
-                                      placeholder={`Step ${
-                                          filters.breakdown_attribution_value
-                                              ? filters.breakdown_attribution_value + 1
-                                              : 1
-                                      }`}
-                                      options={breakdownAttributionStepOptions}
-                                  />
-                              ),
-                          },
-                      }),
-            }}
+                          value: BreakdownAttributionType.Step,
+                          label: 'Specific step',
+                          element: (
+                              <LemonSelect
+                                  className="ml-2"
+                                  onChange={(value) => {
+                                      if (value) {
+                                          setFilters({
+                                              breakdown_attribution_type: BreakdownAttributionType.Step,
+                                              breakdown_attribution_value: parseInt(value),
+                                          })
+                                      }
+                                  }}
+                                  placeholder={`Step ${
+                                      filters.breakdown_attribution_value ? filters.breakdown_attribution_value + 1 : 1
+                                  }`}
+                                  options={breakdownAttributionStepOptions}
+                              />
+                          ),
+                      },
+            ]}
             onChange={(value) => {
                 if (value) {
                     setFilters({

@@ -207,7 +207,7 @@ export function PersonsModal({
                                             typeof _id === 'string' ? switchToDataPoint(parseInt(_id, 10)) : null
                                         }
                                         options={people.crossDataset.map((dataPoint) => ({
-                                            key: `${dataPoint.id}`,
+                                            value: `${dataPoint.id}`,
                                             label: (
                                                 <InsightLabel
                                                     seriesColor={getSeriesColor(dataPoint.id)}

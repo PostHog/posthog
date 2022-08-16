@@ -1182,11 +1182,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         breakdownAttributionStepOptions: [
             (s) => [s.steps],
-            (steps) => {
-                const options = {}
-                steps.map((_, idx) => (options[idx] = { label: `Step ${idx + 1}` }))
-                return options
-            },
+            (steps) => steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` })),
         ],
     }),
 
@@ -1262,7 +1258,7 @@ export const funnelLogic = kea<funnelLogicType>({
 
             personsModalLogic.actions.loadPeopleFromUrl({
                 url: converted ? step.converted_people_url : step.dropped_people_url,
-                // NOTE: although we have the url that contains all of the info needed
+                // NOTE: although we have the url that contains all the info needed
                 // to return people, we currently still need to pass something in for the
                 // purpose of the modal displaying the label.
                 funnelStep: converted ? step.order : -step.order,
@@ -1276,7 +1272,7 @@ export const funnelLogic = kea<funnelLogicType>({
             const breakdownValues = getBreakdownStepValues(series, series.order)
             personsModalLogic.actions.loadPeopleFromUrl({
                 url: converted ? series.converted_people_url : series.dropped_people_url,
-                // NOTE: although we have the url that contains all of the info needed
+                // NOTE: although we have the url that contains all the info needed
                 // to return people, we currently still need to pass something in for the
                 // purpose of the modal displaying the label.
                 funnelStep: converted ? step.order + 1 : -(step.order + 1),
