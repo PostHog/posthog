@@ -9,6 +9,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { loaders } from 'kea-loaders'
 import { isVersionLT } from 'lib/utils'
+import { actionToUrl, urlToAction } from 'kea-router'
 export type TabName = 'overview' | 'internal_metrics'
 
 // keep in sync with MigrationStatus in posthog/models/async_migration.py
@@ -280,6 +281,21 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
         afterMount: () => {
             actions.loadAsyncMigrations()
             actions.loadAsyncMigrationSettings()
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        setActiveTab: () =>
+            `/instance/async_migrations${
+                values.activeTab === AsyncMigrationsTab.Management ? '' : '/' + values.activeTab
+            }`,
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '/instance/async_migrations(/:tab)': ({ tab }: { tab?: AsyncMigrationsTab }) => {
+            if (tab && tab !== values.activeTab && tab !== AsyncMigrationsTab.Management) {
+                actions.setActiveTab(tab)
+            }
         },
     })),
 ])

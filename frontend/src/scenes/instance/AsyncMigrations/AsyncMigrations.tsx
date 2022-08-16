@@ -274,7 +274,7 @@ export function AsyncMigrations(): JSX.Element {
                         }
                     />
 
-                    <Tabs activeKey={activeTab} onChange={(t) => setActiveTab(t as AsyncMigrationsTab)}>
+                    <Tabs activeKey={activeTab} onTabClick={(t) => setActiveTab(t as AsyncMigrationsTab)}>
                         <TabPane
                             tab={`Management (${actionableMigrations.length})`}
                             key={AsyncMigrationsTab.Management}
