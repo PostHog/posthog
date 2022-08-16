@@ -6,7 +6,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useDebouncedCallback } from 'use-debounce'
 
-export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
+export const PersonsSearch = (): JSX.Element => {
     const { loadPersons, setListFilters } = useActions(personsLogic)
     const { listFilters } = useValues(personsLogic)
     const [searchTerm, setSearchTerm] = useState('')
@@ -26,7 +26,6 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
         <div className="flex items-center gap-2">
             <LemonInput
                 type="search"
-                autoFocus={autoFocus}
                 placeholder="Search for persons"
                 onChange={setSearchTerm}
                 value={searchTerm}
