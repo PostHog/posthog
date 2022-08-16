@@ -94,6 +94,7 @@ export function LemonModal({
             isOpen={isOpen}
             onRequestClose={onClose}
             shouldCloseOnOverlayClick={closable}
+            shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
             className="LemonModal"
