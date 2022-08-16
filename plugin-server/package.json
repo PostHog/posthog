@@ -65,7 +65,7 @@
         "luxon": "^1.27.0",
         "node-fetch": "^2.6.1",
         "node-schedule": "^2.1.0",
-        "pg": "^8.6.0",
+        "pg": "^8.7.3",
         "posthog-node": "2.0.1",
         "pretty-bytes": "^5.6.0",
         "re2": "^1.16.0",
