@@ -10,7 +10,6 @@ type LemonInputPropsBase = Pick<
     | 'className'
     | 'onFocus'
     | 'onBlur'
-    | 'width'
     | 'autoFocus'
     | 'maxLength'
     | 'onKeyDown'
@@ -72,7 +71,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         suffix,
         type,
         value,
-        width,
         ...textProps
     },
     ref
@@ -93,7 +91,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     allowClear = allowClear ?? (type === 'search' ? true : false)
     fullWidth = fullWidth ?? (type === 'search' ? false : true)
     prefix = prefix ?? (type === 'search' ? <IconMagnifier /> : undefined)
-    width = width ?? (type === 'search' && !fullWidth ? 240 : undefined)
 
     // Type=password has some special overrides
     suffix =
@@ -143,6 +140,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 !textProps.disabled && focused && 'LemonInput--focused',
                 value && 'LemonInput--hasContent',
                 fullWidth && 'LemonInput--full-width',
+                type && `LemonInput--type-${type}`,
                 className
             )}
             onKeyDown={(event) => {

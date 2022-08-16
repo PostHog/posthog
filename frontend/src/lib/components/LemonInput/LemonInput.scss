@@ -57,4 +57,13 @@
             border: 1px solid var(--primary);
         }
     }
+
+    &.LemonInput--type-search {
+        // NOTE Design: Search inputs are given a specific small width
+        max-width: 240px;
+    }
+    &.LemonInput--full-width {
+        width: 100%;
+        max-width: 100%;
+    }
 }
