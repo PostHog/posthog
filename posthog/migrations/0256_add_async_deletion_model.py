@@ -43,6 +43,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddConstraint(
-            model_name="asyncdeletion", constraint=models.Index(fields=["delete_verified_at"], name=""),
+            model_name="asyncdeletion",
+            constraint=models.Index(fields=["delete_verified_at"], name="delete_verified_at index"),
         ),
     ]
