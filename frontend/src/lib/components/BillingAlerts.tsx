@@ -2,7 +2,7 @@ import React from 'react'
 import { useValues } from 'kea'
 import { billingLogic, BillingAlertType } from 'scenes/billing/billingLogic'
 import { Link } from 'lib/components/Link'
-import { IconWarningAmber } from './icons'
+import { IconWarning } from './icons'
 import clsx from 'clsx'
 
 export function BillingAlerts(): JSX.Element | null {
@@ -77,9 +77,7 @@ export function BillingAlerts(): JSX.Element | null {
     return (
         <div className="Announcement">
             {isWarning || isAlert ? (
-                <IconWarningAmber
-                    className={clsx('text-lg mr-2', isWarning && 'text-warning', isAlert && 'text-danger')}
-                />
+                <IconWarning className={clsx('text-lg mr-2', isWarning && 'text-warning', isAlert && 'text-danger')} />
             ) : null}
             {message}
         </div>

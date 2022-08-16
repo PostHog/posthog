@@ -6,37 +6,34 @@
     display: flex;
     align-items: center;
     text-align: left;
+    gap: 0.5rem;
 
-    &.info {
+    &.AlertMessage--info {
         background-color: var(--primary-alt-highlight);
     }
 
-    &.warning {
+    &.AlertMessage--warning {
         background-color: var(--warning-highlight);
-        color: var(--warning);
+        color: var(--warning-dark);
     }
 
-    &.error {
+    &.AlertMessage--error {
         background-color: var(--danger-highlight);
         color: var(--danger);
+    }
+
+    &.AlertMessage--success {
+        background-color: var(--success-highlight);
+        color: var(--success-dark);
     }
 
     p {
         margin-bottom: 0.25em;
     }
-}
 
-.AlertMessage__icon {
-    line-height: 0;
-    flex-shrink: 0;
-    font-size: 1.5rem;
-    margin: 0.25rem 0.75rem 0.25rem 0;
-}
-
-.AlertMessage__text {
-    flex-grow: 1;
-}
-
-.AlertMessage__close {
-    margin-left: 0.5rem;
+    .LemonIcon {
+        line-height: 0;
+        flex-shrink: 0;
+        font-size: 1.5rem;
+    }
 }
