@@ -138,8 +138,8 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             className={clsx(
                 'LemonInput',
                 !textProps.disabled && focused && 'LemonInput--focused',
-                value && 'LemonInput--hasContent',
-                fullWidth && 'LemonInput--full-width',
+                value && 'LemonInput--hascontent',
+                fullWidth && 'LemonInput--fullwidth',
                 type && `LemonInput--type-${type}`,
                 className
             )}

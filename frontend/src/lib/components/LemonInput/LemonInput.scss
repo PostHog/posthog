@@ -46,7 +46,7 @@
         flex-shrink: 0;
     }
 
-    &.LemonInput--hasContent {
+    &.LemonInput--hascontent {
         > .LemonIcon {
             color: var(--primary);
         }
@@ -62,7 +62,7 @@
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
-    &.LemonInput--full-width {
+    &.LemonInput--fullwidth {
         width: 100%;
         max-width: 100%;
     }
