@@ -279,14 +279,18 @@ export function AsyncMigrations(): JSX.Element {
                             tab={`Management (${actionableMigrations.length})`}
                             key={AsyncMigrationsTab.Management}
                         />
-                        <TabPane
-                            tab={`Future Migrations (${futureMigrations.length})`}
-                            key={AsyncMigrationsTab.FutureMigrations}
-                        />
-                        <TabPane
-                            tab={`Completed Migrations (${completedMigrations.length})`}
-                            key={AsyncMigrationsTab.CompletedMigrations}
-                        />
+                        {futureMigrations.length > 0 && (
+                            <TabPane
+                                tab={`Future Migrations (${futureMigrations.length})`}
+                                key={AsyncMigrationsTab.FutureMigrations}
+                            />
+                        )}
+                        {completedMigrations.length > 0 && (
+                            <TabPane
+                                tab={`Completed Migrations (${completedMigrations.length})`}
+                                key={AsyncMigrationsTab.CompletedMigrations}
+                            />
+                        )}
                         <TabPane tab="Settings" key={AsyncMigrationsTab.Settings} />
                     </Tabs>
 
