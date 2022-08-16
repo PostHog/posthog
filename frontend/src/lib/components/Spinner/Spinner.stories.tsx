@@ -19,11 +19,3 @@ export function Small(): JSX.Element {
 export function Large(): JSX.Element {
     return <Spinner size="lg" />
 }
-
-export function Inverse(): JSX.Element {
-    return (
-        <div style={{ display: 'flex', background: 'black', width: 'fit-content', padding: 8 }}>
-            <Spinner type="inverse" />
-        </div>
-    )
-}
