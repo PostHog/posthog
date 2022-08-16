@@ -23,7 +23,9 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { teamLogic } from 'scenes/teamLogic'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const { TabPane } = Tabs
 
@@ -82,18 +84,12 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const {
-        person,
-        personLoading,
-        deletedPersonLoading,
-        currentTab,
-        showSessionRecordings,
-        splitMergeModalShown,
-        urlId,
-    } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
+        useValues(personsLogic)
     const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     if (!person) {
         return personLoading ? (
@@ -170,18 +166,25 @@ export function Person(): JSX.Element | null {
                         sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
                     />
                 </TabPane>
-                {showSessionRecordings && (
-                    <TabPane
-                        tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
-                        key={PersonsTabType.SESSION_RECORDINGS}
-                    >
-                        <SessionRecordingsTable
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    </TabPane>
-                )}
+                <TabPane
+                    tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
+                    key={PersonsTabType.SESSION_RECORDINGS}
+                >
+                    {!currentTeam?.session_recording_opt_in ? (
+                        <div className="mb-4">
+                            <AlertMessage type="info">
+                                Session recordings are currently disabled for this project. To use this feature, please
+                                go to your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and
+                                enable it.
+                            </AlertMessage>
+                        </div>
+                    ) : null}
+                    <SessionRecordingsTable
+                        key={person.uuid} // force refresh if user changes
+                        personUUID={person.uuid}
+                        isPersonPage
+                    />
+                </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
                     <PersonCohorts />
