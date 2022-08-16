@@ -6,7 +6,9 @@ from unittest.mock import ANY, patch
 
 import pytest
 import pytz
+from django.contrib import auth
 from django.core import mail
+from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -70,7 +72,8 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the user was properly created
         self.assertEqual(user.first_name, "John")
         self.assertEqual(user.email, "hedgehog@posthog.com")
-        self.assertEqual(user.email_opt_in, False)
+        self.assertFalse(user.email_opt_in)
+        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the team was properly created
         self.assertEqual(team.name, "Default Project")
@@ -169,8 +172,9 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the user & org were properly created
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
-        self.assertEqual(user.email_opt_in, True)  # Defaults to True
+        self.assertTrue(user.email_opt_in)  # Defaults to True
         self.assertEqual(organization.name, "Jane")
+        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_identify.assert_called_once()
@@ -413,6 +417,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count + 1)
         user = cast(User, User.objects.last())
         self.assertEqual(user.email, "jane@hogflix.posthog.com")
+        self.assertFalse(user.is_staff)  # Not first user in the instance
         self.assertEqual(user.organization, new_org)
         self.assertEqual(user.team, new_project)
         self.assertEqual(user.organization_memberships.count(), 1)
@@ -471,6 +476,7 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(User.objects.count(), user_count)  # should remain the same
             user = cast(User, User.objects.last())
             self.assertEqual(user.email, "jane@hogflix.posthog.com")
+            self.assertFalse(user.is_staff)  # Not first user in the instance
             self.assertEqual(user.organization, new_org)
             self.assertEqual(user.team, new_project)
             self.assertEqual(user.organization_memberships.count(), 1)
@@ -582,7 +588,110 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
 
-class TestInviteSignup(APIBaseTest):
+@override_settings(DEMO=True)
+@patch("posthog.demo.graphile.bulk_queue_graphile_jobs", return_value=None)
+@patch("posthog.demo.graphile.copy_graphile_jobs_between_teams", return_value=None)
+class TestDemoSignupAPI(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        # Do not set up any test data
+        pass
+
+    def test_regular_demo_signup(self, *args):
+        # Password not needed
+        response = self.client.post(
+            "/api/signup/",
+            {"first_name": "Charlie", "email": "charlie@tech-r-us.com", "organization_name": "Tech R Us"},
+        )
+
+        user = User.objects.filter(email="charlie@tech-r-us.com").first()
+        organization = Organization.objects.filter(name="Tech R Us").first()
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Organization.objects.count() == 1
+        assert User.objects.count() == 1
+        assert user is not None
+        assert organization is not None
+        assert user.organization == organization
+        assert user.first_name == "Charlie"
+        assert user.email == "charlie@tech-r-us.com"
+        assert user.is_active is True
+        assert user.is_staff is False
+
+    def test_demo_signup(self, *args):
+        # Password not needed
+        response = self.client.post(
+            "/api/signup/",
+            {"email": "charlie@tech-r-us.com", "first_name": "Charlie", "organization_name": "Tech R Us"},
+        )
+
+        user = auth.get_user(self.client)
+        organization = Organization.objects.filter(name="Tech R Us").first()
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Organization.objects.count() == 1
+        assert User.objects.count() == 1
+        assert isinstance(user, User)
+        assert organization is not None
+        assert user.organization == organization
+        assert user.first_name == "Charlie"
+        assert user.email == "charlie@tech-r-us.com"
+        assert user.is_active is True
+        assert user.is_staff is False
+
+    def test_demo_login(self, *args):
+        User.objects.bootstrap("Tech R Us", "charlie@tech-r-us.com", None, first_name="Charlie")
+
+        # first_name and organization_name aren't used when logging in
+        # In demo, the signup endpoint functions as login if the email already exists
+        response = self.client.post(
+            "/api/signup/", {"email": "charlie@tech-r-us.com", "first_name": "X", "organization_name": "Y"}
+        )
+
+        user = auth.get_user(self.client)
+        organization = Organization.objects.filter(name="Tech R Us").first()
+
+        # 201 is not fully semantically correct here, but it's not really valuable to modify the viewset to return 200
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Organization.objects.count() == 1
+        assert User.objects.count() == 1
+        assert isinstance(user, User)
+        assert organization is not None
+        assert user.organization == organization
+        assert user.first_name == "Charlie"
+        assert user.email == "charlie@tech-r-us.com"
+        assert user.is_active is True
+        assert user.is_staff is False
+
+    def test_social_signup(self, *args):
+        # Simulate SSO process started
+        session = self.client.session
+        session.update({"backend": "google-oauth2", "email": "test_api_social_invite_sign_up@posthog.com"})
+        session.save()
+
+        # Staff log into demo securely via Google, which should grant is_staff privileges
+        response = self.client.post(
+            "/api/social_signup/",
+            {"first_name": "Charlie", "email": "charlie@tech-r-us.com", "organization_name": "Tech R Us"},
+        )
+
+        user = auth.get_user(self.client)
+        organization = Organization.objects.filter(name="Tech R Us").first()
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == {"continue_url": "/complete/google-oauth2/"}
+        assert Organization.objects.count() == 1
+        assert User.objects.count() == 1
+        assert isinstance(user, User)
+        assert organization is not None
+        assert user.organization == organization
+        assert user.first_name == "Charlie"
+        assert user.email == "charlie@tech-r-us.com"
+        assert user.is_active is True
+        assert user.is_staff is True
+
+
+class TestInviteSignupAPI(APIBaseTest):
     """
     Tests the sign up process for users with an invite (i.e. existing organization).
     """
@@ -895,6 +1004,7 @@ class TestInviteSignup(APIBaseTest):
         # User is not changed
         self.assertEqual(user.first_name, "")
         self.assertEqual(user.email, "test+159@posthog.com")
+        self.assertFalse(user.is_staff)  # Not first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -1084,7 +1194,7 @@ class TestInviteSignup(APIBaseTest):
 
     def test_api_social_invite_sign_up(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
-        # simulate SSO process started
+        # Simulate SSO process started
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "test_api_social_invite_sign_up@posthog.com"})
         session.save()
