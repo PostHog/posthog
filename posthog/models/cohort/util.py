@@ -45,11 +45,16 @@ def format_person_query(
 
     from posthog.queries.cohort_query import CohortQuery
 
-    query, params = CohortQuery(
+    query_builder = CohortQuery(
         Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk,
-    ).get_query()
+    )
 
-    return f"{custom_match_field} IN ({query})", params
+    query, params = query_builder.get_query()
+
+    if query_builder.is_subquery:
+        return f"{custom_match_field} IN ({query})", params
+    else:
+        return query, params
 
 
 def format_static_cohort_query(

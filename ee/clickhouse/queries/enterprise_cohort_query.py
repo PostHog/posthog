@@ -46,10 +46,11 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
-            return self._person_query.get_query(prepend=self._cohort_pk)
+            query, params = self._get_conditions(self._inner_property_groups)
+            return self.process_condition_result(query), params
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
-        conditions, condition_params = self._get_conditions()
+        conditions, condition_params = self._get_conditions(self._outer_property_groups)
         self.params.update(condition_params)
 
         subq = []

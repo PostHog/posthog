@@ -162,6 +162,10 @@ class FOSSCohortQuery(EventQuery):
         self._inner_property_groups = property_groups.inner
         self._outer_property_groups = property_groups.outer
 
+    @cached_property
+    def is_subquery(self) -> bool:
+        return bool(self._outer_property_groups)
+
     @staticmethod
     def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
         def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
@@ -242,10 +246,11 @@ class FOSSCohortQuery(EventQuery):
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
-            return self._person_query.get_query(prepend=self._cohort_pk)
+            query, params = self._get_conditions(self._inner_property_groups)
+            return self.process_condition_result(query), params
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
-        conditions, condition_params = self._get_conditions()
+        conditions, condition_params = self._get_conditions(self._outer_property_groups)
         self.params.update(condition_params)
 
         subq = []
@@ -270,6 +275,11 @@ class FOSSCohortQuery(EventQuery):
         """
 
         return final_query, self.params
+
+    def process_condition_result(self, result: str):
+        rename_person_props = result.replace("person_props", "properties")
+        remove_preceding_and = rename_person_props.replace("AND", "", 1)
+        return remove_preceding_and
 
     def _build_sources(self, subq: List[Tuple[str, str]]) -> Tuple[str, str]:
         q = ""
@@ -377,7 +387,7 @@ class FOSSCohortQuery(EventQuery):
         elif relative_date_is_greater(relative_date, self._earliest_time_for_event_query):
             self._earliest_time_for_event_query = relative_date
 
-    def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_conditions(self, prop_groups: Union[PropertyGroup, None]) -> Tuple[str, Dict[str, Any]]:
         def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
             if not prop:
                 return "", {}
@@ -395,7 +405,7 @@ class FOSSCohortQuery(EventQuery):
             else:
                 return self._get_condition_for_property(prop, prepend, num)
 
-        conditions, params = build_conditions(self._outer_property_groups, prepend=f"{self._cohort_pk}_level", num=0)
+        conditions, params = build_conditions(prop_groups, prepend=f"{self._cohort_pk}_level", num=0)
         return f"AND ({conditions})" if conditions else "", params
 
     # Implemented in /ee
@@ -421,12 +431,9 @@ class FOSSCohortQuery(EventQuery):
         return res, params
 
     def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        if self._outer_property_groups and len(self._outer_property_groups.flat):
-            return prop_filter_json_extract(
-                prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
-            )
-        else:
-            return "", {}
+        return prop_filter_json_extract(
+            prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
+        )
 
     def get_static_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
         # If we reach this stage, it means there are no cyclic dependencies
