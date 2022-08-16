@@ -1,10 +1,8 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Tag, Button, Modal, Input, Row, Menu, Dropdown } from 'antd'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
-import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
-import { annotationScopeToName } from 'lib/constants'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationType, AnnotationScope } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -15,8 +13,11 @@ import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DatePicker } from 'lib/components/DatePicker'
-
-const { TextArea } = Input
+import { LemonModal } from 'lib/components/LemonModal'
+import { LemonSelect } from 'lib/components/LemonSelect'
+import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { IconDelete, IconOrganization, IconProject, IconUndo } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -37,17 +38,7 @@ export function Annotations(): JSX.Element {
             key: 'annotation',
             width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
-                return (
-                    <div
-                        className="ph-no-capture"
-                        style={{
-                            width: 'auto',
-                            maxWidth: 250,
-                        }}
-                    >
-                        {annotation.content}
-                    </div>
-                )
+                return <div className="ph-no-capture">{annotation.content}</div>
             },
         },
         {
@@ -70,20 +61,52 @@ export function Annotations(): JSX.Element {
         {
             title: 'Status',
             render: function RenderStatus(_, annotation: AnnotationType): JSX.Element {
-                return annotation.deleted ? <Tag color="red">Deleted</Tag> : <Tag color="green">Active</Tag>
+                return annotation.deleted ? (
+                    <LemonTag type="danger">Deleted</LemonTag>
+                ) : (
+                    <LemonTag type="success">Active</LemonTag>
+                )
             },
         },
         {
             title: 'Scope',
             render: function RenderType(_, annotation: AnnotationType): JSX.Element {
                 return annotation.scope === AnnotationScope.Insight ? (
-                    <Tag color="blue">Insight</Tag>
+                    <LemonTag
+                        style={{
+                            // overriding tag color here to match antd for now
+                            color: '#096dd9',
+                            background: '#e6f7ff',
+                            borderColor: '#91d5ff',
+                        }}
+                    >
+                        Insight
+                    </LemonTag>
                 ) : annotation.scope === AnnotationScope.Project ? (
-                    <Tag color="purple">Project</Tag>
+                    <LemonTag
+                        style={{
+                            // overriding tag color here to match antd for now
+                            color: '#531dab',
+                            background: '#f9f0ff',
+                            borderColor: '#d3adf7',
+                        }}
+                    >
+                        Project
+                    </LemonTag>
                 ) : annotation.scope === AnnotationScope.Organization ? (
-                    <Tag color="pink">Organization</Tag>
+                    <LemonTag
+                        className="border"
+                        style={{
+                            // overriding tag color here to match antd for now
+                            color: '#c41d7f',
+                            background: '#fff0f6',
+                            borderColor: '#ffadd2',
+                        }}
+                    >
+                        Organization
+                    </LemonTag>
                 ) : (
-                    <Tag>Unknown ({annotation.scope})</Tag>
+                    <LemonTag>Unknown ({annotation.scope})</LemonTag>
                 )
             },
         },
@@ -127,24 +150,17 @@ export function Annotations(): JSX.Element {
                     })}
                     emptyState="No annotations yet"
                 />
-                <div
-                    style={{
-                        visibility: next ? 'visible' : 'hidden',
-                        margin: '2rem auto 5rem',
-                        textAlign: 'center',
-                    }}
-                >
-                    {loadingNext ? (
-                        <Spinner size="sm" />
-                    ) : (
-                        <Button
+                <div className="flex flex-row justify-center mt-8">
+                    {next && (
+                        <LemonButton
                             type="primary"
+                            icon={loadingNext ? <Spinner size="sm" /> : null}
                             onClick={(): void => {
                                 loadAnnotationsNext()
                             }}
                         >
                             Load more annotations
-                        </Button>
+                        </LemonButton>
                     )}
                 </div>
             </div>
@@ -153,11 +169,11 @@ export function Annotations(): JSX.Element {
                 onCancel={(): void => {
                     closeModal()
                 }}
-                onSubmit={async (input, selectedDate): Promise<void> => {
+                onSubmit={async (input, selectedDate, annotationScope: AnnotationScope): Promise<void> => {
                     if (selectedAnnotation && (await selectedAnnotation)) {
                         updateAnnotation(selectedAnnotation.id, input)
                     } else {
-                        createGlobalAnnotation(input, selectedDate.format('YYYY-MM-DD'))
+                        createGlobalAnnotation(input, selectedDate.format('YYYY-MM-DD'), undefined, annotationScope)
                     }
                     closeModal()
                 }}
@@ -184,7 +200,7 @@ interface CreateAnnotationModalProps {
     onCancel: () => void
     onDelete: () => void
     onRestore: () => void
-    onSubmit: (input: string, date: dayjs.Dayjs) => void
+    onSubmit: (input: string, date: dayjs.Dayjs, annotationScope: AnnotationScope) => void
     annotation?: any
 }
 
@@ -194,7 +210,7 @@ enum ModalMode {
 }
 
 function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
-    const [scope, setScope] = useState<AnnotationScope>(AnnotationScope.Project)
+    const [scope, setScope] = useState<AnnotationScope.Project | AnnotationScope.Organization>(AnnotationScope.Project)
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
     const [selectedDate, setDate] = useState<dayjs.Dayjs>(dayjs())
@@ -209,8 +225,8 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
         }
     }, [props.annotation])
 
-    const _onSubmit = (input: string, date: dayjs.Dayjs): void => {
-        props.onSubmit(input, date)
+    const _onSubmit = (input: string, date: dayjs.Dayjs, annotationScope: AnnotationScope): void => {
+        props.onSubmit(input, date, annotationScope)
         // Reset input
         setTextInput('')
         setDate(dayjs())
@@ -218,67 +234,76 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
     }
 
     return (
-        <Modal
-            footer={[
-                <Button key="create-annotation-cancel" onClick={(): void => props.onCancel()}>
-                    Cancel
-                </Button>,
-                <Button
-                    type="primary"
-                    key="create-annotation-submit"
-                    data-attr="create-annotation-submit"
-                    onClick={(): void => {
-                        _onSubmit(textInput, selectedDate)
-                    }}
-                >
-                    {modalMode === ModalMode.CREATE ? 'Submit' : 'Update'}
-                </Button>,
-            ]}
-            closable={false}
-            visible={props.visible}
-            onCancel={props.onCancel}
+        <LemonModal
+            isOpen={props.visible}
+            footer={
+                <div className="flex flex-row justify-end gap-2">
+                    <LemonButton key="create-annotation-cancel" onClick={(): void => props.onCancel()}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        key="create-annotation-submit"
+                        data-attr="create-annotation-submit"
+                        onClick={(): void => {
+                            _onSubmit(textInput, selectedDate, scope)
+                        }}
+                    >
+                        {modalMode === ModalMode.CREATE ? 'Submit' : 'Update'}
+                    </LemonButton>
+                </div>
+            }
+            onClose={props.onCancel}
             title={modalMode === ModalMode.CREATE ? 'Create annotation' : 'Edit annotation'}
         >
             {modalMode === ModalMode.CREATE ? (
                 <span>
-                    This annotation will appear on all
-                    <Dropdown
-                        overlay={
-                            <Menu activeKey={scope} onSelect={(e) => setScope(e.key as AnnotationScope)}>
-                                <Menu.Item key={AnnotationScope.Project} icon={<ProjectOutlined />}>
-                                    Project
-                                </Menu.Item>
-                                <Menu.Item key={AnnotationScope.Organization} icon={<DeploymentUnitOutlined />}>
-                                    Organization
-                                </Menu.Item>
-                            </Menu>
-                        }
-                    >
-                        <Button style={{ marginLeft: 8, marginRight: 8 }}>
-                            {annotationScopeToName.get(scope)} <DownOutlined />
-                        </Button>
-                    </Dropdown>{' '}
+                    This annotation will appear on all{' '}
+                    <div className="inline-flex">
+                        <LemonSelect
+                            size="small"
+                            dropdownMaxContentWidth={true}
+                            options={{
+                                [AnnotationScope.Project]: { label: 'project', icon: <IconProject /> },
+                                [AnnotationScope.Organization]: {
+                                    label: 'organization',
+                                    icon: <IconOrganization />,
+                                },
+                            }}
+                            onChange={(scope) => {
+                                if (scope) {
+                                    setScope(scope)
+                                }
+                            }}
+                            value={scope}
+                        />
+                    </div>{' '}
                     charts
                 </span>
             ) : (
-                <Row justify="space-between">
-                    <span>Change existing annotation text</span>
+                <div className="flex justify-end">
                     {!props.annotation?.deleted ? (
-                        <DeleteOutlined
-                            className="text-danger"
-                            onClick={(): void => {
-                                props.onDelete()
-                            }}
-                        />
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={props.onDelete}
+                            icon={<IconDelete />}
+                            data-attr="delete-annotation"
+                        >
+                            Delete annotation
+                        </LemonButton>
                     ) : (
-                        <RedoOutlined
-                            className="button-border clickable"
-                            onClick={(): void => {
-                                props.onRestore()
-                            }}
-                        />
+                        <LemonButton
+                            type="secondary"
+                            status="primary-alt"
+                            onClick={props.onRestore}
+                            icon={<IconUndo />}
+                            data-attr="restore-annotation"
+                        >
+                            Restore annotation
+                        </LemonButton>
                     )}
-                </Row>
+                </div>
             )}
             <br />
             {modalMode === ModalMode.CREATE && (
@@ -293,14 +318,15 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     />
                 </div>
             )}
-            <TextArea
+            {modalMode === ModalMode.EDIT && <div>Change existing annotation text</div>}
+            <LemonTextArea
                 data-attr="create-annotation-input"
                 maxLength={300}
-                style={{ marginBottom: 12, marginTop: 5 }}
+                className="mt-4 mb-8"
                 rows={4}
                 value={textInput}
-                onChange={(e): void => setTextInput(e.target.value)}
+                onChange={(text): void => setTextInput(text)}
             />
-        </Modal>
+        </LemonModal>
     )
 }
