@@ -17,7 +17,6 @@ import { LemonModal } from 'lib/components/LemonModal'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { IconDelete, IconOrganization, IconProject, IconUndo } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -247,7 +246,6 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                     type="secondary"
                                     status="danger"
                                     onClick={props.onDelete}
-                                    icon={<IconDelete />}
                                     data-attr="delete-annotation"
                                 >
                                     Delete annotation
@@ -257,7 +255,6 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                                     type="secondary"
                                     status="primary-alt"
                                     onClick={props.onRestore}
-                                    icon={<IconUndo />}
                                     data-attr="restore-annotation"
                                 >
                                     Restore annotation
@@ -265,7 +262,11 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                             )}
                         </div>
                     ) : null}
-                    <LemonButton key="create-annotation-cancel" onClick={(): void => props.onCancel()}>
+                    <LemonButton
+                        key="create-annotation-cancel"
+                        type={'secondary'}
+                        onClick={(): void => props.onCancel()}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -291,10 +292,9 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                             size="small"
                             dropdownMaxContentWidth={true}
                             options={{
-                                [AnnotationScope.Project]: { label: 'project', icon: <IconProject /> },
+                                [AnnotationScope.Project]: { label: 'project' },
                                 [AnnotationScope.Organization]: {
                                     label: 'organization',
-                                    icon: <IconOrganization />,
                                 },
                             }}
                             onChange={(scope) => {
@@ -305,22 +305,23 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                             value={scope}
                         />
                     </div>{' '}
-                    charts
+                    insights
                 </span>
             ) : null}
             {modalMode === ModalMode.CREATE && (
                 <div>
-                    Date:
-                    <DatePicker
-                        style={{ marginTop: 16, marginLeft: 8, marginBottom: 16 }}
-                        getPopupContainer={(trigger): HTMLElement => trigger.parentElement as HTMLElement}
-                        value={selectedDate}
-                        onChange={(date): void => setDate(date as dayjs.Dayjs)}
-                        allowClear={false}
-                    />
+                    <div className="my-2 flex flex-row items-center">
+                        Date:&nbsp;
+                        <DatePicker
+                            getPopupContainer={(trigger): HTMLElement => trigger.parentElement as HTMLElement}
+                            value={selectedDate}
+                            onChange={(date): void => setDate(date as dayjs.Dayjs)}
+                            allowClear={false}
+                        />
+                    </div>
                 </div>
             )}
-            {modalMode === ModalMode.EDIT && <div>Change existing annotation text</div>}
+            <div>Annotation text:</div>
             <LemonTextArea
                 data-attr="create-annotation-input"
                 maxLength={300}
