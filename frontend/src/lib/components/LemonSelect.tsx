@@ -177,7 +177,7 @@ export function LemonSelect<T>({
                 </span>
                 {isClearButtonShown && (
                     <LemonButton
-                        className="LemonSelect--button--clearable"
+                        className="LemonSelect--button--clearable justify-end"
                         type="tertiary"
                         status="stealth"
                         noPadding

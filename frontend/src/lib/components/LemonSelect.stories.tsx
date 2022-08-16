@@ -68,9 +68,19 @@ export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }
 
 export const LongOptions = Template.bind({})
-
 LongOptions.args = {
     allowClear: true,
     value: '1',
     options: [...Array(100)].map((_, x) => ({ value: `${x}`, label: `${x}` })),
 }
+
+export const _FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
+    return (
+        <div className="items-center w-full border p-4 gap-2">
+            <LemonSelect {...props} fullWidth={true} allowClear={true} value={'poodle'} />
+        </div>
+    )
+}
+
+export const FullWidth = _FullWidth.bind({})
+FullWidth.args = {}
