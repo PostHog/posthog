@@ -46,6 +46,8 @@ class SignupSerializer(serializers.Serializer):
     def get_fields(self) -> Dict[str, serializers.Field]:
         fields = super().get_fields()
         if settings.DEMO:
+            # There's no password in the demo env
+            # To log in, a user just needs to attempt sign up with an email that's already in use
             fields.pop("password")
         return fields
 
@@ -100,7 +102,6 @@ class SignupSerializer(serializers.Serializer):
         is_staff = self.is_social_signup
         matrix = HedgeboxMatrix(n_clusters=300 if not settings.TEST else 1)
         with transaction.atomic():
-            # MatrixManager().ensure_account_and_save() will treat an email collision as login
             self._organization, self._team, self._user = MatrixManager(
                 matrix, use_pre_save=True
             ).ensure_account_and_save(email, first_name, organization_name, is_staff=is_staff)
