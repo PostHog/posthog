@@ -1,4 +1,5 @@
-import { Button, Skeleton } from 'antd'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
@@ -25,14 +26,14 @@ export function PersonDisplayNameProperties(): JSX.Element {
                 Choose which properties of an identified Person will be used for their <b>Display Name</b>. The first
                 property to be found on the Person will be used. Drag the items to re-order the priority.
             </p>
-            <div>
+            <div className="space-y-4">
                 <PersonPropertySelect
                     onChange={(properties) => setValue(properties)}
                     selectedProperties={value || []}
                     addText="Add"
                     sortable
                 />
-                <Button
+                <LemonButton
                     type="primary"
                     onClick={() =>
                         updateCurrentTeam({
@@ -41,7 +42,7 @@ export function PersonDisplayNameProperties(): JSX.Element {
                     }
                 >
                     Save
-                </Button>
+                </LemonButton>
             </div>
         </>
     )

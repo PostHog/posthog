@@ -20,6 +20,7 @@ function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason
 function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
     const columnKey = column.key || column.dataIndex
     if (obligationReason && columnKey == null) {
+        // == is intentional to catch undefined too
         throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
     }
     return columnKey

@@ -1,9 +1,11 @@
 import { randomBytes } from 'crypto'
+import { DateTime } from 'luxon'
 
-import { LogLevel } from '../src/types'
+import { ClickHouseTimestamp, LogLevel } from '../src/types'
 import { safeClickhouseString } from '../src/utils/db/utils'
 import {
     bufferToStream,
+    clickHouseTimestampToDateTime,
     cloneObject,
     escapeClickHouseString,
     groupBy,
@@ -182,7 +184,7 @@ describe('utils', () => {
         describe('#valueOf', () => {
             it('returns the right big integer', () => {
                 const uuid = new UUID('99aBcDeF-1234-4321-0000-dcba87654321')
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+
                 expect(uuid.valueOf()).toStrictEqual(0x99abcdef123443210000dcba87654321n)
             })
         })
@@ -355,6 +357,14 @@ describe('utils', () => {
             expect(safeClickhouseString(`✨`)).toEqual(`✨`)
             expect(safeClickhouseString(`foo \u2728\ bar`)).toEqual(`foo \u2728\ bar`)
             expect(safeClickhouseString(`💜 \u1f49c\ 💜`)).toEqual(`💜 \u1f49c\ 💜`)
+        })
+    })
+
+    describe('clickHouseTimestampToDateTime()', () => {
+        it('casts to a datetime', () => {
+            expect(clickHouseTimestampToDateTime('2020-02-23 02:15:00.00' as ClickHouseTimestamp)).toEqual(
+                DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC()
+            )
         })
     })
 })

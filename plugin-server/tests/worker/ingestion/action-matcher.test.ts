@@ -7,7 +7,7 @@ import {
     Element,
     Hub,
     Person,
-    PreIngestionEvent,
+    PostIngestionEvent,
     PropertyOperator,
     RawAction,
 } from '../../../src/types'
@@ -80,7 +80,7 @@ describe('ActionMatcher', () => {
     }
 
     /** Return a test event created on a common base using provided property overrides. */
-    function createTestEvent(overrides: Partial<PreIngestionEvent> = {}): PreIngestionEvent {
+    function createTestEvent(overrides: Partial<IngestionEvent> = {}): PostIngestionEvent {
         const url: string = overrides.properties?.$current_url ?? 'http://example.com/foo/'
         return {
             eventUuid: 'uuid1',

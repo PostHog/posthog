@@ -1,4 +1,3 @@
-import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import {
     IconCheckmark,
@@ -25,6 +24,7 @@ import { Link } from 'lib/components/Link'
 import { UPGRADE_LINK } from 'lib/constants'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -237,22 +237,18 @@ function VerifiedDomainsTable(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        Modal.confirm({
+                                        LemonDialog.open({
                                             title: `Remove ${domain}?`,
-                                            icon: null,
-                                            okText: 'Remove domain',
-                                            okType: 'primary',
-                                            okButtonProps: { className: 'btn-danger' },
-                                            content: (
-                                                <div>
-                                                    This cannot be undone. If you have SAML configured or SSO enforced,
-                                                    it will be immediately disabled.
-                                                </div>
-                                            ),
-                                            onOk() {
-                                                deleteVerifiedDomain(id)
+                                            description:
+                                                'This cannot be undone. If you have SAML configured or SSO enforced,it will be immediately disabled.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Remove domain',
+                                                onClick: () => deleteVerifiedDomain(id),
                                             },
-                                            cancelText: 'Cancel',
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
                                         })
                                     }
                                     fullWidth

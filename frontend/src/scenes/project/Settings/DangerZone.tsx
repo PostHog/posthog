@@ -1,17 +1,16 @@
 import React, { Dispatch, SetStateAction, useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { Input, Modal } from 'antd'
 import { teamLogic } from 'scenes/teamLogic'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/components/icons'
 
 export function DeleteProjectModal({
-    isVisible,
-    setIsVisible,
+    isOpen,
+    setIsOpen,
 }: {
-    isVisible: boolean
-    setIsVisible: Dispatch<SetStateAction<boolean>>
+    isOpen: boolean
+    setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
     const { currentTeam, teamBeingDeleted } = useValues(teamLogic)
     const { deleteTeam } = useActions(teamLogic)
@@ -20,22 +19,25 @@ export function DeleteProjectModal({
     const isDeletionInProgress = !!currentTeam && teamBeingDeleted?.id === currentTeam.id
 
     return (
-        <Modal
+        <LemonModal
             title="Delete the project and its data?"
-            okText={`Delete ${currentTeam ? currentTeam.name : 'the current project'}`}
-            okType="danger"
-            onOk={currentTeam ? () => deleteTeam(currentTeam) : undefined}
-            okButtonProps={{
-                // @ts-expect-error - data-attr works just fine despite not being in ButtonProps
-                'data-attr': 'delete-project-ok',
-                loading: isDeletionInProgress,
-                disabled: !isDeletionConfirmed,
-            }}
-            onCancel={() => setIsVisible(false)}
-            cancelButtonProps={{
-                disabled: isDeletionInProgress,
-            }}
-            visible={isVisible}
+            onClose={() => setIsOpen(false)}
+            footer={
+                <>
+                    <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        disabled={!isDeletionConfirmed}
+                        loading={isDeletionInProgress}
+                        data-attr="delete-project-ok"
+                        status="danger"
+                        onClick={currentTeam ? () => deleteTeam(currentTeam) : undefined}
+                    >{`Delete ${currentTeam ? currentTeam.name : 'the current project'}`}</LemonButton>
+                </>
+            }
+            isOpen={isOpen}
         >
             <p>
                 Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related to
@@ -44,16 +46,15 @@ export function DeleteProjectModal({
             <p>
                 Please type <strong>{currentTeam ? currentTeam.name : "this project's name"}</strong> to confirm.
             </p>
-            <Input
+            <LemonInput
                 type="text"
-                onChange={(e) => {
+                onChange={(value) => {
                     if (currentTeam) {
-                        const { value } = e.target
                         setIsDeletionConfirmed(value.toLowerCase() === currentTeam.name.toLowerCase())
                     }
                 }}
             />
-        </Modal>
+        </LemonModal>
     )
 }
 
@@ -84,7 +85,7 @@ export function DangerZone({ isRestricted }: RestrictedComponentProps): JSX.Elem
                     </LemonButton>
                 </div>
             </div>
-            <DeleteProjectModal isVisible={isModalVisible} setIsVisible={setIsModalVisible} />
+            <DeleteProjectModal isOpen={isModalVisible} setIsOpen={setIsModalVisible} />
         </>
     )
 }
