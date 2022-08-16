@@ -39,6 +39,7 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -236,7 +237,7 @@ export function Experiment(): JSX.Element {
                                             }
                                             name="description"
                                         >
-                                            <Input.TextArea
+                                            <LemonTextArea
                                                 data-attr="experiment-description"
                                                 className="ph-ignore-input"
                                                 placeholder="Adding a helpful description can ensure others know what this experiment is about."
@@ -326,7 +327,7 @@ export function Experiment(): JSX.Element {
                                                                                 placement="bottomLeft"
                                                                             >
                                                                                 <LemonButton
-                                                                                    type="alt"
+                                                                                    status="primary-alt"
                                                                                     size="small"
                                                                                     icon={<IconDelete />}
                                                                                     onClick={() =>
@@ -436,7 +437,6 @@ export function Experiment(): JSX.Element {
                                                                 properties: anyProperties.filter(isValidPropertyFilter),
                                                             })
                                                         }}
-                                                        useLemonButton
                                                         taxonomicGroupTypes={taxonomicGroupTypesForSelection}
                                                     />
                                                 </div>
@@ -504,6 +504,7 @@ export function Experiment(): JSX.Element {
                                                     propertiesTaxonomicGroupTypes={[
                                                         TaxonomicFilterGroupType.EventProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.EventFeatureFlags,
                                                         TaxonomicFilterGroupType.Cohorts,
                                                         TaxonomicFilterGroupType.Elements,
                                                     ]}
@@ -525,6 +526,7 @@ export function Experiment(): JSX.Element {
                                                     propertiesTaxonomicGroupTypes={[
                                                         TaxonomicFilterGroupType.EventProperties,
                                                         TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.EventFeatureFlags,
                                                         TaxonomicFilterGroupType.Cohorts,
                                                         TaxonomicFilterGroupType.Elements,
                                                     ]}
@@ -677,11 +679,7 @@ export function Experiment(): JSX.Element {
                                     {experimentData.end_date ? (
                                         <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
                                     ) : (
-                                        <LemonButton
-                                            type="highlighted"
-                                            className="end-experiment-btn"
-                                            onClick={() => endExperiment()}
-                                        >
+                                        <LemonButton type="primary" onClick={() => endExperiment()}>
                                             End experiment
                                         </LemonButton>
                                     )}

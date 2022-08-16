@@ -27,8 +27,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    Element,
-    Event,
     EventDefinitionType,
     EventPropertyType,
     Group,
@@ -46,24 +44,25 @@ import {
     PluginLogEntryType,
     PluginLogLevel,
     PluginSourceFileStatus,
-    PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
     RawAction,
+    RawClickHouseEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
-    SessionRecordingEvent,
+    RawSessionRecordingEvent,
     Team,
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
 import {
     castTimestampOrNow,
-    clickHouseTimestampToISO,
     escapeClickHouseString,
+    NoRowsUpdatedError,
     RaceConditionError,
     sanitizeSqlIdentifier,
     tryTwice,
@@ -72,7 +71,6 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
-import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
     generateKafkaPersonUpdateMessage,
@@ -224,7 +222,7 @@ export class DB {
         })
     }
 
-    public postgresTransaction<ReturnType extends any>(
+    public postgresTransaction<ReturnType>(
         tag: string,
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
@@ -246,16 +244,46 @@ export class DB {
         })
     }
 
+    public async postgresBulkInsert<T extends Array<any>>(
+        // Should have {VALUES} as a placeholder
+        queryWithPlaceholder: string,
+        values: Array<T>,
+        tag: string,
+        client?: PoolClient
+    ): Promise<void> {
+        if (values.length === 0) {
+            return
+        }
+
+        const valuesWithPlaceholders = values
+            .map((array, index) => {
+                const len = array.length
+                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
+                return `(${valuesWithIndexes.join(', ')})`
+            })
+            .join(', ')
+
+        await this.postgresQuery(
+            queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders),
+            values.flat(),
+            tag,
+            client
+        )
+    }
+
     // ClickHouse
 
-    public clickhouseQuery(
+    public clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
         query: string,
         options?: ClickHouse.QueryOptions
-    ): Promise<ClickHouse.QueryResult<Record<string, any>>> {
+    ): Promise<ClickHouse.ObjectQueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.clickhouse', undefined, async () => {
             const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
             try {
-                return await this.clickhouse.querying(query, options)
+                const queryResult = await this.clickhouse.querying(query, options)
+                // This is annoying to type, because the result depends on contructor and query options provided
+                // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
+                return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
             } finally {
                 clearTimeout(timeout)
             }
@@ -953,7 +981,9 @@ export class DB {
 
         const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
         if (updateResult.rows.length == 0) {
-            throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
+            throw new NoRowsUpdatedError(
+                `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
+            )
         }
         const updatedPersonRaw = updateResult.rows[0] as RawPerson
         const updatedPerson = {
@@ -1279,41 +1309,13 @@ export class DB {
         )
     }
 
-    // Event
+    // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
 
     public async fetchEvents(): Promise<ClickHouseEvent[]> {
-        const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
-            .data as ClickHouseEvent[]
-        return (
-            events?.map(
-                (event) =>
-                    ({
-                        ...event,
-                        ...(typeof event['properties'] === 'string'
-                            ? { properties: JSON.parse(event.properties) }
-                            : {}),
-                        ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
-                            ? { person_properties: JSON.parse(event.person_properties) }
-                            : {}),
-                        ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
-                            ? { group0_properties: JSON.parse(event.group0_properties) }
-                            : {}),
-                        ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
-                            ? { group1_properties: JSON.parse(event.group1_properties) }
-                            : {}),
-                        ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
-                            ? { group2_properties: JSON.parse(event.group2_properties) }
-                            : {}),
-                        ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
-                            ? { group3_properties: JSON.parse(event.group3_properties) }
-                            : {}),
-                        ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
-                            ? { group4_properties: JSON.parse(event.group4_properties) }
-                            : {}),
-                        timestamp: clickHouseTimestampToISO(event.timestamp),
-                    } as ClickHouseEvent)
-            ) || []
+        const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
+            `SELECT * FROM events ORDER BY timestamp ASC`
         )
+        return queryResult.data.map(parseRawClickHouseEvent)
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
@@ -1324,10 +1326,10 @@ export class DB {
 
     // SessionRecordingEvent
 
-    public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
+    public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
         const events = (
-            (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
-        ).map((event) => {
+            await this.clickhouseQuery<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
+        ).data.map((event) => {
             return {
                 ...event,
                 snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
@@ -1336,19 +1338,7 @@ export class DB {
         return events
     }
 
-    // Element
-
-    public async fetchElements(event?: Event): Promise<Element[]> {
-        const events = (
-            await this.clickhouseQuery(
-                `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
-            )
-        ).data as ClickHouseEvent[]
-        const chain = events?.[0]?.elements_chain
-        return chain ? chainToElements(chain) : []
-    }
-
-    // PluginLogEntry (NOTE: not a Django model anymore, stored in ClickHouse table `plugin_log_entries`)
+    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
 
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
         const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)

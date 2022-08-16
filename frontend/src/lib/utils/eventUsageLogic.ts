@@ -23,6 +23,7 @@ import {
     PropertyGroupFilter,
     FilterLogicalOperator,
     PropertyFilterValue,
+    InsightShortId,
     YesOrNoResponse,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
@@ -274,7 +275,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             lastRefreshed,
         }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
+        reportDashboardRefreshed: (dashboardId: number, lastRefreshed?: string | Dayjs | null) => ({
+            dashboardId,
+            lastRefreshed,
+        }),
         reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
         reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
             dateFrom,
@@ -437,6 +441,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadTime,
             error,
         }),
+        reportInsightRefreshTime: (loadingMilliseconds: number, insightShortId: InsightShortId) => ({
+            loadingMilliseconds,
+            insightShortId,
+        }),
         reportInsightOpenedFromRecentInsightList: true,
         reportRecordingOpenedFromRecentRecordingList: true,
         reportPersonOpenedFromNewlySeenPersonsList: true,
@@ -452,8 +460,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportInviteMembersButtonClicked: true,
         reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
+        reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
+            loadingMilliseconds,
+            dashboardId,
+        }),
     },
     listeners: ({ values }) => ({
+        reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
+            posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
+        },
+        reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
+            posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
+        },
         reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
             posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })
         },
@@ -712,8 +730,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportDashboardModeToggled: async ({ mode, source }) => {
             posthog.capture('dashboard mode toggled', { mode, source })
         },
-        reportDashboardRefreshed: async ({ lastRefreshed }) => {
-            posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed?.toString() })
+        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed }) => {
+            posthog.capture(`dashboard refreshed`, {
+                dashboard_id: dashboardId,
+                last_refreshed: lastRefreshed?.toString(),
+                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+            })
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
             posthog.capture(`dashboard date range changed`, {

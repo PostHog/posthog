@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
 import React from 'react'
+import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
-import { MetricRow, systemStatusLogic } from './systemStatusLogic'
+import { systemStatusLogic } from './systemStatusLogic'
 
-interface ChangeRowInterface extends Pick<MetricRow, 'value'> {
+interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
     oldValue?: boolean | string | number | null
     metricKey: string
     isSecret?: boolean
@@ -30,13 +31,18 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                     <>
                         {' from '}
                         <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
-                            {RenderMetricValue({ key: metricKey, value: oldValue, emptyNullLabel: 'Unset', isSecret })}
+                            {RenderMetricValue(null, {
+                                key: metricKey,
+                                value: oldValue,
+                                emptyNullLabel: 'Unset',
+                                isSecret,
+                            })}
                         </span>
                     </>
                 )}
                 {' to '}
                 <span style={{ color: 'var(--default)', fontWeight: 'bold' }}>
-                    {RenderMetricValue({ key: metricKey, value, emptyNullLabel: 'Unset' })}
+                    {RenderMetricValue(null, { key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (
                     <div className="text-danger">This field is secret – you won't see its value once saved</div>
@@ -65,7 +71,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
             closable={!loading}
         >
             {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
-                <AlertMessage type="info" style={{ marginBottom: 16 }}>
+                <AlertMessage type="info">
                     <>
                         As you are changing email settings, we'll attempt to send a <b>test email</b> so you can verify
                         everything works (unless you are turning email off).
@@ -73,7 +79,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                 </AlertMessage>
             )}
             {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
-                <AlertMessage style={{ marginBottom: 16 }} type="warning">
+                <AlertMessage type="warning">
                     <>
                         Changing your recordings TTL requires ClickHouse to have enough free space to perform the
                         operation (even when reducing this value). In addition, please mind that removing old recordings

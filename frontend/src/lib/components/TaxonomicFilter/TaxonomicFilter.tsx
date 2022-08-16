@@ -5,7 +5,7 @@ import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterLogicProps, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { IconKeyboard, IconMagnifier } from '../icons'
+import { IconKeyboard } from '../icons'
 import { Tooltip } from '../Tooltip'
 import clsx from 'clsx'
 
@@ -74,11 +74,11 @@ export function TaxonomicFilter({
                 <div style={{ position: 'relative' }}>
                     <LemonInput
                         data-attr="taxonomic-filter-searchfield"
-                        placeholder={`Search ${searchPlaceholder}`}
+                        type="search"
+                        fullWidth
+                        placeholder={`Search ${searchPlaceholder} foo`}
                         value={searchQuery}
-                        className={searchQuery && 'LemonInput--with-input'}
-                        icon={<IconMagnifier />}
-                        sideIcon={
+                        suffix={
                             <Tooltip
                                 title={
                                     <>
@@ -103,14 +103,6 @@ export function TaxonomicFilter({
                             if (e.key === 'ArrowDown') {
                                 e.preventDefault()
                                 moveDown()
-                            }
-                            if (e.key === 'ArrowLeft') {
-                                e.preventDefault()
-                                tabLeft()
-                            }
-                            if (e.key === 'ArrowRight') {
-                                e.preventDefault()
-                                tabRight()
                             }
                             if (e.key === 'Tab') {
                                 e.preventDefault()

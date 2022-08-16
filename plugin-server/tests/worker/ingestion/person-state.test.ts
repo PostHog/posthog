@@ -590,6 +590,83 @@ describe('PersonState.update()', () => {
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 
+    it.only('updates person properties when other thread merges the user', async () => {
+        const cachedPerson = await hub.db.createPerson(
+            timestamp,
+            { a: 1, b: 2 },
+            {},
+            {},
+            2,
+            null,
+            false,
+            uuid.toString(),
+            ['old-user']
+        )
+        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
+        const mergedPersonContainer = await personState({
+            event: '$identify',
+            distinct_id: 'new-user',
+            properties: {
+                $anon_distinct_id: 'old-user',
+            },
+        }).update()
+        const mergedPerson = await mergedPersonContainer.get()
+        // Prerequisite for the test - UUID changes
+        expect(mergedPerson!.uuid).not.toEqual(cachedPerson.uuid)
+
+        console.log('---')
+        jest.mocked(hub.db.fetchPerson).mockClear() // Reset counter
+
+        const personContainer = await personState(
+            {
+                event: '$pageview',
+                distinct_id: 'new-user',
+                properties: {
+                    $set_once: { c: 3, e: 4 },
+                    $set: { b: 4 },
+                },
+            },
+            cachedPerson
+        ).update()
+
+        await hub.db.kafkaProducer.flush()
+
+        expect(await personContainer.get()).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: mergedPerson!.uuid,
+                is_identified: true,
+                properties: { a: 1, b: 4, c: 3, e: 4 },
+                created_at: timestamp,
+                version: 2,
+            })
+        )
+
+        const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhousePersons.length).toEqual(2)
+        expect(clickhousePersons).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    id: uuid.toString(),
+                    properties: JSON.stringify({ a: 1, b: 2 }),
+                    is_deleted: 1,
+                    version: 100,
+                }),
+                expect.objectContaining({
+                    id: mergedPerson!.uuid,
+                    properties: JSON.stringify({ a: 1, b: 4, c: 3, e: 4 }),
+                    is_deleted: 0,
+                    is_identified: 1,
+                    created_at: '2020-01-01 12:00:05.000',
+                    version: 2,
+                }),
+            ])
+        )
+
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // It does a single reset after failing once
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+    })
+
     describe('foreign key updates in other tables', () => {
         test('feature flag hash key overrides with no conflicts', async () => {
             const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [

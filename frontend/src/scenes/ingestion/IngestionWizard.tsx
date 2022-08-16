@@ -89,30 +89,24 @@ export function IngestionWizard(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { onboardingSidebarEnabled, isSmallScreen } = useValues(ingestionLogic)
+    const { isSmallScreen } = useValues(ingestionLogic)
 
     return (
-        <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
-            {onboardingSidebarEnabled && (
-                <>
-                    <div className="IngestionTopbar">
-                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
-                        <div style={{ display: 'flex' }}>
-                            <HelpButton />
-                            <SitePopover />
-                        </div>
-                    </div>
-                </>
-            )}
-            {onboardingSidebarEnabled && <InviteModal visible={isInviteModalShown} onClose={hideInviteModal} />}
-            <div style={{ display: 'flex', height: '100%' }}>
-                {onboardingSidebarEnabled && !isSmallScreen && <Sidebar />}
+        <div className="flex h-full flex-col">
+            <div className="IngestionTopbar">
+                <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                <div className="flex">
+                    <HelpButton />
+                    <SitePopover />
+                </div>
+            </div>
+            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
+            <div className="flex h-full">
+                {!isSmallScreen && <Sidebar />}
                 <div className="bridge-page IngestionContainer">
-                    {!onboardingSidebarEnabled && (
-                        <div className="mb-4">
-                            <FriendlyLogo style={{ fontSize: '1.125rem' }} />
-                        </div>
-                    )}
+                    <div className="mb-4">
+                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
+                    </div>
                     {children}
                 </div>
             </div>

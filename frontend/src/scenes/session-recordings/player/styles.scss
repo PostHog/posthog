@@ -40,17 +40,24 @@
                 justify-content: center;
                 align-items: center;
 
-                &.rrweb-controller-icon-seek {
-                    height: 24px;
-                    width: 24px;
+                .rrweb-controller-icon-seek {
+                    position: relative;
+                    height: 18px;
+                    width: 18px;
 
                     span.seek-seconds {
                         position: absolute;
+                        height: 18px;
+                        width: 18px;
+                        line-height: 18px;
                         font-size: 6px;
+                        text-align: center;
                     }
 
                     .seek-icon {
                         position: absolute;
+                        top: 0;
+                        left: 0;
                         font-size: 18px;
                     }
                 }

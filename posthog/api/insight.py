@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
+from statshog.defaults.django import statsd
 
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -340,8 +341,12 @@ class InsightSerializer(InsightBasicSerializer):
 
         self.context.update({"filters_hash": cache_key})
         result = get_safe_cache(cache_key)
+        cache_context = {"type": insight.type, "from_dashboard": "true" if dashboard else "false"}
         if not result or result.get("task_id", None):
+            statsd.incr("posthog_cloud_insight_cache_miss", tags=cache_context)
             return None
+        else:
+            statsd.incr("posthog_cloud_insight_cache_hit", tags=cache_context)
         # Data might not be defined if there is still cached results from before moving from 'results' to 'data'
         return result.get("result")
 

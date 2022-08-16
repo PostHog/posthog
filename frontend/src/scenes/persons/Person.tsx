@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
+import { Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
@@ -23,6 +23,9 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { teamLogic } from 'scenes/teamLogic'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const { TabPane } = Tabs
 
@@ -37,8 +40,8 @@ export const scene: SceneExport = {
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            <div className="mr-4">
+        <div className="flex flex-wrap items-center gap-2">
+            <div>
                 <span className="text-muted">IDs:</span>{' '}
                 <CopyToClipboardInline
                     tooltipMessage={null}
@@ -81,18 +84,12 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const {
-        person,
-        personLoading,
-        deletedPersonLoading,
-        currentTab,
-        showSessionRecordings,
-        splitMergeModalShown,
-        urlId,
-    } = useValues(personsLogic)
+    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
+        useValues(personsLogic)
     const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     if (!person) {
         return personLoading ? (
@@ -111,30 +108,31 @@ export function Person(): JSX.Element | null {
                 title={asDisplay(person)}
                 caption={<PersonCaption person={person} />}
                 buttons={
-                    <div>
+                    <div className="flex gap-2">
                         <Popconfirm
                             title="Are you sure you want to delete this person?"
                             onConfirm={deletePerson}
                             okText={`Yes, delete ${asDisplay(person)}`}
                             cancelText="No, cancel"
                         >
-                            <Button
-                                className="text-danger"
+                            <LemonButton
                                 disabled={deletedPersonLoading}
                                 loading={deletedPersonLoading}
+                                type="secondary"
+                                status="danger"
                                 data-attr="delete-person"
                             >
                                 Delete person
-                            </Button>
+                            </LemonButton>
                         </Popconfirm>
-                        <Button
+                        <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
-                            style={{ marginLeft: 8 }}
                             data-tooltip="person-split-merge-button"
+                            type="secondary"
                         >
                             Split or merge IDs
-                        </Button>
+                        </LemonButton>
                     </div>
                 }
             />
@@ -165,21 +163,28 @@ export function Person(): JSX.Element | null {
                         pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
                         fixedFilters={{ person_id: person.id }}
                         showPersonColumn={false}
-                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id), false)}
+                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
                     />
                 </TabPane>
-                {showSessionRecordings && (
-                    <TabPane
-                        tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
-                        key={PersonsTabType.SESSION_RECORDINGS}
-                    >
-                        <SessionRecordingsTable
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    </TabPane>
-                )}
+                <TabPane
+                    tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
+                    key={PersonsTabType.SESSION_RECORDINGS}
+                >
+                    {!currentTeam?.session_recording_opt_in ? (
+                        <div className="mb-4">
+                            <AlertMessage type="info">
+                                Session recordings are currently disabled for this project. To use this feature, please
+                                go to your <Link to={`${urls.projectSettings()}#recordings`}>project settings</Link> and
+                                enable it.
+                            </AlertMessage>
+                        </div>
+                    ) : null}
+                    <SessionRecordingsTable
+                        key={person.uuid} // force refresh if user changes
+                        personUUID={person.uuid}
+                        isPersonPage
+                    />
+                </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
                     <PersonCohorts />

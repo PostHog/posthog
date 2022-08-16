@@ -3,7 +3,6 @@
     height: 1px;
     opacity: 0.17;
     background: currentColor;
-    margin: 0.5rem 0;
     flex-shrink: 0;
 
     &--dashed {
@@ -16,10 +15,6 @@
         );
     }
 
-    &--large {
-        margin: 1rem 0;
-    }
-
     &--thick {
         height: 3px;
     }
@@ -27,15 +22,10 @@
     &--vertical {
         width: 1px;
         height: auto;
-        margin: 0.5rem;
         align-self: stretch;
 
-        &.LemonDivider--large {
-            margin: 0.5rem 1rem;
-        }
-
         &.LemonDivider--thick {
-            width: 2px;
+            width: 3px;
         }
 
         &.LemonDivider--dashed {

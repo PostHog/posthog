@@ -266,6 +266,8 @@ class QueryMatchingTest:
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            # feature flag conditions use primary keys as columns in queries, so replace those too
+            query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
 

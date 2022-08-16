@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
-import { Input, Radio } from 'antd'
+import { Radio } from 'antd'
 import { CheckOutlined } from '@ant-design/icons'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
@@ -24,6 +24,7 @@ import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { PageHeader } from 'lib/components/PageHeader'
+import { LemonInput } from '@posthog/lemon-ui'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -147,11 +148,11 @@ export function ActionsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.action(action.id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.action(action.id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     to={
                                         combineUrl(
                                             urls.insightNew({
@@ -175,8 +176,7 @@ export function ActionsTable(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() =>
                                         deleteWithUndo({
                                             endpoint: api.actions.determineDeleteEndpoint(),
@@ -211,15 +211,9 @@ export function ActionsTable(): JSX.Element {
                 tabbedPage
             />
             <DataManagementPageTabs tab={DataManagementTab.Actions} />
-            <Input.Search
-                placeholder="Search for actions"
-                allowClear
-                enterButton
-                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
-                onChange={(e) => {
-                    setSearchTerm(e.target.value)
-                }}
-            />
+
+            <LemonInput type="search" placeholder="Search for actions" onChange={setSearchTerm} value={searchTerm} />
+
             <Radio.Group buttonStyle="solid" value={filterByMe} onChange={(e) => setFilterByMe(e.target.value)}>
                 <Radio.Button value={false}>All actions</Radio.Button>
                 <Radio.Button value={true}>My actions</Radio.Button>

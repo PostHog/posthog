@@ -24,6 +24,7 @@ import {
     PropertyType,
     TimeUnitType,
 } from '~/types'
+import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -325,6 +326,11 @@ export const durationOperatorMap: Record<string, string> = {
     lt: '< less than',
 }
 
+export const selectorOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -332,6 +338,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...genericOperatorMap,
     ...booleanOperatorMap,
     ...durationOperatorMap,
+    ...selectorOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -342,6 +349,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Numeric: numericOperatorMap,
     Boolean: booleanOperatorMap,
     Duration: durationOperatorMap,
+    Selector: selectorOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -1138,18 +1146,22 @@ export function endWithPunctation(text?: string | null): string {
     return trimmedText
 }
 
-export function shortTimeZone(timeZone?: string | null, atDate?: Date): string | null {
-    /**
-     * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
-     * @param timeZone E.g. 'America/New_York'
-     * @param atDate
-     */
-    if (!timeZone) {
+/**
+ * Return the short timezone identifier for a specific timezone (e.g. BST, EST, PDT, UTC+2).
+ * @param timeZone E.g. 'America/New_York'
+ * @param atDate
+ */
+export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
+    const date = atDate ? new Date(atDate) : new Date()
+    try {
+        const localeTimeString = date
+            .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
+            .replace('GMT', 'UTC')
+        return localeTimeString.split(' ')[2]
+    } catch (e) {
+        Sentry.captureException(e)
         return null
     }
-    const date = atDate ? new Date(atDate) : new Date()
-    const localeTimeString = date.toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone }).replace('GMT', 'UTC')
-    return localeTimeString.split(' ')[2]
 }
 
 export function humanTzOffset(timezone?: string): string {

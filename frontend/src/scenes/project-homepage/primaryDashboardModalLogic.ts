@@ -19,7 +19,7 @@ export const primaryDashboardModalLogic = kea<primaryDashboardModalLogicType>({
         primaryDashboardId: [(s) => [s.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
     },
     reducers: {
-        visible: [false, { showPrimaryDashboardModal: () => true, closePrimaryDashboardModal: () => false }],
+        isOpen: [false, { showPrimaryDashboardModal: () => true, closePrimaryDashboardModal: () => false }],
     },
     listeners: ({ actions }) => ({
         setPrimaryDashboard: async ({ dashboardId }) => {

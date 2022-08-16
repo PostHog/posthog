@@ -4,7 +4,7 @@ function createDashboardFromTemplate(dashboardName) {
     cy.get('[data-attr=copy-from-template]').click()
     cy.get('[data-attr=dashboard-select-default-app]').click()
 
-    cy.get('button').contains('Create').click()
+    cy.get('[data-attr=dashboard-submit-and-go]').click()
 
     cy.contains(dashboardName).should('exist')
 }
@@ -52,7 +52,7 @@ describe('Dashboard', () => {
         cy.clickNavMenu('events') // to make sure the dashboards menu item is not the active one
         cy.get('[data-attr=menu-item-pinned-dashboards]').click()
         cy.get('[data-attr=sidebar-pinned-dashboards]').should('be.visible')
-        cy.get('[data-attr=sidebar-pinned-dashboards] div').should('contain', 'App Analytics')
+        cy.get('[data-attr=sidebar-pinned-dashboards] a').should('contain', 'App Analytics')
     })
 
     it('Share dashboard', () => {
@@ -102,7 +102,7 @@ describe('Dashboard', () => {
     it('Click on a dashboard item dropdown and view graph', () => {
         cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
         cy.get('.InsightCard [data-attr=more-button]').first().click()
-        cy.get('button').contains('View').click()
+        cy.get('a').contains('View').click()
         cy.location('pathname').should('include', '/insights')
     })
 

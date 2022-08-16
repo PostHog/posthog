@@ -81,28 +81,28 @@ export class TeamManager {
             return
         }
 
-        const startTime = DateTime.now()
-        const team: Team | null = await this.fetchTeam(teamId)
-
-        if (!team) {
-            return
-        }
-
+        const timer = new Date()
         const timeout = timeoutGuard('Still running "updateEventNamesAndProperties". Timeout warning after 30 sec!', {
             event: event,
-            ingested: team.ingested_event,
         })
 
-        await this.cacheEventNamesAndProperties(team.id, event)
-        await this.syncEventDefinitions(team, event)
-        await this.syncEventProperties(team, event, properties)
-        await this.syncPropertyDefinitions(properties, team)
-        await this.setTeamIngestedEvent(team, properties)
+        try {
+            const team: Team | null = await this.fetchTeam(teamId)
 
-        clearTimeout(timeout)
-
-        const statsDEvent = 'updateEventNamesAndProperties'
-        this.statsd?.timing(statsDEvent, DateTime.now().diff(startTime).as('milliseconds'))
+            if (!team) {
+                return
+            }
+            await this.cacheEventNamesAndProperties(team.id, event)
+            await Promise.all([
+                this.syncEventDefinitions(team, event),
+                this.syncEventProperties(team, event, properties),
+                this.syncPropertyDefinitions(properties, team),
+                this.setTeamIngestedEvent(team, properties),
+            ])
+        } finally {
+            clearTimeout(timeout)
+            this.statsd?.timing('updateEventNamesAndProperties', timer)
+        }
     }
 
     private async syncEventDefinitions(team: Team, event: string) {
@@ -135,42 +135,49 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
     private async syncEventProperties(team: Team, event: string, properties: Properties) {
         const key = JSON.stringify([team.id, event])
         let existingProperties = this.eventPropertiesCache.get(key)
+        const toInsert: Array<[string, string, TeamId]> = []
         if (!existingProperties) {
             existingProperties = new Set()
             this.eventPropertiesCache.set(key, existingProperties)
         }
+
         for (const property of this.getPropertyKeys(properties)) {
             if (!existingProperties.has(property)) {
                 existingProperties.add(property)
-                await this.db.postgresQuery(
-                    `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-                    [event, property, team.id],
-                    'insertEventProperty'
-                )
+                toInsert.push([event, property, team.id])
             }
         }
+
+        await this.db.postgresBulkInsert(
+            `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES {VALUES} ON CONFLICT DO NOTHING`,
+            toInsert,
+            'insertEventProperty'
+        )
     }
 
     private async syncPropertyDefinitions(properties: Properties, team: Team) {
+        const toInsert: Array<[string, string, boolean, null, null, TeamId, PropertyType | null]> = []
         for (const key of this.getPropertyKeys(properties)) {
             const value = properties[key]
             if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
                 const propertyType = detectPropertyDefinitionTypes(value, key)
                 const isNumerical = propertyType == PropertyType.Numeric
-
-                await this.db.postgresQuery(
-                    `
-INSERT INTO posthog_propertydefinition
-(id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
-VALUES ($1, $2, $3, NULL, NULL, $4, $5)
-ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
-DO UPDATE SET property_type=$5 WHERE posthog_propertydefinition.property_type IS NULL`,
-                    [new UUIDT().toString(), key, isNumerical, team.id, propertyType],
-                    'insertPropertyDefinition'
-                )
                 this.propertyDefinitionsCache.set(team.id, key, propertyType)
+
+                toInsert.push([new UUIDT().toString(), key, isNumerical, null, null, team.id, propertyType])
             }
         }
+
+        await this.db.postgresBulkInsert(
+            `
+            INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
+            VALUES {VALUES}
+            ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
+            DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
+            `,
+            toInsert,
+            'insertPropertyDefinition'
+        )
     }
 
     private async setTeamIngestedEvent(team: Team, properties: Properties) {

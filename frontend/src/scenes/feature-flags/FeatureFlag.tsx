@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Group } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Loading } from 'lib/utils'
@@ -23,7 +23,6 @@ import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Field } from 'lib/forms/Field'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
@@ -86,7 +85,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     return (
         <div className="feature-flag">
             {featureFlag ? (
-                <VerticalForm
+                <Form
                     logic={featureFlagLogic}
                     props={props}
                     formKey="featureFlag"
@@ -96,7 +95,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     <PageHeader
                         title="Feature Flag"
                         buttons={
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-2">
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
@@ -121,7 +120,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         onClick={() => {
                                             deleteFeatureFlag(featureFlag)
                                         }}
-                                        style={{ marginRight: 16 }}
                                     >
                                         Delete
                                     </LemonButton>
@@ -152,14 +150,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         General settings for your feature flag and integration instructions.
                     </div>
                     <Row gutter={16} style={{ marginBottom: 32 }}>
-                        <Col span={12}>
+                        <Col span={12} className="space-y-4">
                             <Field
                                 name="key"
                                 label="Key (must be unique)"
-                                validateStatus={hasKeyChanged ? 'warning' : undefined}
-                                hint={
+                                help={
                                     hasKeyChanged && id !== 'new' ? (
-                                        <small>
+                                        <span className="text-warning">
                                             <b>Warning! </b>Changing this key will
                                             <a
                                                 href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
@@ -169,7 +166,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 {' '}
                                                 affect the persistence of your flag <IconOpenInNew />
                                             </a>
-                                        </small>
+                                        </span>
                                     ) : undefined
                                 }
                             >
@@ -203,7 +200,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </Field>
                             <Field name="ensure_experience_continuity">
                                 {({ value, onChange }) => (
-                                    <div style={{ border: '1px solid var(--border)', borderRadius: 4 }}>
+                                    <div className="border rounded p-4">
                                         <LemonCheckbox
                                             id="continuity-checkbox"
                                             label={
@@ -213,18 +210,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 </div>
                                             }
                                             onChange={() => onChange(!value)}
-                                            rowProps={{ fullWidth: true }}
+                                            fullWidth
                                             checked={value}
                                         />
-                                        <div
-                                            className="text-muted"
-                                            style={{
-                                                fontSize: 13,
-                                                marginLeft: '2.5rem',
-                                                paddingBottom: '.75rem',
-                                                paddingRight: '.75rem',
-                                            }}
-                                        >
+                                        <div className="text-muted text-sm pl-7">
                                             If your feature flag is applied prior to an identify or authentication
                                             event, use this to ensure that feature flags are not reset after a person is
                                             identified. This ensures the experience for the anonymous person is carried
@@ -419,7 +408,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         addVariant()
                                         focusVariantKeyField(newIndex)
                                     }}
-                                    style={{ margin: '1rem 0' }}
                                     fullWidth
                                     center
                                 >
@@ -518,7 +506,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </div>
 
-                                    <LemonDivider large />
+                                    <LemonDivider className="my-4" />
                                     <div className="ml-4">
                                         <PropertyFilters
                                             pageKey={`feature-flag-${featureFlag.id}-${index}-${
@@ -528,11 +516,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
                                             showConditionBadge
-                                            useLemonButton
                                         />
                                     </div>
 
-                                    <LemonDivider large />
+                                    <LemonDivider className="my-4" />
 
                                     <div className="feature-flag-form-row">
                                         <div className="centered">
@@ -571,7 +558,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             Save changes
                         </LemonButton>
                     </div>
-                </VerticalForm>
+                </Form>
             ) : (
                 // TODO: This should be skeleton loaders
                 <Loading />
