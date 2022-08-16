@@ -111,14 +111,7 @@ class MatrixManager:
                 )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         sim_persons = self.matrix.people
-        distinct_ids_seen = {}
         for sim_person in sim_persons:
-            for distinct_id in sim_person.distinct_ids_at_now:
-                if distinct_id in distinct_ids_seen:
-                    raise ValueError(
-                        f"Duplicate distinct_id {distinct_id}: {distinct_ids_seen[distinct_id]} and {sim_person}"
-                    )
-                distinct_ids_seen[distinct_id] = sim_person
             self._save_sim_person(target_team, sim_person)
 
     @classmethod

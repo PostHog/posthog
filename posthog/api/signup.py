@@ -99,7 +99,7 @@ class SignupSerializer(serializers.Serializer):
         matrix = HedgeboxMatrix(n_clusters=3)
         with transaction.atomic():
             self._organization, self._team, self._user = MatrixManager(
-                matrix, use_pre_save=False
+                matrix, use_pre_save=True
             ).ensure_account_and_save(email, first_name, organization_name, is_staff=is_staff)
 
         login(
