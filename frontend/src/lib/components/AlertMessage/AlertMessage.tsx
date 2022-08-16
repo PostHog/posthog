@@ -18,7 +18,9 @@ export function AlertMessage({ type, onClose, children, className }: AlertMessag
         <div className={clsx('AlertMessage', `AlertMessage--${type}`, className)}>
             {type === 'warning' || type === 'error' ? <IconWarning /> : <IconInfo />}
             <div className="flex-1">{children}</div>
-            {onClose && <LemonButton status="primary-alt" icon={<IconClose />} onClick={() => onClose()} />}
+            {onClose && (
+                <LemonButton status="primary-alt" size="small" icon={<IconClose />} onClick={() => onClose()} />
+            )}
         </div>
     )
 }
