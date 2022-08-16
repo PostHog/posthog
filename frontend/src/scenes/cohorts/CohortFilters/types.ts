@@ -1,4 +1,3 @@
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -9,7 +8,6 @@ import {
 } from '~/types'
 import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FieldValuesTypes } from 'scenes/cohorts/CohortFilters/constants'
 
 export enum FilterType {
     Behavioral = 'behavioral',
@@ -46,9 +44,13 @@ export enum FieldOptionsType {
     EventsAndActionsMathOperators = 'eventsAndActionsMathOperators',
 }
 
+export interface CohortSelectOption {
+    label: string
+}
+
 export interface FieldValues {
     label: string
-    values: LemonSelectOptions<FieldValuesTypes>
+    values: Record<string | number, CohortSelectOption>
     type: FieldOptionsType
 }
 

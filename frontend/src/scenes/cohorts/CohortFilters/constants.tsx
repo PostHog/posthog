@@ -46,149 +46,239 @@ import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
  *     -> Field values  (i.e. <Pageview, Pageleave, Autocapture, etc.)
  */
 
-export type FieldValuesTypes =
-    | BaseMathType
-    | PropertyMathType
-    | ActorGroupType
-    | BehavioralEventType
-    | BehavioralCohortType
-    | TimeUnitType
-    | DateOperatorType
-    | PropertyOperator
-    | ValueOptionType
-
 export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
     [FieldOptionsType.EventAggregation]: {
         label: 'Event Aggregation',
         type: FieldOptionsType.EventAggregation,
-        values: [
-            { value: BaseMathType.Total, label: 'Total' },
-            { value: BaseMathType.DailyActive, label: 'Unique' },
-            { value: BaseMathType.WeeklyActive, label: 'Count of weekly active' },
-            { value: BaseMathType.MonthlyActive, label: 'Count of weekly active' },
-        ],
+        values: {
+            [BaseMathType.Total]: {
+                label: 'Total',
+            },
+            [BaseMathType.DailyActive]: {
+                label: 'Unique',
+            },
+            [BaseMathType.WeeklyActive]: {
+                label: 'Count of weekly active',
+            },
+            [BaseMathType.MonthlyActive]: {
+                label: 'Count of weekly active',
+            },
+        },
     },
     [FieldOptionsType.PropertyAggregation]: {
         label: 'Property Aggregation',
         type: FieldOptionsType.PropertyAggregation,
-        values: [
-            { value: PropertyMathType.Average, label: 'Average' },
-            { value: PropertyMathType.Sum, label: 'Sum' },
-            { value: PropertyMathType.Minimum, label: 'Minimum' },
-            { value: PropertyMathType.Maximum, label: 'Maximum' },
-            { value: PropertyMathType.Median, label: 'Median' },
-            { value: PropertyMathType.P90, label: '90th percentile' },
-            { value: PropertyMathType.P95, label: '95th percentile' },
-            { value: PropertyMathType.P99, label: '99th percentile' },
-        ],
+        values: {
+            [PropertyMathType.Average]: {
+                label: 'Average',
+            },
+            [PropertyMathType.Sum]: {
+                label: 'Sum',
+            },
+            [PropertyMathType.Minimum]: {
+                label: 'Minimum',
+            },
+            [PropertyMathType.Maximum]: {
+                label: 'Maximum',
+            },
+            [PropertyMathType.Median]: {
+                label: 'Median',
+            },
+            [PropertyMathType.P90]: {
+                label: '90th percentile',
+            },
+            [PropertyMathType.P95]: {
+                label: '95th percentile',
+            },
+            [PropertyMathType.P99]: {
+                label: '99th percentile',
+            },
+        },
     },
     [FieldOptionsType.Actors]: {
         label: 'Actors',
         type: FieldOptionsType.Actors,
-        values: [{ value: ActorGroupType.Person, label: 'Persons' }],
+        values: {
+            [ActorGroupType.Person]: {
+                label: 'Persons',
+            },
+        },
     },
     [FieldOptionsType.EventBehavioral]: {
         label: 'Behavioral',
         type: FieldOptionsType.EventBehavioral,
-        values: [
-            {
-                value: BehavioralEventType.PerformEvent,
+        values: {
+            [BehavioralEventType.PerformEvent]: {
                 label: 'Completed event',
             },
-            {
-                value: BehavioralEventType.NotPerformedEvent,
+            [BehavioralEventType.NotPerformedEvent]: {
                 label: 'Did not complete event',
             },
-            {
-                value: BehavioralEventType.PerformMultipleEvents,
+            [BehavioralEventType.PerformMultipleEvents]: {
                 label: 'Completed an event multiple times',
             },
-        ],
+        },
     },
     [FieldOptionsType.PersonPropertyBehavioral]: {
         label: 'Person Properties',
         type: FieldOptionsType.PersonPropertyBehavioral,
-        values: [
-            { value: BehavioralEventType.HaveProperty, label: 'Have the property' },
-            { value: BehavioralEventType.NotHaveProperty, label: 'Do not have the property' },
-        ],
+        values: {
+            [BehavioralEventType.HaveProperty]: {
+                label: 'Have the property',
+            },
+            [BehavioralEventType.NotHaveProperty]: {
+                label: 'Do not have the property',
+            },
+        },
     },
     [FieldOptionsType.CohortBehavioral]: {
         label: 'Cohorts',
         type: FieldOptionsType.CohortBehavioral,
-        values: [
-            { value: BehavioralCohortType.InCohort, label: 'In cohort' },
-            { value: BehavioralCohortType.NotInCohort, label: 'Not in cohort' },
-        ],
+        values: {
+            [BehavioralCohortType.InCohort]: {
+                label: 'In cohort',
+            },
+            [BehavioralCohortType.NotInCohort]: {
+                label: 'Not in cohort',
+            },
+        },
     },
     [FieldOptionsType.LifecycleBehavioral]: {
         label: 'Lifecycle',
         type: FieldOptionsType.LifecycleBehavioral,
-        values: [],
+        values: {},
     },
     [FieldOptionsType.TimeUnits]: {
         label: 'Units',
         type: FieldOptionsType.TimeUnits,
-        values: [
-            { value: TimeUnitType.Day, label: 'days' },
-            { value: TimeUnitType.Week, label: 'weeks' },
-            { value: TimeUnitType.Month, label: 'months' },
-            { value: TimeUnitType.Year, label: 'years' },
-        ],
+        values: {
+            [TimeUnitType.Day]: {
+                label: 'days',
+            },
+            [TimeUnitType.Week]: {
+                label: 'weeks',
+            },
+            [TimeUnitType.Month]: {
+                label: 'months',
+            },
+            [TimeUnitType.Year]: {
+                label: 'years',
+            },
+        },
     },
     [FieldOptionsType.DateOperators]: {
         label: 'Date Operators',
         type: FieldOptionsType.DateOperators,
-        values: [
-            { value: DateOperatorType.BeforeTheLast, label: 'before the last' },
-            { value: DateOperatorType.Between, label: 'between' },
-            { value: DateOperatorType.NotBetween, label: 'not between' },
-            { value: DateOperatorType.OnTheDate, label: 'on the date' },
-            { value: DateOperatorType.NotOnTheDate, label: 'not on the date' },
-            { value: DateOperatorType.Since, label: 'since' },
-            { value: DateOperatorType.Before, label: 'before' },
-            { value: DateOperatorType.IsSet, label: 'is set' },
-        ],
+        values: {
+            [DateOperatorType.BeforeTheLast]: {
+                label: 'before the last',
+            },
+            [DateOperatorType.Between]: {
+                label: 'between',
+            },
+            [DateOperatorType.NotBetween]: {
+                label: 'not between',
+            },
+            [DateOperatorType.OnTheDate]: {
+                label: 'on the date',
+            },
+            [DateOperatorType.NotOnTheDate]: {
+                label: 'not on the date',
+            },
+            [DateOperatorType.Since]: {
+                label: 'since',
+            },
+            [DateOperatorType.Before]: {
+                label: 'before',
+            },
+            [DateOperatorType.IsSet]: {
+                label: 'is set',
+            },
+        },
     },
     [FieldOptionsType.MathOperators]: {
         label: 'Operators',
         type: FieldOptionsType.MathOperators,
-        values: [
-            { value: PropertyOperator.Exact, label: 'equals' },
-            { value: PropertyOperator.IsNot, label: 'does not equal' },
-            { value: PropertyOperator.IContains, label: 'contain' },
-            { value: PropertyOperator.NotIContains, label: 'does not contain' },
-            { value: PropertyOperator.Regex, label: 'matches regex' },
-            { value: PropertyOperator.NotRegex, label: 'does not match regex' },
-            { value: PropertyOperator.GreaterThan, label: 'greater than' },
-            { value: PropertyOperator.GreaterThanOrEqual, label: 'greater than or equal to' },
-            { value: PropertyOperator.LessThan, label: 'less than' },
-            { value: PropertyOperator.LessThanOrEqual, label: 'less than or equal to' },
-            { value: PropertyOperator.IsSet, label: 'is set' },
-            { value: PropertyOperator.IsNotSet, label: 'is not set' },
-            { value: PropertyOperator.Between, label: 'between' },
-            { value: PropertyOperator.NotBetween, label: 'not between' },
-            { value: PropertyOperator.Minimum, label: 'minimum' },
-            { value: PropertyOperator.Maximum, label: 'maximum' },
-        ],
+        values: {
+            [PropertyOperator.Exact]: {
+                label: 'equals',
+            },
+            [PropertyOperator.IsNot]: {
+                label: 'does not equal',
+            },
+            [PropertyOperator.IContains]: {
+                label: 'contain',
+            },
+            [PropertyOperator.NotIContains]: {
+                label: 'does not contain',
+            },
+            [PropertyOperator.Regex]: {
+                label: 'matches regex',
+            },
+            [PropertyOperator.NotRegex]: {
+                label: 'does not match regex',
+            },
+            [PropertyOperator.GreaterThan]: {
+                label: 'greater than',
+            },
+            [PropertyOperator.GreaterThanOrEqual]: {
+                label: 'greater than or equal to',
+            },
+            [PropertyOperator.LessThan]: {
+                label: 'less than',
+            },
+            [PropertyOperator.LessThanOrEqual]: {
+                label: 'less than or equal to',
+            },
+            [PropertyOperator.IsSet]: {
+                label: 'is set',
+            },
+            [PropertyOperator.IsNotSet]: {
+                label: 'is not set',
+            },
+            [PropertyOperator.Between]: {
+                label: 'between',
+            },
+            [PropertyOperator.NotBetween]: {
+                label: 'not between',
+            },
+            [PropertyOperator.Minimum]: {
+                label: 'minimum',
+            },
+            [PropertyOperator.Maximum]: {
+                label: 'maximum',
+            },
+        },
     },
     [FieldOptionsType.EventsAndActionsMathOperators]: {
         label: 'Operators',
         type: FieldOptionsType.EventsAndActionsMathOperators,
-        values: [
-            { value: PropertyOperator.Exact, label: 'exactly' },
-            { value: PropertyOperator.GreaterThanOrEqual, label: 'at least' },
-            { value: PropertyOperator.LessThanOrEqual, label: 'at most' },
-        ],
+        values: {
+            [PropertyOperator.Exact]: {
+                label: 'exactly',
+            },
+            [PropertyOperator.GreaterThanOrEqual]: {
+                label: 'at least',
+            },
+            [PropertyOperator.LessThanOrEqual]: {
+                label: 'at most',
+            },
+        },
     },
     [FieldOptionsType.ValueOptions]: {
         label: 'Value Options',
         type: FieldOptionsType.ValueOptions,
-        values: [
-            { value: ValueOptionType.MostRecent, label: 'most recent value' },
-            { value: ValueOptionType.Previous, label: 'previous value' },
-            { value: ValueOptionType.OnDate, label: 'value on the date' },
-        ],
+        values: {
+            [ValueOptionType.MostRecent]: {
+                label: 'most recent value',
+            },
+            [ValueOptionType.Previous]: {
+                label: 'previous value',
+            },
+            [ValueOptionType.OnDate]: {
+                label: 'value on the date',
+            },
+        },
     },
 }
 
