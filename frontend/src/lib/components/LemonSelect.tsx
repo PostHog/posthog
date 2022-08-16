@@ -25,17 +25,7 @@ export interface LemonSelectSection<T> {
 export interface LemonSelectProps<T>
     extends Pick<
         LemonButtonWithPopupProps,
-        | 'id'
-        | 'className'
-        | 'loading'
-        | 'tooltip'
-        | 'fullWidth'
-        | 'disabled'
-        | 'data-attr'
-        | 'data-tooltip'
-        | 'aria-label'
-        | 'onClick'
-        | 'tabIndex'
+        'id' | 'className' | 'loading' | 'fullWidth' | 'disabled' | 'data-attr' | 'aria-label' | 'onClick' | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
     value?: T
