@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 import time
-from typing import Dict, List, Union
+from typing import Dict, List, Literal
 
 from django.db import models
 from rest_framework.request import Request
@@ -57,7 +57,7 @@ class SlackIntegration(object):
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def _list_channels_by_type(self, type: str) -> List[Dict]:
+    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> List[Dict]:
         max_page = 10
         channels = []
         cursor = None
