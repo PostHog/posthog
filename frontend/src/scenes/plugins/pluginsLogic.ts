@@ -462,7 +462,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 return pluginValues
                     .map((plugin, index) => {
                         let pluginConfig: PluginConfigType = { ...pluginConfigs[plugin.id] }
-                        if (!pluginConfig) {
+                        if (!pluginConfigs[plugin.id]) {
                             const config: Record<string, any> = {}
                             Object.entries(getConfigSchemaObject(plugin.config_schema)).forEach(
                                 ([key, { default: def }]) => {
