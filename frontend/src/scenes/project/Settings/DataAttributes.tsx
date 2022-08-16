@@ -1,5 +1,7 @@
-import { Button, Skeleton, Select } from 'antd'
+import { LemonButton } from '@posthog/lemon-ui'
+import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
+import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import React, { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -34,10 +36,9 @@ export function DataAttributes(): JSX.Element {
                 <code>data-custom-id</code> attribute. If you whitelist it here, the selector for your button will
                 instead be <code>button[data-custom-id='cta-button']</code>.
             </p>
-            <div>
-                <Select
-                    mode="tags"
-                    style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
+            <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+                <LemonSelectMultiple
+                    mode="multiple-custom"
                     onChange={(values) => setValue(values || [])}
                     value={value}
                     data-attr="data-attribute-select"
@@ -45,14 +46,14 @@ export function DataAttributes(): JSX.Element {
                     loading={currentTeamLoading}
                     disabled={currentTeamLoading}
                 />
-                <Button
+                <LemonButton
                     type="primary"
                     onClick={() =>
                         updateCurrentTeam({ data_attributes: value.map((s) => s.trim()).filter((a) => a) || [] })
                     }
                 >
                     Save
-                </Button>
+                </LemonButton>
             </div>
         </>
     )
