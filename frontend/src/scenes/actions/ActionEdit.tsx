@@ -64,8 +64,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
         </LemonButton>
     )
 
-    console.log('ACTION BLAH', action.steps)
-
     return (
         <div className="action-edit-container">
             <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
