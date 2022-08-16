@@ -72,7 +72,7 @@ module.exports = {
         // 'backgroundAttachment', // The background-attachment utilities like bg-local
         // 'backgroundBlendMode', // The background-blend-mode utilities like bg-blend-color-burn
         // 'backgroundClip', // The background-clip utilities like bg-clip-padding
-        // 'backgroundColor', // The background-color utilities like bg-green-700
+        'backgroundColor', // The background-color utilities like bg-green-700
         // 'backgroundImage', // The background-image utilities like bg-gradient-to-br
         // 'backgroundOpacity', // The background-color opacity utilities like bg-opacity-25
         // 'backgroundOrigin', // The background-origin utilities like bg-origin-padding
