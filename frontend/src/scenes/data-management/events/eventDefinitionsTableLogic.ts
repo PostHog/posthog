@@ -45,7 +45,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
 }
 
 export const EVENT_DEFINITIONS_PER_PAGE = 50
-export const PROPERTY_DEFINITIONS_PER_EVENT = 5
+export const PROPERTY_DEFINITIONS_PER_EVENT = 10
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
@@ -225,6 +225,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             event_names: [definition.name],
                             excluded_properties: keyMappingKeys,
                             is_event_property: true,
+                            is_feature_flag: false,
                             limit: PROPERTY_DEFINITIONS_PER_EVENT,
                         })
                     }
