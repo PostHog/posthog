@@ -78,7 +78,7 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                 />
             </div>
             <div>
-                <div className="flex">
+                <div className="flex mb-2">
                     <LemonLabel
                         showOptional
                         info={

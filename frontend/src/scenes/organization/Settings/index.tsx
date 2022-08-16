@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import { Button, Card, Input, Divider, Switch } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Invites } from './Invites'
 import { Members } from './Members'
@@ -12,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
+import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -25,19 +25,12 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const [name, setName] = useState(currentOrganization?.name || '')
 
     return (
-        <div>
-            <h2 id="name" className="subtitle">
+        <div style={{ maxWidth: '40rem' }}>
+            <h2 id="name" className="subtitle mt-0">
                 Display Name
             </h2>
-            <Input
-                value={name}
-                onChange={(event) => {
-                    setName(event.target.value)
-                }}
-                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
-                disabled={isRestricted}
-            />
-            <Button
+            <LemonInput className="mb-4" value={name} onChange={setName} disabled={isRestricted} />
+            <LemonButton
                 type="primary"
                 onClick={(e) => {
                     e.preventDefault()
@@ -47,7 +40,7 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
                 loading={currentOrganizationLoading}
             >
                 Rename Organization
-            </Button>
+            </LemonButton>
         </div>
     )
 }
@@ -62,24 +55,17 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
                 Notification Preferences
             </h2>
             <div>
-                <Switch
-                    id="is-member-join-email-enabled-switch"
+                <LemonSwitch
                     data-attr="is-member-join-email-enabled-switch"
                     onChange={(checked) => {
                         updateOrganization({ is_member_join_email_enabled: checked })
                     }}
-                    checked={currentOrganization?.is_member_join_email_enabled}
+                    checked={!!currentOrganization?.is_member_join_email_enabled}
                     loading={currentOrganizationLoading}
                     disabled={isRestricted || !currentOrganization}
+                    label="Email all current members when a new member joins"
+                    bordered
                 />
-                <label
-                    style={{
-                        marginLeft: '10px',
-                    }}
-                    htmlFor="is-member-join-email-enabled-switch"
-                >
-                    Email all current members when a new member joins
-                </label>
             </div>
         </div>
     )
@@ -95,19 +81,19 @@ export function OrganizationSettings(): JSX.Element {
                 title="Organization Settings"
                 caption="View and manage your organization here. Build an even better product together."
             />
-            <Card>
+            <div className="border rounded p-6">
                 <RestrictedArea Component={DisplayName} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <Invites />
-                <Divider />
+                <LemonDivider className="my-6" />
                 {user && <Members user={user} />}
-                <Divider />
+                <LemonDivider className="my-6" />
                 <RestrictedArea Component={VerifiedDomains} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <RestrictedArea Component={EmailPreferences} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Owner} />
-            </Card>
+            </div>
         </>
     )
 }

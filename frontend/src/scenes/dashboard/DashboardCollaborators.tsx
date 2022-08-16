@@ -56,8 +56,6 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                         }
                         options={DASHBOARD_RESTRICTION_OPTIONS}
                         loading={dashboardLoading}
-                        status="stealth"
-                        type="secondary"
                         fullWidth
                         disabled={!canRestrictDashboard}
                     />

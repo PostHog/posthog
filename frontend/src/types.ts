@@ -1147,8 +1147,8 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string | number
-    key?: string
+    value: boolean | string | number | null
+    key: string
     description?: string
     subrows?: SystemStatusSubrows
 }
@@ -1537,6 +1537,7 @@ export enum PropertyType {
     Numeric = 'Numeric',
     Boolean = 'Boolean',
     Duration = 'Duration',
+    Selector = 'Selector',
 }
 
 export interface PropertyDefinition {

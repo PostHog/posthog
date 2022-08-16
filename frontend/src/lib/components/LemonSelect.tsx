@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { IconClose } from './icons'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
 import { PopupProps } from './Popup/Popup'
+import './LemonSelect.scss'
+import clsx from 'clsx'
 
 export interface LemonSelectOption {
     label: string | JSX.Element
@@ -22,7 +24,23 @@ export interface LemonSelectSection<O> {
 export type LemonSelectSections<LemonSelectOptions> = Record<string, LemonSelectSection<LemonSelectOptions>>
 
 export interface LemonSelectProps<O extends LemonSelectOptions>
-    extends Omit<LemonButtonWithPopupProps, 'popup' | 'icon' | 'value' | 'defaultValue' | 'onChange'> {
+    extends Pick<
+        LemonButtonWithPopupProps,
+        | 'id'
+        | 'className'
+        | 'icon'
+        | 'sideIcon'
+        | 'loading'
+        | 'tooltip'
+        | 'fullWidth'
+        | 'disabled'
+        | 'noPadding'
+        | 'data-attr'
+        | 'data-tooltip'
+        | 'aria-label'
+        | 'onClick'
+        | 'tabIndex'
+    > {
     options: O | LemonSelectSection<O>[]
     value?: keyof O | null
     onChange?: (newValue: keyof O | null) => void
@@ -32,6 +50,7 @@ export interface LemonSelectProps<O extends LemonSelectOptions>
     allowClear?: boolean
     className?: string
     placeholder?: string
+    size?: 'small' | undefined
     popup?: {
         className?: string
         ref?: React.MutableRefObject<HTMLDivElement | null>
@@ -52,9 +71,8 @@ export function LemonSelect<O extends LemonSelectOptions>({
     ...buttonProps
 }: LemonSelectProps<O>): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
-    const [hover, setHover] = useState(false)
 
-    const isClearButtonShown = allowClear && hover && !!localValue
+    const isClearButtonShown = allowClear && !!localValue
 
     useEffect(() => {
         if (!buttonProps.loading) {
@@ -84,13 +102,9 @@ export function LemonSelect<O extends LemonSelectOptions>({
     }, [options])
 
     return (
-        <div
-            className="LemonButtonWithSideAction"
-            onMouseEnter={() => setHover(true)}
-            onMouseLeave={() => setHover(false)}
-        >
+        <div className="flex">
             <LemonButtonWithPopup
-                className={className}
+                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
                 popup={{
                     ref: popup?.ref,
                     overlay: sections.map((section, i) => (
@@ -134,6 +148,7 @@ export function LemonSelect<O extends LemonSelectOptions>({
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
                 icon={localValue && allOptions[localValue]?.icon}
+                // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
                 status="stealth"
@@ -144,19 +159,21 @@ export function LemonSelect<O extends LemonSelectOptions>({
                         <span className="text-muted">{placeholder}</span>
                     )}
                 </span>
+                {isClearButtonShown && (
+                    <LemonButton
+                        className="LemonSelect--button--clearable"
+                        type="tertiary"
+                        status="stealth"
+                        noPadding
+                        icon={<IconClose />}
+                        tooltip="Clear selection"
+                        onClick={() => {
+                            onChange?.(null)
+                            setLocalValue(null)
+                        }}
+                    />
+                )}
             </LemonButtonWithPopup>
-            {isClearButtonShown && (
-                <LemonButton
-                    className="LemonButtonWithSideAction--side-button"
-                    type="tertiary"
-                    icon={<IconClose className="text-base" />}
-                    tooltip="Clear selection"
-                    onClick={() => {
-                        onChange?.(null)
-                        setLocalValue(null)
-                    }}
-                />
-            )}
         </div>
     )
 }
