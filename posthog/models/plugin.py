@@ -222,6 +222,13 @@ class PluginAttachment(models.Model):
 
 
 class PluginStorage(models.Model):
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["plugin_config_id", "key", "timestamp"], name="posthog_unique_plugin_storage_key_and_timestamp"
+            )
+        ]
+
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
     key: models.CharField = models.CharField(max_length=200)
     value: models.TextField = models.TextField(blank=True, null=True)

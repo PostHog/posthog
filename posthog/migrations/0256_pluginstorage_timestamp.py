@@ -13,6 +13,12 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RemoveConstraint(model_name="pluginstorage", name="posthog_unique_plugin_storage_key",),
+        migrations.AddConstraint(
+            model_name="pluginstorage",
+            constraint=models.UniqueConstraint(
+                fields=("plugin_config_id", "key", "timestamp"), name="posthog_unique_plugin_storage_key_and_timestamp"
+            ),
+        ),
         migrations.AddField(
             model_name="pluginstorage", name="timestamp", field=models.DateTimeField(blank=True, null=True),
         ),
