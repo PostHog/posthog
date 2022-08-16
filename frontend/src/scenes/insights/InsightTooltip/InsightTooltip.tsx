@@ -90,7 +90,7 @@ export function InsightTooltip({
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
-        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${shortTimeZone(timezone)})`
+        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
