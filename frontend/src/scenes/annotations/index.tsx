@@ -239,7 +239,32 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
         <LemonModal
             isOpen={props.visible}
             footer={
-                <div className="flex flex-row justify-end gap-2">
+                <>
+                    {modalMode === ModalMode.EDIT ? (
+                        <div className="flex-1">
+                            {!props.annotation?.deleted ? (
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    onClick={props.onDelete}
+                                    icon={<IconDelete />}
+                                    data-attr="delete-annotation"
+                                >
+                                    Delete annotation
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    status="primary-alt"
+                                    onClick={props.onRestore}
+                                    icon={<IconUndo />}
+                                    data-attr="restore-annotation"
+                                >
+                                    Restore annotation
+                                </LemonButton>
+                            )}
+                        </div>
+                    ) : null}
                     <LemonButton key="create-annotation-cancel" onClick={(): void => props.onCancel()}>
                         Cancel
                     </LemonButton>
@@ -253,7 +278,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     >
                         {modalMode === ModalMode.CREATE ? 'Submit' : 'Update'}
                     </LemonButton>
-                </div>
+                </>
             }
             onClose={props.onCancel}
             title={modalMode === ModalMode.CREATE ? 'Create annotation' : 'Edit annotation'}
@@ -282,32 +307,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     </div>{' '}
                     charts
                 </span>
-            ) : (
-                <div className="flex justify-end">
-                    {!props.annotation?.deleted ? (
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            onClick={props.onDelete}
-                            icon={<IconDelete />}
-                            data-attr="delete-annotation"
-                        >
-                            Delete annotation
-                        </LemonButton>
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            status="primary-alt"
-                            onClick={props.onRestore}
-                            icon={<IconUndo />}
-                            data-attr="restore-annotation"
-                        >
-                            Restore annotation
-                        </LemonButton>
-                    )}
-                </div>
-            )}
-            <br />
+            ) : null}
             {modalMode === ModalMode.CREATE && (
                 <div>
                     Date:
@@ -324,7 +324,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
             <LemonTextArea
                 data-attr="create-annotation-input"
                 maxLength={300}
-                className="mt-4 mb-8"
+                className="mt-1"
                 rows={4}
                 value={textInput}
                 onChange={setTextInput}
