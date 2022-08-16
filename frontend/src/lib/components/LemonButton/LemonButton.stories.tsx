@@ -10,7 +10,7 @@ import {
 import { IconCalculate, IconInfo, IconPlus } from '../icons'
 import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted-alt']
@@ -259,6 +259,23 @@ WithPopupToTheBottom.args = {
                 <LemonButton status="stealth" fullWidth>
                     Koala
                 </LemonButton>
+            </>
+        ),
+        placement: 'bottom',
+        sameWidth: true,
+    },
+}
+
+export const WithVeryLongPopupToTheBottom = PopupTemplate.bind({})
+WithVeryLongPopupToTheBottom.args = {
+    popup: {
+        overlay: (
+            <>
+                {range(200).map((n) => (
+                    <LemonButton key={n} status="stealth" fullWidth>
+                        {n.toString()}
+                    </LemonButton>
+                ))}
             </>
         ),
         placement: 'bottom',
