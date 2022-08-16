@@ -76,6 +76,11 @@ class MatrixManager:
             assert existing_user.team is not None
             if print_steps:
                 print(f"Found existing account for {email}.")
+            if is_staff and not existing_user.is_staff:
+                # Make sure the user is marked as staff - this is for users who signed up normally before
+                # and now are logging in securely as a PostHog team member
+                existing_user.is_staff = True
+                existing_user.save()
             return (existing_user.organization, existing_user.team, existing_user)
 
     @staticmethod

@@ -45,7 +45,7 @@ if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
 elif DEMO:
     # Only PostHog team members can use social auth in the demo environment
     # This is because in the demo env social signups get is_staff=True to facilitate instance management
-    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: List[str] = ["posthog.com"]
+    SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = ["posthog.com"]
 
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing

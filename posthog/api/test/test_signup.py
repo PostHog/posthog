@@ -588,6 +588,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
 
+@pytest.mark.ee
 @override_settings(DEMO=True)
 @patch("posthog.demo.graphile.bulk_queue_graphile_jobs", return_value=None)
 @patch("posthog.demo.graphile.copy_graphile_jobs_between_teams", return_value=None)
@@ -663,16 +664,45 @@ class TestDemoSignupAPI(APIBaseTest):
         assert user.is_active is True
         assert user.is_staff is False
 
-    def test_social_signup(self, *args):
+    def test_social_signup_give_staff_privileges(self, *args):
         # Simulate SSO process started
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "test_api_social_invite_sign_up@posthog.com"})
         session.save()
 
-        # Staff log into demo securely via Google, which should grant is_staff privileges
+        # Staff sign up for demo securely via Google, which should grant is_staff privileges
         response = self.client.post(
             "/api/social_signup/",
             {"first_name": "Charlie", "email": "charlie@tech-r-us.com", "organization_name": "Tech R Us"},
+        )
+
+        user = auth.get_user(self.client)
+        organization = Organization.objects.filter(name="Tech R Us").first()
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == {"continue_url": "/complete/google-oauth2/"}
+        assert Organization.objects.count() == 1
+        assert User.objects.count() == 1
+        assert isinstance(user, User)
+        assert organization is not None
+        assert user.organization == organization
+        assert user.first_name == "Charlie"
+        assert user.email == "charlie@tech-r-us.com"
+        assert user.is_active is True
+        assert user.is_staff is True
+
+    def test_social_login_give_staff_privileges(self, *args):
+        # This creates a user with is_staff=False
+        User.objects.bootstrap("Tech R Us", "charlie@tech-r-us.com", None, first_name="Charlie")
+
+        # Simulate SSO process started
+        session = self.client.session
+        session.update({"backend": "google-oauth2", "email": "charlie@tech-r-us.com"})
+        session.save()
+
+        # Staff log into demo securely via Google, which should grant is_staff privileges
+        response = self.client.post(
+            "/api/social_signup/", {"first_name": "X", "email": "charlie@tech-r-us.com", "organization_name": "Y"}
         )
 
         user = auth.get_user(self.client)
