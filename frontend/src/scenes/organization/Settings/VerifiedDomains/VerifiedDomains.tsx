@@ -1,13 +1,5 @@
-import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
-import {
-    IconCheckmark,
-    IconDelete,
-    IconExclamation,
-    IconWarningAmber,
-    IconLock,
-    IconOffline,
-} from 'lib/components/icons'
+import { IconCheckmark, IconDelete, IconExclamation, IconWarning, IconLock, IconOffline } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -25,6 +17,7 @@ import { Link } from 'lib/components/Link'
 import { UPGRADE_LINK } from 'lib/constants'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -103,7 +96,7 @@ function VerifiedDomainsTable(): JSX.Element {
                               </div>
                           ) : (
                               <div className="flex items-center text-warning">
-                                  <IconWarningAmber style={iconStyle} /> Pending verification
+                                  <IconWarning style={iconStyle} /> Pending verification
                               </div>
                           )
                       },
@@ -203,7 +196,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
                             <div className="flex items-center text-warning">
-                                <IconWarningAmber style={iconStyle} /> SAML partially configured
+                                <IconWarning style={iconStyle} /> SAML partially configured
                             </div>
                         ) : (
                             <div className="flex items-center">
@@ -237,22 +230,18 @@ function VerifiedDomainsTable(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() =>
-                                        Modal.confirm({
+                                        LemonDialog.open({
                                             title: `Remove ${domain}?`,
-                                            icon: null,
-                                            okText: 'Remove domain',
-                                            okType: 'primary',
-                                            okButtonProps: { className: 'btn-danger' },
-                                            content: (
-                                                <div>
-                                                    This cannot be undone. If you have SAML configured or SSO enforced,
-                                                    it will be immediately disabled.
-                                                </div>
-                                            ),
-                                            onOk() {
-                                                deleteVerifiedDomain(id)
+                                            description:
+                                                'This cannot be undone. If you have SAML configured or SSO enforced,it will be immediately disabled.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Remove domain',
+                                                onClick: () => deleteVerifiedDomain(id),
                                             },
-                                            cancelText: 'Cancel',
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
                                         })
                                     }
                                     fullWidth

@@ -25,7 +25,7 @@ describe('Invite Signup', () => {
         // Delete the invite
         cy.visit('/organization/members')
         cy.get('[data-attr=invites-table] [data-attr=invite-delete]').click()
-        cy.get('.ant-modal-confirm-btns button').contains('Yes, cancel invite').click()
+        cy.get('.LemonModal .LemonButton').contains('Yes, cancel invite').click()
         cy.get('.Toastify__toast-body').should('contain', 'Invite for charlie@posthog.com has been canceled')
         cy.get('[data-attr=invites-table] tbody td').should('not.contain', 'charlie@posthog.com')
     })
@@ -102,7 +102,7 @@ describe('Invite Signup', () => {
         // Delete member
         cy.get('[data-attr=org-members-table] [data-attr=more-button]').last().click()
         cy.get('[data-attr=delete-org-membership]').last().click()
-        cy.get('.ant-modal-confirm-btns button').last().click()
+        cy.get('.LemonModal .LemonButton').last().click()
         cy.get('.Toastify__toast-body').should('contain', 'Removed Bob from organization')
     })
 })

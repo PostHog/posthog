@@ -56,7 +56,7 @@ function DisplayName(): JSX.Element {
     }
 
     return (
-        <div className="space-y-2" style={{ maxWidth: '40rem' }}>
+        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
@@ -176,7 +176,9 @@ export function ProjectSettings(): JSX.Element {
                     Set the timezone for your project. All charts will be based on this timezone, including how PostHog
                     buckets data in day/week/month intervals.
                 </p>
-                <TimezoneConfig />
+                <div style={{ maxWidth: '40rem' }}>
+                    <TimezoneConfig />
+                </div>
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="internal-users-filtering">
                     Filter out internal and test users{' '}
@@ -285,9 +287,13 @@ export function ProjectSettings(): JSX.Element {
                 <IPCapture />
                 <LemonDivider className="my-6" />
                 <h2 className="subtitle">PostHog Toolbar</h2>
+                <p>
+                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
+                    right there on your website!
+                </p>
                 <ToolbarSettings />
                 <LemonDivider className="my-6" />
-                <h2 id="recordings" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
+                <h2 id="recordings" className="subtitle">
                     Recordings
                 </h2>
                 <p>
@@ -316,6 +322,7 @@ export function ProjectSettings(): JSX.Element {
                 <SessionRecording />
                 <LemonDivider className="my-6" />
                 <GroupAnalytics />
+                <LemonDivider className="my-6" />
                 <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
                 <LemonDivider className="my-6" />
                 {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (

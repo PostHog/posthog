@@ -94,6 +94,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                 <div
                     className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                     onClick={
+                        // != is intentional to catch undefined too
                         showPersonsModal && resultSeries.aggregated_value != null
                             ? () => {
                                   loadPeople({

@@ -1,4 +1,4 @@
-import { Button, Input } from 'antd'
+import { Button } from 'antd'
 import { kea, useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 import nps from './nps.svg'
 import { userLogic } from 'scenes/userLogic'
 import { dayjs } from 'lib/dayjs'
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 const NPS_APPEAR_TIMEOUT = 10000
 const NPS_HIDE_TIMEOUT = 3500
@@ -165,11 +166,11 @@ export function NPSPrompt(): JSX.Element | null {
                         <div data-attr="nps-step-1">
                             {Header}
                             <div className="question">What's the main reason behind this score?</div>
-                            <Input.TextArea
+                            <LemonTextArea
                                 autoFocus
                                 placeholder="You can describe the key benefits you get from PostHog, shortcomings or anything else..."
                                 value={payload?.feedback_score || ''}
-                                onChange={(e) => setPayload({ feedback_score: e.target.value })}
+                                onChange={(value) => setPayload({ feedback_score: value })}
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && setStep(2)}
                             />
                             <div style={{ textAlign: 'left' }} className="mt-4">
@@ -188,11 +189,11 @@ export function NPSPrompt(): JSX.Element | null {
                             <div className="question">
                                 Last one. What type of person or company do you think could benefit most from PostHog?
                             </div>
-                            <Input.TextArea
+                            <LemonTextArea
                                 autoFocus
                                 placeholder="You can describe their role, background, company or team size, ..."
                                 value={payload?.feedback_persona || ''}
-                                onChange={(e) => setPayload({ feedback_persona: e.target.value })}
+                                onChange={(value) => setPayload({ feedback_persona: value })}
                                 onKeyDown={(e) => e.key === 'Enter' && e.metaKey && submit(true)}
                             />
                             <div style={{ textAlign: 'left' }} className="mt-4">

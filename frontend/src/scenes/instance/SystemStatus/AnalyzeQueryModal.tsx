@@ -1,7 +1,7 @@
 import React from 'react'
-import { Button, Input, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
+import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 
 export function AnalyzeQueryModal(): JSX.Element | null {
     const { analyzeModalOpen, analyzeQuery, analyzeQueryResult, analyzeQueryResultLoading } =
@@ -9,29 +9,35 @@ export function AnalyzeQueryModal(): JSX.Element | null {
     const { setAnalyzeModalOpen, setAnalyzeQuery, runAnalyzeQuery } = useActions(systemStatusLogic)
 
     return (
-        <Modal
-            visible={analyzeModalOpen}
+        <LemonModal
+            isOpen={analyzeModalOpen}
             title="Analyze ClickHouse query performance"
             footer={
                 <>
-                    <Button onClick={() => setAnalyzeModalOpen(false)}>Cancel</Button>
-                    <Button type="primary" onClick={() => void runAnalyzeQuery()} disabled={analyzeQueryResultLoading}>
+                    <LemonButton type="secondary" onClick={() => setAnalyzeModalOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => void runAnalyzeQuery()}
+                        disabled={analyzeQueryResultLoading}
+                    >
                         Analyze
-                    </Button>
+                    </LemonButton>
                 </>
             }
-            onCancel={() => setAnalyzeModalOpen(false)}
+            onClose={() => setAnalyzeModalOpen(false)}
             width="80%"
         >
-            <Input.TextArea
+            <LemonTextArea
                 placeholder="SQL query to analyze"
-                onChange={(e) => setAnalyzeQuery(e.target.value)}
+                onChange={setAnalyzeQuery}
                 value={analyzeQuery}
                 rows={10}
             />
 
             {analyzeQueryResult && (
-                <div style={{ marginTop: 30 }}>
+                <div className="mt-2">
                     <h2>Analysis results</h2>
 
                     <ul>
@@ -55,6 +61,6 @@ export function AnalyzeQueryModal(): JSX.Element | null {
                     ))}
                 </div>
             )}
-        </Modal>
+        </LemonModal>
     )
 }
