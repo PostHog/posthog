@@ -1,8 +1,7 @@
-import { StructuredLogger } from 'structlog'
+import pino from 'pino'
 import { threadId } from 'worker_threads'
 
 import { PluginsServerConfig } from '../types'
-import { isProdEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
@@ -15,19 +14,12 @@ export interface StatusBlueprint {
 
 export class Status implements StatusBlueprint {
     mode?: string
-    logger: StructuredLogger
+    logger: pino.Logger
     prompt: string
 
     constructor(mode?: string) {
         this.mode = mode
-        const loggerOptions: Record<string, any> = {
-            pathStackDepth: 1,
-            useLogIdExtension: true,
-        }
-        if (!isProdEnv()) {
-            loggerOptions['logFormat'] = '{message}'
-        }
-        this.logger = new StructuredLogger(loggerOptions)
+        this.logger = pino()
         this.prompt = 'MAIN'
     }
 
