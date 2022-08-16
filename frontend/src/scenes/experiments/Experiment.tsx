@@ -39,6 +39,7 @@ import { ExperimentImplementationDetails } from './ExperimentImplementationDetai
 import { LemonButton } from 'lib/components/LemonButton'
 import { router } from 'kea-router'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -236,7 +237,7 @@ export function Experiment(): JSX.Element {
                                             }
                                             name="description"
                                         >
-                                            <Input.TextArea
+                                            <LemonTextArea
                                                 data-attr="experiment-description"
                                                 className="ph-ignore-input"
                                                 placeholder="Adding a helpful description can ensure others know what this experiment is about."

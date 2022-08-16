@@ -1,6 +1,6 @@
 import React, { useState, useEffect, HTMLAttributes } from 'react'
 import { useValues, useActions } from 'kea'
-import { Tag, Button, Modal, Input, Row, Menu, Dropdown } from 'antd'
+import { Tag, Button, Modal, Row, Menu, Dropdown } from 'antd'
 import { annotationsModel } from '~/models/annotationsModel'
 import { annotationsTableLogic } from './logic'
 import { DeleteOutlined, RedoOutlined, ProjectOutlined, DeploymentUnitOutlined, DownOutlined } from '@ant-design/icons'
@@ -15,8 +15,7 @@ import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DatePicker } from 'lib/components/DatePicker'
-
-const { TextArea } = Input
+import { LemonTextArea } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -293,13 +292,12 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                     />
                 </div>
             )}
-            <TextArea
+            <LemonTextArea
                 data-attr="create-annotation-input"
                 maxLength={300}
-                style={{ marginBottom: 12, marginTop: 5 }}
                 rows={4}
                 value={textInput}
-                onChange={(e): void => setTextInput(e.target.value)}
+                onChange={setTextInput}
             />
         </Modal>
     )
