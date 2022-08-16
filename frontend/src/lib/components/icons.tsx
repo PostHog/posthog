@@ -618,7 +618,7 @@ export function IconErrorOutline(props: SvgIconProps): JSX.Element {
 }
 
 /** Material Design Warning Amber Outline icon. */
-export function IconWarningAmber(props: SvgIconProps): JSX.Element {
+export function IconWarning(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 24 24" {...props}>
             <path d="m12 5.99 7.53 13.01h-15.06zm0-3.99-11 19h22zm1 14h-2v2h2zm0-6h-2v4h2z" fill="currentColor" />

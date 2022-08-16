@@ -71,7 +71,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
             closable={!loading}
         >
             {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
-                <AlertMessage type="info" style={{ marginBottom: 16 }}>
+                <AlertMessage type="info">
                     <>
                         As you are changing email settings, we'll attempt to send a <b>test email</b> so you can verify
                         everything works (unless you are turning email off).
@@ -79,7 +79,7 @@ export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): J
                 </AlertMessage>
             )}
             {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
-                <AlertMessage style={{ marginBottom: 16 }} type="warning">
+                <AlertMessage type="warning">
                     <>
                         Changing your recordings TTL requires ClickHouse to have enough free space to perform the
                         operation (even when reducing this value). In addition, please mind that removing old recordings
