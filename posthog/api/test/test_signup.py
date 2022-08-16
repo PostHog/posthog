@@ -598,27 +598,6 @@ class TestDemoSignupAPI(APIBaseTest):
         # Do not set up any test data
         pass
 
-    def test_regular_demo_signup(self, *args):
-        # Password not needed
-        response = self.client.post(
-            "/api/signup/",
-            {"first_name": "Charlie", "email": "charlie@tech-r-us.com", "organization_name": "Tech R Us"},
-        )
-
-        user = User.objects.filter(email="charlie@tech-r-us.com").first()
-        organization = Organization.objects.filter(name="Tech R Us").first()
-
-        assert response.status_code == status.HTTP_201_CREATED
-        assert Organization.objects.count() == 1
-        assert User.objects.count() == 1
-        assert user is not None
-        assert organization is not None
-        assert user.organization == organization
-        assert user.first_name == "Charlie"
-        assert user.email == "charlie@tech-r-us.com"
-        assert user.is_active is True
-        assert user.is_staff is False
-
     def test_demo_signup(self, *args):
         # Password not needed
         response = self.client.post(
@@ -627,14 +606,17 @@ class TestDemoSignupAPI(APIBaseTest):
         )
 
         user = auth.get_user(self.client)
-        organization = Organization.objects.filter(name="Tech R Us").first()
+        master_organization = Organization.objects.filter(id=0).first()
+        user_organization = Organization.objects.filter(name="Tech R Us").first()
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert Organization.objects.count() == 1
+        assert Organization.objects.count() == 2  # Master organization "PostHog" & "Tech R Us"
         assert User.objects.count() == 1
         assert isinstance(user, User)
-        assert organization is not None
-        assert user.organization == organization
+        assert master_organization is not None
+        assert master_organization.name == "PostHog"
+        assert user_organization is not None
+        assert user.organization == user_organization
         assert user.first_name == "Charlie"
         assert user.email == "charlie@tech-r-us.com"
         assert user.is_active is True
@@ -667,7 +649,7 @@ class TestDemoSignupAPI(APIBaseTest):
     def test_social_signup_give_staff_privileges(self, *args):
         # Simulate SSO process started
         session = self.client.session
-        session.update({"backend": "google-oauth2", "email": "test_api_social_invite_sign_up@posthog.com"})
+        session.update({"backend": "google-oauth2", "email": "charlie@tech-r-us.com"})
         session.save()
 
         # Staff sign up for demo securely via Google, which should grant is_staff privileges

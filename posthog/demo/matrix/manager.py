@@ -122,7 +122,7 @@ class MatrixManager:
     @classmethod
     def _prepare_master_team(cls):
         if not Team.objects.filter(id=cls.MASTER_TEAM_ID).exists():
-            organization = Organization.objects.create(name="PostHog")
+            organization = Organization.objects.create(id=cls.MASTER_TEAM_ID, name="PostHog")
             cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
 
     @classmethod
