@@ -4,7 +4,6 @@ import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/type
 import { Space, Tag, Typography } from 'antd'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { cohortsModel } from '~/models/cohortsModel'
-import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from '../utils'
 
@@ -85,8 +84,9 @@ export function getFormattedDate(dayInput?: string | number, interval?: Interval
 }
 
 export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {
-    const { cohorts } = useValues(cohortsModel)
-    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    // NOTE: These logics should not be loaded as hooks unless converted to a "use" function
+    const { cohorts } = cohortsModel.values
+    const { formatPropertyValueForDisplay } = propertyDefinitionsModel.values
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
     seriesData.forEach((s) => {
         let datumTitle
