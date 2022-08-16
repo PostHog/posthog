@@ -40,7 +40,7 @@ export function PersonsScene(): JSX.Element {
             {!cohortId && <PersonPageHeader />}
             <div className="space-y-2">
                 <div className="flex justify-between items-center gap-2">
-                    <PersonsSearch autoFocus={!cohortId} />
+                    <PersonsSearch />
 
                     <Popconfirm
                         placement="topRight"
