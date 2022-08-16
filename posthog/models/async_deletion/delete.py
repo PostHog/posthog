@@ -103,7 +103,7 @@ def _verify_by_group(deletion_type: int, async_deletions: List[AsyncDeletion]) -
         return []
 
 
-def _verify_by_column(distinct_columns: str, async_deletions: List[AsyncDeletion]) -> Set[Tuple[Any]]:
+def _verify_by_column(distinct_columns: str, async_deletions: List[AsyncDeletion]) -> Set[Tuple[Any, ...]]:
     conditions, args = _conditions(async_deletions)
     clickhouse_result = sync_execute(
         f"""
