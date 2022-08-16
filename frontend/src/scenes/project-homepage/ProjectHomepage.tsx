@@ -42,7 +42,7 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            <NewInsightButton />
+            <NewInsightButton dataAttr="project-home-new-insight" />
         </div>
     )
 
