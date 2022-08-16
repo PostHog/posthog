@@ -1,4 +1,4 @@
-import { Modal } from 'antd'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { pluralize } from 'lib/utils'
@@ -19,7 +19,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
     }
 
     return (
-        <div className="bg-light radius p-2">
+        <div className="bg-border-light radius p-2">
             <div>
                 <code>{metricKey}</code>
             </div>
@@ -50,56 +50,62 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
     )
 }
 
-export function InstanceConfigSaveModal({ onClose }: { onClose: () => void }): JSX.Element {
+export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => void; isOpen: boolean }): JSX.Element {
     const { instanceConfigEditingState, editableInstanceSettings, updatedInstanceConfigCount } =
         useValues(systemStatusLogic)
     const { saveInstanceConfig } = useActions(systemStatusLogic)
     const loading = updatedInstanceConfigCount !== null
     return (
-        <Modal
+        <LemonModal
             title="Confirm new changes"
-            visible
-            okText="Apply changes"
-            okType="danger"
-            onCancel={onClose}
-            maskClosable={false}
-            onOk={saveInstanceConfig}
-            okButtonProps={{ loading }}
-            cancelButtonProps={{ loading }}
+            isOpen={isOpen}
             closable={!loading}
+            onClose={onClose}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={onClose} loading={loading}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" status="danger" loading={loading} onClick={saveInstanceConfig}>
+                        Apply changes
+                    </LemonButton>
+                </>
+            }
         >
-            {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
-                <AlertMessage type="info">
-                    <>
-                        As you are changing email settings, we'll attempt to send a <b>test email</b> so you can verify
-                        everything works (unless you are turning email off).
-                    </>
-                </AlertMessage>
-            )}
-            {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
-                <AlertMessage type="warning">
-                    <>
-                        Changing your recordings TTL requires ClickHouse to have enough free space to perform the
-                        operation (even when reducing this value). In addition, please mind that removing old recordings
-                        will be removed asynchronously, not immediately.
-                    </>
-                </AlertMessage>
-            )}
-            <div>The following changes will be immediately applied to your instance.</div>
-            {Object.keys(instanceConfigEditingState).map((key) => (
-                <ChangeRow
-                    key={key}
-                    metricKey={key}
-                    value={instanceConfigEditingState[key]}
-                    oldValue={editableInstanceSettings.find((record) => record.key === key)?.value}
-                    isSecret={editableInstanceSettings.find((record) => record.key === key)?.is_secret}
-                />
-            ))}
-            {loading && (
-                <div className="mt-4 text-success">
-                    <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
-                </div>
-            )}
-        </Modal>
+            <div className="space-y-2">
+                {Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL')) && (
+                    <AlertMessage type="info">
+                        <>
+                            As you are changing email settings, we'll attempt to send a <b>test email</b> so you can
+                            verify everything works (unless you are turning email off).
+                        </>
+                    </AlertMessage>
+                )}
+                {Object.keys(instanceConfigEditingState).includes('RECORDINGS_TTL_WEEKS') && (
+                    <AlertMessage type="warning">
+                        <>
+                            Changing your recordings TTL requires ClickHouse to have enough free space to perform the
+                            operation (even when reducing this value). In addition, please mind that removing old
+                            recordings will be removed asynchronously, not immediately.
+                        </>
+                    </AlertMessage>
+                )}
+                <div>The following changes will be immediately applied to your instance.</div>
+                {Object.keys(instanceConfigEditingState).map((key) => (
+                    <ChangeRow
+                        key={key}
+                        metricKey={key}
+                        value={instanceConfigEditingState[key]}
+                        oldValue={editableInstanceSettings.find((record) => record.key === key)?.value}
+                        isSecret={editableInstanceSettings.find((record) => record.key === key)?.is_secret}
+                    />
+                ))}
+                {loading && (
+                    <div className="mt-4 text-success">
+                        <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
+                    </div>
+                )}
+            </div>
+        </LemonModal>
     )
 }
