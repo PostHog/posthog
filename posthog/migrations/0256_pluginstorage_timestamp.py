@@ -13,17 +13,17 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RemoveConstraint(model_name="pluginstorage", name="posthog_unique_plugin_storage_key",),
-        migrations.AddConstraint(
-            model_name="pluginstorage",
-            constraint=models.UniqueConstraint(
-                fields=("plugin_config_id", "key", "timestamp"), name="posthog_unique_plugin_storage_key_and_timestamp"
-            ),
-        ),
         migrations.AddField(
             model_name="pluginstorage", name="timestamp", field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.RunSQL(
             "CREATE INDEX CONCURRENTLY IF NOT EXISTS pluginstorage_timestamp_date_idx ON posthog_pluginstorage(timestamp);",
             reverse_sql="DROP INDEX IF EXISTS pluginstorage_timestamp_date_idx;",
+        ),
+        migrations.AddConstraint(
+            model_name="pluginstorage",
+            constraint=models.UniqueConstraint(
+                fields=("plugin_config_id", "key", "timestamp"), name="posthog_unique_plugin_storage_key_and_timestamp"
+            ),
         ),
     ]
