@@ -177,31 +177,24 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
         ],
         actionableMigrations: [
             (s) => [s.asyncMigrations, s.isFutureMigration],
-            (asyncMigrations, isFutureMigration) => {
-                return asyncMigrations.filter((migration) => {
-                    return (
+            (asyncMigrations, isFutureMigration) =>
+                asyncMigrations.filter(
+                    (migration) =>
                         migration.status !== AsyncMigrationStatus.CompletedSuccessfully && !isFutureMigration(migration)
-                    )
-                })
-            },
+                ),
         ],
         completedMigrations: [
             (s) => [s.asyncMigrations],
-            (asyncMigrations) => {
-                return asyncMigrations.filter((migration) => {
-                    return migration.status === AsyncMigrationStatus.CompletedSuccessfully
-                })
-            },
+            (asyncMigrations) =>
+                asyncMigrations.filter((migration) => migration.status === AsyncMigrationStatus.CompletedSuccessfully),
         ],
         futureMigrations: [
             (s) => [s.asyncMigrations, s.isFutureMigration],
-            (asyncMigrations, isFutureMigration) => {
-                return asyncMigrations.filter((migration) => {
-                    return (
+            (asyncMigrations, isFutureMigration) =>
+                asyncMigrations.filter(
+                    (migration) =>
                         migration.status !== AsyncMigrationStatus.CompletedSuccessfully && isFutureMigration(migration)
-                    )
-                })
-            },
+                ),
         ],
         migrationsForCurrentTab: [
             (s) => [s.activeTab, s.asyncMigrations, s.actionableMigrations, s.completedMigrations, s.futureMigrations],
