@@ -45,7 +45,6 @@ export function AsyncMigrations(): JSX.Element {
         activeAsyncMigrationModal,
         actionableMigrations,
         futureMigrations,
-        migrationsForCurrentTab,
     } = useValues(asyncMigrationsLogic)
     const {
         triggerMigration,
@@ -216,13 +215,13 @@ export function AsyncMigrations(): JSX.Element {
     }
 
     const minVersionColumn: AsyncMigrationColumnType = {
-        title: 'Min PostHog Version',
+        title: 'Minimum PostHog version',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             return <div>{asyncMigration.posthog_min_version}</div>
         },
     }
     const maxVersionColumn: AsyncMigrationColumnType = {
-        title: 'Max PostHog Version',
+        title: 'Maximum PostHog version',
         render: function Render(_, asyncMigration: AsyncMigration): JSX.Element {
             return <div>{asyncMigration.posthog_max_version}</div>
         },
@@ -240,6 +239,9 @@ export function AsyncMigrations(): JSX.Element {
         finishedAtColumn,
         ActionsColumn,
     ]
+    const migrations = {}
+    migrations[AsyncMigrationsTab.FutureMigrations] = futureMigrations
+    migrations[AsyncMigrationsTab.Management] = actionableMigrations
 
     const rowExpansion = {
         expandedRowRender: function renderExpand(asyncMigration: AsyncMigration) {
@@ -301,7 +303,7 @@ export function AsyncMigrations(): JSX.Element {
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
                                 columns={columns[activeTab]}
-                                dataSource={migrationsForCurrentTab}
+                                dataSource={migrations[activeTab]}
                                 expandable={rowExpansion}
                             />
                             {activeAsyncMigrationModal ? (

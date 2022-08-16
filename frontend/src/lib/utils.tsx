@@ -1447,18 +1447,3 @@ export function processCohort(cohort: CohortType): CohortType {
         },
     }
 }
-
-export function isVersionLT(version1: string, version2: string): boolean {
-    // For PostHog version comparisson major.minor.patch
-    const v1parts = version1.split('.').map(Number)
-    const v2parts = version2.split('.').map(Number)
-    for (let i = 0; i < v1parts.length; i++) {
-        if (v1parts[i] < v2parts[i]) {
-            return true
-        }
-        if (v1parts[i] > v2parts[i]) {
-            return false
-        }
-    }
-    return false
-}

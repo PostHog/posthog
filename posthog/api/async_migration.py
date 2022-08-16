@@ -1,6 +1,7 @@
 import structlog
 from rest_framework import permissions, response, serializers, viewsets
 from rest_framework.decorators import action
+from semantic_version.base import Version
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
@@ -13,6 +14,7 @@ from posthog.models.async_migration import (
     get_all_running_async_migrations,
 )
 from posthog.permissions import IsStaffUser
+from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -27,6 +29,7 @@ class AsyncMigrationErrorsSerializer(serializers.ModelSerializer):
 class AsyncMigrationSerializer(serializers.ModelSerializer):
     error_count = serializers.SerializerMethodField()
     parameter_definitions = serializers.SerializerMethodField()
+    is_available = serializers.SerializerMethodField()
 
     class Meta:
         model = AsyncMigration
@@ -46,6 +49,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "parameters",
             "error_count",
             "parameter_definitions",
+            "is_available",
         ]
         read_only_fields = [
             "id",
@@ -62,6 +66,7 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
             "posthog_min_version",
             "error_count",
             "parameter_definitions",
+            "is_available",
         ]
 
     def get_error_count(self, async_migration: AsyncMigration):
@@ -75,6 +80,9 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
         except LookupError as e:
             logger.warn(f"Parameters for {async_migration.name} not available error: {e}")
         return {}
+
+    def get_is_available(self, async_migration: AsyncMigration):
+        return Version(async_migration.posthog_min_version) <= Version(VERSION)
 
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):

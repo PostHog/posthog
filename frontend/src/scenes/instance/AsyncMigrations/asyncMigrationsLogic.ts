@@ -8,7 +8,6 @@ import { InstanceSetting } from '~/types'
 import { lemonToast } from 'lib/components/lemonToast'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { loaders } from 'kea-loaders'
-import { isVersionLT } from 'lib/utils'
 import { actionToUrl, urlToAction } from 'kea-router'
 export type TabName = 'overview' | 'internal_metrics'
 
@@ -60,6 +59,7 @@ export interface AsyncMigration {
     error_count: number
     parameters: Record<string, number>
     parameter_definitions: Record<string, [number, string]>
+    is_available: boolean
 }
 
 export interface AsyncMigrationModalProps {
@@ -167,38 +167,13 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
                     [AsyncMigrationStatus.Running, AsyncMigrationStatus.Starting].includes(migration.status)
                 ),
         ],
-        isFutureMigration: [
-            (s) => [s.preflight],
-            (preflight) =>
-                function isFutureMigration(migration: AsyncMigration): boolean {
-                    const posthogVersion = preflight?.posthog_version
-                    if (!posthogVersion || migration.status == AsyncMigrationStatus.CompletedSuccessfully) {
-                        return false
-                    }
-                    return isVersionLT(posthogVersion, migration.posthog_min_version)
-                },
-        ],
         actionableMigrations: [
-            (s) => [s.asyncMigrations, s.isFutureMigration],
-            (asyncMigrations, isFutureMigration) =>
-                asyncMigrations.filter((migration) => !isFutureMigration(migration)),
+            (s) => [s.asyncMigrations],
+            (asyncMigrations) => asyncMigrations.filter((migration) => migration.is_available),
         ],
         futureMigrations: [
-            (s) => [s.asyncMigrations, s.isFutureMigration],
-            (asyncMigrations, isFutureMigration) => asyncMigrations.filter((migration) => isFutureMigration(migration)),
-        ],
-        migrationsForCurrentTab: [
-            (s) => [s.activeTab, s.asyncMigrations, s.actionableMigrations, s.futureMigrations],
-            (activeTab, asyncMigrations, actionableMigrations, futureMigrations) => {
-                if (activeTab === AsyncMigrationsTab.Management) {
-                    return actionableMigrations
-                } else if (activeTab === AsyncMigrationsTab.FutureMigrations) {
-                    return futureMigrations
-                } else {
-                    // If no tab is set, show all migrations
-                    return asyncMigrations
-                }
-            },
+            (s) => [s.asyncMigrations],
+            (asyncMigrations) => asyncMigrations.filter((migration) => !migration.is_available),
         ],
     }),
 
