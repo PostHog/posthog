@@ -300,7 +300,7 @@ def mark_async_migration_as_running(migration_instance: AsyncMigration):
         current_operation_index=0,
         status=MigrationStatus.Running,
         started_at=now(),
-        finished_at=None,
+        reset_finished_at=True,
     )
 
 
@@ -314,6 +314,7 @@ def update_async_migration(
     status: Optional[int] = None,
     started_at: Optional[datetime] = None,
     finished_at: Optional[datetime] = None,
+    reset_finished_at: Optional[bool] = None,
     lock_row: bool = True,
 ):
     def execute_update():
@@ -338,6 +339,8 @@ def update_async_migration(
             instance.started_at = started_at
         if finished_at is not None:
             instance.finished_at = finished_at
+        if reset_finished_at:
+            instance.finished_at = None
         instance.save()
 
     if lock_row:
