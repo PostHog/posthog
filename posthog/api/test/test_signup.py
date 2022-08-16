@@ -612,6 +612,7 @@ class TestDemoSignupAPI(APIBaseTest):
         master_organization = Organization.objects.filter(id=0).first()
         user_organization = Organization.objects.filter(name="Tech R Us").first()
 
+        print(response.json())
         assert response.status_code == status.HTTP_201_CREATED
         assert Organization.objects.count() == 2  # Master organization "PostHog" & "Tech R Us"
         assert User.objects.count() == 1
@@ -640,6 +641,7 @@ class TestDemoSignupAPI(APIBaseTest):
         user = auth.get_user(self.client)
         user_organization = Organization.objects.filter(name="Tech R Us").first()
 
+        print(response.json())
         # 201 is not fully semantically correct here, but it's not really valuable to modify the viewset to return 200
         assert response.status_code == status.HTTP_201_CREATED
         assert Organization.objects.count() == 1
@@ -674,6 +676,7 @@ class TestDemoSignupAPI(APIBaseTest):
         master_organization = Organization.objects.filter(id=0).first()
         user_organization = Organization.objects.filter(name="Tech R Us").first()
 
+        print(response.json())
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {"continue_url": "/complete/google-oauth2/"}
         assert Organization.objects.count() == 2  # Master organization "PostHog" & "Tech R Us"
@@ -709,6 +712,7 @@ class TestDemoSignupAPI(APIBaseTest):
         user = auth.get_user(self.client)
         user_organization = Organization.objects.filter(name="Tech R Us").first()
 
+        print(response.json())
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json() == {"continue_url": "/complete/google-oauth2/"}
         assert Organization.objects.count() == 1
