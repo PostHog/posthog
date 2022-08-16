@@ -27,8 +27,6 @@ export interface LemonSelectProps<T>
         LemonButtonWithPopupProps,
         | 'id'
         | 'className'
-        | 'icon'
-        | 'sideIcon'
         | 'loading'
         | 'tooltip'
         | 'fullWidth'
