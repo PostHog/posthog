@@ -822,7 +822,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         SELECT id, properties as person_props
         FROM person
         WHERE team_id = {self.team.pk}
-        {q}
+        AND {q}
         """,
             params,
         )
