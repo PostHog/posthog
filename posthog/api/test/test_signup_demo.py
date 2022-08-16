@@ -12,11 +12,7 @@ from posthog.test.base import APIBaseTest
 @override_settings(DEMO=True)
 @pytest.mark.ee
 class TestDemoSignupAPI(APIBaseTest):
-    """Demo environment signup tests - signup and login are unified.
-
-    This test suite MUST be in its own file because setting DEMO has to be set to True at the time of
-    the SignupSerializer class being imported - otherwise the email has the unwanted non-demo validator.
-    """
+    """Demo environment signup tests - signup and login are unified."""
 
     @classmethod
     def setUpTestData(cls):
@@ -34,7 +30,6 @@ class TestDemoSignupAPI(APIBaseTest):
             "/api/signup/",
             {"email": "charlie@tech-r-us.com", "first_name": "Charlie", "organization_name": "Tech R Us"},
         )
-
         user = auth.get_user(self.client)
         master_organization = Organization.objects.filter(id=0).first()
         user_organization = Organization.objects.filter(name="Tech R Us").first()

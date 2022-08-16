@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import cast
+from typing import Dict, Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 
@@ -99,6 +99,21 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("notsecure"))
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_disallowed_on_email_collision(self):
+        # Create a user with the same email
+        User.objects.create(email="fake@posthog.com", first_name="Jane")
+
+        response = self.client.post(
+            "/api/signup/", {"first_name": "John", "email": "fake@posthog.com", "password": "notsecure"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response("There is already an account with this email address.", code="unique"),
+        )
+        self.assertEqual(User.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_self_hosted_by_default(self):
@@ -217,7 +232,9 @@ class TestSignupAPI(APIBaseTest):
 
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/signup", body)
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.status_code, status.HTTP_400_BAD_REQUEST, f"{attribute} is required",
+            )
             self.assertEqual(
                 response.json(),
                 {
@@ -226,6 +243,41 @@ class TestSignupAPI(APIBaseTest):
                     "detail": "This field is required.",
                     "attr": attribute,
                 },
+                f"{attribute} is required",
+            )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
+    def test_cant_sign_up_with_required_attributes_null(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        required_attributes = ["first_name", "email"]
+
+        for attribute in required_attributes:
+            body: Dict[str, Optional[str]] = {
+                "first_name": "Jane",
+                "email": "invalid@posthog.com",
+                "password": "notsecure",
+            }
+            body[attribute] = None
+
+            response = self.client.post("/api/signup/", body)
+            self.assertEqual(
+                response.status_code, status.HTTP_400_BAD_REQUEST, f"{attribute} may not be null",
+            )
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "null",
+                    "detail": "This field may not be null.",
+                    "attr": attribute,
+                },
+                f"{attribute} may not be null",
             )
 
         self.assertEqual(User.objects.count(), count)
