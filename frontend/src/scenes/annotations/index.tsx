@@ -327,7 +327,7 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                 className="mt-4 mb-8"
                 rows={4}
                 value={textInput}
-                onChange={(text): void => setTextInput(text)}
+                onChange={setTextInput}
             />
         </LemonModal>
     )

@@ -21,10 +21,10 @@ const Template: ComponentStory<typeof LemonInput> = (props) => {
 
 export const Basic = Template.bind({})
 
-export const WithIconAndSideAction = Template.bind({})
-WithIconAndSideAction.args = {
-    icon: <IconCalendar />,
-    sideIcon: (
+export const WithPrefixAndSuffixAction = Template.bind({})
+WithPrefixAndSuffixAction.args = {
+    prefix: <IconCalendar />,
+    suffix: (
         <LemonButtonWithPopup
             noPadding
             popup={{
@@ -38,6 +38,9 @@ WithIconAndSideAction.args = {
 
 export const Search = Template.bind({})
 Search.args = { type: 'search', placeholder: 'Search your soul' }
+
+export const Password = Template.bind({})
+Password.args = { type: 'password', placeholder: 'Enter your password' }
 
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
