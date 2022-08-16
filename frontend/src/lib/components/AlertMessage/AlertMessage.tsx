@@ -19,7 +19,13 @@ export function AlertMessage({ type, onClose, children, className }: AlertMessag
             {type === 'warning' || type === 'error' ? <IconWarning /> : <IconInfo />}
             <div className="flex-1">{children}</div>
             {onClose && (
-                <LemonButton status="primary-alt" size="small" icon={<IconClose />} onClick={() => onClose()} />
+                <LemonButton
+                    status="primary-alt"
+                    size="small"
+                    icon={<IconClose />}
+                    onClick={() => onClose()}
+                    aria-label="close"
+                />
             )}
         </div>
     )
