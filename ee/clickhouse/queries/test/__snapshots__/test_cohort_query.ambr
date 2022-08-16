@@ -476,6 +476,19 @@
            AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))
   '
 ---
+# name: TestCohortQuery.test_person_props_only.1
+  '
+  
+  SELECT id,
+         properties as person_props
+  FROM person
+  WHERE team_id = 2
+    AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '')))
+          OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''))))
+         OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '')))
+             AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '')))))
+  '
+---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '
   

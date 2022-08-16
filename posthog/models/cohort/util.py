@@ -34,7 +34,7 @@ logger = structlog.get_logger(__name__)
 
 
 def format_person_query(
-    cohort: Cohort, index: int, *, custom_match_field: str = "person_id"
+    cohort: Cohort, index: int, *, custom_match_field: str = "person_id", has_joined_person_props: bool = False
 ) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
@@ -45,11 +45,19 @@ def format_person_query(
 
     from posthog.queries.cohort_query import CohortQuery
 
-    query, params = CohortQuery(
-        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk,
-    ).get_query()
+    query_builder = CohortQuery(
+        Filter(data={"properties": cohort.properties}, team=cohort.team),
+        cohort.team,
+        cohort_pk=cohort.pk,
+        has_joined_person_props=has_joined_person_props,
+    )
 
-    return f"{custom_match_field} IN ({query})", params
+    query, params = query_builder.get_query()
+
+    if query_builder.is_subquery:
+        return f"{custom_match_field} IN ({query})", params
+    else:
+        return query, params
 
 
 def format_static_cohort_query(
@@ -71,41 +79,6 @@ def format_precalculated_cohort_query(
         """,
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
-
-
-def get_properties_cohort_subquery(cohort: Cohort, cohort_group: Dict, group_idx: int) -> Tuple[str, Dict[str, Any]]:
-    from posthog.models.property.util import prop_filter_json_extract
-
-    filter = Filter(data=cohort_group)
-    params: Dict[str, Any] = {}
-
-    query_parts = []
-    # Cohorts don't yet support OR filters
-    for idx, prop in enumerate(filter.property_groups.flat):
-        if prop.type == "cohort":
-            try:
-                prop_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=cohort.team_id)
-            except Cohort.DoesNotExist:
-                return "0 = 14", {}
-            if prop_cohort.pk == cohort.pk:
-                # If we've encountered a cyclic dependency (meaning this cohort depends on this cohort),
-                # we treat it as satisfied for all persons
-                query_parts.append("AND 11 = 11")
-            else:
-                person_id_query, cohort_filter_params = format_filter_query(prop_cohort, idx, "person_id")
-                params.update(cohort_filter_params)
-                query_parts.append(f"AND person.id IN ({person_id_query})")
-        else:
-            filter_query, filter_params = prop_filter_json_extract(
-                prop=prop,
-                idx=idx,
-                prepend="{}_{}_{}_person".format(cohort.pk, group_idx, idx),
-                allow_denormalized_props=False,
-            )
-            params.update(filter_params)
-            query_parts.append(filter_query)
-
-    return "\n".join(query_parts).replace("AND ", "", 1), params
 
 
 def get_entity_cohort_subquery(
@@ -284,7 +257,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
+    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id", has_joined_person_props=True)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
