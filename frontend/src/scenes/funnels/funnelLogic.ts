@@ -63,6 +63,7 @@ import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
+import { LemonSelectOptions } from 'lib/components/LemonSelect'
 
 /* Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
@@ -1182,7 +1183,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         breakdownAttributionStepOptions: [
             (s) => [s.steps],
-            (steps) => steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` })),
+            (steps): LemonSelectOptions<number> => steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` })),
         ],
     }),
 

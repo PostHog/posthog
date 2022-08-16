@@ -26,10 +26,10 @@ export function Attribution({ filters, insightProps }: EditorFilterProps): JSX.E
                               <LemonSelect
                                   className="ml-2"
                                   onChange={(value) => {
-                                      if (value) {
+                                      if (value !== null) {
                                           setFilters({
                                               breakdown_attribution_type: BreakdownAttributionType.Step,
-                                              breakdown_attribution_value: parseInt(value),
+                                              breakdown_attribution_value: value,
                                           })
                                       }
                                   }}
