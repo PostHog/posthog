@@ -1,6 +1,6 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
 import { useMocks } from '~/mocks/jest'
@@ -27,7 +27,7 @@ describe('consoleLogsListLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionRecordingLogic, eventUsageLogic])
+            await expectLogic(logic).toMount([sessionRecordingDataLogic, eventUsageLogic])
         })
     })
 
@@ -52,14 +52,14 @@ describe('consoleLogsListLogic', () => {
     describe('console logs', () => {
         it('should load and parse console logs from the snapshot', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingLogic.actions.loadRecordingMeta('1')
+                sessionRecordingDataLogic.actions.loadRecordingSnapshots('1')
+                sessionRecordingDataLogic.actions.loadRecordingMeta('1')
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingLogic.actionTypes.loadRecordingSnapshots,
-                    sessionRecordingLogic.actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingLogic.actionTypes.loadRecordingMeta,
-                    sessionRecordingLogic.actionTypes.loadRecordingMetaSuccess,
+                    sessionRecordingDataLogic.actionTypes.loadRecordingSnapshots,
+                    sessionRecordingDataLogic.actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic.actionTypes.loadRecordingMeta,
+                    sessionRecordingDataLogic.actionTypes.loadRecordingMetaSuccess,
                 ])
                 .toMatchValues({
                     consoleLogs: [

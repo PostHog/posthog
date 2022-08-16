@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { PlayerPosition, RecordingEventsFilters, RecordingEventType } from '~/types'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -15,9 +15,14 @@ export const eventsListLogic = kea<eventsListLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
     connect: {
         logic: [eventUsageLogic],
-        actions: [sessionRecordingLogic, ['setFilters', 'loadEventsSuccess'], sessionRecordingPlayerLogic, ['seek']],
+        actions: [
+            sessionRecordingDataLogic,
+            ['setFilters', 'loadEventsSuccess'],
+            sessionRecordingPlayerLogic,
+            ['seek'],
+        ],
         values: [
-            sessionRecordingLogic,
+            sessionRecordingDataLogic,
             ['eventsToShow', 'sessionEventsDataLoading'],
             sessionRecordingPlayerLogic,
             ['currentPlayerTime'],

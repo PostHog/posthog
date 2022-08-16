@@ -1,11 +1,14 @@
-import { parseMetadataResponse, sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import {
+    parseMetadataResponse,
+    sessionRecordingDataLogic,
+} from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-import recordingSnapshotsJson from './__mocks__/recording_snapshots.json'
-import recordingMetaJson from './__mocks__/recording_meta.json'
-import recordingEventsJson from './__mocks__/recording_events.json'
+import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
+import recordingMetaJson from '../__mocks__/recording_meta.json'
+import recordingEventsJson from '../__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { combineUrl, router } from 'kea-router'
 import { RecordingEventType } from '~/types'
@@ -20,7 +23,7 @@ const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/ses
 const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events`
 
 describe('sessionRecordingLogic', () => {
-    let logic: ReturnType<typeof sessionRecordingLogic.build>
+    let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -31,7 +34,7 @@ describe('sessionRecordingLogic', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingLogic()
+        logic = sessionRecordingDataLogic()
         logic.mount()
     })
 

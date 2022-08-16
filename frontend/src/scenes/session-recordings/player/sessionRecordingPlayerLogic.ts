@@ -6,7 +6,7 @@ import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     comparePlayerPositions,
     getPlayerPositionFromPlayerTime,
@@ -25,8 +25,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData', 'tab']],
-        actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab']],
+        values: [sessionRecordingDataLogic, ['sessionRecordingId', 'sessionPlayerData', 'tab']],
+        actions: [sessionRecordingDataLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab']],
     }),
     actions({
         tryInitReplayer: () => true,

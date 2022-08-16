@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 import { RecordingEventType, RecordingSegment } from '~/types'
-import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 function Tick({ event }: { event: RecordingEventType }): JSX.Element {
@@ -42,7 +42,7 @@ export function Seekbar(): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic)
-    const { eventsToShow, sessionPlayerData } = useValues(sessionRecordingLogic)
+    const { eventsToShow, sessionPlayerData } = useValues(sessionRecordingDataLogic)
     const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic)
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb

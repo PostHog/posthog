@@ -1,7 +1,7 @@
 import { Col, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { PlayerMetaV2 } from 'scenes/session-recordings/player/PlayerMeta'
 import { PlayerEvents } from 'scenes/session-recordings/player/PlayerEvents'
@@ -15,8 +15,8 @@ const { TabPane } = Tabs
 
 export function PlayerInspectorV2(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tab } = useValues(sessionRecordingLogic)
-    const { setTab } = useActions(sessionRecordingLogic)
+    const { tab } = useValues(sessionRecordingDataLogic)
+    const { setTab } = useActions(sessionRecordingDataLogic)
     const sessionConsoleEnabled = featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
     return (
         <Col className="player-sidebar">
@@ -63,7 +63,7 @@ export function PlayerInspectorV2(): JSX.Element {
 
 export function PlayerInspectorV3(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tab } = useValues(sessionRecordingLogic)
+    const { tab } = useValues(sessionRecordingDataLogic)
     const sessionConsoleEnabled = !!featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
 
     return (

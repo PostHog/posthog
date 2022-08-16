@@ -1,7 +1,7 @@
 import './PlayerConsole.scss'
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { RecordingConsoleLog } from '~/types'
@@ -12,7 +12,7 @@ import { consoleLogsListLogic, FEEDBACK_OPTIONS } from 'scenes/session-recording
 export function PlayerConsole(): JSX.Element | null {
     const { feedbackSubmitted, consoleLogs } = useValues(consoleLogsListLogic)
     const { submitFeedback } = useActions(consoleLogsListLogic)
-    const { sessionPlayerDataLoading } = useValues(sessionRecordingLogic)
+    const { sessionPlayerDataLoading } = useValues(sessionRecordingDataLogic)
     const { seek } = useActions(sessionRecordingPlayerLogic)
 
     const renderLogLine = (log: RecordingConsoleLog, index: number): JSX.Element => {

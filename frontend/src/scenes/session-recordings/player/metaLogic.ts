@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import type { metaLogicType } from './metaLogicType'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PersonType, RecordingEventType } from '~/types'
@@ -26,14 +26,14 @@ export const metaLogic = kea<metaLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'metaLogic'],
     connect: () => ({
         values: [
-            sessionRecordingLogic,
+            sessionRecordingDataLogic,
             ['sessionPlayerData', 'eventsToShow'],
             sessionRecordingPlayerLogic,
             ['currentPlayerPosition', 'scale'],
             eventsListLogic,
             ['currentStartIndex'],
         ],
-        actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
+        actions: [sessionRecordingDataLogic, ['loadRecordingMetaSuccess']],
     }),
     reducers: {
         loading: [

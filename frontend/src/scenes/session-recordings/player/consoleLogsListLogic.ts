@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { consoleLogsListLogicType } from './consoleLogsListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     YesOrNoResponse,
     RecordingConsoleLog,
@@ -77,7 +77,7 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     path(['scenes', 'session-recordings', 'player', 'consoleLogsListLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionPlayerData']],
+        values: [sessionRecordingDataLogic, ['sessionPlayerData']],
     })),
     actions({
         submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),

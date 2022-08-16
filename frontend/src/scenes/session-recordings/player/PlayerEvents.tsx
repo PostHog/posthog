@@ -28,7 +28,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType } from '~/types'
-import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -95,7 +95,7 @@ export function PlayerEvents(): JSX.Element {
         isDirectionUp,
         renderedRows,
     } = useValues(eventsListLogic)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
+    const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic)
     const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } =
         useActions(eventsListLogic)
     const { featureFlags } = useValues(featureFlagLogic)

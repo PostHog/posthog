@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
 import { eventToDescription, sum, toParams } from 'lib/utils'
-import type { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     PlayerPosition,
@@ -20,7 +19,7 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from '../teamLogic'
+import { teamLogic } from '../../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
@@ -28,8 +27,10 @@ import {
     getPlayerPositionFromEpochTime,
     getPlayerTimeFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
-} from './player/playerUtils'
+} from './playerUtils'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
+
+import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -128,7 +129,7 @@ const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[]
     }))
 }
 
-export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
+export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path(['scenes', 'session-recordings', 'sessionRecordingLogic']),
     connect({
         logic: [eventUsageLogic],
