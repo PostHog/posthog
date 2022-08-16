@@ -13,9 +13,7 @@ export const annotationsTableLogic = kea<annotationsTableLogicType>({
             __default: [],
             loadAnnotations: async () => {
                 const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams({
-                        order: '-updated_at',
-                    })}`
+                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams({ order: '-updated_at' })}`
                 )
                 actions.setNext(response.next)
                 return response.results
