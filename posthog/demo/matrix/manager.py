@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+from time import sleep
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from django.conf import settings
@@ -91,13 +92,17 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
+        source_team = self.MASTER_TEAM if self.use_pre_save else team
         if not self.use_pre_save or not self._is_demo_data_pre_saved():
             if self.matrix.is_complete is None:
                 self.matrix.simulate()
-            self._save_analytics_data(self.MASTER_TEAM if self.use_pre_save else team)
+            self._save_analytics_data(source_team)
         if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
-        self._sync_postgres_with_clickhouse_data(team)
+        else:
+            # If we're not using pre-saved data, we need to wait a bit for data just queued into Kafka to show up in CH
+            sleep(3)
+        self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk)
         team.save()
@@ -147,11 +152,11 @@ class MatrixManager:
         )
 
     @classmethod
-    def _sync_postgres_with_clickhouse_data(cls, target_team: Team):
+    def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
         from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
         from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
-        list_params = {"source_team_id": cls.MASTER_TEAM_ID}
+        list_params = {"source_team_id": source_team_id}
         # Persons
         clickhouse_persons = query_with_columns(
             SELECT_PERSONS_OF_TEAM, list_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
@@ -159,7 +164,7 @@ class MatrixManager:
         bulk_persons = []
         for row in clickhouse_persons:
             properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons.append(Person(team_id=target_team.pk, properties=properties, **row))
+            bulk_persons.append(Person(team_id=target_team_id, properties=properties, **row))
         Person.objects.bulk_create(bulk_persons)
         # Person distinct IDs
         clickhouse_distinct_ids = query_with_columns(
@@ -173,7 +178,7 @@ class MatrixManager:
             person_uuid = row.pop("person_uuid")
             bulk_person_distinct_ids.append(
                 PersonDistinctId(
-                    team_id=target_team.pk, person=Person.objects.get(team_id=target_team.pk, uuid=person_uuid), **row
+                    team_id=target_team_id, person=Person.objects.get(team_id=target_team_id, uuid=person_uuid), **row
                 )
             )
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids)
@@ -184,7 +189,7 @@ class MatrixManager:
         bulk_groups = []
         for row in clickhouse_groups:
             properties = json.loads(row.pop("properties", "{}"))
-            bulk_groups.append(Group(team_id=target_team.pk, version=0, **row))
+            bulk_groups.append(Group(team_id=target_team_id, version=0, **row))
         Group.objects.bulk_create(bulk_groups)
 
     @classmethod
