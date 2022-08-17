@@ -16,8 +16,8 @@ export function PersonDeleteModal(): JSX.Element | null {
             title={`Are you sure you want to delete "${asDisplay(personDeleteModal)}"?`}
             description={
                 <>
-                    This action cannot be undone. If you opt to delete the organization and its corresponding events,
-                    the events will not be immediately removed. Instead these events will be deleted on a set schedule
+                    This action cannot be undone. If you opt to delete the person and its corresponding events, the
+                    events will not be immediately removed. Instead these events will be deleted on a set schedule
                     during non-peak usage times.
                 </>
             }
