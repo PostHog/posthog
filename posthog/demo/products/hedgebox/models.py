@@ -85,7 +85,7 @@ class HedgeboxFile:
 class HedgeboxAccount:
     id: str
     team_members: Set["HedgeboxPerson"]
-    plan: HedgeboxPlan = field(default=HedgeboxPlan.PERSONAL_FREE)
+    plan: HedgeboxPlan
     files: Set[HedgeboxFile] = field(default_factory=set)
     was_billing_scheduled: bool = field(default=False)
 
@@ -267,8 +267,8 @@ class HedgeboxPerson(SimPerson):
             if self.watches_marius_tech_tips and not self.all_time_pageview_counts[URL_MARIUS_TECH_TIPS]:
                 possible_intents_with_weights.append((HedgeboxSessionIntent.CHECK_MARIUS_TECH_TIPS_LINK, 1),)
         else:
-            account = cast(HedgeboxAccount, self.account)  # Must exist in this branch
-            file_count = len(account.files)
+            assert self.account is not None
+            file_count = len(self.account.files)
             # The more files, the more likely to delete/download/share rather than upload
             possible_intents_with_weights.extend(
                 [
@@ -277,21 +277,21 @@ class HedgeboxPerson(SimPerson):
                     (HedgeboxSessionIntent.SHARE_FILE, math.log10(file_count) / 3 if file_count else 0),
                 ]
             )
-            if account.allocation_used_fraction < 0.99:
+            if self.account.allocation_used_fraction < 0.99:
                 possible_intents_with_weights.append((HedgeboxSessionIntent.UPLOAD_FILE_S, self.need * 3))
             if (
                 self.satisfaction > 0.5
                 and self.need > 0.7
-                and account.plan.successor
-                and account.allocation_used_fraction > 0.9
+                and self.account.plan.successor
+                and self.account.allocation_used_fraction > 0.9
             ):
                 possible_intents_with_weights.append((HedgeboxSessionIntent.UPGRADE_PLAN, 0.1))
-            elif self.satisfaction < -0.5 and self.need < 0.9 and account.plan.predecessor:
+            elif self.satisfaction < -0.5 and self.need < 0.9 and self.account.plan.predecessor:
                 possible_intents_with_weights.append((HedgeboxSessionIntent.DOWNGRADE_PLAN, 0.1))
-            if account.plan.is_business and len(self.cluster.people) > 1:
-                if len(account.team_members) < len(self.cluster.people):
+            if self.account.plan.is_business and len(self.cluster.people) > 1:
+                if len(self.account.team_members) < len(self.cluster.people):
                     possible_intents_with_weights.append((HedgeboxSessionIntent.INVITE_TEAM_MEMBER, 0.2))
-                if len(account.team_members) > 1:
+                if len(self.account.team_members) > 1:
                     possible_intents_with_weights.append((HedgeboxSessionIntent.REMOVE_TEAM_MEMBER, 0.025))
 
         if possible_intents_with_weights:
@@ -457,7 +457,7 @@ class HedgeboxPerson(SimPerson):
             self.go_to_files()  # Redirect
 
     def go_to_files(self):
-        account = cast(HedgeboxAccount, self.account)
+        assert self.account is not None
         self.active_client.capture_pageview(URL_FILES)
         if self.active_session_intent in (
             HedgeboxSessionIntent.CONSIDER_PRODUCT,
@@ -467,12 +467,14 @@ class HedgeboxPerson(SimPerson):
             HedgeboxSessionIntent.SHARE_FILE,
         ):
             # Get a hang of all the files
-            self.advance_timer(2 + self.cluster.random.betavariate(1.5, 1.2) * math.log10(0.1 + len(account.files)))
+            self.advance_timer(
+                2 + self.cluster.random.betavariate(1.5, 1.2) * math.log10(0.1 + len(self.account.files))
+            )
             if self.active_session_intent == HedgeboxSessionIntent.DELETE_FILE_S:
-                file = self.cluster.random.choice(list(account.files))
+                file = self.cluster.random.choice(list(self.account.files))
                 self.delete_file(file)
             elif self.active_session_intent == HedgeboxSessionIntent.DOWNLOAD_OWN_FILE_S:
-                file = self.cluster.random.choice(list(account.files))
+                file = self.cluster.random.choice(list(self.account.files))
                 if self.cluster.random.random() < 0.3:  # Sometimes download using the menu
                     self.download_file(file)
                 else:  # Other times go to the file page first
@@ -558,7 +560,11 @@ class HedgeboxPerson(SimPerson):
     def sign_up(self):
         if self.account is not None:
             raise ValueError("Already signed up")
-        self.account = HedgeboxAccount(id=str(self.roll_uuidt()), team_members={self})  # TODO: Add billing
+        self.account = HedgeboxAccount(
+            id=str(self.roll_uuidt()),
+            team_members={self},
+            plan=HedgeboxPlan.PERSONAL_FREE if not self.cluster.company else HedgeboxPlan.BUSINESS_STANDARD,
+        )
         self.active_client.capture(EVENT_SIGNED_UP, {"from_invite": False})
         self.advance_timer(self.cluster.random.uniform(0.1, 0.2))
         self.active_client.identify(self.person_id, {"email": self.email, "name": self.name})
@@ -586,10 +592,12 @@ class HedgeboxPerson(SimPerson):
         self.account.team_members.add(self)
 
     def upload_file(self, file: HedgeboxFile):
+        assert self.account is not None
         self.advance_timer(self.cluster.random.betavariate(2.5, 1.1) * 95)
-        cast(HedgeboxAccount, self.account).files.add(file)
+        self.account.files.add(file)
         self.active_client.capture(
-            EVENT_UPLOADED_FILE, properties={"file_type": file.type, "file_size_b": file.size_b},
+            EVENT_UPLOADED_FILE,
+            properties={"file_type": file.type, "file_size_b": file.size_b, "used_mb": self.account.current_used_mb},
         )
         self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
         if self.satisfaction > 0.9:
@@ -599,7 +607,8 @@ class HedgeboxPerson(SimPerson):
         self.active_client.capture(EVENT_DOWNLOADED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
 
     def delete_file(self, file: HedgeboxFile):
-        cast(HedgeboxAccount, self.account).files.remove(file)
+        assert self.account is not None
+        self.account.files.remove(file)
         self.active_client.capture(EVENT_DELETED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
 
     def share_file(self, file: HedgeboxFile):
@@ -608,8 +617,8 @@ class HedgeboxPerson(SimPerson):
         self.affect_random_neighbor(lambda other: other.set_attribute("file_to_view", file))
 
     def upgrade_plan(self):
-        account = cast(HedgeboxAccount, self.account)
-        previous_plan = account.plan
+        assert self.account is not None
+        previous_plan = self.account.plan
         new_plan = previous_plan.successor
         if new_plan is None:
             raise ValueError("There's no successor plan")
@@ -618,9 +627,9 @@ class HedgeboxPerson(SimPerson):
         )
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
         self.affect_all_neighbors(lambda other: other.move_attribute("satisfaction", 0.03))
-        account.plan = new_plan
-        if not account.was_billing_scheduled:
-            account.was_billing_scheduled = True
+        self.account.plan = new_plan
+        if not self.account.was_billing_scheduled:
+            self.account.was_billing_scheduled = True
             future_months = math.ceil(
                 (self.cluster.end.astimezone(pytz.timezone(self.timezone)) - self.simulation_time).days / 30
             )
@@ -629,15 +638,15 @@ class HedgeboxPerson(SimPerson):
                 self.schedule_effect(bill_timestamp, lambda person: person.bill_account(bill_timestamp))
 
     def downgrade_plan(self):
-        account = cast(HedgeboxAccount, self.account)
-        previous_plan = account.plan
+        assert self.account is not None
+        previous_plan = self.account.plan
         new_plan = previous_plan.predecessor
         if new_plan is None:
             raise ValueError("There's no predecessor plan")
         self.active_client.capture(
             EVENT_DOWNGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan),}
         )
-        account.plan = new_plan
+        self.account.plan = new_plan
 
     def invite_team_member(self):
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
@@ -651,9 +660,11 @@ class HedgeboxPerson(SimPerson):
 
     def remove_team_member(self):
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
-        account = cast(HedgeboxAccount, self.account)
-        random_member = self.cluster.random.choice(list(account.team_members.difference({self, self.cluster.kernel})))
-        account.team_members.remove(random_member)
+        assert self.account is not None
+        random_member = self.cluster.random.choice(
+            list(self.account.team_members.difference({self, self.cluster.kernel}))
+        )
+        self.account.team_members.remove(random_member)
         self.active_client.capture(EVENT_REMOVED_TEAM_MEMBER)
 
     def bill_account(self):

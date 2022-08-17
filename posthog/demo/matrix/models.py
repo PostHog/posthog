@@ -231,7 +231,7 @@ class SimBrowserClient(SimClient):
         Use with distinct_id=None for `posthog.people.set()`-like behavior."""
         if set_properties is None:
             set_properties = {}
-        identify_properties = {"$distinct_id": self.active_distinct_id, "$set": set_properties}
+        identify_properties: Properties = {"$set": set_properties}
         if distinct_id:
             self.is_logged_in = True
             if self.device_id == self.active_distinct_id:

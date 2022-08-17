@@ -369,6 +369,9 @@ GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
         anyLast(property_key_value_pair.2) AS sample_json_value
     FROM property_tuples
     GROUP BY property_key"""
+GET_EVENT_PROPERTIES = """
+    SELECT DISTINCT event, arrayJoin(JSONExtractKeys(properties)) AS property_key FROM events
+    WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s"""
 
 #
 # Copying demo data
