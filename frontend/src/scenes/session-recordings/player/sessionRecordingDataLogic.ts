@@ -275,7 +275,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             } as SessionPlayerData,
             {
                 loadRecordingMeta: async (_, breakpoint): Promise<SessionPlayerData> => {
-                    console.log('here')
                     if (!props.sessionRecordingId) {
                         return values.sessionPlayerData
                     }

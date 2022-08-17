@@ -58,7 +58,6 @@ export function Seekbar({ sessionRecordingId }: SessionRecordingProps): JSX.Elem
         }
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
-    console.log(eventsToShow.length)
     return (
         <div className="rrweb-controller-slider">
             <div className="slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>

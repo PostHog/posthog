@@ -47,7 +47,6 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
         replayDimensionRef.current = replayDimensions
 
         const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
-        console.log('parentDimensions', parentDimensions)
         const widthToUse = width || parentDimensions.width
         const heightToUse = height || parentDimensions.height
 

@@ -27,7 +27,6 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
 
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerSize = useSize(containerRef)
-    console.log(activeSessionRecordingId)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
