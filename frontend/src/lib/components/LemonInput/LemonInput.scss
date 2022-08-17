@@ -11,7 +11,6 @@
     cursor: text;
     color: var(--default);
     border: 1px solid var(--border);
-
     align-items: center;
     justify-content: center;
     gap: 0.25rem;
@@ -46,7 +45,7 @@
         flex-shrink: 0;
     }
 
-    &.LemonInput--hasContent {
+    &.LemonInput--hascontent {
         > .LemonIcon {
             color: var(--primary);
         }
@@ -56,5 +55,14 @@
         &:not(.LemonInput--disabled) {
             border: 1px solid var(--primary);
         }
+    }
+
+    &.LemonInput--type-search {
+        // NOTE Design: Search inputs are given a specific small width
+        max-width: 240px;
+    }
+    &.LemonInput--fullwidth {
+        width: 100%;
+        max-width: 100%;
     }
 }

@@ -22,6 +22,9 @@ Warning.args = { type: 'warning', children: 'This spacecraft is about to explode
 export const Error = Template.bind({})
 Error.args = { type: 'error', children: 'This spacecraft has exploded. Too late...' }
 
+export const Success = Template.bind({})
+Success.args = { type: 'success', children: 'This spacecraft has recovered. Phew!' }
+
 export const Closable = Template.bind({})
 Closable.args = {
     type: 'info',

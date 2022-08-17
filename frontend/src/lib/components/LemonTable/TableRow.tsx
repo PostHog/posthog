@@ -77,7 +77,8 @@ function TableRowRaw<T extends Record<string, any>>({
                     columnGroup.children.map((column, columnIndex) => {
                         const columnKeyRaw = column.key || column.dataIndex
                         const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
-                        const value = column.dataIndex ? record[column.dataIndex] : undefined
+                        // != is intentional to catch undefined too
+                        const value = column.dataIndex != null ? record[column.dataIndex] : undefined
                         const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
                         const areContentsCellRepresentations: boolean =
                             !!contents && typeof contents === 'object' && !React.isValidElement(contents)
@@ -86,9 +87,9 @@ function TableRowRaw<T extends Record<string, any>>({
                                 key={`LemonTable-td-${columnGroupIndex}-${columnKeyOrIndex}`}
                                 className={clsx(
                                     columnIndex === columnGroup.children.length - 1 && 'LemonTable__boundary',
+                                    column.align && `text-${column.align}`,
                                     column.className
                                 )}
-                                style={{ textAlign: column.align }}
                                 {...(areContentsCellRepresentations ? (contents as TableCellRepresentation).props : {})}
                             >
                                 {areContentsCellRepresentations

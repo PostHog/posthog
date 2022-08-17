@@ -97,8 +97,6 @@ export function RollingDateRangeFilter({
                     }}
                     dropdownMatchSelectWidth={false}
                     options={dateOptions}
-                    status="stealth"
-                    type="secondary"
                     popup={{
                         ...popup,
                         className: 'RollingDateRangeFilter__popup',

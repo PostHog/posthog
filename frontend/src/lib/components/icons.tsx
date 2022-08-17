@@ -618,7 +618,7 @@ export function IconErrorOutline(props: SvgIconProps): JSX.Element {
 }
 
 /** Material Design Warning Amber Outline icon. */
-export function IconWarningAmber(props: SvgIconProps): JSX.Element {
+export function IconWarning(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 24 24" {...props}>
             <path d="m12 5.99 7.53 13.01h-15.06zm0-3.99-11 19h22zm1 14h-2v2h2zm0-6h-2v4h2z" fill="currentColor" />
@@ -839,6 +839,42 @@ export function IconTrendingFlatDown(props: SvgIconProps): JSX.Element {
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
             <path
                 d="m17.6567 17.6558v-5.6568l-2.1214 2.1213-8.48523-8.48531-1.41422 1.41422 8.48525 8.48529-2.1213 2.1213z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Trending Down icon. */
+export function IconTrendingDown(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m16 18 2.29-2.29-4.88-4.88-4 4-7.41-7.42 1.41-1.41 6 6 4-4 6.3 6.29 2.29-2.29v6z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Trending Up icon. */
+export function IconTrendingUp(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m16 6 2.29 2.29-4.88 4.88-4-4-7.41 7.42 1.41 1.41 6-6 4 4 6.3-6.29 2.29 2.29v-6z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Flare icon. */
+export function IconFlare(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="m7 11h-6v2h6zm2.17-3.24-2.12-2.12-1.41 1.41 2.12 2.12zm3.83-6.76h-2v6h2zm5.36 6.05-1.41-1.41-2.12 2.12 1.41 1.41zm-1.36 3.95v2h6v-2zm-5-2c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3zm2.83 7.24 2.12 2.12 1.41-1.41-2.12-2.12zm-9.19.71 1.41 1.41 2.12-2.12-1.41-1.41zm5.36 6.05h2v-6h-2z"
                 fill="currentColor"
             />
         </SvgIcon>

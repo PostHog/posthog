@@ -86,7 +86,8 @@
                 position: relative;
                 background: var(--bg-side);
                 > td {
-                    padding: 0; // Disable padding inside the expansion for better tailored placement of contents
+                    // Disable padding inside the expansion for better tailored placement of contents
+                    padding: 0 !important;
                 }
             }
             &.LemonTable__tr--status-highlighted {

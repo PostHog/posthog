@@ -26,6 +26,7 @@ export interface LemonModalProps {
     footer?: React.ReactNode
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
+    closable?: boolean
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalContentProps): JSX.Element => {
@@ -51,12 +52,21 @@ export function LemonModal({
     footer,
     inline,
     simple,
+    closable = true,
 }: LemonModalProps): JSX.Element {
     const modalContent = (
         <>
-            <div className="LemonModal__closebutton">
-                <LemonButton icon={<IconClose />} size="small" status="stealth" onClick={onClose} aria-label="close" />
-            </div>
+            {closable && (
+                <div className="LemonModal__closebutton">
+                    <LemonButton
+                        icon={<IconClose />}
+                        size="small"
+                        status="stealth"
+                        onClick={onClose}
+                        aria-label="close"
+                    />
+                </div>
+            )}
 
             <div className="LemonModal__layout">
                 {simple ? (
@@ -83,6 +93,8 @@ export function LemonModal({
         <Modal
             isOpen={isOpen}
             onRequestClose={onClose}
+            shouldCloseOnOverlayClick={closable}
+            shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
             className="LemonModal"

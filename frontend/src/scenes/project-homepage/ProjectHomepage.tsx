@@ -8,8 +8,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { DashboardPlacement } from '~/types'
 import { Row, Skeleton, Typography } from 'antd'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PrimaryDashboardModal } from './PrimaryDashboardModal'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
@@ -20,6 +18,7 @@ import { RecentRecordings } from './RecentRecordings'
 import { RecentInsights } from './RecentInsights'
 import { NewlySeenPersons } from './NewlySeenPersons'
 import useSize from '@react-hook/size'
+import { NewInsightButton } from 'scenes/saved-insights/SavedInsights'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogic } = useValues(projectHomepageLogic)
@@ -43,16 +42,7 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            <LemonButton
-                data-attr="project-home-new-insight"
-                data-tooltip="project-button"
-                onClick={() => {
-                    router.actions.push(urls.insightNew())
-                }}
-                type="secondary"
-            >
-                New insight
-            </LemonButton>
+            <NewInsightButton dataAttr="project-home-new-insight" />
         </div>
     )
 

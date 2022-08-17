@@ -45,6 +45,10 @@ import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const { TabPane } = Tabs
 
+interface NewInsightButtonProps {
+    dataAttr: string
+}
+
 export interface InsightTypeMetadata {
     name: string
     description?: string
@@ -117,7 +121,7 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
     return null
 }
 
-function NewInsightButton(): JSX.Element {
+export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -139,7 +143,7 @@ function NewInsightButton(): JSX.Element {
                                         )
                                     }
                                     to={urls.insightNew({ insight: listedInsightType as InsightType })}
-                                    data-attr="saved-insights-create-new-insight"
+                                    data-attr={dataAttr}
                                     data-attr-insight-type={listedInsightType}
                                     onClick={() => {
                                         eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
@@ -341,7 +345,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <PageHeader title="Insights" buttons={<NewInsightButton />} />
+            <PageHeader title="Insights" buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
 
             <Tabs
                 activeKey={tab}
@@ -380,8 +384,6 @@ export function SavedInsights(): JSX.Element {
                                     }
                                     value={insightType}
                                     onChange={(v: any): void => setSavedInsightsFilters({ insightType: v })}
-                                    status="stealth"
-                                    type="secondary"
                                     dropdownMatchSelectWidth={false}
                                     data-attr="insight-type"
                                 />
@@ -426,8 +428,6 @@ export function SavedInsights(): JSX.Element {
                                         onChange={(v: any): void => {
                                             setSavedInsightsFilters({ createdBy: v })
                                         }}
-                                        status="stealth"
-                                        type="secondary"
                                         dropdownMatchSelectWidth={false}
                                     />
                                 </div>

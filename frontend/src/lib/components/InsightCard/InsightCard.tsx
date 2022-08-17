@@ -262,7 +262,7 @@ function InsightMeta({
                                             icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
                                             onClick={() => setAreDetailsShown((state) => !state)}
                                             type="tertiary"
-                                            status="muted-alt"
+                                            status="primary-alt"
                                             size={showDetailsButtonLabel ? 'small' : undefined}
                                         >
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
@@ -449,11 +449,7 @@ function InsightMeta({
 }
 
 function VizComponentFallback(): JSX.Element {
-    return (
-        <AlertMessage type="warning" style={{ alignSelf: 'center' }}>
-            Unknown insight display type
-        </AlertMessage>
-    )
+    return <AlertMessage type="warning">Unknown insight display type</AlertMessage>
 }
 
 export interface InsightVizProps

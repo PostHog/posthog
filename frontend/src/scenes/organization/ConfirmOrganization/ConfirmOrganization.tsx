@@ -21,7 +21,6 @@ export const scene: SceneExport = {
 export function ConfirmOrganization(): JSX.Element {
     const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
-    console.log(showNewOrgWarning)
 
     return (
         <div className="BridgePage ConfirmOrganization">
@@ -100,7 +99,7 @@ export function ConfirmOrganization(): JSX.Element {
                         center
                         size="large"
                         type="secondary"
-                        loading={isConfirmOrganizationSubmitting}
+                        disabled={isConfirmOrganizationSubmitting}
                         to={urls.signup()}
                     >
                         Cancel

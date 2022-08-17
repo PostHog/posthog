@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Button, Card, Checkbox, Collapse, Table } from 'antd'
+import { Button, Checkbox, Collapse, Table } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -27,7 +27,7 @@ export function InternalMetricsTab(): JSX.Element {
     }
 
     return (
-        <Card>
+        <>
             <Collapse activeKey={openSections} onChange={(keys) => setOpenSections(keys as string[])}>
                 {dashboard ? (
                     <Collapse.Panel header="Dashboards" key="0">
@@ -83,9 +83,8 @@ export function InternalMetricsTab(): JSX.Element {
                     </Collapse.Panel>
                 ) : null}
             </Collapse>
-
             <AnalyzeQueryModal />
-        </Card>
+        </>
     )
 }
 

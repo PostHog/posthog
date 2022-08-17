@@ -13,7 +13,7 @@ import {
     IconUnfoldLess,
     IconUnfoldMore,
     IconRefresh,
-    IconWarningAmber,
+    IconWarning,
 } from 'lib/components/icons'
 import clsx from 'clsx'
 import { LemonRow } from 'lib/components/LemonRow'
@@ -32,7 +32,7 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
     if (status === 'validated') {
         return <IconCheckCircleOutline />
     } else if (status === 'warning' || status === 'optional') {
-        return <IconWarningAmber />
+        return <IconWarning />
     }
     return <IconErrorOutline />
 }
