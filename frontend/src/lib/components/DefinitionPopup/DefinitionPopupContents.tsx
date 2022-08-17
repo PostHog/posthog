@@ -16,13 +16,14 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
 import { CohortPopupInfo } from 'lib/components/DefinitionPopup/CohortPopupInfo'
-import { Button, Checkbox, Input, Typography } from 'antd'
+import { Button, Checkbox, Typography } from 'antd'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
 import { UseFloatingReturn } from '@floating-ui/react-dom-interactions'
+import { LemonTextArea } from '../LemonTextArea/LemonTextArea'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (
     <TitleWithIcon
@@ -363,16 +364,15 @@ function DefinitionEdit(): JSX.Element {
                             <span className="label-text">Description</span>
                             <span className="text-muted-alt">(optional)</span>
                         </label>
-                        <Input.TextArea
+                        <LemonTextArea
                             id="description"
                             className="definition-popup-edit-form-value"
                             autoFocus
                             placeholder={`Add a description for this ${singularType}.`}
                             value={localDefinition.description || ''}
-                            onChange={(e) => {
-                                setLocalDefinition({ description: e.target.value })
-                            }}
-                            autoSize={{ minRows: 3, maxRows: 4 }}
+                            onChange={(value) => setLocalDefinition({ description: value })}
+                            minRows={3}
+                            maxRows={4}
                             data-attr="definition-popup-edit-description"
                         />
                     </>

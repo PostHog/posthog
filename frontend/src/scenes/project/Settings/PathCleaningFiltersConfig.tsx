@@ -17,7 +17,7 @@ export function PathCleaningFiltersConfig(): JSX.Element {
     }
 
     return (
-        <div style={{ marginBottom: 16 }}>
+        <div>
             {currentTeam && (
                 <PathCleanFilters
                     pageKey="pathcleanfilters"

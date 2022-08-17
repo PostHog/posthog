@@ -148,7 +148,7 @@ function TZIndicatorRaw({
             <div className="timezones">
                 <Row className="timezone">
                     <Col className="name">
-                        <LaptopOutlined /> {shortTimeZone(undefined)}
+                        <LaptopOutlined /> {shortTimeZone()}
                     </Col>
                     <Col className="scope">Your device</Col>
                     <Col className="time" style={{ minWidth: 100, fontWeight: 'bold' }}>

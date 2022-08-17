@@ -222,7 +222,7 @@ export class DB {
         })
     }
 
-    public postgresTransaction<ReturnType extends any>(
+    public postgresTransaction<ReturnType>(
         tag: string,
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {

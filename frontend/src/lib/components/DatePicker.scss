@@ -1,0 +1,11 @@
+.ant-picker .ant-picker-input,
+.ant-picker.ant-picker-range {
+    display: flex;
+    flex-direction: row-reverse;
+}
+
+.ant-picker .ant-picker-input span.ant-picker-suffix,
+.ant-picker.ant-picker-range span.ant-picker-suffix {
+    margin-left: 0;
+    margin-right: 5px;
+}

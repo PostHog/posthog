@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -32,12 +32,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.Insight, 'insight'],
-    [AnnotationScope.Project, 'project'],
-    [AnnotationScope.Organization, 'organization'],
-])
 
 /** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {

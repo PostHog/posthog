@@ -44,6 +44,7 @@ class MatrixManager:
         organization_name: str,
         *,
         password: Optional[str] = None,
+        is_staff: bool = False,
         disallow_collision: bool = False,
         print_steps: bool = False,
     ) -> Tuple[Organization, Team, User]:
@@ -57,7 +58,7 @@ class MatrixManager:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
             organization = Organization.objects.create(**organization_kwargs)
             new_user = User.objects.create_and_join(
-                organization, email, password, first_name, OrganizationMembership.Level.ADMIN
+                organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
             )
             team = self.create_team(organization)
             if print_steps:
@@ -75,6 +76,11 @@ class MatrixManager:
             assert existing_user.team is not None
             if print_steps:
                 print(f"Found existing account for {email}.")
+            if is_staff and not existing_user.is_staff:
+                # Make sure the user is marked as staff - this is for users who signed up normally before
+                # and now are logging in securely as a PostHog team member
+                existing_user.is_staff = True
+                existing_user.save()
             return (existing_user.organization, existing_user.team, existing_user)
 
     @staticmethod
@@ -116,7 +122,7 @@ class MatrixManager:
     @classmethod
     def _prepare_master_team(cls):
         if not Team.objects.filter(id=cls.MASTER_TEAM_ID).exists():
-            organization = Organization.objects.create(name="PostHog")
+            organization = Organization.objects.create(id=cls.MASTER_TEAM_ID, name="PostHog")
             cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
 
     @classmethod
@@ -246,7 +252,4 @@ class MatrixManager:
 
     @classmethod
     def _is_demo_data_pre_saved(cls) -> bool:
-        from posthog.models.event.sql import GET_TOTAL_EVENTS_VOLUME
-
-        total_events_volume = sync_execute(GET_TOTAL_EVENTS_VOLUME, {"team_id": cls.MASTER_TEAM_ID})[0][0]
-        return total_events_volume > 0
+        return Team.objects.filter(pk=cls.MASTER_TEAM_ID).exists()
