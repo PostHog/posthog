@@ -8,7 +8,7 @@
         "test": "jest --runInBand --forceExit tests/",
         "start": "yarn start:dist",
         "start:dist": "BASE_DIR=.. node dist/index.js",
-        "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts | pino-pretty",
+        "start:dev": "NODE_ENV=dev BASE_DIR=.. ts-node-dev --debug --exit-child src/index.ts 2>&1 | pino-pretty",
         "build": "yarn clean && yarn compile",
         "clean": "rimraf dist/*",
         "typescript:compile": "tsc -b",
