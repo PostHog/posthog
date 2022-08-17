@@ -57,7 +57,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 minLength={1}
                                 maxLength={400} // Sync with action model
                                 data-attr="definition-name-view"
-                                className="definition-name"
                             />
                         }
                         caption={
@@ -103,7 +102,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                         data-attr="edit-definition"
                                         data-tooltip="data-management-event-edit-button"
                                         type="secondary"
-                                        style={{ marginRight: 8 }}
                                         onClick={() => {
                                             setPageMode(DefinitionPageMode.Edit)
                                         }}
@@ -143,6 +141,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 <p className="definition-matching-events-subtext">
                                     This is the list of recent events that match this definition.
                                 </p>
+                                <div className="pt-4 border-t" />
                                 <EventsTable
                                     sceneUrl={backDetailUrl}
                                     pageKey={`definition-page-${definition.id}`}

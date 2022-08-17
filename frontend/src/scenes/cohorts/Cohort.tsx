@@ -1,4 +1,3 @@
-import './Cohort.scss'
 import React from 'react'
 import { cohortLogic, CohortLogicProps } from './cohortLogic'
 import 'antd/lib/dropdown/style/index.css'

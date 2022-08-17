@@ -44,7 +44,7 @@ export function PaginationControl<T>({
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}
-                type="stealth"
+                status="stealth"
                 disabled={!isPreviousAvailable}
                 onClick={() => {
                     pagination?.controlled && pagination.onBackward?.()
@@ -55,7 +55,7 @@ export function PaginationControl<T>({
             />
             <LemonButton
                 icon={<IconChevronRight />}
-                type="stealth"
+                status="stealth"
                 disabled={!isNextAvailable}
                 onClick={() => {
                     pagination?.controlled && pagination.onForward?.()

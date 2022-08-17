@@ -9,9 +9,9 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { useActions, useValues } from 'kea'
 import { confirmOrganizationLogic } from './confirmOrganizationLogic'
 import { Field } from 'lib/forms/Field'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { urls } from 'scenes/urls'
+import { Form } from 'kea-forms'
 
 export const scene: SceneExport = {
     component: ConfirmOrganization,
@@ -21,7 +21,6 @@ export const scene: SceneExport = {
 export function ConfirmOrganization(): JSX.Element {
     const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
-    console.log(showNewOrgWarning)
 
     return (
         <div className="bridge-page ConfirmOrganization">
@@ -61,7 +60,12 @@ export function ConfirmOrganization(): JSX.Element {
                     </div>
                 </div>
 
-                <VerticalForm logic={confirmOrganizationLogic} formKey="confirmOrganization" enableFormOnSubmit>
+                <Form
+                    logic={confirmOrganizationLogic}
+                    formKey="confirmOrganization"
+                    enableFormOnSubmit
+                    className="space-y-4"
+                >
                     <Field name="email" label="Email">
                         <LemonInput className="ph-ignore-input" value={email} disabled />
                     </Field>
@@ -95,12 +99,12 @@ export function ConfirmOrganization(): JSX.Element {
                         center
                         size="large"
                         type="secondary"
-                        loading={isConfirmOrganizationSubmitting}
+                        disabled={isConfirmOrganizationSubmitting}
                         to={urls.signup()}
                     >
                         Cancel
                     </LemonButton>
-                </VerticalForm>
+                </Form>
 
                 <div className="text-center terms-and-conditions-text mt-4 text-muted">
                     By creating an account, you agree to our{' '}
@@ -113,7 +117,7 @@ export function ConfirmOrganization(): JSX.Element {
                     </a>
                     .
                 </div>
-                <LemonDivider thick dashed style={{ marginTop: 24, marginBottom: 24 }} />
+                <LemonDivider thick dashed className="my-6" />
                 <div className="text-center terms-and-conditions-text mt-4 text-muted">
                     Have questions?{' '}
                     <a href={`https://posthog.com/support`} target="_blank" rel="noopener">

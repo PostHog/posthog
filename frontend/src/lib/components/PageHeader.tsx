@@ -23,7 +23,7 @@ export function PageHeader({ title, caption, buttons, style, tabbedPage, delimit
         <>
             {row}
             <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>
-            {delimited && <LemonDivider large />}
+            {delimited && <LemonDivider className="my-4" />}
         </>
     ) : (
         row

@@ -67,15 +67,15 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     )
                                 )
                             }}
-                            label="Breakdown"
-                            rowProps={{ size: 'small', style: { padding: 0, marginLeft: '-0.5rem', font: 'inherit' } }}
+                            label={<span className="font-bold">Breakdown</span>}
+                            size="small"
                         />
                     ),
                     dataIndex: 'breakdown_value',
                     render: function RenderBreakdownValue(breakdownValue: BreakdownKeyType | undefined): JSX.Element {
                         const label = formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, breakdownValue)
                         return isOnlySeries ? (
-                            <span style={{ fontWeight: 500 }}>{label}</span>
+                            <span className="font-medium">{label}</span>
                         ) : (
                             <LemonCheckbox
                                 checked={
@@ -85,11 +85,6 @@ export function FunnelStepsTable(): JSX.Element | null {
                                 } // assume visible status from first step's visibility
                                 onChange={() => toggleVisibilityByBreakdown(breakdownValue)}
                                 label={label}
-                                rowProps={{
-                                    size: 'small',
-                                    style: { padding: 0, marginLeft: '-0.5rem', maxWidth: '16rem' },
-                                    title: label,
-                                }}
                             />
                         )
                     },

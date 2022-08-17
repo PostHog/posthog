@@ -8,7 +8,7 @@ import './LemonTag.scss'
 export type LemonTagPropsType = 'highlight' | 'warning' | 'danger' | 'success' | 'default'
 interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     type?: LemonTagPropsType
-    children: JSX.Element | string
+    children: React.ReactNode
     icon?: JSX.Element
     closable?: boolean
     onClose?: () => void
@@ -32,14 +32,14 @@ export function LemonTag({
             {popup?.overlay && (
                 <LemonButtonWithPopup
                     popup={popup}
-                    type="stealth"
+                    status="stealth"
                     size="small"
                     className="LemonTag__right-button"
                     icon={<IconEllipsis />}
                 />
             )}
             {closable && (
-                <LemonButton onClick={onClose} type="stealth" size="small" className="LemonTag__right-button">
+                <LemonButton onClick={onClose} status="primary" size="small" className="LemonTag__right-button">
                     <IconClose />
                 </LemonButton>
             )}

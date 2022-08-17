@@ -94,6 +94,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     const property_value_type_to_default_operator_override = {
                         [PropertyType.Duration]: PropertyOperator.GreaterThan,
                         [PropertyType.DateTime]: PropertyOperator.IsDateExact,
+                        [PropertyType.Selector]: PropertyOperator.Exact,
                     }
                     const operator =
                         property_name_to_default_operator_override[propertyKey] ||

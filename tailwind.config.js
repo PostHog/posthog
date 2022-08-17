@@ -72,7 +72,7 @@ module.exports = {
         // 'backgroundAttachment', // The background-attachment utilities like bg-local
         // 'backgroundBlendMode', // The background-blend-mode utilities like bg-blend-color-burn
         // 'backgroundClip', // The background-clip utilities like bg-clip-padding
-        // 'backgroundColor', // The background-color utilities like bg-green-700
+        'backgroundColor', // The background-color utilities like bg-green-700
         // 'backgroundImage', // The background-image utilities like bg-gradient-to-br
         // 'backgroundOpacity', // The background-color opacity utilities like bg-opacity-25
         // 'backgroundOrigin', // The background-origin utilities like bg-origin-padding
@@ -101,7 +101,7 @@ module.exports = {
         // 'container', // The container component
         // 'content', // The content utilities like content-none
         // 'contrast', // The contrast utilities like contrast-100
-        // 'cursor', // The cursor utilities like cursor-grab
+        'cursor', // The cursor utilities like cursor-grab
         // 'display', // The display utilities like table-column-group
         // 'divideColor', // The between elements border-color utilities like divide-slate-500
         // 'divideOpacity', // The divide-opacity utilities like divide-opacity-50
@@ -148,7 +148,7 @@ module.exports = {
         // 'letterSpacing', // The letter-spacing utilities like tracking-normal
         // 'lineHeight', // The line-height utilities like leading-9
         // 'listStylePosition', // The list-style-position utilities like list-inside
-        // 'listStyleType', // The list-style-type utilities like list-disc
+        'listStyleType', // The list-style-type utilities like list-disc
         'margin', // The margin utilities like mt-28
         'maxHeight', // The max-height utilities like max-h-36
         'maxWidth', // The max-width utilities like max-w-6xl
@@ -171,7 +171,7 @@ module.exports = {
         // 'placeSelf', // The place-self utilities like place-self-end
         // 'placeholderColor', // The placeholder color utilities like placeholder-red-600
         // 'placeholderOpacity', // The placeholder color opacity utilities like placeholder-opacity-25
-        // 'pointerEvents', // The pointer-events utilities like pointer-events-none
+        'pointerEvents', // The pointer-events utilities like pointer-events-none
         // 'position', // The position utilities like absolute
         // 'preflight', // Tailwind's base/reset styles
         // 'resize', // The resize utilities like resize-y

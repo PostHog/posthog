@@ -1,4 +1,6 @@
-import { kea } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
+import { loaders } from 'kea-loaders'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
 import { eventToDescription, sum, toParams } from 'lib/utils'
@@ -6,16 +8,15 @@ import type { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     PlayerPosition,
-    RecordingConsoleLog,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
     RecordingStartAndEndTime,
-    RRWebRecordingConsoleLogPayload,
     SessionPlayerData,
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
+    SessionRecordingTab,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -28,12 +29,9 @@ import {
     getPlayerTimeFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './player/playerUtils'
-import { lemonToast } from 'lib/components/lemonToast'
-import equal from 'fast-deep-equal'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-
-const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export interface UnparsedRecordingSegment {
     start_time: string
@@ -130,13 +128,13 @@ const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[]
     }))
 }
 
-export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
-    path: ['scenes', 'session-recordings', 'sessionRecordingLogic'],
-    connect: {
+export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
+    path(['scenes', 'session-recordings', 'sessionRecordingLogic']),
+    connect({
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],
-    },
-    actions: {
+    }),
+    actions({
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setSource: (source: RecordingWatchedSource) => ({ source }),
         reportUsage: (recordingData: SessionPlayerData, loadTime: number) => ({
@@ -146,8 +144,9 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
         loadEvents: (url?: string) => ({ url }),
-    },
-    reducers: {
+        setTab: (tab: SessionRecordingTab) => ({ tab }),
+    }),
+    reducers({
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -158,6 +157,12 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
             null as SessionRecordingId | null,
             {
                 loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
+            },
+        ],
+        tab: [
+            SessionRecordingTab.EVENTS as SessionRecordingTab,
+            {
+                setTab: (_, { tab }) => tab,
             },
         ],
         chunkPaginationIndex: [
@@ -180,8 +185,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 setSource: (_, { source }) => source,
             },
         ],
-    },
-    listeners: ({ values, actions, sharedListeners, cache }) => ({
+    }),
+    listeners(({ values, actions, cache }) => ({
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
@@ -221,9 +226,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 cache.eventsStartTime = null
             }
         },
-        loadRecordingMetaFailure: sharedListeners.showErrorToast,
-        loadRecordingSnapshotsFailure: sharedListeners.showErrorToast,
-        loadEventsFailure: sharedListeners.showErrorToast,
         reportUsage: async ({ recordingData, loadTime }, breakpoint) => {
             await breakpoint()
             eventUsageLogic.actions.reportRecording(
@@ -242,13 +244,17 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 10
             )
         },
-    }),
-    sharedListeners: () => ({
-        showErrorToast: ({ error }) => {
-            lemonToast.error(error)
+        setTab: ({ tab }) => {
+            if (tab === SessionRecordingTab.CONSOLE) {
+                eventUsageLogic
+                    .findMounted()
+                    ?.actions?.reportRecordingConsoleViewed(
+                        consoleLogsListLogic.findMounted()?.values?.consoleLogs?.length ?? 0
+                    )
+            }
         },
-    }),
-    loaders: ({ values }) => ({
+    })),
+    loaders(({ values }) => ({
         sessionPlayerData: [
             {
                 snapshotsByWindowId: {},
@@ -385,7 +391,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                         a,
                         b
                     ) {
-                        return a.playerTime - b.playerTime
+                        return (a.playerTime ?? 0) - (b.playerTime ?? 0)
                     })
 
                     return {
@@ -396,8 +402,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 },
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         eventsToShow: [
             (selectors) => [selectors.filters, selectors.sessionEventsData],
             (filters, sessionEventsData) => {
@@ -435,86 +441,8 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
                 }
             },
         ],
-        orderedConsoleLogs: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
-                const orderedConsoleLogs: RecordingConsoleLog[] = []
-                sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
-                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME &&
-                            snapshot.timestamp >= segment.startTimeEpochMs &&
-                            snapshot.timestamp <= segment.endTimeEpochMs
-                        ) {
-                            const { level, payload, trace } = snapshot.data.payload as RRWebRecordingConsoleLogPayload
-
-                            const parsedPayload = payload
-                                ?.map?.((item) =>
-                                    item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
-                                )
-                                .join(' ')
-
-                            // Parse the trace string
-                            let parsedTraceString
-                            let parsedTraceURL
-                            // trace[] contains strings that looks like:
-                            // * ":123:456"
-                            // * "https://example.com/path/to/file.js:123:456"
-                            // * "Login (https://example.com/path/to/file.js:123:456)"
-                            // Note: there may be other formats too, but we only handle these ones now
-                            if (trace && trace.length > 0) {
-                                const traceWithoutParentheses = trace[0].split('(').slice(-1)[0].replace(')', '')
-                                const splitTrace = traceWithoutParentheses.split(':')
-                                const lineNumbers = splitTrace.slice(-2).join(':')
-                                parsedTraceURL = splitTrace.slice(0, -2).join(':')
-                                if (splitTrace.length >= 4) {
-                                    // Case with URL and line number
-                                    try {
-                                        const fileNameFromURL = new URL(parsedTraceURL).pathname.split('/').slice(-1)[0]
-                                        parsedTraceString = `${fileNameFromURL}:${lineNumbers}`
-                                    } catch (e) {
-                                        // If we can't parse the URL, fall back to this line number
-                                        parsedTraceString = `:${lineNumbers}`
-                                    }
-                                } else {
-                                    // Case with line number only
-                                    parsedTraceString = `:${lineNumbers}`
-                                }
-                            }
-
-                            orderedConsoleLogs.push({
-                                playerPosition: getPlayerPositionFromEpochTime(
-                                    snapshot.timestamp,
-                                    segment.windowId,
-                                    sessionPlayerData.metadata.startAndEndTimesByWindowId
-                                ),
-                                parsedTraceURL,
-                                parsedTraceString,
-                                parsedPayload,
-                                level,
-                            })
-                        }
-                    })
-                })
-                return orderedConsoleLogs
-            },
-        ],
-        areAllSnapshotsLoaded: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
-                return (
-                    sessionPlayerData.bufferedTo &&
-                    sessionPlayerData.metadata.segments.slice(-1)[0] &&
-                    equal(
-                        sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition,
-                        sessionPlayerData.bufferedTo
-                    )
-                )
-            },
-        ],
-    },
-    urlToAction: ({ actions, values, cache }) => {
+    }),
+    urlToAction(({ actions, values, cache }) => {
         const urlToAction = (
             _: any,
             params: {
@@ -540,5 +468,5 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>({
         return {
             '*': urlToAction,
         }
-    },
-})
+    }),
+])

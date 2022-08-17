@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonInput } from './LemonInput'
-import { IconArrowDropDown, IconMagnifier } from 'lib/components/icons'
+import { IconArrowDropDown, IconCalendar } from 'lib/components/icons'
 import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 
 export default {
@@ -21,11 +21,12 @@ const Template: ComponentStory<typeof LemonInput> = (props) => {
 
 export const Basic = Template.bind({})
 
-export const WithSearchIconAndSideAction = Template.bind({})
-WithSearchIconAndSideAction.args = {
-    icon: <IconMagnifier />,
-    sideIcon: (
+export const WithPrefixAndSuffixAction = Template.bind({})
+WithPrefixAndSuffixAction.args = {
+    prefix: <IconCalendar />,
+    suffix: (
         <LemonButtonWithPopup
+            noPadding
             popup={{
                 overlay: 'Surprise! 😱',
             }}
@@ -35,11 +36,14 @@ WithSearchIconAndSideAction.args = {
     ),
 }
 
+export const Search = Template.bind({})
+Search.args = { type: 'search', placeholder: 'Search your soul' }
+
+export const Password = Template.bind({})
+Password.args = { type: 'password', placeholder: 'Enter your password' }
+
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
-
-export const Embedded = Template.bind({})
-Embedded.args = { embedded: true }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }

@@ -1,8 +1,6 @@
 import React from 'react'
-import { Modal, Input } from 'antd'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
-import { ExclamationCircleOutlined, SwapOutlined } from '@ant-design/icons'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -19,6 +17,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonInput } from '@posthog/lemon-ui'
+import { LemonDialog } from 'lib/components/LemonDialog'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -54,7 +54,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                     ) : (
                         allowedLevels.map((listLevel) => (
                             <LemonButton
-                                type="stealth"
+                                status="stealth"
                                 fullWidth
                                 key={`${member.user.uuid}-level-${listLevel}`}
                                 onClick={(event) => {
@@ -63,15 +63,16 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                         throw Error
                                     }
                                     if (listLevel === OrganizationMembershipLevel.Owner) {
-                                        Modal.confirm({
-                                            centered: true,
+                                        LemonDialog.open({
                                             title: `Transfer organization ownership to ${member.user.first_name}?`,
-                                            content: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
-                                            icon: <SwapOutlined />,
-                                            okType: 'danger',
-                                            okText: 'Transfer Ownership',
-                                            onOk() {
-                                                changeMemberAccessLevel(member, listLevel)
+                                            description: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Transfer Ownership',
+                                                onClick: () => changeMemberAccessLevel(member, listLevel),
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
                                             },
                                         })
                                     } else {
@@ -94,25 +95,25 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                         <>
                             <LemonDivider />
                             <LemonButton
-                                type="stealth"
                                 status="danger"
                                 data-attr="delete-org-membership"
                                 onClick={() => {
                                     if (!user) {
                                         throw Error
                                     }
-                                    Modal.confirm({
+                                    LemonDialog.open({
                                         title: `${
                                             member.user.uuid == user.uuid
                                                 ? 'Leave'
                                                 : `Remove ${member.user.first_name} from`
                                         } organization ${user.organization?.name}?`,
-                                        icon: <ExclamationCircleOutlined />,
-                                        okText: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
-                                        okType: 'danger',
-                                        cancelText: 'Cancel',
-                                        onOk() {
-                                            removeMember(member)
+                                        primaryButton: {
+                                            children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
+                                            status: 'danger',
+                                            onClick: () => removeMember(member),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
                                         },
                                     })
                                 }}
@@ -196,16 +197,7 @@ export function Members({ user }: MembersProps): JSX.Element {
     return (
         <>
             <h2 className="subtitle">Members</h2>
-            <Input.Search
-                placeholder="Search for members"
-                allowClear
-                enterButton
-                style={{ maxWidth: 600, width: 'initial', flexGrow: 1, marginRight: 12 }}
-                value={search}
-                onChange={(e) => {
-                    setSearch(e.target.value)
-                }}
-            />
+            <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
             <LemonTable
                 dataSource={filteredMembers}
                 columns={columns}

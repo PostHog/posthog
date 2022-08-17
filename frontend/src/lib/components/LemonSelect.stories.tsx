@@ -1,6 +1,7 @@
 import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 export default {
     title: 'Lemon UI/Lemon Select',
@@ -17,7 +18,16 @@ export default {
 } as ComponentMeta<typeof LemonSelect>
 
 const Template: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<LemonSelectOptions>) => {
-    return <LemonSelect {...props} />
+    return (
+        <div className="flex flex-row items-center w-full border p-4 gap-2">
+            {(['small', undefined] as const).map((size, index) => (
+                <div className="flex flex-col" key={index}>
+                    <h5>size={capitalizeFirstLetter(size || 'unspecified')}</h5>
+                    <LemonSelect {...props} size={size} />
+                </div>
+            ))}
+        </div>
+    )
 }
 
 export const Default = Template.bind({})
@@ -55,9 +65,6 @@ SectionedOptions.args = {
         },
     ],
 }
-
-export const Stealth = Template.bind({})
-Stealth.args = { type: 'stealth', outlined: true }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }

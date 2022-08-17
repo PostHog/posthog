@@ -27,8 +27,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    Element,
-    Event,
     EventDefinitionType,
     EventPropertyType,
     Group,
@@ -46,24 +44,25 @@ import {
     PluginLogEntryType,
     PluginLogLevel,
     PluginSourceFileStatus,
-    PostgresSessionRecordingEvent,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
     RawAction,
+    RawClickHouseEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
-    SessionRecordingEvent,
+    RawSessionRecordingEvent,
     Team,
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
 import {
     castTimestampOrNow,
-    clickHouseTimestampToISO,
     escapeClickHouseString,
+    NoRowsUpdatedError,
     RaceConditionError,
     sanitizeSqlIdentifier,
     tryTwice,
@@ -72,7 +71,6 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
-import { chainToElements } from './elements-chain'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import {
     generateKafkaPersonUpdateMessage,
@@ -132,14 +130,13 @@ export type GroupIdentifier = {
     key: string
 }
 
-type GroupProperties = {
+type GroupCacheData = {
     identifier: GroupIdentifier
-    properties: Properties | null
-}
-
-type GroupCreatedAt = {
-    identifier: GroupIdentifier
-    createdAt: DateTime | null
+    data: {
+        properties: Properties
+        created_at: DateTime
+    } | null
+    cached?: boolean
 }
 
 /** The recommended way of accessing the database. */
@@ -225,7 +222,7 @@ export class DB {
         })
     }
 
-    public postgresTransaction<ReturnType extends any>(
+    public postgresTransaction<ReturnType>(
         tag: string,
         transaction: (client: PoolClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
@@ -247,16 +244,46 @@ export class DB {
         })
     }
 
+    public async postgresBulkInsert<T extends Array<any>>(
+        // Should have {VALUES} as a placeholder
+        queryWithPlaceholder: string,
+        values: Array<T>,
+        tag: string,
+        client?: PoolClient
+    ): Promise<void> {
+        if (values.length === 0) {
+            return
+        }
+
+        const valuesWithPlaceholders = values
+            .map((array, index) => {
+                const len = array.length
+                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
+                return `(${valuesWithIndexes.join(', ')})`
+            })
+            .join(', ')
+
+        await this.postgresQuery(
+            queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders),
+            values.flat(),
+            tag,
+            client
+        )
+    }
+
     // ClickHouse
 
-    public clickhouseQuery(
+    public clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
         query: string,
         options?: ClickHouse.QueryOptions
-    ): Promise<ClickHouse.QueryResult<Record<string, any>>> {
+    ): Promise<ClickHouse.ObjectQueryResult<R>> {
         return instrumentQuery(this.statsd, 'query.clickhouse', undefined, async () => {
             const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
             try {
-                return await this.clickhouse.querying(query, options)
+                const queryResult = await this.clickhouse.querying(query, options)
+                // This is annoying to type, because the result depends on contructor and query options provided
+                // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
+                return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
             } finally {
                 clearTimeout(timeout)
             }
@@ -265,7 +292,7 @@ export class DB {
 
     // Redis
 
-    public redisGet(key: string, defaultValue: unknown, options: CacheOptions = {}): Promise<unknown> {
+    public redisGet<T = unknown>(key: string, defaultValue: T, options: CacheOptions = {}): Promise<T | null> {
         const { jsonSerialize = true } = options
 
         return instrumentQuery(this.statsd, 'query.regisGet', undefined, async () => {
@@ -276,7 +303,7 @@ export class DB {
                     async () => await client.get(key),
                     `Waited 5 sec to get redis key: ${key}, retrying once!`
                 )
-                if (typeof value === 'undefined') {
+                if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
                 return value ? (jsonSerialize ? JSON.parse(value) : value) : null
@@ -307,6 +334,32 @@ export class DB {
                 } else {
                     await client.set(key, serializedValue)
                 }
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
+    public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
+        const { jsonSerialize = true } = options
+
+        return instrumentQuery(this.statsd, 'query.redisSet', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set keys', {
+                keys: kv.map((x) => x[0]),
+            })
+            try {
+                let pipeline = client.multi()
+                for (const [key, value] of kv) {
+                    const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+                    if (ttlSeconds) {
+                        pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
+                    } else {
+                        pipeline = pipeline.set(key, serializedValue)
+                    }
+                }
+                await pipeline.exec()
             } finally {
                 clearTimeout(timeout)
                 await this.redisPool.release(client)
@@ -488,8 +541,7 @@ export class DB {
     REDIS_PERSON_UUID_PREFIX = 'person_uuid'
     REDIS_PERSON_CREATED_AT_PREFIX = 'person_created_at'
     REDIS_PERSON_PROPERTIES_PREFIX = 'person_props'
-    REDIS_GROUP_PROPERTIES_PREFIX = 'group_props'
-    REDIS_GROUP_CREATED_AT_PREFIX = 'group_created_at'
+    REDIS_GROUP_DATA_PREFIX = 'group_data_cache'
 
     private getPersonIdCacheKey(teamId: number, distinctId: string): string {
         return `${this.REDIS_PERSON_ID_PREFIX}:${teamId}:${distinctId}`
@@ -507,12 +559,8 @@ export class DB {
         return `${this.REDIS_PERSON_PROPERTIES_PREFIX}:${teamId}:${personId}`
     }
 
-    private getGroupCreatedAtCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
-        return `${this.REDIS_GROUP_CREATED_AT_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
-    }
-
-    private getGroupPropertiesCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
-        return `${this.REDIS_GROUP_PROPERTIES_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
+    private getGroupDataCacheKey(teamId: number, groupTypeIndex: number, groupKey: string): string {
+        return `${this.REDIS_GROUP_DATA_PREFIX}:${teamId}:${groupTypeIndex}:${groupKey}`
     }
 
     private async updatePersonIdCache(teamId: number, distinctId: string, personId: number): Promise<void> {
@@ -555,42 +603,20 @@ export class DB {
         }
     }
 
-    private async updateGroupCreatedAtIsoCache(
-        teamId: number,
-        groupTypeIndex: number,
-        groupKey: string,
-        createdAtIso: string
-    ): Promise<void> {
+    // Exported for tests only
+    public async updateGroupDataCache(teamId: number, groupsCacheData: GroupCacheData[]): Promise<void> {
         if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(
-                this.getGroupCreatedAtCacheKey(teamId, groupTypeIndex, groupKey),
-                createdAtIso,
-                this.PERSONS_AND_GROUPS_CACHE_TTL
-            )
-        }
-    }
-
-    private async updateGroupCreatedAtCache(
-        teamId: number,
-        groupTypeIndex: number,
-        groupKey: string,
-        createdAt: DateTime
-    ): Promise<void> {
-        await this.updateGroupCreatedAtIsoCache(teamId, groupTypeIndex, groupKey, createdAt.toISO())
-    }
-
-    private async updateGroupPropertiesCache(
-        teamId: number,
-        groupTypeIndex: number,
-        groupKey: string,
-        properties: Properties
-    ): Promise<void> {
-        if (this.personAndGroupsCachingEnabledTeams.has(teamId)) {
-            await this.redisSet(
-                this.getGroupPropertiesCacheKey(teamId, groupTypeIndex, groupKey),
-                properties,
-                this.PERSONS_AND_GROUPS_CACHE_TTL
-            )
+            const kv: Array<[string, any]> = groupsCacheData.map((group) => {
+                const key = this.getGroupDataCacheKey(teamId, group.identifier.index, group.identifier.key)
+                const value = group.data
+                    ? {
+                          properties: group.data.properties,
+                          created_at: group.data.created_at.toISO(),
+                      }
+                    : null
+                return [key, value]
+            })
+            return await this.redisSetMulti(kv, this.PERSONS_AND_GROUPS_CACHE_TTL)
         }
     }
 
@@ -671,28 +697,30 @@ export class DB {
         return undefined
     }
 
-    private async getGroupCreatedAt(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupCreatedAt> {
-        const createdAt = await this.redisGet(
-            this.getGroupCreatedAtCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
-            null
+    // Exported for tests only
+    public async getGroupDataCache(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupCacheData> {
+        const data = await this.redisGet<{ properties: Properties; created_at: string } | null | 'missing'>(
+            this.getGroupDataCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
+            'missing'
         )
-        return { identifier: groupIdentifier, createdAt: createdAt ? DateTime.fromISO(createdAt as string) : null }
+
+        if (data === 'missing' || !data) {
+            return { identifier: groupIdentifier, data: null, cached: !data }
+        }
+        return {
+            identifier: groupIdentifier,
+            data: { properties: data.properties, created_at: DateTime.fromISO(data.created_at).toUTC() },
+            cached: true,
+        }
     }
 
-    private async getGroupProperties(teamId: number, groupIdentifier: GroupIdentifier): Promise<GroupProperties> {
-        const props = await this.redisGet(
-            this.getGroupPropertiesCacheKey(teamId, groupIdentifier.index, groupIdentifier.key),
-            null
-        )
-        return { identifier: groupIdentifier, properties: props ? (props as Properties) : null }
-    }
-
-    private async getGroupPropertiesFromDbAndUpdateCache(
+    // Exported for tests only
+    public async fetchGroupDataAndUpdateCache(
         teamId: number,
         groupIdentifiers: GroupIdentifier[]
-    ): Promise<Record<string, string>> {
+    ): Promise<GroupCacheData[]> {
         if (groupIdentifiers.length === 0) {
-            return {}
+            return []
         }
         const queryOptions: string[] = []
         const args: any[] = [teamId]
@@ -706,134 +734,73 @@ export class DB {
             index += 2
             args.push(groupIdentifier.index, groupIdentifier.key)
         }
-        const result = await this.postgresQuery(
-            'SELECT group_type_index, group_key, group_properties FROM posthog_group WHERE team_id=$1 AND '.concat(
+        const queryResult = await this.postgresQuery<{
+            group_type_index: number
+            group_key: string
+            group_properties: Properties
+            created_at: string
+        }>(
+            'SELECT group_type_index, group_key, group_properties, created_at FROM posthog_group WHERE team_id=$1 AND '.concat(
                 queryOptions.join(' OR ')
             ),
             args,
             'getGroupProperties'
         )
 
-        // Cache as empty dict if null so we don't query the DB at every request if there aren't any properties
-        let notHandledIdentifiers = groupIdentifiers
+        const result: GroupCacheData[] = groupIdentifiers.map((identifier) => {
+            const row = queryResult.rows.filter(
+                (row) => row.group_key === identifier.key && row.group_type_index == identifier.index
+            )[0]
 
-        const res: Record<string, string> = {}
-        for (const row of result.rows) {
-            const index = Number(row.group_type_index)
-            const key = String(row.group_key)
-            const properties = row.group_properties as Properties
-            notHandledIdentifiers = notHandledIdentifiers.filter((gi) => !(gi.index === index && gi.key === key))
-            this.promiseManager.trackPromise(this.updateGroupPropertiesCache(teamId, index, key, properties))
-            res[`group${index}_properties`] = JSON.stringify(properties)
-        }
+            return {
+                identifier,
+                data: row
+                    ? {
+                          properties: row.group_properties,
+                          created_at: DateTime.fromISO(row.created_at).toUTC(),
+                      }
+                    : null,
+            }
+        })
 
-        for (const groupIdentifier of notHandledIdentifiers) {
-            this.promiseManager.trackPromise(
-                this.updateGroupPropertiesCache(teamId, groupIdentifier.index, groupIdentifier.key, {})
-            )
-            res[`group${groupIdentifier.index}_properties`] = JSON.stringify({}) // also adding to event for consistency
-        }
-        return res
+        // We update the cache for every row, including missing ones to avoid hitting the DB consistently
+        this.promiseManager.trackPromise(this.updateGroupDataCache(teamId, result))
+        return result
     }
 
-    public async getGroupsCreatedAtFromDbAndUpdateCache(
-        teamId: number,
-        groupIdentifiers: GroupIdentifier[]
-    ): Promise<Record<string, string>> {
-        if (groupIdentifiers.length === 0) {
+    public async fetchGroupColumnsValues(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
+        if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
             return {}
         }
-        const queryOptions: string[] = []
-        const args: any[] = [teamId]
-        let index = args.length + 1
-        for (const groupIdentifier of groupIdentifiers) {
-            this.statsd?.increment(`group_created_at_cache.miss`, {
-                team_id: teamId.toString(),
-                group_type_index: groupIdentifier.index.toString(),
-            })
-            queryOptions.push(`(group_type_index = $${index} AND group_key = $${index + 1})`)
-            index += 2
-            args.push(groupIdentifier.index, groupIdentifier.key)
-        }
-        const result = await this.postgresQuery(
-            'SELECT group_type_index, group_key, created_at FROM posthog_group WHERE team_id=$1 AND '.concat(
-                queryOptions.join(' OR ')
-            ),
-            args,
-            'getGroupsCreatedAt'
+
+        const cachedResults = await Promise.all(
+            groups.map((groupIdentifier) => this.getGroupDataCache(teamId, groupIdentifier))
         )
 
-        const res: Record<string, string> = {}
-        for (const row of result.rows) {
-            const index = Number(row.group_type_index)
-            const key = String(row.group_key)
-            const createdAt = DateTime.fromISO(row.created_at)
-            this.promiseManager.trackPromise(this.updateGroupCreatedAtCache(teamId, index, key, createdAt))
-            res[`group${index}_created_at`] = castTimestampOrNow(createdAt, TimestampFormat.ClickHouse)
-        }
+        let columns: Record<string, string> = this.groupCacheDataToColumns(cachedResults)
+        const groupsWithoutCachedData = cachedResults
+            .filter((groupData) => !groupData.cached)
+            .map((groupData) => groupData.identifier)
 
-        return res
+        if (groupsWithoutCachedData.length > 0) {
+            const fetchedResults = await this.fetchGroupDataAndUpdateCache(teamId, groupsWithoutCachedData)
+            columns = { ...columns, ...this.groupCacheDataToColumns(fetchedResults) }
+        }
+        return columns
     }
 
-    public async getCreatedAtForGroups(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
-        if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
-            return {}
-        }
-        const promises = groups.map((groupIdentifier) => {
-            return this.getGroupCreatedAt(teamId, groupIdentifier)
-        })
-        const cachedRes = await Promise.all(promises)
-        let res: Record<string, string> = {}
-        const groupsToLookupFromDb = []
-        for (const group of cachedRes) {
-            if (group.createdAt) {
-                res[`group${group.identifier.index}_created_at`] = castTimestampOrNow(
-                    group.createdAt,
+    private groupCacheDataToColumns(groupCacheData: GroupCacheData[]): Record<string, string> {
+        const result: Record<string, string> = {}
+        for (const group of groupCacheData) {
+            if (group.data) {
+                result[`group${group.identifier.index}_properties`] = JSON.stringify(group.data.properties)
+                result[`group${group.identifier.index}_created_at`] = castTimestampOrNow(
+                    group.data.created_at,
                     TimestampFormat.ClickHouse
                 )
-                this.statsd?.increment(`group_created_at_cache.hit`, {
-                    team_id: teamId.toString(),
-                    group_type_index: group.identifier.index.toString(),
-                })
-            } else {
-                groupsToLookupFromDb.push(group.identifier)
             }
         }
-
-        if (groupsToLookupFromDb.length > 0) {
-            const fromDb = await this.getGroupsCreatedAtFromDbAndUpdateCache(teamId, groupsToLookupFromDb)
-            res = { ...res, ...fromDb }
-        }
-        return res
-    }
-
-    public async getPropertiesForGroups(teamId: number, groups: GroupIdentifier[]): Promise<Record<string, string>> {
-        if (!this.personAndGroupsCachingEnabledTeams.has(teamId) || !groups) {
-            return {}
-        }
-        const promises = groups.map((groupIdentifier) => {
-            return this.getGroupProperties(teamId, groupIdentifier)
-        })
-        const cachedRes = await Promise.all(promises)
-        let res: Record<string, string> = {}
-        const groupsToLookupFromDb = []
-        for (const group of cachedRes) {
-            if (group.properties) {
-                res[`group${group.identifier.index}_properties`] = JSON.stringify(group.properties)
-                this.statsd?.increment(`group_properties_cache.hit`, {
-                    team_id: teamId.toString(),
-                    group_type_index: group.identifier.index.toString(),
-                })
-            } else {
-                groupsToLookupFromDb.push(group.identifier)
-            }
-        }
-
-        if (groupsToLookupFromDb.length > 0) {
-            const fromDb = await this.getGroupPropertiesFromDbAndUpdateCache(teamId, groupsToLookupFromDb)
-            res = { ...res, ...fromDb }
-        }
-        return res
+        return result
     }
 
     public async fetchPersons(database?: Database.Postgres): Promise<Person[]>
@@ -885,10 +852,16 @@ export class DB {
         options: { forUpdate?: boolean } = {}
     ): Promise<Person | undefined> {
         let queryString = `SELECT
-                posthog_person.id, posthog_person.created_at, posthog_person.team_id, posthog_person.properties,
-                posthog_person.properties_last_updated_at, posthog_person.properties_last_operation, posthog_person.is_user_id, posthog_person.is_identified,
-                posthog_person.uuid, posthog_person.version, posthog_persondistinctid.team_id AS persondistinctid__team_id,
-                posthog_persondistinctid.distinct_id AS persondistinctid__distinct_id
+                posthog_person.id,
+                posthog_person.uuid,
+                posthog_person.created_at,
+                posthog_person.team_id,
+                posthog_person.properties,
+                posthog_person.properties_last_updated_at,
+                posthog_person.properties_last_operation,
+                posthog_person.is_user_id,
+                posthog_person.version,
+                posthog_person.is_identified
             FROM posthog_person
             JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
             WHERE
@@ -901,10 +874,15 @@ export class DB {
         }
         const values = [teamId, distinctId]
 
-        const selectResult: QueryResult = await this.postgresQuery(queryString, values, 'fetchPerson', client)
+        const selectResult: QueryResult = await this.postgresQuery<RawPerson>(
+            queryString,
+            values,
+            'fetchPerson',
+            client
+        )
 
         if (selectResult.rows.length > 0) {
-            const rawPerson: RawPerson = selectResult.rows[0]
+            const rawPerson = selectResult.rows[0]
             return {
                 ...rawPerson,
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
@@ -1003,7 +981,9 @@ export class DB {
 
         const updateResult: QueryResult = await this.postgresQuery(queryString, values, 'updatePerson', client)
         if (updateResult.rows.length == 0) {
-            throw new Error(`Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`)
+            throw new NoRowsUpdatedError(
+                `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
+            )
         }
         const updatedPersonRaw = updateResult.rows[0] as RawPerson
         const updatedPerson = {
@@ -1329,41 +1309,13 @@ export class DB {
         )
     }
 
-    // Event
+    // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
 
     public async fetchEvents(): Promise<ClickHouseEvent[]> {
-        const events = (await this.clickhouseQuery(`SELECT * FROM events ORDER BY timestamp ASC`))
-            .data as ClickHouseEvent[]
-        return (
-            events?.map(
-                (event) =>
-                    ({
-                        ...event,
-                        ...(typeof event['properties'] === 'string'
-                            ? { properties: JSON.parse(event.properties) }
-                            : {}),
-                        ...(!!event['person_properties'] && typeof event['person_properties'] === 'string'
-                            ? { person_properties: JSON.parse(event.person_properties) }
-                            : {}),
-                        ...(!!event['group0_properties'] && typeof event['group0_properties'] === 'string'
-                            ? { group0_properties: JSON.parse(event.group0_properties) }
-                            : {}),
-                        ...(!!event['group1_properties'] && typeof event['group1_properties'] === 'string'
-                            ? { group1_properties: JSON.parse(event.group1_properties) }
-                            : {}),
-                        ...(!!event['group2_properties'] && typeof event['group2_properties'] === 'string'
-                            ? { group2_properties: JSON.parse(event.group2_properties) }
-                            : {}),
-                        ...(!!event['group3_properties'] && typeof event['group3_properties'] === 'string'
-                            ? { group3_properties: JSON.parse(event.group3_properties) }
-                            : {}),
-                        ...(!!event['group4_properties'] && typeof event['group4_properties'] === 'string'
-                            ? { group4_properties: JSON.parse(event.group4_properties) }
-                            : {}),
-                        timestamp: clickHouseTimestampToISO(event.timestamp),
-                    } as ClickHouseEvent)
-            ) || []
+        const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
+            `SELECT * FROM events ORDER BY timestamp ASC`
         )
+        return queryResult.data.map(parseRawClickHouseEvent)
     }
 
     public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
@@ -1374,10 +1326,10 @@ export class DB {
 
     // SessionRecordingEvent
 
-    public async fetchSessionRecordingEvents(): Promise<PostgresSessionRecordingEvent[] | SessionRecordingEvent[]> {
+    public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
         const events = (
-            (await this.clickhouseQuery(`SELECT * FROM session_recording_events`)).data as SessionRecordingEvent[]
-        ).map((event) => {
+            await this.clickhouseQuery<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
+        ).data.map((event) => {
             return {
                 ...event,
                 snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
@@ -1386,19 +1338,7 @@ export class DB {
         return events
     }
 
-    // Element
-
-    public async fetchElements(event?: Event): Promise<Element[]> {
-        const events = (
-            await this.clickhouseQuery(
-                `SELECT elements_chain FROM events WHERE uuid='${escapeClickHouseString((event as any).uuid)}'`
-            )
-        ).data as ClickHouseEvent[]
-        const chain = events?.[0]?.elements_chain
-        return chain ? chainToElements(chain) : []
-    }
-
-    // PluginLogEntry (NOTE: not a Django model anymore, stored in ClickHouse table `plugin_log_entries`)
+    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
 
     public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
         const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)
@@ -1870,10 +1810,12 @@ export class DB {
         if (options?.cache) {
             // group identify event doesn't need groups properties attached so we don't need to await
             this.promiseManager.trackPromise(
-                this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
-            )
-            this.promiseManager.trackPromise(
-                this.updateGroupCreatedAtCache(teamId, groupTypeIndex, groupKey, createdAt)
+                this.updateGroupDataCache(teamId, [
+                    {
+                        identifier: { index: groupTypeIndex, key: groupKey },
+                        data: { properties: groupProperties, created_at: createdAt },
+                    },
+                ])
             )
         }
     }
@@ -1913,7 +1855,14 @@ export class DB {
             client
         )
         // group identify event doesn't need groups properties attached so we don't need to await
-        void this.updateGroupPropertiesCache(teamId, groupTypeIndex, groupKey, groupProperties)
+        this.promiseManager.trackPromise(
+            this.updateGroupDataCache(teamId, [
+                {
+                    identifier: { index: groupTypeIndex, key: groupKey },
+                    data: { properties: groupProperties, created_at: createdAt },
+                },
+            ])
+        )
     }
 
     public async upsertGroupClickhouse(

@@ -9,14 +9,14 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.shortcuts import redirect
 from django.urls.base import reverse
-from rest_framework import exceptions, generics, permissions, response, serializers, validators
+from rest_framework import exceptions, generics, permissions, response, serializers
 from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.demo.hedgebox import HedgeboxMatrix
 from posthog.demo.matrix import MatrixManager
+from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
@@ -28,23 +28,28 @@ logger = structlog.get_logger(__name__)
 
 class SignupSerializer(serializers.Serializer):
     first_name: serializers.Field = serializers.CharField(max_length=128)
-    email: serializers.Field = serializers.EmailField(
-        validators=[
-            validators.UniqueValidator(
-                queryset=User.objects.all(), message="There is already an account with this email address."
-            )
-        ]
-        if not settings.DEMO
-        else []  # In the demo environment, we treat an email collision in signup as login
-    )
-    password: serializers.Field = serializers.CharField(allow_null=True, required=not settings.DEMO)
+    email: serializers.Field = serializers.EmailField()
+    password: serializers.Field = serializers.CharField(allow_null=True, required=True)
     organization_name: serializers.Field = serializers.CharField(max_length=128, required=False, allow_blank=True)
     email_opt_in: serializers.Field = serializers.BooleanField(default=True)
 
     # Slightly hacky: self vars for internal use
+    is_social_signup: bool
     _user: User
     _team: Team
     _organization: Organization
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.is_social_signup = False
+
+    def get_fields(self) -> Dict[str, serializers.Field]:
+        fields = super().get_fields()
+        if settings.DEMO:
+            # There's no password in the demo env
+            # To log in, a user just needs to attempt sign up with an email that's already in use
+            fields.pop("password")
+        return fields
 
     def validate_password(self, value):
         if value is not None:
@@ -59,12 +64,18 @@ class SignupSerializer(serializers.Serializer):
 
         organization_name = validated_data.pop("organization_name", validated_data["first_name"])
 
-        self._organization, self._team, self._user = User.objects.bootstrap(
-            organization_name=organization_name,
-            create_team=self.create_team,
-            **validated_data,
-            is_staff=is_instance_first_user,
-        )
+        try:
+            self._organization, self._team, self._user = User.objects.bootstrap(
+                organization_name=organization_name,
+                create_team=self.create_team,
+                **validated_data,
+                is_staff=is_instance_first_user,
+            )
+        except IntegrityError:
+            raise exceptions.ValidationError(
+                {"email": "There is already an account with this email address."}, code="unique"
+            )
+
         user = self._user
 
         login(
@@ -88,11 +99,14 @@ class SignupSerializer(serializers.Serializer):
         email = validated_data["email"]
         first_name = validated_data["first_name"]
         organization_name = validated_data["organization_name"]
-        matrix = HedgeboxMatrix(settings.SECRET_KEY, n_clusters=50,)
+        # In the demo env, social signups gets staff privileges
+        # - grep SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS for more info
+        is_staff = self.is_social_signup
+        matrix = HedgeboxMatrix(n_clusters=300 if not settings.TEST else 1)
         with transaction.atomic():
-            self._organization, self._team, self._user = MatrixManager(matrix, pre_save=True).ensure_account_and_save(
-                email, first_name, organization_name
-            )
+            self._organization, self._team, self._user = MatrixManager(
+                matrix, use_pre_save=True
+            ).ensure_account_and_save(email, first_name, organization_name, is_staff=is_staff)
 
         login(
             self.context["request"], self._user, backend="django.contrib.auth.backends.ModelBackend",
@@ -261,6 +275,7 @@ class SocialSignupSerializer(serializers.Serializer):
             data={"organization_name": organization_name, "first_name": first_name, "email": email, "password": None,},
             context={"request": request},
         )
+        serializer.is_social_signup = True
 
         serializer.is_valid(raise_exception=True)
         user = serializer.save()

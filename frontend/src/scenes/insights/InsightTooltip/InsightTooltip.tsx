@@ -18,6 +18,7 @@ import { shortTimeZone } from 'lib/utils'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useValues } from 'kea'
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatAggregationValue } from 'scenes/insights/utils'
 
 export function ClickToInspectActors({
     isTruncated,
@@ -47,16 +48,11 @@ function renderDatumToTableCell(
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
     renderCount: (value: number) => React.ReactNode
 ): ReactNode {
-    let innerValue = datumMathProperty
-        ? formatPropertyValueForDisplay(datumMathProperty, datumValue)
-        : renderCount(datumValue ?? 0)
-
-    if (datumMathProperty && innerValue === datumValue.toString()) {
-        // formatPropertyValueForDisplay didn't change the value...
-        innerValue = renderCount(datumValue ?? 0)
-    }
-
-    return <div className="series-data-cell">{innerValue}</div>
+    return (
+        <div className="series-data-cell">
+            {formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)}
+        </div>
+    )
 }
 
 export function InsightTooltip({
@@ -66,10 +62,10 @@ export function InsightTooltip({
     altTitle,
     altRightTitle,
     renderSeries = (value: React.ReactNode, datum: SeriesDatum) => (
-        <>
+        <div className="datum-label-column">
             <SeriesLetter className="mr-2" hasBreakdown={false} seriesIndex={datum?.action?.order ?? datum.id} />
             {value}
-        </>
+        </div>
     ),
     renderCount = (value: number) => {
         return <>{humanFriendlyNumber(value)}</>
@@ -94,7 +90,7 @@ export function InsightTooltip({
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
-        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${shortTimeZone(timezone)})`
+        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
     const renderTable = (): JSX.Element => {
         if (itemizeEntitiesAsColumns) {
@@ -177,7 +173,6 @@ export function InsightTooltip({
 
         columns.push({
             key: 'datum',
-            className: 'datum-label-column',
             width: 120,
             title: <span className="whitespace-nowrap">{title}</span>,
             sticky: true,

@@ -34,6 +34,7 @@ from posthog.settings import CLICKHOUSE_REPLICATION
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
+persons_ordering_int: int = 0
 
 
 def _setup_test_data(klass):
@@ -147,6 +148,8 @@ class TestMixin:
             raise Exception(
                 "Some events created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all events."
             )
+        global persons_ordering_int
+        persons_ordering_int = 0
         super().tearDown()  # type: ignore
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
@@ -263,6 +266,8 @@ class QueryMatchingTest:
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            # feature flag conditions use primary keys as columns in queries, so replace those too
+            query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
 
@@ -396,7 +401,11 @@ def _create_person(*args, **kwargs):
     Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
     Pass immediate=True to create immediately and get a pk back
     """
-    kwargs["uuid"] = uuid.uuid4()
+    global persons_ordering_int
+    kwargs["uuid"] = uuid.UUID(
+        int=persons_ordering_int, version=4
+    )  # make sure the ordering of uuids is always consistent
+    persons_ordering_int += 1
     # If we've done freeze_time just create straight away
     if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
         if kwargs.get("immediate"):

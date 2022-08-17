@@ -375,7 +375,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 overlay={
                     <>
                         {record.result_type === FunnelCorrelationResultsType.Events && (
-                            <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth type="stealth">
+                            <LemonButton onClick={() => setFunnelCorrelationDetails(record)} fullWidth status="stealth">
                                 View correlation details
                             </LemonButton>
                         )}
@@ -392,14 +392,14 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                             }
                             fullWidth
                             title="Remove this event from any correlation analysis report in this project."
-                            type="stealth"
+                            status="stealth"
                         >
                             Exclude event from project
                         </LemonButton>
                     </>
                 }
             >
-                <LemonButton type="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
+                <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
                     <EllipsisOutlined
                         style={{ color: 'var(--primary)', fontSize: 24 }}
                         className="insight-dropdown-actions"

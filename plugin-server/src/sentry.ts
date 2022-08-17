@@ -45,7 +45,7 @@ export function runInTransaction<T>(
             // :TRICKY: Allow post-filtering some transactions by duration
             const endTimestamp = timestampWithMs()
             const duration = endTimestamp - transaction.startTimestamp
-            if (sampleRateByDuration) {
+            if (sampleRateByDuration && transaction.sampled) {
                 transaction.sampled = Math.random() < sampleRateByDuration(duration)
             }
             transaction.finish(endTimestamp)

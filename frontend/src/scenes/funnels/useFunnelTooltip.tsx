@@ -40,7 +40,7 @@ function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: 
                     • {formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, series.breakdown_value)}
                 </strong>
             </LemonRow>
-            <LemonDivider style={{ marginTop: '0.25rem' }} />
+            <LemonDivider className="mt-1 mb-2" />
             <table>
                 <tbody>
                     <tr>

@@ -19,7 +19,7 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
     icon?: React.ReactElement | null
     /** HTML tag to render the row with. */
     tag?: T
-    status?: 'success' | 'warning' | 'danger' | 'highlighted' | 'muted'
+    status?: 'default' | 'success' | 'warning' | 'danger' | 'highlighted' | 'muted'
     /** Extended content, e.g. a description, to show in the lower button area. */
     extendedContent?: React.ReactNode
     loading?: boolean
@@ -47,7 +47,7 @@ export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> ex
 
 /** Generic UI row component. Can be exploited as a button (see LemonButton) or just as a standard row of content.
  *
- * Do NOT use for general layout if you simply need flexbox though. In that case `display: flex` is much lighter.
+ * Do NOT use for general layout if you simply need flexbox though. In that case `<div className="flex">` is much lighter.
  */
 export const LemonRow = React.forwardRef(function LemonRowInternal<T extends keyof JSX.IntrinsicElements = 'div'>(
     {
@@ -56,7 +56,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
         relaxedIconWidth = false,
         className,
         tag,
-        status,
+        status = 'default',
         extendedContent,
         tooltip,
         sideIcon,
@@ -70,7 +70,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
     }: LemonRowProps<T>,
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
-    const symbolic = children == null || children === false
+    const symbolic = children === null || children === undefined || children === false
     if (loading) {
         icon = <Spinner size="sm" />
     }
@@ -80,7 +80,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
             className: clsx(
                 'LemonRow',
                 className,
-                status && `LemonRow--status-${status}`,
+                status && status !== 'default' ? `LemonRow--status-${status}` : undefined,
                 symbolic && 'LemonRow--symbolic',
                 fullWidth && 'LemonRow--full-width',
                 disabled && 'LemonRow--disabled',

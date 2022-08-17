@@ -1,5 +1,5 @@
 import { LemonSelectOption } from 'lib/components/LemonSelect'
-import { compactNumber, humanFriendlyDuration, percentage } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ChartDisplayType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
@@ -23,7 +23,10 @@ export const aggregationAxisFormatSelectOptions: Record<AggregationAxisFormat, L
     },
 }
 
-export const formatAggregationAxisValue = (axisFormat: AggregationAxisFormat, value: number | string): string => {
+export const formatAggregationAxisValue = (
+    axisFormat: AggregationAxisFormat | undefined,
+    value: number | string
+): string => {
     value = Number(value)
     switch (axisFormat) {
         case 'duration':
@@ -36,18 +39,19 @@ export const formatAggregationAxisValue = (axisFormat: AggregationAxisFormat, va
             return percentage(value)
         case 'numeric': // numeric is default
         default:
-            return compactNumber(value)
+            return humanFriendlyNumber(value)
     }
 }
 
-export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): boolean => {
-    return (
-        !!chartDisplayType &&
-        [
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.ActionsLineGraphCumulative,
-            ChartDisplayType.ActionsBar,
-            ChartDisplayType.ActionsBarValue,
-        ].includes(chartDisplayType)
-    )
+export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
+    switch (chartDisplayType) {
+        case ChartDisplayType.ActionsLineGraph:
+        case ChartDisplayType.ActionsLineGraphCumulative:
+        case ChartDisplayType.ActionsBar:
+            return 'Y-axis unit'
+        case ChartDisplayType.ActionsBarValue:
+            return 'X-axis unit'
+        default:
+            return 'Unit'
+    }
 }

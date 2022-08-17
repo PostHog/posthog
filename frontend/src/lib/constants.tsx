@@ -1,13 +1,18 @@
 import { urls } from 'scenes/urls'
-import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
-// Sync with backend NON_TIME_SERIES_DISPLAY_TYPES
+/** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.ActionsTable,
     ChartDisplayType.ActionsPie,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
 ]
+/** Display types for which `breakdown` is hidden and ignored. Sync with backend NON_BREAKDOWN_DISPLAY_TYPES. */
+export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
+/** Display types which only work with a single series. */
+export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 
 export enum OrganizationMembershipLevel {
     Member = 1,
@@ -27,12 +32,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.Insight, 'insight'],
-    [AnnotationScope.Project, 'project'],
-    [AnnotationScope.Organization, 'organization'],
-])
 
 /** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {
@@ -59,7 +58,15 @@ export const privilegeLevelToName: Record<DashboardPrivilegeLevel, string> = {
 
 // Persons
 export const PERSON_DISTINCT_ID_MAX_SIZE = 3
-export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
+    'email',
+    'Email',
+    'name',
+    'Name',
+    'username',
+    'Username',
+    'UserName',
+]
 
 // Event constants
 export const ACTION_TYPE = 'action_type'
@@ -108,7 +115,6 @@ export const FEATURE_FLAGS = {
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
-    ONBOARDING_1_5: 'onboarding-1_5', // owner: @liyiy
     BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
@@ -117,6 +123,7 @@ export const FEATURE_FLAGS = {
     PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
+    SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner @alexkim205
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

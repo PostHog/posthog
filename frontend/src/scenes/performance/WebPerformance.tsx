@@ -1,5 +1,4 @@
 import React from 'react'
-import { Button, Col, Row } from 'antd'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -8,9 +7,10 @@ import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webP
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { EventsTable } from 'scenes/events'
-import { EyeOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
+import { IconPlay } from 'lib/components/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 /*
  * link to SessionRecording from table and chart
@@ -30,49 +30,54 @@ const EventsWithPerformanceTable = (): JSX.Element => {
     const { setEventToDisplay } = useActions(webPerformanceLogic)
 
     return (
-        <EventsTable
-            fixedFilters={{
-                properties: webPerformancePropertyFilters,
-            }}
-            sceneUrl={urls.webPerformance()}
-            fetchMonths={1}
-            pageKey={`webperformance-${JSON.stringify(webPerformancePropertyFilters)}`}
-            showPersonColumn={false}
-            showCustomizeColumns={false}
-            showExport={false}
-            showAutoload={false}
-            showEventFilter={false}
-            showPropertyFilter={true}
-            showRowExpanders={false}
-            showActionsButton={false}
-            linkPropertiesToFilters={false}
-            data-attr="waterfall-events-table"
-            startingColumns={['$current_url', '$performance_page_loaded']}
-            fixedColumns={[
-                {
-                    render: function RenderViewButton(_: any, { event }: EventsTableRowItem) {
-                        if (!event) {
-                            return { props: { colSpan: 0 } }
-                        }
-                        return (
-                            <div>
-                                <Button
-                                    data-attr={`view-waterfall-button-${event?.id}`}
-                                    icon={<EyeOutlined />}
-                                    onClick={() => {
-                                        console.log({ event }, 'setting event to display')
-                                        setEventToDisplay(event)
-                                    }}
-                                >
-                                    View waterfall chart
-                                </Button>
-                            </div>
-                        )
+        <>
+            <div className="pt-4 border-t" />
+            <EventsTable
+                fixedFilters={{
+                    properties: webPerformancePropertyFilters,
+                }}
+                sceneUrl={urls.webPerformance()}
+                fetchMonths={1}
+                pageKey={`webperformance-${JSON.stringify(webPerformancePropertyFilters)}`}
+                showPersonColumn={false}
+                showCustomizeColumns={false}
+                showExport={false}
+                showAutoload={false}
+                showEventFilter={false}
+                showPropertyFilter={true}
+                showRowExpanders={false}
+                showActionsButton={false}
+                linkPropertiesToFilters={false}
+                data-attr="waterfall-events-table"
+                startingColumns={['$current_url', '$performance_page_loaded']}
+                fixedColumns={[
+                    {
+                        render: function RenderViewButton(_: any, { event }: EventsTableRowItem) {
+                            if (!event) {
+                                return { props: { colSpan: 0 } }
+                            }
+                            return (
+                                <div>
+                                    <LemonButton
+                                        data-attr={`view-waterfall-button-${event?.id}`}
+                                        icon={<IconPlay />}
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => {
+                                            console.log({ event }, 'setting event to display')
+                                            setEventToDisplay(event)
+                                        }}
+                                    >
+                                        View waterfall chart
+                                    </LemonButton>
+                                </div>
+                            )
+                        },
                     },
-                },
-            ]}
-            data-tooltip="web-performance-table"
-        />
+                ]}
+                data-tooltip="web-performance-table"
+            />
+        </>
     )
 }
 
@@ -83,12 +88,10 @@ export const WebPerformance = (): JSX.Element => {
         <div className="web-performance">
             <PageHeader
                 title={
-                    <Row align="middle">
+                    <div className="flex items-center gap-2">
                         Web Performance
-                        <LemonTag type="warning" style={{ marginLeft: 8 }}>
-                            Early Preview
-                        </LemonTag>
-                    </Row>
+                        <LemonTag type="warning">Early Preview</LemonTag>
+                    </div>
                 }
                 caption={
                     currentPage === WebPerformancePage.TABLE ? (
@@ -108,17 +111,15 @@ export const WebPerformance = (): JSX.Element => {
                     ) : null
                 }
             />
-            <Row gutter={[0, 32]}>
-                <Col span={24}>
-                    {currentPage === WebPerformancePage.TABLE ? (
-                        <EventsWithPerformanceTable />
-                    ) : currentPage === WebPerformancePage.WATERFALL_CHART ? (
-                        <WebPerformanceWaterfallChart />
-                    ) : (
-                        <>404?</>
-                    )}
-                </Col>
-            </Row>
+            <div>
+                {currentPage === WebPerformancePage.TABLE ? (
+                    <EventsWithPerformanceTable />
+                ) : currentPage === WebPerformancePage.WATERFALL_CHART ? (
+                    <WebPerformanceWaterfallChart />
+                ) : (
+                    <>404?</>
+                )}
+            </div>
         </div>
     )
 }
