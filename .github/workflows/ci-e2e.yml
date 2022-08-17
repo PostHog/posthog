@@ -215,7 +215,7 @@ jobs:
               uses: actions/upload-artifact@v3
               with:
                   name: accessibility-violations
-                  path: 'a11y'
+                  path: '**/a11y/'
                   if-no-files-found: 'ignore'
 
             - name: Show logs on failure
