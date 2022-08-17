@@ -54,7 +54,8 @@ export const personsLogic = kea<personsLogicType>({
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
-        deletePerson: (payload: { deleteEvents: boolean }) => payload,
+        showPersonDeleteModal: (person: PersonType | null) => ({ person }),
+        deletePerson: (payload: { person: PersonType; deleteEvents: boolean }) => payload,
     },
     reducers: {
         listFilters: [
@@ -96,6 +97,12 @@ export const personsLogic = kea<personsLogicType>({
             loadPerson: () => null,
             setPerson: (_, { person }): PersonType | null => person,
         },
+        personDeleteModal: [
+            null as PersonType | null,
+            {
+                showPersonDeleteModal: (_, { person }) => person,
+            },
+        ],
     },
     selectors: () => ({
         apiDocsURL: [
@@ -149,15 +156,11 @@ export const personsLogic = kea<personsLogicType>({
     }),
     listeners: ({ actions, values }) => ({
         deletePersonSuccess: ({ deletedPerson }) => {
-            if (!deletedPerson.delete) {
-                return
-            }
-
             // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
             // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
             lemonToast.success(
                 <>
-                    The person <strong>{asDisplay(values.person)}</strong> was removed from the project.
+                    The person <strong>{asDisplay(deletedPerson.person)}</strong> was removed from the project.
                     {deletedPerson.deleteEvents
                         ? 'Corresponding events will be deleted on a set schedule during non-peak usage times.'
                         : 'Their ID(s) will be usable again in an hour or so.'}
@@ -272,15 +275,12 @@ export const personsLogic = kea<personsLogicType>({
             },
         ],
         deletedPerson: [
-            {} as { delete?: boolean; deleteEvents?: boolean },
+            {} as { person?: PersonType; deleteEvents?: boolean },
             {
-                deletePerson: async ({ deleteEvents }): Promise<{ delete?: boolean; deleteEvents?: boolean }> => {
-                    if (!values.person) {
-                        return {}
-                    }
+                deletePerson: async ({ person, deleteEvents }) => {
                     const params = deleteEvents ? { delete_events: true } : {}
-                    await api.delete(`api/person/${values.person.id}?${toParams(params)}`)
-                    return { delete: true, deleteEvents }
+                    await api.delete(`api/person/${person.id}?${toParams(params)}`)
+                    return { person, deleteEvents }
                 },
             },
         ],

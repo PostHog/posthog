@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { Dropdown, Menu, Tabs, Tag } from 'antd'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
@@ -23,9 +23,10 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
 const { TabPane } = Tabs
 
@@ -84,14 +85,25 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
+<<<<<<< HEAD
     const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
         useValues(personsLogic)
     const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
+=======
+    const {
+        person,
+        personLoading,
+        deletedPersonLoading,
+        currentTab,
+        showSessionRecordings,
+        splitMergeModalShown,
+        urlId,
+    } = useValues(personsLogic)
+    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, showPersonDeleteModal } =
+>>>>>>> b7025a5b5... Add table UI for person deletion
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
-
-    const [deleteModalOpen, setDeleteModalOpen] = useState(false)
 
     if (!person) {
         return personLoading ? (
@@ -112,7 +124,7 @@ export function Person(): JSX.Element | null {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            onClick={() => setDeleteModalOpen(true)}
+                            onClick={() => showPersonDeleteModal(person)}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
                             type="secondary"
@@ -122,51 +134,6 @@ export function Person(): JSX.Element | null {
                             Delete person
                         </LemonButton>
 
-                        <LemonModal
-                            isOpen={deleteModalOpen}
-                            onClose={() => setDeleteModalOpen(false)}
-                            title={`Are you sure you want to delete "${asDisplay(person)}"?`}
-                            description={
-                                <>
-                                    This action cannot be undone. If you opt to delete the organization and its
-                                    corresponding events, the events will not be immediately removed. Instead these
-                                    events will be deleted on a set schedule during non-peak usage times. Learn more
-                                </>
-                            }
-                            footer={
-                                <>
-                                    <LemonButton
-                                        status="danger"
-                                        type="secondary"
-                                        onClick={() => {
-                                            deletePerson({ deleteEvents: true })
-                                            setDeleteModalOpen(false)
-                                        }}
-                                        data-attr="delete-person-with-events"
-                                    >
-                                        Delete person and all corresponding events
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => setDeleteModalOpen(false)}
-                                        data-attr="delete-person-cancel"
-                                    >
-                                        Cancel
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        status="danger"
-                                        onClick={() => {
-                                            deletePerson({ deleteEvents: false })
-                                            setDeleteModalOpen(false)
-                                        }}
-                                        data-attr="delete-person-no-events"
-                                    >
-                                        Delete person
-                                    </LemonButton>
-                                </>
-                            }
-                        />
                         <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
@@ -178,6 +145,8 @@ export function Person(): JSX.Element | null {
                     </div>
                 }
             />
+
+            <PersonDeleteModal />
 
             <Tabs
                 activeKey={currentTab}
