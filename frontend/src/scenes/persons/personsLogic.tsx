@@ -162,8 +162,8 @@ export const personsLogic = kea<personsLogicType>({
                 <>
                     The person <strong>{asDisplay(deletedPerson.person)}</strong> was removed from the project.
                     {deletedPerson.deleteEvents
-                        ? 'Corresponding events will be deleted on a set schedule during non-peak usage times.'
-                        : 'Their ID(s) will be usable again in an hour or so.'}
+                        ? ' Corresponding events will be deleted on a set schedule during non-peak usage times.'
+                        : ' Their ID(s) will be usable again in an hour or so.'}
                 </>
             )
             actions.loadPersons()
