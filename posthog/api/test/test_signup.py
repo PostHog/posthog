@@ -111,7 +111,9 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            self.validation_error_response("There is already an account with this email address.", code="unique"),
+            self.validation_error_response(
+                "There is already an account with this email address.", code="unique", attr="email"
+            ),
         )
         self.assertEqual(User.objects.count(), 1)
 

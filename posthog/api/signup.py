@@ -72,7 +72,9 @@ class SignupSerializer(serializers.Serializer):
                 is_staff=is_instance_first_user,
             )
         except IntegrityError:
-            raise exceptions.ValidationError("There is already an account with this email address.", code="unique")
+            raise exceptions.ValidationError(
+                {"email": "There is already an account with this email address."}, code="unique"
+            )
 
         user = self._user
 
