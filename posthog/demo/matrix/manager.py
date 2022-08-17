@@ -1,4 +1,5 @@
 import datetime as dt
+import itertools
 import json
 from time import sleep
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
@@ -25,6 +26,29 @@ from .matrix import Matrix
 from .models import SimEvent, SimPerson
 
 
+def _sleep_until_person_data_in_clickhouse(
+    team_id: int, *, expected_person_count: int, expected_person_distinct_id_count: int
+):
+    from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
+
+    for loader in itertools.cycle("/\\"):
+        person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+        person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+        persons_ready = person_count >= expected_person_count
+        person_distinct_ids_ready = person_distinct_id_count >= expected_person_distinct_id_count
+        persons_progress = f"{'✔' if persons_ready else loader} {person_count}/{expected_person_count}"
+        person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else loader} {person_distinct_id_count}/{expected_person_distinct_id_count}"
+        if persons_ready and person_distinct_ids_ready:
+            print(
+                f"Source person data fully loaded into ClickHouse. Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+            )
+            break
+        print(
+            f"Waiting for person data to land in ClickHouse... Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+        )
+        sleep(0.5)
+
+
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
     MASTER_TEAM_ID = 0
@@ -34,9 +58,14 @@ class MatrixManager:
     matrix: Matrix
     use_pre_save: bool
 
+    _persons_created: int
+    _person_distinct_ids_created: int
+
     def __init__(self, matrix: Matrix, *, use_pre_save: bool):
         self.matrix = matrix
         self.use_pre_save = use_pre_save
+        self._persons_created = 0
+        self._person_distinct_ids_created = 0
 
     def ensure_account_and_save(
         self,
@@ -101,7 +130,11 @@ class MatrixManager:
             self._copy_analytics_data_from_master_team(team)
         else:
             # If we're not using pre-saved data, we need to wait a bit for data just queued into Kafka to show up in CH
-            sleep(3)
+            _sleep_until_person_data_in_clickhouse(
+                team.pk,
+                expected_person_count=self._persons_created,
+                expected_person_distinct_id_count=self._person_distinct_ids_created,
+            )
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk)
@@ -188,24 +221,25 @@ class MatrixManager:
         )
         bulk_groups = []
         for row in clickhouse_groups:
-            properties = json.loads(row.pop("properties", "{}"))
-            bulk_groups.append(Group(team_id=target_team_id, version=0, **row))
+            group_properties = json.loads(row.pop("group_properties", "{}"))
+            bulk_groups.append(Group(team_id=target_team_id, version=0, group_properties=group_properties, **row))
         Group.objects.bulk_create(bulk_groups)
 
-    @classmethod
-    def _save_sim_person(cls, team: Team, subject: SimPerson):
+    def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
             person_uuid_str = str(subject.roll_uuidt(subject.past_events[0].timestamp))
             create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
+            self._persons_created += 1
+            self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
             for distinct_id in subject.distinct_ids_at_now:
                 create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
-            cls._save_past_sim_events(team, subject.past_events)
+            self._save_past_sim_events(team, subject.past_events)
         # We only want to queue future events if there are any
         if subject.future_events:
-            cls._save_future_sim_events(team, subject.future_events)
+            self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
     def _save_past_sim_events(team: Team, events: List[SimEvent]):

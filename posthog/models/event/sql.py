@@ -360,8 +360,6 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 
 GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
 
-GET_TOTAL_EVENTS_VOLUME = "SELECT count() AS count FROM events WHERE team_id = %(team_id)s"
-
 #
 # Copying demo data
 #
