@@ -78,7 +78,7 @@ class Command(BaseCommand):
                 else:
                     print(
                         f"Demo data ready! Log in as {email} with password {password}.\n"
-                        "If running DEMO mode locally, log in with this link:\n"
+                        "If running DEMO mode locally, log in instantly with this link:\n"
                         f"http://localhost:8000/signup?email={email}"
                     )
         else:
