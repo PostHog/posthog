@@ -1,14 +1,11 @@
 import dataclasses
 import json
-from collections import OrderedDict
-from typing import Optional, Type
+from typing import Any, List, Optional, Type
 
 from django.db import connection
 from django.db.models import Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.response import Response
-from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -101,13 +98,23 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
     This paginator expects the caller to have counted and paged the queryset
     """
 
-    def paginate_queryset(self, queryset, request, view=None):
+    def set_count(self, count: int) -> None:
+        self.count = count
+
+    def get_count(self, queryset) -> int:
+        """
+        Determine an object count, supporting either querysets or regular lists.
+        """
         if self.count is None:
             raise Exception("count must be manually set before paginating")
 
-        # because this uses a raw query set
-        # slicing the query set is being handled outside the paginator
-        # and, we don't count the query set
+        return self.count
+
+    def paginate_queryset(self, queryset, request, view=None) -> Optional[List[Any]]:
+        """
+        Assumes the queryset has already had pagination applied
+        """
+        self.count = self.get_count(queryset)
         self.limit = self.get_limit(request)
         if self.limit is None:
             return None
@@ -115,61 +122,10 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
         self.offset = self.get_offset(request)
         self.request = request
 
-        results = list(queryset)
+        if self.count == 0 or self.offset > self.count:
+            return []
 
-        return results
-
-    def set_count(self, count: int):
-        self.count = count
-
-    def get_paginated_response(self, data):
-        next_link = self.get_next_link() if data else None
-        previous_link = self.get_previous_link()
-        return Response(
-            OrderedDict([("count", self.count), ("next", next_link), ("previous", previous_link), ("results", data),])
-        )
-
-    def get_paginated_response_schema(self, schema):
-        return {
-            "type": "object",
-            "properties": {
-                "count": {"type": "integer", "example": 123,},
-                "next": {
-                    "type": "string",
-                    "nullable": True,
-                    "format": "uri",
-                    "example": "http://api.example.org/accounts/?{offset_param}=400&{limit_param}=100".format(
-                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
-                    ),
-                },
-                "previous": {
-                    "type": "string",
-                    "nullable": True,
-                    "format": "uri",
-                    "example": "http://api.example.org/accounts/?{offset_param}=200&{limit_param}=100".format(
-                        offset_param=self.offset_query_param, limit_param=self.limit_query_param
-                    ),
-                },
-                "results": schema,
-            },
-        }
-
-    def get_next_link(self) -> Optional[str]:
-        if self.request is None or self.limit is None:
-            return None
-
-        url = self.request.build_absolute_uri()
-        url = replace_query_param(url, self.limit_query_param, self.limit)
-
-        if self.offset is None:
-            offset = self.limit
-        else:
-            offset = self.offset + self.limit
-
-        return replace_query_param(url, self.offset_query_param, offset)
-
-    def get_html_context(self):
-        return {"previous_url": self.get_previous_link(), "next_url": self.get_next_link()}
+        return list(queryset)
 
 
 class PropertyDefinitionViewSet(
