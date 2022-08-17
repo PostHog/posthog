@@ -6,10 +6,11 @@ module.exports = {
         tsconfigRootDir: __dirname,
         project: ['./tsconfig.eslint.json'],
     },
-    plugins: ['@typescript-eslint', 'simple-import-sort', 'prettier'],
+    plugins: ['@typescript-eslint', 'simple-import-sort', 'prettier', 'no-only-tests'],
     extends: ['plugin:@typescript-eslint/recommended', 'plugin:eslint-comments/recommended', 'prettier'],
     ignorePatterns: ['bin', 'dist', 'node_modules', 'src/config/idl'],
     rules: {
+        'no-only-tests/no-only-tests': 'error',
         'simple-import-sort/imports': 'error',
         'simple-import-sort/exports': 'error',
         'no-unused-vars': 'off',
