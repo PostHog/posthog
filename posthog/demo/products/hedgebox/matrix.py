@@ -300,6 +300,7 @@ class HedgeboxMatrix(Matrix):
             filters={
                 "events": [
                     {
+                        "custom_name": "Uploaded bytes",
                         "id": EVENT_UPLOADED_FILE,
                         "math": "sum",
                         "name": EVENT_UPLOADED_FILE,
@@ -308,6 +309,7 @@ class HedgeboxMatrix(Matrix):
                         "math_property": "file_size_b",
                     },
                     {
+                        "custom_name": "Deleted bytes",
                         "id": EVENT_DELETED_FILE,
                         "math": "sum",
                         "name": EVENT_DELETED_FILE,
