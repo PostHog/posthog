@@ -23,7 +23,9 @@ class Migration(migrations.Migration):
                 ("delete_verified_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "created_by",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.AUTH_USER_MODEL),
+                    models.ForeignKey(
+                        null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL
+                    ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],

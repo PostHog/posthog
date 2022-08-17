@@ -37,7 +37,7 @@ class AsyncDeletion(models.Model):
     # Only populated for group deletions
     group_type_index: models.IntegerField = models.IntegerField(null=True, blank=False)
 
-    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL)
+    created_by: models.ForeignKey = models.ForeignKey("User", null=True, on_delete=models.SET_NULL)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
     # When was the data verified to be deleted - we can skip it in the next round
