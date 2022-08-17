@@ -8,12 +8,13 @@ import { Col, Row } from 'antd'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerInspectorV2, PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
 import { PlayerMetaV3 } from './PlayerMeta'
-import { SessionRecordingProps } from '~/types'
+import { SessionRecordingPlayerProps } from '~/types'
 
 export function useFrameRef({
     sessionRecordingId,
-}: SessionRecordingProps): React.MutableRefObject<HTMLDivElement | null> {
-    const { setRootFrame } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId }))
+    playerKey,
+}: SessionRecordingPlayerProps): React.MutableRefObject<HTMLDivElement | null> {
+    const { setRootFrame } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frame = useRef<HTMLDivElement | null>(null)
     // Need useEffect to populate replayer on component paint
     useEffect(() => {
@@ -25,43 +26,43 @@ export function useFrameRef({
     return frame
 }
 
-export function SessionRecordingPlayerV2({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
-    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId }))
-    const { isSmallScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId }))
-    const frame = useFrameRef({ sessionRecordingId })
+export function SessionRecordingPlayerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { isSmallScreen } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const frame = useFrameRef({ sessionRecordingId, playerKey })
     return (
         <Col className="session-player-v2" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
             <Row className="session-player-body" wrap={false}>
                 <div className="player-container ph-no-capture">
-                    <PlayerFrame ref={frame} sessionRecordingId={sessionRecordingId} />
+                    <PlayerFrame ref={frame} sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 </div>
-                {!isSmallScreen && <PlayerInspectorV2 sessionRecordingId={sessionRecordingId} />}
+                {!isSmallScreen && <PlayerInspectorV2 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
             </Row>
             <Row className="player-controller" align="middle">
-                <PlayerControllerV2 sessionRecordingId={sessionRecordingId} />
+                <PlayerControllerV2 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </Row>
-            {isSmallScreen && <PlayerInspectorV2 sessionRecordingId={sessionRecordingId} />}
+            {isSmallScreen && <PlayerInspectorV2 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
         </Col>
     )
 }
 
-export function SessionRecordingPlayerV3({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
-    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId }))
-    const frame = useFrameRef({ sessionRecordingId })
+export function SessionRecordingPlayerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+    const { handleKeyDown } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const frame = useFrameRef({ sessionRecordingId, playerKey })
     return (
         <Col className="session-player-v3" onKeyDown={handleKeyDown} tabIndex={0} flex={1}>
-            <PlayerMetaV3 sessionRecordingId={sessionRecordingId} />
+            <PlayerMetaV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             <div className="session-player-body flex">
                 <div className="player-container ph-no-capture">
-                    <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} />
+                    <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
                 </div>
             </div>
             <LemonDivider className="my-0" />
             <div className="player-controller items-center flex">
-                <PlayerControllerV3 sessionRecordingId={sessionRecordingId} />
+                <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>
             <LemonDivider className="my-0" />
-            <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} />
+            <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
         </Col>
     )
 }

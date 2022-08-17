@@ -36,7 +36,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
             >
                 <Col className="session-drawer-body">
                     {activeSessionRecordingId && (
-                        <SessionRecordingPlayerV3 sessionRecordingId={activeSessionRecordingId} />
+                        <SessionRecordingPlayerV3 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
                     )}
                 </Col>
             </Modal>
@@ -73,7 +73,7 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
                 </Row>
                 <Row className="session-drawer-body">
                     {activeSessionRecordingId && (
-                        <SessionRecordingPlayerV2 sessionRecordingId={activeSessionRecordingId} />
+                        <SessionRecordingPlayerV2 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
                     )}
                 </Row>
             </Col>

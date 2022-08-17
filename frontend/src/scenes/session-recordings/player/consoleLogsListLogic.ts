@@ -7,7 +7,7 @@ import {
     RecordingSegment,
     RecordingTimeMixinType,
     RRWebRecordingConsoleLogPayload,
-    SessionRecordingProps,
+    SessionRecordingPlayerProps,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
 import {
@@ -76,11 +76,11 @@ function parseConsoleLogPayload(
 
 export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     path(['scenes', 'session-recordings', 'player', 'consoleLogsListLogic']),
-    props({} as SessionRecordingProps),
-    key((props: SessionRecordingProps) => props.sessionRecordingId),
-    connect(({ sessionRecordingId }: SessionRecordingProps) => ({
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         logic: [eventUsageLogic],
-        values: [sessionRecordingPlayerLogic({ sessionRecordingId }), ['sessionPlayerData']],
+        values: [sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }), ['sessionPlayerData']],
     })),
     actions({
         submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),

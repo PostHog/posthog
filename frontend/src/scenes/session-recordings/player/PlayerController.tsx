@@ -5,7 +5,7 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { Row, Select, Switch } from 'antd'
-import { SessionPlayerState, SessionRecordingProps, SessionRecordingTab } from '~/types'
+import { SessionPlayerState, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { IconPause, IconPlay } from 'scenes/session-recordings/player/icons'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekBack, SeekForward, Timestamp } from 'scenes/session-recordings/player/Time'
@@ -13,12 +13,12 @@ import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconSettings, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 
-export function PlayerControllerV2({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
+export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId })
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId })
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
 
     return (
@@ -40,13 +40,21 @@ export function PlayerControllerV2({ sessionRecordingId }: SessionRecordingProps
             </span>
             {!isSmallScreen && (
                 <>
-                    <SeekBack sessionRecordingId={sessionRecordingId} style={{ marginRight: '0.25rem' }} />
-                    <SeekForward sessionRecordingId={sessionRecordingId} style={{ marginRight: '0.5rem' }} />
-                    <Timestamp sessionRecordingId={sessionRecordingId} />
+                    <SeekBack
+                        sessionRecordingId={sessionRecordingId}
+                        style={{ marginRight: '0.25rem' }}
+                        playerKey={playerKey}
+                    />
+                    <SeekForward
+                        sessionRecordingId={sessionRecordingId}
+                        style={{ marginRight: '0.5rem' }}
+                        playerKey={playerKey}
+                    />
+                    <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 </>
             )}
             <div className="rrweb-progress">
-                <Seekbar sessionRecordingId={sessionRecordingId} />
+                <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>
             <Select
                 onChange={(nextSpeed: number) => setSpeed(nextSpeed)}
@@ -77,20 +85,20 @@ export function PlayerControllerV2({ sessionRecordingId }: SessionRecordingProps
     )
 }
 
-export function PlayerControllerV3({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
+export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { togglePlayPause, setSpeed, setSkipInactivitySetting, setTab } = useActions(
-        sessionRecordingPlayerLogic({ sessionRecordingId })
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting, tab } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId })
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     )
     const speedSelectRef = useRef<HTMLDivElement | null>(null)
 
     return (
         <div className="rrweb-controller">
             <div className="rrweb-controller__top" data-tooltip="recording-player">
-                {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} />}
-                <Seekbar sessionRecordingId={sessionRecordingId} />
+                {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
+                <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>
             <Row className="rrweb-controller__bottom" wrap={false} justify="space-between" align="middle">
                 <Row wrap={false} className="space-x-2" style={{ width: '50%' }}>
@@ -116,7 +124,7 @@ export function PlayerControllerV3({ sessionRecordingId }: SessionRecordingProps
                     </LemonButton>
                 </Row>
                 <Row wrap={false} className="gap-2 mx-2">
-                    <SeekBack sessionRecordingId={sessionRecordingId} />
+                    <SeekBack sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                     <LemonButton status="primary-alt" size="small">
                         {[SessionPlayerState.PLAY, SessionPlayerState.SKIP].includes(currentPlayerState) ? (
                             <IconPause onClick={togglePlayPause} className="rrweb-controller-icon" />
@@ -124,7 +132,7 @@ export function PlayerControllerV3({ sessionRecordingId }: SessionRecordingProps
                             <IconPlay onClick={togglePlayPause} className="rrweb-controller-icon " />
                         )}
                     </LemonButton>
-                    <SeekForward sessionRecordingId={sessionRecordingId} />
+                    <SeekForward sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 </Row>
                 <Row wrap={false} style={{ width: '50%' }} justify="end" align="middle">
                     <LemonButtonWithPopup

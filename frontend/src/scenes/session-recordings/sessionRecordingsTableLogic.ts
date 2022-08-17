@@ -230,8 +230,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                 if (!sessionRecordingDataLogic({ sessionRecordingId }).isMounted()) {
                     sessionRecordingDataLogic({ sessionRecordingId }).mount()
                 }
-                sessionRecordingDataLogic({ sessionRecordingId }).actions.loadRecordingMeta(sessionRecordingId)
-                sessionRecordingDataLogic({ sessionRecordingId }).actions.loadRecordingSnapshots(sessionRecordingId)
+                sessionRecordingDataLogic({ sessionRecordingId }).actions.loadEntireRecording()
             }
         },
     }),

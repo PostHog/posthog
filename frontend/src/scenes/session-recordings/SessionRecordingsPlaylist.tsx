@@ -77,7 +77,10 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                 <div ref={containerRef} style={{ flex: 1 }}>
                     {activeSessionRecordingId ? (
                         <div className="border rounded-lg" style={{ width: containerSize[0] }}>
-                            <SessionRecordingPlayerV3 sessionRecordingId={activeSessionRecordingId} />
+                            <SessionRecordingPlayerV3
+                                playerKey="playlist"
+                                sessionRecordingId={activeSessionRecordingId}
+                            />
                         </div>
                     ) : (
                         <EmptyMessage

@@ -4,7 +4,7 @@ import type { seekbarLogicType } from './seekbarLogicType'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { clamp } from 'lib/utils'
-import { PlayerPosition, SessionRecordingProps } from '~/types'
+import { PlayerPosition, SessionRecordingPlayerProps } from '~/types'
 
 import {
     convertPlayerPositionToX,
@@ -18,17 +18,17 @@ import {
 } from './playerUtils'
 export const seekbarLogic = kea<seekbarLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'seekbarLogic'],
-    props: {} as SessionRecordingProps,
-    key: (props: SessionRecordingProps) => props.sessionRecordingId,
-    connect: ({ sessionRecordingId }: SessionRecordingProps) => ({
+    props: {} as SessionRecordingPlayerProps,
+    key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
+    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         values: [
-            sessionRecordingPlayerLogic({ sessionRecordingId }),
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['sessionPlayerData', 'currentPlayerPosition'],
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['eventsToShow'],
         ],
         actions: [
-            sessionRecordingPlayerLogic({ sessionRecordingId }),
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['seek', 'startScrub', 'endScrub', 'setCurrentPlayerPosition'],
         ],
     }),

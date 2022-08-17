@@ -4,7 +4,7 @@ import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionRecordingProps } from '~/types'
+import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
@@ -23,9 +23,9 @@ export interface Player {
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
-    props({} as SessionRecordingProps),
-    key((props: SessionRecordingProps) => props.sessionRecordingId),
-    connect((props: SessionRecordingProps) => {
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingPlayerProps) => {
         return {
             logic: [eventUsageLogic],
             values: [

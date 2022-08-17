@@ -3,17 +3,17 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
-import { RecordingEventType, RecordingSegment, SessionRecordingProps } from '~/types'
+import { RecordingEventType, RecordingSegment, SessionRecordingPlayerProps } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-interface TickProps extends SessionRecordingProps {
+interface TickProps extends SessionRecordingPlayerProps {
     event: RecordingEventType
 }
 
-function Tick({ event, sessionRecordingId }: TickProps): JSX.Element {
+function Tick({ event, sessionRecordingId, playerKey }: TickProps): JSX.Element {
     const [hovering, setHovering] = useState(false)
-    const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId }))
+    const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
     const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
     return (
         <div
@@ -42,12 +42,12 @@ function Tick({ event, sessionRecordingId }: TickProps): JSX.Element {
     )
 }
 
-export function Seekbar({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
+export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId }))
+    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
     const { eventsToShow, sessionPlayerData } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
-    const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic({ sessionRecordingId }))
+    const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -81,7 +81,7 @@ export function Seekbar({ sessionRecordingId }: SessionRecordingProps): JSX.Elem
             </div>
             <div className="ticks">
                 {eventsToShow.map((event: RecordingEventType) => (
-                    <Tick key={event.id} event={event} sessionRecordingId={sessionRecordingId} />
+                    <Tick key={event.id} event={event} sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 ))}
             </div>
         </div>

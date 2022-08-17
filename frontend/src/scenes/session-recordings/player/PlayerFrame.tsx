@@ -2,21 +2,21 @@ import React, { MutableRefObject, Ref, useEffect, useRef } from 'react'
 import { Handler, viewportResizeDimension } from 'rrweb/typings/types'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState, SessionRecordingProps } from '~/types'
+import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { IconPlay } from 'scenes/session-recordings/player/icons'
 
-interface PlayerFrameProps extends SessionRecordingProps {
+interface PlayerFrameProps extends SessionRecordingPlayerProps {
     height?: number
     width?: number
 }
 
 export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
-    { height, width, sessionRecordingId }: PlayerFrameProps,
+    { height, width, sessionRecordingId, playerKey }: PlayerFrameProps,
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
-    const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId }))
-    const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId }))
+    const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frameRef = ref as MutableRefObject<HTMLDivElement>
 
     useEffect(() => {

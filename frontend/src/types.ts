@@ -2007,6 +2007,7 @@ export enum YesOrNoResponse {
     No = 'no',
 }
 
-export interface SessionRecordingProps {
+export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
+    playerKey: string
 }

@@ -147,9 +147,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             recordingData,
             loadTime,
         }),
-        loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
-        loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
-        loadEvents: (url?: string) => ({ url }),
+        loadEntireRecording: () => true,
+        loadRecordingMeta: () => true,
+        loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
+        loadEvents: (nextUrl?: string) => ({ nextUrl }),
         setTab: (tab: SessionRecordingTab) => ({ tab }),
     }),
     reducers({
@@ -193,6 +194,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
     }),
     listeners(({ values, actions, cache }) => ({
+        loadEntireRecording: () => {
+            actions.loadRecordingMeta()
+            actions.loadRecordingSnapshots()
+        },
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
@@ -201,7 +206,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
             if (!!values.sessionPlayerData.next) {
-                actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
+                actions.loadRecordingSnapshots(values.sessionPlayerData.next)
             }
             // Finished loading entire recording. Now make it known!
             else {
@@ -300,16 +305,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         snapshotsByWindowId: { ...values.sessionPlayerData.snapshotsByWindowId } ?? {},
                     }
                 },
-                loadRecordingSnapshots: async ({ url }, breakpoint): Promise<SessionPlayerData> => {
+                loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerData> => {
                     if (!props.sessionRecordingId) {
                         return values.sessionPlayerData
                     }
                     const apiUrl =
-                        url ||
+                        nextUrl ||
                         `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots`
                     const response = await api.get(apiUrl)
                     breakpoint()
-                    const snapshotsByWindowId = { ...(url ? values.sessionPlayerData.snapshotsByWindowId ?? {} : {}) }
+                    // If we have a next url, we need to append the new snapshots to the existing ones
+                    const snapshotsByWindowId = {
+                        ...(nextUrl ? values.sessionPlayerData.snapshotsByWindowId ?? {} : {}),
+                    }
                     const incomingSnapshotByWindowId: {
                         [key: string]: eventWithTime[]
                     } = response.result?.snapshot_data_by_window_id
@@ -333,13 +341,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionEventsData: [
             null as null | SessionRecordingEvents,
             {
-                loadEvents: async ({ url }, breakpoint) => {
+                loadEvents: async ({ nextUrl }, breakpoint) => {
                     if (!values.eventsApiParams) {
                         return values.sessionEventsData
                     }
-                    // Use `url` if there is a `next` url to fetch
+                    // Use `nextUrl` if there is a `next` url to fetch
                     const apiUrl =
-                        url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
+                        nextUrl || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
                     const response = await api.get(apiUrl)
                     breakpoint()
 
@@ -400,11 +408,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             }
                         }
                     })
-                    allEvents = [...(url ? values.sessionEventsData?.events ?? [] : []), ...eventsWithPlayerData].sort(
-                        function (a, b) {
-                            return (a.playerTime ?? 0) - (b.playerTime ?? 0)
-                        }
-                    )
+                    // If we have a next url, we need to append the new events to the existing ones
+                    allEvents = [
+                        ...(nextUrl ? values.sessionEventsData?.events ?? [] : []),
+                        ...eventsWithPlayerData,
+                    ].sort(function (a, b) {
+                        return (a.playerTime ?? 0) - (b.playerTime ?? 0)
+                    })
 
                     return {
                         ...values.sessionEventsData,

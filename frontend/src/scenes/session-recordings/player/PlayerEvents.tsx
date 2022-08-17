@@ -27,7 +27,7 @@ import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/com
 import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { RecordingEventType, SessionRecordingProps } from '~/types'
+import { RecordingEventType, SessionRecordingPlayerProps } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -83,7 +83,7 @@ function EventDescription({ description }: { description: string }): JSX.Element
     )
 }
 
-export function PlayerEvents({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
+export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const listRef = useRef<List>(null)
     const {
         listEvents,
@@ -94,10 +94,10 @@ export function PlayerEvents({ sessionRecordingId }: SessionRecordingProps): JSX
         isCurrent,
         isDirectionUp,
         renderedRows,
-    } = useValues(eventsListLogic({ sessionRecordingId }))
+    } = useValues(eventsListLogic({ sessionRecordingId, playerKey }))
     const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
     const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } = useActions(
-        eventsListLogic({ sessionRecordingId })
+        eventsListLogic({ sessionRecordingId, playerKey })
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
