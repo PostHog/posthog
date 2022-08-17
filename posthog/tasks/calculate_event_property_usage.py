@@ -1,7 +1,7 @@
 import json
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
-from typing import DefaultDict, Dict, List, Optional, Tuple
+from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 
 from celery.app import shared_task
 from django.utils import timezone
@@ -79,7 +79,7 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
         PropertyDefinitionPayload,
         {
             known_property.name: PropertyDefinitionPayload(
-                property_type=known_property.property_type
+                property_type=cast(PropertyType, known_property.property_type)
                 or (PropertyType.Numeric if known_property.is_numerical else None)
             )
             for known_property in PropertyDefinition.objects.filter(team_id=team_id)
