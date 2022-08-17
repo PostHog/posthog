@@ -1,5 +1,4 @@
 import datetime as dt
-import itertools
 import json
 from time import sleep
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
@@ -31,13 +30,13 @@ def _sleep_until_person_data_in_clickhouse(
 ):
     from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-    for loader in itertools.cycle("/\\"):
+    while True:
         person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
         person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
         persons_ready = person_count >= expected_person_count
         person_distinct_ids_ready = person_distinct_id_count >= expected_person_distinct_id_count
-        persons_progress = f"{'✔' if persons_ready else loader} {person_count}/{expected_person_count}"
-        person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else loader} {person_distinct_id_count}/{expected_person_distinct_id_count}"
+        persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{expected_person_count}"
+        person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{expected_person_distinct_id_count}"
         if persons_ready and person_distinct_ids_ready:
             print(
                 f"Source person data fully loaded into ClickHouse. Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."

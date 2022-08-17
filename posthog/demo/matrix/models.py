@@ -95,6 +95,8 @@ class SimClient(ABC):
 
     LIB_NAME: str  # Used for `$lib` property
 
+    matrix: "Matrix"
+
     @abstractmethod
     def _get_person(self, distinct_id: str) -> "SimPerson":
         raise NotImplementedError()
@@ -104,12 +106,16 @@ class SimClient(ABC):
         timestamp = person.simulation_time
         combined_properties: Properties = {
             "$lib": self.LIB_NAME,
-            "$groups": deepcopy(person._groups),
             "$timestamp": timestamp.isoformat(),
             "$time": timestamp.timestamp(),
         }
         if properties:
             combined_properties.update(properties or {})
+        if person._groups:
+            combined_properties["$groups"] = deepcopy(person._groups)
+            for group_type, group_key in person._groups.items():
+                group_type_index = list(self.matrix.groups.keys()).index(group_type)
+                combined_properties[f"$group_{group_type_index}"] = group_key
         if feature_flags := person.decide_feature_flags():
             for flag_key, flag_value in feature_flags.items():
                 combined_properties[f"$feature/{flag_key}"] = flag_value
@@ -121,9 +127,6 @@ class SimServerClient(SimClient):
     """A Python server client for simulating server-side tracking."""
 
     LIB_NAME = "posthog-python"
-
-    # Parent
-    matrix: "Matrix"
 
     def __init__(self, matrix: "Matrix"):
         self.matrix = matrix
@@ -158,6 +161,7 @@ class SimBrowserClient(SimClient):
 
     def __init__(self, person: "SimPerson"):
         self.person = person
+        self.matrix = person.cluster.matrix
         self.device_type, self.os, self.browser = self.person.cluster.properties_provider.device_type_os_browser()
         self.device_id = str(UUID(int=self.person.cluster.random.getrandbits(128)))
         self.active_distinct_id = self.device_id  # Pre-`$identify`, the device ID is used as the distinct ID
