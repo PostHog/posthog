@@ -1,6 +1,6 @@
 import json
 import unittest
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 from unittest import mock
 
 from django.utils import timezone
@@ -10,6 +10,8 @@ from rest_framework import status
 from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import create_person
 from posthog.test.base import (
@@ -240,6 +242,50 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
         self.assertEqual([(100, 1, "{}")], ch_persons)
+        # No async deletion is scheduled
+        self.assertEqual(AsyncDeletion.objects.filter(team=self.team).count(), 0)
+        ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
+            0
+        ][0]
+        self.assertEqual(ch_events, 3)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_delete_person_and_events(self):
+        person = _create_person(
+            team=self.team, distinct_ids=["person_1", "anonymous_id"], properties={"$os": "Chrome"}, immediate=True
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
+        _create_event(event="test", team=self.team, distinct_id="someone_else")
+
+        response = self.client.delete(f"/api/person/{person.uuid}/?delete_events=true")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content, b"")  # Empty response
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
+
+        ch_persons = sync_execute(
+            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            {"team_id": self.team.pk, "uuid": person.uuid},
+        )
+        self.assertEqual([(100, 1, "{}")], ch_persons)
+
+        # async deletion scheduled and executed
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team=self.team).first())
+        self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
+        self.assertEqual(async_deletion.key, str(person.uuid))
+        self.assertIsNone(async_deletion.delete_verified_at)
+
+        run_event_table_deletions()
+        mark_deletions_done()
+
+        async_deletion.refresh_from_db()
+        self.assertIsNotNone(async_deletion.delete_verified_at)
+
+        # All but someone_else's events got deleted
+        ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
+            0
+        ][0]
+        self.assertEqual(ch_events, 1)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @mock.patch("posthog.api.capture.capture_internal")
