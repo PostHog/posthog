@@ -211,7 +211,7 @@ enum ModalMode {
 }
 
 function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
-    const [scope, setScope] = useState<AnnotationScope.Project | AnnotationScope.Organization>(AnnotationScope.Project)
+    const [scope, setScope] = useState<AnnotationScope>(AnnotationScope.Project)
     const [textInput, setTextInput] = useState('')
     const [modalMode, setModalMode] = useState<ModalMode>(ModalMode.CREATE)
     const [selectedDate, setDate] = useState<dayjs.Dayjs>(dayjs())
@@ -291,12 +291,10 @@ function CreateAnnotationModal(props: CreateAnnotationModalProps): JSX.Element {
                         <LemonSelect
                             size="small"
                             dropdownMaxContentWidth={true}
-                            options={{
-                                [AnnotationScope.Project]: { label: 'project' },
-                                [AnnotationScope.Organization]: {
-                                    label: 'organization',
-                                },
-                            }}
+                            options={[
+                                { value: AnnotationScope.Project, label: 'project' },
+                                { value: AnnotationScope.Organization, label: 'organization' },
+                            ]}
                             onChange={(scope) => {
                                 if (scope) {
                                     setScope(scope)
