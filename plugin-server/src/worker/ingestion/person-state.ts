@@ -1,6 +1,5 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -166,13 +165,14 @@ export class PersonState {
         const props = { ...propertiesOnce, ...properties }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
+        const timestampIso = createdAt.toISO()
         Object.keys(propertiesOnce).forEach((key) => {
             propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
-            propertiesLastUpdatedAt[key] = createdAt
+            propertiesLastUpdatedAt[key] = timestampIso
         })
         Object.keys(properties).forEach((key) => {
             propertiesLastOperation[key] = PropertyUpdateOperation.Set
-            propertiesLastUpdatedAt[key] = createdAt
+            propertiesLastUpdatedAt[key] = timestampIso
         })
 
         return await this.db.createPerson(
@@ -213,12 +213,8 @@ export class PersonState {
             )
         }
 
-        const update: Partial<Person> = {}
-        const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
+        const update: Partial<Person> = this.updatedPersonProperties(personFound)
 
-        if (!equal(personFound.properties, updatedProperties)) {
-            update.properties = updatedProperties
-        }
         if (this.updateIsIdentified && !personFound.is_identified) {
             update.is_identified = true
         }
@@ -231,30 +227,41 @@ export class PersonState {
         }
     }
 
-    private updatedPersonProperties(personProperties: Properties): Properties {
-        const updatedProperties = { ...personProperties }
+    private updatedPersonProperties(person: Partial<Person>): Partial<Person> {
+        const updatedPerson = {
+            properties: person.properties || {},
+            properties_last_updated_at: person.properties_last_updated_at || {},
+            properties_last_operation: person.properties_last_operation || {},
+        }
 
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
         const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
+        const timestampIso = this.timestamp.toISO()
 
         // Figure out which properties we are actually setting
         Object.entries(propertiesOnce).map(([key, value]) => {
-            if (typeof personProperties[key] === 'undefined') {
-                updatedProperties[key] = value
+            if (!person.properties || typeof person.properties[key] === 'undefined') {
+                updatedPerson.properties[key] = value
+                updatedPerson.properties_last_operation[key] = PropertyUpdateOperation.SetOnce
+                updatedPerson.properties_last_updated_at[key] = timestampIso
             }
         })
         Object.entries(properties).map(([key, value]) => {
-            if (personProperties[key] !== value) {
-                updatedProperties[key] = value
+            if (!person.properties || person.properties[key] !== value) {
+                updatedPerson.properties[key] = value
+                updatedPerson.properties_last_operation[key] = PropertyUpdateOperation.Set
+                updatedPerson.properties_last_updated_at[key] = timestampIso
             }
         })
 
         unsetProperties.forEach((propertyKey) => {
-            delete updatedProperties[propertyKey]
+            delete updatedPerson.properties[propertyKey]
+            updatedPerson.properties_last_operation[propertyKey] = PropertyUpdateOperation.Unset
+            updatedPerson.properties_last_updated_at[propertyKey] = timestampIso
         })
 
-        return updatedProperties
+        return updatedPerson
     }
 
     // Alias & merge
@@ -453,11 +460,12 @@ export class PersonState {
         // in which case we'll bail and rethrow the error.
         await this.db.postgresTransaction('mergePeople', async (client) => {
             try {
+                const updatedPersonProperties = this.updatedPersonProperties(mergeInto)
                 const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
                     mergeInto,
                     {
                         created_at: firstSeen,
-                        properties: this.updatedPersonProperties(mergeInto.properties),
+                        ...updatedPersonProperties,
                         is_identified: mergeInto.is_identified || otherPerson.is_identified || shouldIdentifyPerson,
                     },
                     client

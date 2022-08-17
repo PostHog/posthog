@@ -925,6 +925,7 @@ export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
+    Unset = 'unset',
 }
 
 export type StatelessVmMap = Record<PluginId, LazyPluginVM>
