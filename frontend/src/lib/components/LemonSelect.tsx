@@ -48,10 +48,10 @@ export const isLemonSelectSection = <T extends any>(
 ): candidate is LemonSelectSection<T> => candidate && 'options' in candidate
 
 /**
- * The select can receive options that are a mix of Options and Sections.
+ * The select can receive `options` that are either Options or Sections.
  *
  * To simplify the implementation we box the options so that the code only deals with sections
- * and generate a single list of options since selection is separate from display structure
+ * and also generate a single list of options since selection is separate from display structure
  * */
 const boxToSections = <T,>(
     sectionsAndOptions: LemonSelectSection<T>[] | LemonSelectOption<T>[]
