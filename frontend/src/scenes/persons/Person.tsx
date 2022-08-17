@@ -1,5 +1,5 @@
-import React from 'react'
-import { Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
+import React, { useState } from 'react'
+import { Dropdown, Menu, Tabs, Tag } from 'antd'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
@@ -23,7 +23,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 
@@ -91,6 +91,8 @@ export function Person(): JSX.Element | null {
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+
     if (!person) {
         return personLoading ? (
             <Loading />
@@ -109,22 +111,62 @@ export function Person(): JSX.Element | null {
                 caption={<PersonCaption person={person} />}
                 buttons={
                     <div className="flex gap-2">
-                        <Popconfirm
-                            title="Are you sure you want to delete this person?"
-                            onConfirm={deletePerson}
-                            okText={`Yes, delete ${asDisplay(person)}`}
-                            cancelText="No, cancel"
+                        <LemonButton
+                            onClick={() => setDeleteModalOpen(true)}
+                            disabled={deletedPersonLoading}
+                            loading={deletedPersonLoading}
+                            type="secondary"
+                            status="danger"
+                            data-attr="delete-person"
                         >
-                            <LemonButton
-                                disabled={deletedPersonLoading}
-                                loading={deletedPersonLoading}
-                                type="secondary"
-                                status="danger"
-                                data-attr="delete-person"
-                            >
-                                Delete person
-                            </LemonButton>
-                        </Popconfirm>
+                            Delete person
+                        </LemonButton>
+
+                        <LemonModal
+                            isOpen={deleteModalOpen}
+                            onClose={() => setDeleteModalOpen(false)}
+                            title={`Are you sure you want to delete "${asDisplay(person)}"?`}
+                            description={
+                                <>
+                                    This action cannot be undone. If you opt to delete the organization and its
+                                    corresponding events, the events will not be immediately removed. Instead these
+                                    events will be deleted on a set schedule during non-peak usage times. Learn more
+                                </>
+                            }
+                            footer={
+                                <>
+                                    <LemonButton
+                                        status="danger"
+                                        type="secondary"
+                                        onClick={() => {
+                                            deletePerson({ deleteEvents: true })
+                                            setDeleteModalOpen(false)
+                                        }}
+                                        data-attr="delete-person-with-events"
+                                    >
+                                        Delete person and all corresponding events
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => setDeleteModalOpen(false)}
+                                        data-attr="delete-person-cancel"
+                                    >
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        status="danger"
+                                        onClick={() => {
+                                            deletePerson({ deleteEvents: false })
+                                            setDeleteModalOpen(false)
+                                        }}
+                                        data-attr="delete-person-no-events"
+                                    >
+                                        Delete person
+                                    </LemonButton>
+                                </>
+                            }
+                        />
                         <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
