@@ -468,7 +468,10 @@ export function EventsTable({
                     </div>
                 </div>
             ) : null}
-            <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
+            <EventBufferNotice
+                additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
+                className="mb-4"
+            />
             <LemonTable
                 data-tooltip={dataTooltip}
                 dataSource={eventsFormatted}
