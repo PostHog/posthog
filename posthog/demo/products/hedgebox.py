@@ -10,6 +10,7 @@ import pytz
 from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimPerson, SimSessionIntent
+from posthog.demo.matrix.randomization import Industry
 from posthog.models import (
     Action,
     ActionStep,
@@ -21,8 +22,6 @@ from posthog.models import (
     Insight,
     InsightViewed,
 )
-
-from ..matrix.randomization import Industry
 
 # This is a simulation of an online drive SaaS called Hedgebox
 # See this RFC for the reasoning behind it:

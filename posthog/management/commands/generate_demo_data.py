@@ -8,11 +8,9 @@ from django.core import exceptions
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.demo.matrix.manager import MatrixManager
+from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.products.hedgebox import HedgeboxMatrix
-
-from ...demo.matrix.matrix import Matrix
 
 logging.getLogger("kafka").setLevel(logging.WARNING)  # Hide kafka-python's logspam
 
