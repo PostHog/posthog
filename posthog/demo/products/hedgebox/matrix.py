@@ -2,7 +2,7 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Optional
 
-from posthog.constants import INSIGHT_TRENDS, TRENDS_LINEAR, TRENDS_WORLD_MAP
+from posthog.constants import INSIGHT_TRENDS, PAGEVIEW_EVENT, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.models import (
@@ -124,7 +124,7 @@ class HedgeboxMatrix(Matrix):
                 "display": TRENDS_LINEAR,
                 "insight": INSIGHT_TRENDS,
                 "interval": "week",
-                "date_from": "-1m",
+                "date_from": "-8w",
             },
             last_modified_at=self.now - dt.timedelta(days=23),
             last_modified_by=user,
@@ -255,10 +255,91 @@ class HedgeboxMatrix(Matrix):
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
+        active_user_lifecycle = Insight.objects.create(
+            team=team,
+            dashboard=key_metrics_dashboard,
+            saved=True,
+            name="Active user lifecycle",
+            filters={
+                "events": [],
+                "actions": [
+                    {
+                        "id": interacted_with_file_action.pk,
+                        "math": "total",
+                        "name": interacted_with_file_action.name,
+                        "type": "actions",
+                        "order": 0,
+                    }
+                ],
+                "compare": False,
+                "display": "ActionsLineGraph",
+                "insight": "LIFECYCLE",
+                "interval": "day",
+                "shown_as": "Lifecycle",
+                "date_from": "-8w",
+                "new_entity": [],
+                "properties": [],
+                "filter_test_accounts": True,
+            },
+            last_modified_at=self.now - dt.timedelta(days=34),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=active_user_lifecycle,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 20, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+        weekly_file_volume = Insight.objects.create(
+            team=team,
+            dashboard=key_metrics_dashboard,
+            saved=True,
+            name="Weekly file volume",
+            filters={
+                "events": [
+                    {
+                        "id": EVENT_UPLOADED_FILE,
+                        "math": "sum",
+                        "name": EVENT_UPLOADED_FILE,
+                        "type": "events",
+                        "order": 0,
+                        "math_property": "file_size_b",
+                    },
+                    {
+                        "id": EVENT_DELETED_FILE,
+                        "math": "sum",
+                        "name": EVENT_DELETED_FILE,
+                        "type": "events",
+                        "order": 1,
+                        "math_property": "file_size_b",
+                    },
+                ],
+                "actions": [],
+                "display": "ActionsLineGraph",
+                "insight": "TRENDS",
+                "interval": "week",
+                "date_from": "-8w",
+                "new_entity": [],
+                "properties": [],
+                "filter_test_accounts": True,
+            },
+            last_modified_at=self.now - dt.timedelta(days=18),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=key_metrics_dashboard,
+            insight=weekly_file_volume,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 25, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
 
         # Dashboard: Revenue
         revenue_dashboard = Dashboard.objects.create(team=team, name="💸 Revenue", pinned=True)
-        monthly_app_revenue = Insight.objects.create(
+        monthly_app_revenue_trends = Insight.objects.create(
             team=team,
             dashboard=revenue_dashboard,
             saved=True,
@@ -278,7 +359,34 @@ class HedgeboxMatrix(Matrix):
         )
         DashboardTile.objects.create(
             dashboard=revenue_dashboard,
-            insight=monthly_app_revenue,
+            insight=monthly_app_revenue_trends,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+
+        # Dashboard: Website
+        website_dashboard = Dashboard.objects.create(team=team, name="🌐 Website")
+        daily_unique_visitors_trends = Insight.objects.create(
+            team=team,
+            dashboard=website_dashboard,
+            saved=True,
+            name="Daily unique visitors over time",
+            filters={
+                "events": [{"id": PAGEVIEW_EVENT, "type": "events", "order": 0, "math": "dau"}],
+                "actions": [],
+                "display": TRENDS_LINEAR,
+                "insight": INSIGHT_TRENDS,
+                "interval": "day",
+                "date_from": "-6m",
+            },
+            last_modified_at=self.now - dt.timedelta(days=29),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=website_dashboard,
+            insight=daily_unique_visitors_trends,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
