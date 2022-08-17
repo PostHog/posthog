@@ -6,10 +6,10 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface EventBufferNoticeProps {
     additionalInfo?: string
-    style?: Record<string, string | number>
+    className?: string
 }
 
-export function EventBufferNotice({ additionalInfo = '', style }: EventBufferNoticeProps): JSX.Element | null {
+export function EventBufferNotice({ additionalInfo = '', className = '' }: EventBufferNoticeProps): JSX.Element | null {
     const { preflight, eventBufferAcknowledged } = useValues(preflightLogic)
     const { acknowledgeEventBuffer } = useActions(preflightLogic)
 
@@ -18,7 +18,7 @@ export function EventBufferNotice({ additionalInfo = '', style }: EventBufferNot
     }
 
     return (
-        <AlertMessage type="info" style={{ margin: '1rem 0', ...style }} onClose={acknowledgeEventBuffer}>
+        <AlertMessage type="info" onClose={acknowledgeEventBuffer} className={className}>
             Note that some events with a never-before-seen distinct ID are deliberately delayed by{' '}
             {pluralize(preflight?.buffer_conversion_seconds, 'second')}
             {additionalInfo}.{' '}

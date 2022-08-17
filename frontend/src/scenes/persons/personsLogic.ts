@@ -104,19 +104,9 @@ export const personsLogic = kea<personsLogicType>({
                     : 'https://posthog.com/docs/api/persons',
         ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
-        showSessionRecordings: [
-            (s) => [s.currentTeam],
-            (currentTeam): boolean => {
-                return !!currentTeam?.session_recording_opt_in
-            },
-        ],
         currentTab: [
-            (s) => [s.activeTab, s.showSessionRecordings],
-            (activeTab, showSessionRecordings) => {
-                // Ensure the activeTab reflects a valid tab given the available tabs
-                if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
-                    return PersonsTabType.EVENTS
-                }
+            (s) => [s.activeTab],
+            (activeTab) => {
                 return activeTab || PersonsTabType.PROPERTIES
             },
         ],
@@ -319,11 +309,7 @@ export const personsLogic = kea<personsLogicType>({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
-                    if (values.showSessionRecordings) {
-                        actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                    } else {
-                        actions.navigateToTab(PersonsTabType.EVENTS)
-                    }
+                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
