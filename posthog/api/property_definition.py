@@ -64,17 +64,26 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
         self.offset = self.get_offset(request)
         self.request = request
 
-        return list(queryset)
+        results = list(queryset)
+        if results:
+            self.count = results[0].full_count
+        else:
+            self.count = 0
+
+        return results
 
     def get_paginated_response(self, data):
         next_link = self.get_next_link() if data else None
         previous_link = self.get_previous_link()
-        return Response(OrderedDict([("next", next_link), ("previous", previous_link), ("results", data),]))
+        return Response(
+            OrderedDict([("count", self.count), ("next", next_link), ("previous", previous_link), ("results", data),])
+        )
 
     def get_paginated_response_schema(self, schema):
         return {
             "type": "object",
             "properties": {
+                "count": {"type": "integer", "example": 123,},
                 "next": {
                     "type": "string",
                     "nullable": True,
@@ -202,6 +211,7 @@ class PropertyDefinitionViewSet(
                 f"""
                             SELECT {property_definition_fields},
                                    {event_property_field} AS is_event_property
+                                   , count(*) OVER() AS full_count
                             FROM ee_enterprisepropertydefinition
                             FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id
                             WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s
@@ -222,6 +232,7 @@ class PropertyDefinitionViewSet(
             f"""
                 SELECT {property_definition_fields},
                        {event_property_field} AS is_event_property
+                       , count(*) OVER() AS full_count
                 FROM posthog_propertydefinition
                 WHERE team_id = %(team_id)s AND name NOT IN %(excluded_properties)s
                 {name_filter} {numerical_filter} {search_query} {event_property_filter} {is_feature_flag_filter}
