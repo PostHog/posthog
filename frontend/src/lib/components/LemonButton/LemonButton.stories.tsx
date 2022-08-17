@@ -13,7 +13,7 @@ import { LemonDivider } from '../LemonDivider'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted-alt']
+const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 export default {
