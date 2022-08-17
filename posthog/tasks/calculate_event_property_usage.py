@@ -73,11 +73,17 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
     team = Team.objects.get(pk=team_id)
     event_definition_payloads: DefaultDict[str, EventDefinitionPayload] = defaultdict(
         EventDefinitionPayload,
-        {event.name: EventDefinitionPayload() for event in EventDefinition.objects.filter(team_id=team_id)},
+        {known_event.name: EventDefinitionPayload() for known_event in EventDefinition.objects.filter(team_id=team_id)},
     )
     property_definition_payloads: DefaultDict[str, PropertyDefinitionPayload] = defaultdict(
         PropertyDefinitionPayload,
-        {key.name: PropertyDefinitionPayload() for key in PropertyDefinition.objects.filter(team_id=team_id)},
+        {
+            known_property.name: PropertyDefinitionPayload(
+                property_type=known_property.property_type
+                or (PropertyType.Numeric if known_property.is_numerical else None)
+            )
+            for known_property in PropertyDefinition.objects.filter(team_id=team_id)
+        },
     )
 
     since = timezone.now() - timezone.timedelta(days=30)
@@ -97,7 +103,6 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
     property_types = _get_property_types(team, since)
     for property_key, property_type in property_types.items():
         property_definition_payloads[property_key].property_type = property_type
-
     event_properties = _get_event_properties(team, since)
 
     for event, event_definition_payload in event_definition_payloads.items():
