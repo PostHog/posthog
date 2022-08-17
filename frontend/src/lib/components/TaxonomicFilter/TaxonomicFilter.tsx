@@ -76,7 +76,7 @@ export function TaxonomicFilter({
                         data-attr="taxonomic-filter-searchfield"
                         type="search"
                         fullWidth
-                        placeholder={`Search ${searchPlaceholder} foo`}
+                        placeholder={`Search ${searchPlaceholder}`}
                         value={searchQuery}
                         suffix={
                             <Tooltip
