@@ -11,9 +11,12 @@ import { percentage, truncate } from 'lib/utils'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { SessionRecordingProps } from '~/types'
 
-export function PlayerMetaV2(): JSX.Element {
-    const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(metaLogic)
+export function PlayerMetaV2({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
+    const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(
+        metaLogic({ sessionRecordingId })
+    )
 
     return (
         <Col className="player-meta-container-v2">
@@ -72,7 +75,7 @@ export function PlayerMetaV2(): JSX.Element {
     )
 }
 
-export function PlayerMetaV3(): JSX.Element {
+export function PlayerMetaV3({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
     const {
         sessionPerson,
         description,
@@ -82,7 +85,7 @@ export function PlayerMetaV3(): JSX.Element {
         currentWindowIndex,
         recordingStartTime,
         loading,
-    } = useValues(metaLogic)
+    } = useValues(metaLogic({ sessionRecordingId }))
     return (
         <div className="player-meta-container-v3">
             <Row className="player-meta-user-section">

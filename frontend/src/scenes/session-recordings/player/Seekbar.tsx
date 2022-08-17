@@ -3,13 +3,17 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
-import { RecordingEventType, RecordingSegment } from '~/types'
+import { RecordingEventType, RecordingSegment, SessionRecordingProps } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-function Tick({ event }: { event: RecordingEventType }): JSX.Element {
+interface TickProps extends SessionRecordingProps {
+    event: RecordingEventType
+}
+
+function Tick({ event, sessionRecordingId }: TickProps): JSX.Element {
     const [hovering, setHovering] = useState(false)
-    const { handleTickClick } = useActions(seekbarLogic)
+    const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId }))
     const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
     return (
         <div
@@ -38,12 +42,12 @@ function Tick({ event }: { event: RecordingEventType }): JSX.Element {
     )
 }
 
-export function Seekbar(): JSX.Element {
+export function Seekbar({ sessionRecordingId }: SessionRecordingProps): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic)
-    const { eventsToShow, sessionPlayerData } = useValues(sessionRecordingDataLogic)
-    const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic)
+    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId }))
+    const { eventsToShow, sessionPlayerData } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { thumbLeftPos, bufferPercent } = useValues(seekbarLogic({ sessionRecordingId }))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -52,8 +56,9 @@ export function Seekbar(): JSX.Element {
             setSlider(sliderRef)
             setThumb(thumbRef)
         }
-    }, [sliderRef.current, thumbRef.current])
+    }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
+    console.log(eventsToShow.length)
     return (
         <div className="rrweb-controller-slider">
             <div className="slider" ref={sliderRef} onMouseDown={handleDown} onTouchStart={handleDown}>
@@ -77,7 +82,7 @@ export function Seekbar(): JSX.Element {
             </div>
             <div className="ticks">
                 {eventsToShow.map((event: RecordingEventType) => (
-                    <Tick key={event.id} event={event} />
+                    <Tick key={event.id} event={event} sessionRecordingId={sessionRecordingId} />
                 ))}
             </div>
         </div>

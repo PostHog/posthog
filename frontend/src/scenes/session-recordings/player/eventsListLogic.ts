@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { PlayerPosition, RecordingEventsFilters, RecordingEventType } from '~/types'
+import { PlayerPosition, RecordingEventsFilters, RecordingEventType, SessionRecordingProps } from '~/types'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
@@ -13,21 +13,23 @@ export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.c
 
 export const eventsListLogic = kea<eventsListLogicType>({
     path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
-    connect: {
+    props: {} as SessionRecordingProps,
+    key: (props: SessionRecordingProps) => props.sessionRecordingId,
+    connect: ({ sessionRecordingId }: SessionRecordingProps) => ({
         logic: [eventUsageLogic],
         actions: [
-            sessionRecordingDataLogic,
+            sessionRecordingDataLogic({ sessionRecordingId }),
             ['setFilters', 'loadEventsSuccess'],
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic({ sessionRecordingId }),
             ['seek'],
         ],
         values: [
-            sessionRecordingDataLogic,
+            sessionRecordingDataLogic({ sessionRecordingId }),
             ['eventsToShow', 'sessionEventsDataLoading'],
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic({ sessionRecordingId }),
             ['currentPlayerTime'],
         ],
-    },
+    }),
     actions: {
         setLocalFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setRenderedRows: (renderMeta: RenderedRows) => ({ renderMeta }),

@@ -4,16 +4,16 @@ import React from 'react'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { RecordingConsoleLog } from '~/types'
+import { RecordingConsoleLog, SessionRecordingProps } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { consoleLogsListLogic, FEEDBACK_OPTIONS } from 'scenes/session-recordings/player/consoleLogsListLogic'
 
-export function PlayerConsole(): JSX.Element | null {
-    const { feedbackSubmitted, consoleLogs } = useValues(consoleLogsListLogic)
-    const { submitFeedback } = useActions(consoleLogsListLogic)
-    const { sessionPlayerDataLoading } = useValues(sessionRecordingDataLogic)
-    const { seek } = useActions(sessionRecordingPlayerLogic)
+export function PlayerConsole({ sessionRecordingId }: SessionRecordingProps): JSX.Element | null {
+    const { feedbackSubmitted, consoleLogs } = useValues(consoleLogsListLogic({ sessionRecordingId }))
+    const { submitFeedback } = useActions(consoleLogsListLogic({ sessionRecordingId }))
+    const { sessionPlayerDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { seek } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId }))
 
     const renderLogLine = (log: RecordingConsoleLog, index: number): JSX.Element => {
         return (

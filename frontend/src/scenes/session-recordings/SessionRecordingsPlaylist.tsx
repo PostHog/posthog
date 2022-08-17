@@ -12,6 +12,7 @@ import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import useSize from '@react-hook/size'
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -20,13 +21,13 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev } = useValues(
-        sessionRecordingsTableLogicInstance
-    )
+    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId } =
+        useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerSize = useSize(containerRef)
+    console.log(activeSessionRecordingId)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -67,6 +68,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                                 }
                             },
                         })}
+                        rowStatus={(recording) => (activeSessionRecordingId === recording.id ? 'highlighted' : null)}
                         rowClassName="cursor-pointer"
                         data-attr="session-recording-table"
                         data-tooltip="session-recording-table"
@@ -74,9 +76,18 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     />
                 </div>
                 <div ref={containerRef} style={{ flex: 1 }}>
-                    <div className="border rounded-lg" style={{ width: containerSize[0] }}>
-                        <SessionRecordingPlayerV3 />
-                    </div>
+                    {activeSessionRecordingId ? (
+                        <div className="border rounded-lg" style={{ width: containerSize[0] }}>
+                            <SessionRecordingPlayerV3 sessionRecordingId={activeSessionRecordingId} />
+                        </div>
+                    ) : (
+                        <EmptyMessage
+                            title="No recording selected"
+                            description="Please select a recording from the list on the left"
+                            buttonText="Learn more about recordings"
+                            buttonHref="https://posthog.com/docs/user-guides/recordings"
+                        />
+                    )}
                 </div>
             </div>
             {(hasPrev || hasNext) && (

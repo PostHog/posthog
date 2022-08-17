@@ -1,10 +1,10 @@
 import { KeyboardEvent } from 'react'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
+import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionRecordingProps } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
@@ -23,10 +23,20 @@ export interface Player {
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
-    connect({
-        logic: [eventUsageLogic],
-        values: [sessionRecordingDataLogic, ['sessionRecordingId', 'sessionPlayerData', 'tab']],
-        actions: [sessionRecordingDataLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab']],
+    props({} as SessionRecordingProps),
+    key((props: SessionRecordingProps) => props.sessionRecordingId),
+    connect((props: SessionRecordingProps) => {
+        return {
+            logic: [eventUsageLogic],
+            values: [
+                sessionRecordingDataLogic({ sessionRecordingId: props.sessionRecordingId }),
+                ['sessionRecordingId', 'sessionPlayerData', 'tab'],
+            ],
+            actions: [
+                sessionRecordingDataLogic({ sessionRecordingId: props.sessionRecordingId }),
+                ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab'],
+            ],
+        }
     }),
     actions({
         tryInitReplayer: () => true,

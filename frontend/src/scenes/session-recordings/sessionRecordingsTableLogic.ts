@@ -19,6 +19,7 @@ import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 
 export type PersonUUID = string
 interface Params {
@@ -150,7 +151,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                 },
             },
         ],
-        sessionRecordingId: [
+        activeSessionRecordingId: [
             null as SessionRecordingId | null,
             {
                 openSessionPlayer: (_, { sessionRecordingId }) => sessionRecordingId,
@@ -196,7 +197,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             },
         ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, selectors }) => ({
         setEntityFilters: () => {
             actions.getSessionRecordings()
         },
@@ -214,6 +215,18 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         },
         loadPrev: () => {
             actions.getSessionRecordings()
+        },
+        openSessionPlayer: ({ sessionRecordingId }, _, __, prevState) => {
+            const prevActiveSessionRecordingId = selectors.activeSessionRecordingId(prevState)
+            console.log('openSessionPlayer')
+            if (sessionRecordingId && sessionRecordingId !== prevActiveSessionRecordingId) {
+                console.log('call load')
+                if (!sessionRecordingDataLogic({ sessionRecordingId }).isMounted()) {
+                    sessionRecordingDataLogic({ sessionRecordingId }).mount()
+                }
+                sessionRecordingDataLogic({ sessionRecordingId }).actions.loadRecordingMeta(sessionRecordingId)
+                sessionRecordingDataLogic({ sessionRecordingId }).actions.loadRecordingSnapshots(sessionRecordingId)
+            }
         },
     }),
     selectors: {
@@ -267,10 +280,10 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                 ...router.values.hashParams,
             }
 
-            if (!values.sessionRecordingId) {
+            if (!values.activeSessionRecordingId) {
                 delete hashParams.sessionRecordingId
             } else {
-                hashParams.sessionRecordingId = values.sessionRecordingId
+                hashParams.sessionRecordingId = values.activeSessionRecordingId
             }
 
             return [router.values.location.pathname, params, hashParams, { replace }]
@@ -292,7 +305,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
     urlToAction: ({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId !== values.sessionRecordingId) {
+            if (nulledSessionRecordingId !== values.activeSessionRecordingId) {
                 actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
             }
 

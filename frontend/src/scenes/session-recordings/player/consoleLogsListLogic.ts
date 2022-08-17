@@ -1,13 +1,13 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { consoleLogsListLogicType } from './consoleLogsListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     YesOrNoResponse,
     RecordingConsoleLog,
     RecordingSegment,
     RecordingTimeMixinType,
     RRWebRecordingConsoleLogPayload,
+    SessionRecordingProps,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
 import {
@@ -15,6 +15,7 @@ import {
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
 import { colonDelimitedDuration } from 'lib/utils'
+import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -75,9 +76,11 @@ function parseConsoleLogPayload(
 
 export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     path(['scenes', 'session-recordings', 'player', 'consoleLogsListLogic']),
-    connect(() => ({
+    props({} as SessionRecordingProps),
+    key((props: SessionRecordingProps) => props.sessionRecordingId),
+    connect(({ sessionRecordingId }: SessionRecordingProps) => ({
         logic: [eventUsageLogic],
-        values: [sessionRecordingDataLogic, ['sessionPlayerData']],
+        values: [sessionRecordingPlayerLogic({ sessionRecordingId }), ['sessionPlayerData']],
     })),
     actions({
         submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),
