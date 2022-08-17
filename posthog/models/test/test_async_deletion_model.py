@@ -43,7 +43,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         self.assertIsNotNone(deletion.delete_verified_at)
 
     @snapshot_clickhouse_queries
-    def test_mark_team_deletions_done_when_not_done(self):
+    def test_mark_deletions_done_team_when_not_done(self):
         _create_event(event_uuid=uuid4(), event="event1", team=self.teams[0], distinct_id="1")
 
         deletion = AsyncDeletion.objects.create(

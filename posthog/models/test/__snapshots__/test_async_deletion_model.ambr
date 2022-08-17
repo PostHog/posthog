@@ -330,7 +330,7 @@
          AND person_id = '6ba7b810-9dad-11d1-80b4-00c04fd430c8')
   '
 ---
-# name: TestAsyncDeletion.test_mark_team_deletions_done
+# name: TestAsyncDeletion.test_mark_deletions_done_team_when_not_done
   '
   
   SELECT DISTINCT team_id
@@ -338,7 +338,7 @@
   WHERE team_id = 2
   '
 ---
-# name: TestAsyncDeletion.test_mark_team_deletions_done_when_not_done
+# name: TestAsyncDeletion.test_mark_team_deletions_done
   '
   
   SELECT DISTINCT team_id
