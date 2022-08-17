@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person } from '../../../src/types'
+import { Hub, Person, PropertyUpdateOperation } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
@@ -172,6 +172,11 @@ describe('PersonState.update()', () => {
                 id: expect.any(Number),
                 uuid: uuid.toString(),
                 properties: { a: 1, b: 3, c: 4 },
+                properties_last_operation: {
+                    a: PropertyUpdateOperation.SetOnce,
+                    b: PropertyUpdateOperation.Set,
+                    c: PropertyUpdateOperation.Set,
+                },
                 created_at: timestamp,
                 version: 0,
             })
@@ -209,6 +214,11 @@ describe('PersonState.update()', () => {
                 id: expect.any(Number),
                 uuid: uuid.toString(),
                 properties: { b: 4, c: 4, e: 4 },
+                properties_last_operation: {
+                    b: PropertyUpdateOperation.Set,
+                    c: PropertyUpdateOperation.Set,
+                    e: PropertyUpdateOperation.SetOnce,
+                },
                 created_at: timestamp,
                 version: 1,
             })
@@ -590,7 +600,7 @@ describe('PersonState.update()', () => {
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 
-    it.only('updates person properties when other thread merges the user', async () => {
+    it('updates person properties when other thread merges the user', async () => {
         const cachedPerson = await hub.db.createPerson(
             timestamp,
             { a: 1, b: 2 },
