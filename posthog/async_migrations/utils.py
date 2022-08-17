@@ -1,5 +1,4 @@
 import asyncio
-from datetime import datetime
 from typing import Callable, Optional
 
 import posthoganalytics
@@ -300,22 +299,12 @@ def mark_async_migration_as_running(migration_instance: AsyncMigration):
         current_operation_index=0,
         status=MigrationStatus.Running,
         started_at=now(),
-        reset_finished_at=True,
+        finished_at=None,
     )
 
 
 def update_async_migration(
-    migration_instance: AsyncMigration,
-    error: Optional[str] = None,
-    current_query_id: Optional[str] = None,
-    celery_task_id: Optional[str] = None,
-    progress: Optional[int] = None,
-    current_operation_index: Optional[int] = None,
-    status: Optional[int] = None,
-    started_at: Optional[datetime] = None,
-    finished_at: Optional[datetime] = None,
-    reset_finished_at: Optional[bool] = None,
-    lock_row: bool = True,
+    migration_instance: AsyncMigration, lock_row: bool = True, **kwargs,
 ):
     def execute_update():
         instance = migration_instance
@@ -323,24 +312,22 @@ def update_async_migration(
             instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
         else:
             instance.refresh_from_db()
-        if error is not None:
-            AsyncMigrationError.objects.create(async_migration=instance, description=error).save()
-        if current_query_id is not None:
-            instance.current_query_id = current_query_id
-        if celery_task_id is not None:
-            instance.celery_task_id = celery_task_id
-        if progress is not None:
-            instance.progress = progress
-        if current_operation_index is not None:
-            instance.current_operation_index = current_operation_index
-        if status is not None:
-            instance.status = status
-        if started_at is not None:
-            instance.started_at = started_at
-        if finished_at is not None:
-            instance.finished_at = finished_at
-        if reset_finished_at:
-            instance.finished_at = None
+        if "error" in kwargs:
+            AsyncMigrationError.objects.create(async_migration=instance, description=kwargs["error"]).save()
+        if "current_query_id" in kwargs:
+            instance.current_query_id = kwargs["current_query_id"]
+        if "celery_task_id" in kwargs:
+            instance.celery_task_id = kwargs["celery_task_id"]
+        if "progress" in kwargs:
+            instance.progress = kwargs["progress"]
+        if "current_operation_index" in kwargs:
+            instance.current_operation_index = kwargs["current_operation_index"]
+        if "status" in kwargs:
+            instance.status = kwargs["status"]
+        if "started_at" in kwargs:
+            instance.started_at = kwargs["started_at"]
+        if "finished_at" in kwargs:
+            instance.finished_at = kwargs["finished_at"]
         instance.save()
 
     if lock_row:
