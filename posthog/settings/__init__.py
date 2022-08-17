@@ -40,7 +40,7 @@ from posthog.settings.web import *
 from posthog.settings.utils import get_from_env, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
-CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
+CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, type_cast=int)
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables

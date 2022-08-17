@@ -9,6 +9,7 @@ from django.core import exceptions
 from posthog.client import query_with_columns, sync_execute
 from posthog.demo.graphile import GraphileJob, bulk_queue_graphile_jobs, copy_graphile_jobs_between_teams
 from posthog.models import (
+    Cohort,
     Group,
     GroupTypeMapping,
     Organization,
@@ -137,6 +138,8 @@ class MatrixManager:
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk)
+        for cohort in Cohort.objects.filter(team=team):
+            cohort.calculate_people_ch(pending_version=0)
         team.save()
 
     def _save_analytics_data(self, target_team: Team):
