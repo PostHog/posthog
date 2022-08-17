@@ -45,7 +45,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
 }
 
 export const EVENT_DEFINITIONS_PER_PAGE = 50
-export const PROPERTY_DEFINITIONS_PER_EVENT = 10
+export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
