@@ -114,7 +114,7 @@ class SimClient(ABC):
         if person._groups:
             combined_properties["$groups"] = deepcopy(person._groups)
             for group_type, group_key in person._groups.items():
-                group_type_index = list(self.matrix.groups.keys()).index(group_type)
+                group_type_index = self.matrix._get_group_type_index(group_type)
                 combined_properties[f"$group_{group_type_index}"] = group_key
         if feature_flags := person.decide_feature_flags():
             for flag_key, flag_value in feature_flags.items():

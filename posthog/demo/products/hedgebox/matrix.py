@@ -99,7 +99,7 @@ class HedgeboxMatrix(Matrix):
         )
         real_users_cohort = Cohort.objects.create(
             team=team,
-            name="Real users",
+            name="Real persons",
             description="People who don't belong to the Hedgebox team.",
             created_by=user,
             groups=[
@@ -260,6 +260,7 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Active user lifecycle",
+            description="An active user being defined by interaction with files.",
             filters={
                 "events": [],
                 "actions": [
@@ -367,6 +368,43 @@ class HedgeboxMatrix(Matrix):
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
+        bills_paid_trends = Insight.objects.create(
+            team=team,
+            dashboard=revenue_dashboard,
+            saved=True,
+            name="Bills paid",
+            filters={
+                "events": [
+                    {
+                        "id": EVENT_PAID_BILL,
+                        "math": "unique_group",
+                        "name": "paid_bill",
+                        "type": "events",
+                        "order": 0,
+                        "math_group_type_index": self._get_group_type_index(GROUP_TYPE_ACCOUNT),
+                    }
+                ],
+                "actions": [],
+                "compare": True,
+                "date_to": None,
+                "display": "BoldNumber",
+                "insight": "TRENDS",
+                "interval": "day",
+                "date_from": "-30d",
+                "properties": [],
+                "filter_test_accounts": True,
+            },
+            last_modified_at=self.now - dt.timedelta(days=29),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=revenue_dashboard,
+            insight=bills_paid_trends,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
 
         # Dashboard: Website
         website_dashboard = Dashboard.objects.create(team=team, name="🌐 Website")
@@ -392,6 +430,49 @@ class HedgeboxMatrix(Matrix):
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3, "moved": False, "static": False},
+            },
+        )
+        most_popular_pages_trends = Insight.objects.create(
+            team=team,
+            dashboard=website_dashboard,
+            saved=True,
+            name="Most popular pages",
+            filters={
+                "events": [{"id": PAGEVIEW_EVENT, "math": "total", "type": "events", "order": 0}],
+                "actions": [],
+                "display": "ActionsTable",
+                "insight": "TRENDS",
+                "interval": "day",
+                "breakdown": "$current_url",
+                "date_from": "-6m",
+                "new_entity": [],
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "value": "/files/",
+                                    "operator": "not_icontains",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "breakdown_type": "event",
+            },
+            last_modified_at=self.now - dt.timedelta(days=26),
+            last_modified_by=user,
+        )
+        DashboardTile.objects.create(
+            dashboard=website_dashboard,
+            insight=most_popular_pages_trends,
+            layouts={
+                "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
 
