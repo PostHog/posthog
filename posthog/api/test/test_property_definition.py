@@ -16,12 +16,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
     EXPECTED_PROPERTY_DEFINITIONS = [
         {"name": "$browser", "query_usage_30_day": 0, "is_numerical": False},
         {"name": "$current_url", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "$event_type", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "$lib", "query_usage_30_day": 0, "is_numerical": False},
         {"name": "is_first_movie", "query_usage_30_day": 0, "is_numerical": False},
         {"name": "app_rating", "query_usage_30_day": 0, "is_numerical": True},
         {"name": "plan", "query_usage_30_day": 0, "is_numerical": False},
         {"name": "purchase", "query_usage_30_day": 0, "is_numerical": True},
         {"name": "purchase_value", "query_usage_30_day": 0, "is_numerical": True},
         {"name": "first_visit", "query_usage_30_day": 0, "is_numerical": False},
+        {"name": "price", "query_usage_30_day": 0, "is_numerical": True},
     ]
 
     @classmethod
@@ -32,7 +35,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         calculate_event_property_usage_for_team(cls.demo_team.pk)
         cls.user.current_team = cls.demo_team
         cls.user.save()
-        EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="$browser")
         EventProperty.objects.create(team=cls.demo_team, event="$pageview", property="first_visit")
 
     def test_individual_property_formats(self):
@@ -52,18 +54,18 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         for item in self.EXPECTED_PROPERTY_DEFINITIONS:
             response_item: Dict = next((_i for _i in response.json()["results"] if _i["name"] == item["name"]), {})
-            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"])
-            self.assertEqual(response_item["is_numerical"], item["is_numerical"])
+            self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item["name"])
+            self.assertEqual(response_item["is_numerical"], item["is_numerical"], item["name"])
 
     def test_list_numerical_property_definitions(self):
         response = self.client.get("/api/projects/@current/property_definitions/?is_numerical=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(response.json()["count"], 4)
 
-        self.assertEqual(len(response.json()["results"]), 3)
+        self.assertEqual(len(response.json()["results"]), 4)
         properties = sorted([_i["name"] for _i in response.json()["results"]])
 
-        self.assertEqual(properties, ["app_rating", "purchase", "purchase_value"])
+        self.assertEqual(properties, ["app_rating", "price", "purchase", "purchase_value"])
 
     def test_pagination_of_property_definitions(self):
         PropertyDefinition.objects.bulk_create(
@@ -72,14 +74,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 308)
+        self.assertEqual(response.json()["count"], 311)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
         self.assertEqual(response.json()["results"][0]["name"], "$browser")  # Order by name (ascending)
 
         property_checkpoints = [
-            182,
-            272,
-            92,
+            18,
+            27,
+            9,
         ]  # Because Postgres's sorter does this: property_1; property_100, ..., property_2, property_200, ..., it's
         # easier to deterministically set the expected events
 
@@ -87,9 +89,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             response = self.client.get(response.json()["next"])
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            self.assertEqual(response.json()["count"], 308)
+            self.assertEqual(response.json()["count"], 311)
             self.assertEqual(
-                len(response.json()["results"]), 100 if i < 2 else 8,
+                len(response.json()["results"]), 100 if i < 2 else 11
             )  # Each page has 100 except the last one
             self.assertEqual(response.json()["results"][0]["name"], f"z_property_{property_checkpoints[i]}")
 
@@ -137,11 +139,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             "/api/projects/@current/property_definitions/?search=%24&event_names=%5B%22%24pageview%22%5D"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(response.json()["count"], 4)
         self.assertEqual(response.json()["results"][0]["name"], "$browser")
         self.assertEqual(response.json()["results"][0]["is_event_property"], True)
         self.assertEqual(response.json()["results"][1]["name"], "$current_url")
-        self.assertEqual(response.json()["results"][1]["is_event_property"], False)
+        self.assertEqual(response.json()["results"][1]["is_event_property"], True)
 
         # Fuzzy search 2
         response = self.client.get("/api/projects/@current/property_definitions/?search=hase%20")

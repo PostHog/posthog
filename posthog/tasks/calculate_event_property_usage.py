@@ -40,10 +40,10 @@ def _get_events_volume(team: Team, since: timezone.datetime) -> Dict[str, Tuple[
 
 def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
     parsed_value = json.loads(sample_json_value)
-    if isinstance(parsed_value, (float, int)):
-        return PropertyType.Numeric
     if isinstance(parsed_value, bool):
         return PropertyType.Boolean
+    if isinstance(parsed_value, (float, int)):
+        return PropertyType.Numeric
     if isinstance(parsed_value, str):
         return PropertyType.String
     return None
@@ -122,7 +122,8 @@ def calculate_event_property_usage_for_team(team_id: int, *, include_actors_prop
 
     property_types = _get_property_types(team, since, include_actors_properties=include_actors_properties)
     for property_key, property_type in property_types.items():
-        property_definition_payloads[property_key].property_type = property_type
+        if property_definition_payloads[property_key].property_type is None:
+            property_definition_payloads[property_key].property_type = property_type
     event_properties = _get_event_properties(team, since)
 
     for event, event_definition_payload in event_definition_payloads.items():
