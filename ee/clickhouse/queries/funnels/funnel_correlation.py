@@ -171,14 +171,14 @@ class FunnelCorrelation:
 
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
-                    possible_mat_col = mat_event_cols[(property_name, "group_properties")]
+                    possible_mat_col = mat_event_cols.get((property_name, "group_properties"))
                     if possible_mat_col is not None:
                         props_to_include.append(possible_mat_col)
                     else:
                         props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
 
                 else:
-                    possible_mat_col = mat_event_cols[(property_name, "person_properties")]
+                    possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
 
                     if possible_mat_col is not None:
                         props_to_include.append(possible_mat_col)
