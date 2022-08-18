@@ -268,7 +268,6 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 e."person_properties" as "person_properties",
                                  pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
@@ -377,7 +376,6 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 e."person_properties" as "person_properties",
                                  pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
@@ -490,7 +488,6 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 e."person_properties" as "person_properties",
                                  pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
@@ -603,7 +600,6 @@
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  e."properties" as "properties",
-                                 e."person_properties" as "person_properties",
                                  pdi.person_id as person_id
                           FROM events e
                           INNER JOIN
