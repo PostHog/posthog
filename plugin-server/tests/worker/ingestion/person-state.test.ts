@@ -195,7 +195,9 @@ describe('PersonState.update()', () => {
     })
 
     it('updates person properties if needed', async () => {
-        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 7 }, {}, {}, 2, null, false, uuid.toString(), [
+            'new-user',
+        ])
 
         const personContainer = await personState({
             event: '$pageview',
@@ -203,6 +205,7 @@ describe('PersonState.update()', () => {
             properties: {
                 $set_once: { c: 3, e: 4 },
                 $set: { b: 4 },
+                $unset: ['d'],
             },
         }).update()
 
@@ -216,8 +219,8 @@ describe('PersonState.update()', () => {
                 properties: { b: 4, c: 4, e: 4 },
                 properties_last_operation: {
                     b: PropertyUpdateOperation.Set,
-                    c: PropertyUpdateOperation.Set,
                     e: PropertyUpdateOperation.SetOnce,
+                    d: PropertyUpdateOperation.Unset,
                 },
                 created_at: timestamp,
                 version: 1,

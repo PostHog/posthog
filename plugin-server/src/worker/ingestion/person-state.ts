@@ -1,5 +1,6 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -213,7 +214,15 @@ export class PersonState {
             )
         }
 
-        const update: Partial<Person> = this.updatedPersonProperties(personFound)
+        const update: Partial<Person> = {}
+
+        const updatedProperties = this.updatedPersonProperties(personFound)
+        // ignore timestamp and operation only updates as we don't really use them yet
+        if (!equal(personFound.properties, updatedProperties.properties)) {
+            update.properties = updatedProperties.properties
+            update.properties_last_operation = updatedProperties.properties_last_operation
+            update.properties_last_updated_at = updatedProperties.properties_last_updated_at
+        }
 
         if (this.updateIsIdentified && !personFound.is_identified) {
             update.is_identified = true
@@ -229,7 +238,8 @@ export class PersonState {
 
     private updatedPersonProperties(person: Partial<Person>): Partial<Person> {
         const updatedPerson = {
-            properties: person.properties || {},
+            properties: { ...person.properties } || {},
+            // ignore timestamp and operation only updates as we don't really use them yet
             properties_last_updated_at: person.properties_last_updated_at || {},
             properties_last_operation: person.properties_last_operation || {},
         }
