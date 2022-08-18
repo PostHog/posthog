@@ -16,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog.client import sync_execute
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Team
@@ -159,9 +160,32 @@ class FunnelCorrelation:
             # NOTE: we don't need these as we have all the information we need to
             # deduce if the person was successful or not
             include_preceding_timestamp=False,
-            include_person_properties=self.query_person_properties,
-            include_group_properties=self.include_funnel_group_properties,
+            include_properties=self.properties_to_include,
         )
+
+    @property
+    def properties_to_include(self) -> List[str]:
+        props_to_include = []
+        if self._team.actor_on_events_querying_enabled:
+            mat_event_cols = get_materialized_columns("events")
+
+            for property_name in cast(list, self._filter.correlation_property_names):
+                if self._filter.aggregation_group_type_index is not None:
+                    possible_mat_col = mat_event_cols[(property_name, "group_properties")]
+                    if possible_mat_col is not None:
+                        props_to_include.append(possible_mat_col)
+                    else:
+                        props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
+
+                else:
+                    possible_mat_col = mat_event_cols[(property_name, "person_properties")]
+
+                    if possible_mat_col is not None:
+                        props_to_include.append(possible_mat_col)
+                    else:
+                        props_to_include.append(f"person_properties")
+
+        return props_to_include
 
     def support_autocapture_elements(self) -> bool:
         if (
@@ -529,7 +553,6 @@ class FunnelCorrelation:
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
-                        allow_denormalized_props=False,  # TODO: handle pushdown in correlation CTE
                     )
                 else:
                     expression, _ = get_property_string_expr(
@@ -537,7 +560,6 @@ class FunnelCorrelation:
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
-                        allow_denormalized_props=False,  # TODO: handle pushdown in correlation CTE
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)
@@ -805,11 +827,10 @@ class FunnelCorrelation:
 
     def get_funnel_actors_cte(self) -> Tuple[str, Dict[str, Any]]:
         extra_fields = ["steps", "final_timestamp", "first_timestamp"]
-        if self.query_person_properties:
-            extra_fields.append("person_properties")
-        if self.query_group_properties:
-            for group_index in self.include_funnel_group_properties:
-                extra_fields.append(f"group{group_index}_properties")
+
+        if self.properties_to_include:
+            for prop in self.properties_to_include:
+                extra_fields.append(prop)
 
         return self._funnel_actors_generator.actor_query(limit_actors=False, extra_fields=extra_fields)
 
