@@ -50,7 +50,7 @@ describe('prepareEventStep()', () => {
             'my_id',
         ])
         hub.db.kafkaProducer!.queueMessage = jest.fn()
-        personContainer = new LazyPersonContainer(2, 'my_id', hub)
+        personContainer = new LazyPersonContainer(2, 'my_id', hub, person)
 
         runner = {
             nextStep: (...args: any[]) => args,
@@ -101,7 +101,7 @@ describe('prepareEventStep()', () => {
                 teamId: 2,
                 timestamp: '2020-02-23T02:15:00.000Z',
             },
-            personContainer,
+            undefined,
         ])
         expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
     })

@@ -90,8 +90,8 @@ export class EventPipelineRunner {
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
-        const personContainer = new LazyPersonContainer(event.teamId, event.distinctId, this.hub)
-        const result = await this.runPipeline('runAsyncHandlersStep', event, personContainer)
+        const person = await this.hub.db.fetchPerson(event.teamId, event.distinctId)
+        const result = await this.runPipeline('runAsyncHandlersStep', event, person)
         this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
         return result
     }
