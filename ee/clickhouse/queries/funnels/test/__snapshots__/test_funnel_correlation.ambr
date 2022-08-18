@@ -707,6 +707,7 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
+                              e."mat_pp_$browser" as "mat_pp_$browser",
                               pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
@@ -796,6 +797,7 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
+                              e."mat_pp_$browser" as "mat_pp_$browser",
                               pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
@@ -885,6 +887,7 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
+                              e."mat_pp_$browser" as "mat_pp_$browser",
                               pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
@@ -974,6 +977,7 @@
                               e.distinct_id as distinct_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
+                              e."mat_pp_$browser" as "mat_pp_$browser",
                               pdi.person_id as person_id
                        FROM events e
                        INNER JOIN

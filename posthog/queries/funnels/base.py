@@ -698,7 +698,7 @@ class ClickhouseFunnelBase(ABC):
                     table="events",
                     query_alias="prop_basic",
                     column="person_properties",
-                    allow_denormalized_props=False,
+                    allow_denormalized_props=True,
                 )
             else:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
