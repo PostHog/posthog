@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -12,7 +13,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_exception, configure_scope
 from statshog.defaults.django import statsd
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.utils import ChromeType
@@ -120,12 +121,24 @@ def _screenshot_asset(
         driver = get_driver()
         driver.set_window_size(screenshot_width, screenshot_width * 0.5)
         driver.get(url_to_render)
-        WebDriverWait(driver, 10).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+        WebDriverWait(driver, 30).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
         height = driver.execute_script("return document.body.scrollHeight")
         driver.set_window_size(screenshot_width, height)
         driver.save_screenshot(image_path)
+    except Exception as e:
+        if driver:
+            # To help with debugging, add a screenshot and any chrome logs
+            with configure_scope() as scope:
+                all_logs = [x for x in driver.get_log("browser")]
+                scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
+                driver.save_screenshot(image_path)
+                scope.add_attachment(None, None, image_path)
+                capture_exception(e)
+
+            raise e
     finally:
         if driver:
+
             driver.close()
 
 
