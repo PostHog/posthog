@@ -246,7 +246,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
                     sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
 
                     column_name = get_materialized_columns("events")[(prop, "person_properties")]
-                    sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+                    sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
 
             if verify_no_jsonextract:
                 for sql in sqls:
