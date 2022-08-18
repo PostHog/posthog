@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, PropertyUpdateOperation } from '../../../src/types'
+import { Hub, Person } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
@@ -172,16 +172,6 @@ describe('PersonState.update()', () => {
                 id: expect.any(Number),
                 uuid: uuid.toString(),
                 properties: { a: 1, b: 3, c: 4 },
-                properties_last_operation: {
-                    a: PropertyUpdateOperation.SetOnce,
-                    b: PropertyUpdateOperation.Set,
-                    c: PropertyUpdateOperation.Set,
-                },
-                properties_last_updated_at: {
-                    a: timestamp.toISO(),
-                    b: timestamp.toISO(),
-                    c: timestamp.toISO(),
-                },
                 created_at: timestamp,
                 version: 0,
             })
@@ -200,9 +190,7 @@ describe('PersonState.update()', () => {
     })
 
     it('unsets person property', async () => {
-        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 7 }, {}, {}, 2, null, false, uuid.toString(), [
-            'new-user',
-        ])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 7 }, 2, null, false, uuid.toString(), ['new-user'])
 
         const personContainer = await personState({
             event: '$pageview',
@@ -220,12 +208,6 @@ describe('PersonState.update()', () => {
                 id: expect.any(Number),
                 uuid: uuid.toString(),
                 properties: { b: 3, c: 4 },
-                properties_last_operation: {
-                    d: PropertyUpdateOperation.Unset,
-                },
-                properties_last_updated_at: {
-                    d: timestamp.toISO(),
-                },
                 created_at: timestamp,
                 version: 1,
             })
@@ -236,7 +218,7 @@ describe('PersonState.update()', () => {
         expect(clickhousePersons[0]).toEqual(
             expect.objectContaining({
                 id: uuid.toString(),
-                properties: JSON.stringify({ b: 4, c: 4 }),
+                properties: JSON.stringify({ b: 3, c: 4 }),
                 created_at: '2020-01-01 12:00:05.000',
                 version: 1,
             })
@@ -244,7 +226,7 @@ describe('PersonState.update()', () => {
     })
 
     it('updates person properties if needed', async () => {
-        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, 2, null, false, uuid.toString(), ['new-user'])
 
         const personContainer = await personState({
             event: '$pageview',
@@ -263,14 +245,6 @@ describe('PersonState.update()', () => {
                 id: expect.any(Number),
                 uuid: uuid.toString(),
                 properties: { b: 4, c: 4, e: 4 },
-                properties_last_operation: {
-                    b: PropertyUpdateOperation.Set,
-                    e: PropertyUpdateOperation.SetOnce,
-                },
-                properties_last_updated_at: {
-                    b: timestamp.toISO(),
-                    e: timestamp.toISO(),
-                },
                 created_at: timestamp,
                 version: 1,
             })
@@ -289,7 +263,7 @@ describe('PersonState.update()', () => {
     })
 
     it('updating with cached person data skips checking if person is new', async () => {
-        const person = await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), [
+        const person = await hub.db.createPerson(timestamp, { b: 3, c: 4 }, 2, null, false, uuid.toString(), [
             'new-user',
         ])
 
@@ -323,7 +297,7 @@ describe('PersonState.update()', () => {
     })
 
     it('does not update person if not needed', async () => {
-        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, 2, null, false, uuid.toString(), ['new-user'])
 
         const personContainer = await personState({
             event: '$pageview',
@@ -388,8 +362,8 @@ describe('PersonState.update()', () => {
     })
 
     it('merges people on $identify event', async () => {
-        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
-        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, 2, null, false, uuid.toString(), ['old-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, 2, null, false, uuid2.toString(), ['new-user'])
 
         await personState({
             event: '$identify',
@@ -439,7 +413,7 @@ describe('PersonState.update()', () => {
     })
 
     it('adds distinct_id to user and updates property on $identify event', async () => {
-        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, 2, null, false, uuid.toString(), ['old-user'])
 
         const personContainer = await personState({
             event: '$identify',
@@ -483,7 +457,7 @@ describe('PersonState.update()', () => {
     })
 
     it('adds new distinct_id and updates is_identified on $identify event', async () => {
-        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
+        await hub.db.createPerson(timestamp, {}, 2, null, false, uuid2.toString(), ['new-user'])
 
         await personState({
             event: '$identify',
@@ -518,7 +492,7 @@ describe('PersonState.update()', () => {
     })
 
     it('marks user as is_identified on $identify event', async () => {
-        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user', 'old-user'])
+        await hub.db.createPerson(timestamp, {}, 2, null, false, uuid2.toString(), ['new-user', 'old-user'])
 
         await personState({
             event: '$identify',
@@ -551,7 +525,7 @@ describe('PersonState.update()', () => {
     })
 
     it('does not update person if user already identified and no properties change on $identify event', async () => {
-        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, true, uuid2.toString(), ['new-user', 'old-user'])
+        await hub.db.createPerson(timestamp, {}, 2, null, true, uuid2.toString(), ['new-user', 'old-user'])
 
         await personState({
             event: '$identify',
@@ -580,10 +554,8 @@ describe('PersonState.update()', () => {
     })
 
     it('does not merge already identified users', async () => {
-        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, true, uuid.toString(), ['old-user'])
-        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 5 }, {}, {}, 2, null, false, uuid2.toString(), [
-            'new-user',
-        ])
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, 2, null, true, uuid.toString(), ['old-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 5 }, 2, null, false, uuid2.toString(), ['new-user'])
 
         await personState({
             event: '$identify',
@@ -600,10 +572,8 @@ describe('PersonState.update()', () => {
     })
 
     it('merges people on $identify event and updates properties with $set/$set_once', async () => {
-        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, 2, null, false, uuid.toString(), ['old-user'])
-        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 5 }, {}, {}, 2, null, false, uuid2.toString(), [
-            'new-user',
-        ])
+        await hub.db.createPerson(timestamp, { a: 1, b: 2 }, 2, null, false, uuid.toString(), ['old-user'])
+        await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 5 }, 2, null, false, uuid2.toString(), ['new-user'])
 
         await personState({
             event: '$identify',
@@ -655,18 +625,10 @@ describe('PersonState.update()', () => {
     })
 
     it('updates person properties when other thread merges the user', async () => {
-        const cachedPerson = await hub.db.createPerson(
-            timestamp,
-            { a: 1, b: 2 },
-            {},
-            {},
-            2,
-            null,
-            false,
-            uuid.toString(),
-            ['old-user']
-        )
-        await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid2.toString(), ['new-user'])
+        const cachedPerson = await hub.db.createPerson(timestamp, { a: 1, b: 2 }, 2, null, false, uuid.toString(), [
+            'old-user',
+        ])
+        await hub.db.createPerson(timestamp, {}, 2, null, false, uuid2.toString(), ['new-user'])
         const mergedPersonContainer = await personState({
             event: '$identify',
             distinct_id: 'new-user',
@@ -733,20 +695,12 @@ describe('PersonState.update()', () => {
 
     describe('foreign key updates in other tables', () => {
         test('feature flag hash key overrides with no conflicts', async () => {
-            const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
+            const anonPerson = await hub.db.createPerson(timestamp, {}, 2, null, false, uuid.toString(), [
                 'anonymous_id',
             ])
-            const identifiedPerson = await hub.db.createPerson(
-                timestamp,
-                {},
-                {},
-                {},
-                2,
-                null,
-                false,
-                uuid2.toString(),
-                ['new_distinct_id']
-            )
+            const identifiedPerson = await hub.db.createPerson(timestamp, {}, 2, null, false, uuid2.toString(), [
+                'new_distinct_id',
+            ])
 
             // existing overrides
             await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
@@ -801,20 +755,12 @@ describe('PersonState.update()', () => {
         })
 
         test('feature flag hash key overrides with some conflicts handled gracefully', async () => {
-            const anonPerson = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), [
+            const anonPerson = await hub.db.createPerson(timestamp, {}, 2, null, false, uuid.toString(), [
                 'anonymous_id',
             ])
-            const identifiedPerson = await hub.db.createPerson(
-                timestamp,
-                {},
-                {},
-                {},
-                2,
-                null,
-                false,
-                uuid2.toString(),
-                ['new_distinct_id']
-            )
+            const identifiedPerson = await hub.db.createPerson(timestamp, {}, 2, null, false, uuid2.toString(), [
+                'new_distinct_id',
+            ])
 
             // existing overrides for both anonPerson and identifiedPerson
             // which implies a clash when anonPerson is deleted
@@ -876,18 +822,10 @@ describe('PersonState.update()', () => {
         })
 
         test('feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['anonymous_id'])
-            const identifiedPerson = await hub.db.createPerson(
-                timestamp,
-                {},
-                {},
-                {},
-                2,
-                null,
-                false,
-                uuid2.toString(),
-                ['new_distinct_id']
-            )
+            await hub.db.createPerson(timestamp, {}, 2, null, false, uuid.toString(), ['anonymous_id'])
+            const identifiedPerson = await hub.db.createPerson(timestamp, {}, 2, null, false, uuid2.toString(), [
+                'new_distinct_id',
+            ])
 
             await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: 2,

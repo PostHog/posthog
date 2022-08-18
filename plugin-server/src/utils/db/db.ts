@@ -894,8 +894,6 @@ export class DB {
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -907,17 +905,7 @@ export class DB {
         const person = await this.postgresTransaction('createPerson', async (client) => {
             const insertResult = await this.postgresQuery(
                 'INSERT INTO posthog_person (created_at, properties, properties_last_updated_at, properties_last_operation, team_id, is_user_id, is_identified, uuid, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
-                [
-                    createdAt.toISO(),
-                    JSON.stringify(properties),
-                    JSON.stringify(propertiesLastUpdatedAt),
-                    JSON.stringify(propertiesLastOperation),
-                    teamId,
-                    isUserId,
-                    isIdentified,
-                    uuid,
-                    0,
-                ],
+                [createdAt.toISO(), JSON.stringify(properties), {}, {}, teamId, isUserId, isIdentified, uuid, 0],
                 'insertPerson',
                 client
             )

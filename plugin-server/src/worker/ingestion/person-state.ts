@@ -6,7 +6,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { DatabaseError, PoolClient } from 'pg'
 
-import { Person, PropertyUpdateOperation } from '../../types'
+import { Person } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
@@ -37,10 +37,7 @@ const isDistinctIdIllegal = (id: string): boolean => {
     return id.trim() === '' || CASE_INSENSITIVE_ILLEGAL_IDS.has(id.toLowerCase()) || CASE_SENSITIVE_ILLEGAL_IDS.has(id)
 }
 
-type UpdatedPartialPerson = Pick<
-    Person,
-    'is_identified' | 'properties' | 'properties_last_operation' | 'properties_last_updated_at'
->
+type UpdatedPartialPerson = Pick<Person, 'is_identified' | 'properties'>
 
 // This class is responsible for creating/updating a single person through the process-event pipeline
 export class PersonState {
@@ -167,29 +164,8 @@ export class PersonState {
         distinctIds?: string[]
     ): Promise<Person> {
         const props = { ...propertiesOnce, ...properties }
-        const propertiesLastOperation: Record<string, any> = {}
-        const propertiesLastUpdatedAt: Record<string, any> = {}
-        const timestampIso = this.timestamp.toISO()
-        Object.keys(propertiesOnce).forEach((key) => {
-            propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
-            propertiesLastUpdatedAt[key] = timestampIso
-        })
-        Object.keys(properties).forEach((key) => {
-            propertiesLastOperation[key] = PropertyUpdateOperation.Set
-            propertiesLastUpdatedAt[key] = timestampIso
-        })
 
-        return await this.db.createPerson(
-            this.timestamp,
-            props,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
-            teamId,
-            isUserId,
-            isIdentified,
-            uuid,
-            distinctIds
-        )
+        return await this.db.createPerson(this.timestamp, props, teamId, isUserId, isIdentified, uuid, distinctIds)
     }
 
     private async updatePersonProperties(): Promise<Person | null> {
@@ -237,36 +213,26 @@ export class PersonState {
         const updated = {
             is_identified: this.updateIsIdentified || person.is_identified,
             properties: { ...person.properties } || {},
-            properties_last_updated_at: { ...person.properties_last_updated_at } || {},
-            properties_last_operation: { ...person.properties_last_operation } || {},
         }
 
         const properties: Properties = this.eventProperties['$set'] || {}
         const propertiesOnce: Properties = this.eventProperties['$set_once'] || {}
         const unsetProperties: Array<string> = this.eventProperties['$unset'] || []
-        const timestampIso = this.timestamp.toISO()
 
         // Figure out which properties we are actually setting
         Object.entries(propertiesOnce).map(([key, value]) => {
             if (!person.properties || typeof person.properties[key] === 'undefined') {
                 updated.properties[key] = value
-                updated.properties_last_operation[key] = PropertyUpdateOperation.SetOnce
-                updated.properties_last_updated_at[key] = timestampIso
             }
         })
         Object.entries(properties).map(([key, value]) => {
-            // we don't update operation nor timestamp if the value doesn't change
             if (!person.properties || person.properties[key] !== value) {
                 updated.properties[key] = value
-                updated.properties_last_operation[key] = PropertyUpdateOperation.Set
-                updated.properties_last_updated_at[key] = timestampIso
             }
         })
 
         unsetProperties.forEach((propertyKey) => {
             delete updated.properties[propertyKey]
-            updated.properties_last_operation[propertyKey] = PropertyUpdateOperation.Unset
-            updated.properties_last_updated_at[propertyKey] = timestampIso
         })
 
         return updated
