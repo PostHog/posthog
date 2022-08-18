@@ -26,7 +26,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     # TODO: Add moaaar tests for all the new stuff added to the materialized columns code.
     # TODO: Add tests for the backfill code.
     # Specifically, for different kinds of columns, not just properties, and their interaction with each other.
-    # ALSO MAJOR TODO: Find other places that use `get_materialised_columns` and `materialize()` and see if I need to fix things
+    # ~~ALSO MAJOR TODO~~ DONE, replaced with TODOs elsewhere: Find other places that use `get_materialised_columns` and `materialize()` and see if I need to fix things
+    # TODO: Test _materialized_column_name
     def setUp(self):
         self.recreate_database()
         return super().setUp()

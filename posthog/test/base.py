@@ -208,6 +208,7 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 
 
 def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
+    # TODO: Make this materialise person_properties on events as well, for running proper materialisation tests for person-on-events
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
 
@@ -237,10 +238,10 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
                     fn(self, *args, **kwargs)
             finally:
                 for prop in event_properties:
-                    column_name = get_materialized_columns("events")[prop]
+                    column_name = get_materialized_columns("events")[(prop, "properties")]
                     sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
                 for prop in person_properties:
-                    column_name = get_materialized_columns("person")[prop]
+                    column_name = get_materialized_columns("person")[(prop, "properties")]
                     sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
 
             if verify_no_jsonextract:

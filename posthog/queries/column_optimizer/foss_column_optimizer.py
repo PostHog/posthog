@@ -42,6 +42,8 @@ class FOSSColumnOptimizer:
     def columns_to_query(self, table: TableWithProperties, used_properties: Set[PropertyIdentifier]) -> Set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
 
+        # TODO: get table column name somehow?
+        # TODO: Why is this a duplicate of EE?
         materialized_columns = get_materialized_columns(table)
         return set(materialized_columns.get(property_name, "properties") for property_name, _, _ in used_properties)
 
