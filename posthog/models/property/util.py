@@ -177,8 +177,9 @@ def parse_prop_clauses(
                 idx,
                 prepend,
                 prop_var="{}person_properties".format(table_name),
-                allow_denormalized_props=False,  # TODO: No denormalized props will exist on person on events for now
+                allow_denormalized_props=True,
                 property_operator=property_operator,
+                use_event_columns=True,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -341,13 +342,18 @@ def prop_filter_json_extract(
     allow_denormalized_props: bool = True,
     transform_expression: Optional[Callable[[str], str]] = None,
     property_operator: str = PropertyOperatorType.AND,
+    use_event_columns: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
     property_expr, is_denormalized = get_property_string_expr(
-        property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
+        "events" if use_event_columns else property_table(prop),
+        prop.key,
+        f"%(k{prepend}_{idx})s",
+        prop_var,
+        allow_denormalized_props,
     )
 
     if is_denormalized and transform_expression:
@@ -592,6 +598,9 @@ def get_property_string_expr(
     # TODO: Support group & person on events here!
     if allow_denormalized_props and (property_name, "properties") in materialized_columns:
         return f'{table_string}"{materialized_columns[(property_name, "properties")]}"', True
+
+    if allow_denormalized_props and (property_name, "person_properties") in materialized_columns:
+        return f'{table_string}"{materialized_columns[(property_name, "person_properties")]}"', True
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
