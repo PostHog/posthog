@@ -10,7 +10,7 @@ from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 logger = structlog.get_logger(__name__)
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
-TABLES_TO_DELETE_TEAMS_FROM = [
+TABLES_TO_DELETE_TEAM_DATA_FROM = [
     "person",
     "person_distinct_id",
     "person_distinct_id2",
@@ -54,7 +54,7 @@ def run_event_table_deletions():
         {"count": len(team_deletions), "team_ids": list(set(row.team_id for row in deletions)),},
     )
     conditions, args = _conditions(team_deletions)
-    for table in TABLES_TO_DELETE_TEAMS_FROM:
+    for table in TABLES_TO_DELETE_TEAM_DATA_FROM:
         sync_execute(
             f"""
             ALTER TABLE {table}
