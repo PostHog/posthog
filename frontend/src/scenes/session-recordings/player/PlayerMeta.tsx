@@ -131,7 +131,7 @@ export function PlayerMetaV3(): JSX.Element {
                     ) : (
                         <Space size={4} align="center">
                             <IconWindow
-                                windowNumber={currentWindowIndex + 1}
+                                value={currentWindowIndex + 1}
                                 className="text-muted"
                                 style={{ marginRight: '0.25rem' }}
                             />

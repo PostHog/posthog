@@ -8,6 +8,7 @@ import {
     RecordingSegment,
     RecordingTimeMixinType,
     RRWebRecordingConsoleLogPayload,
+    RecordingWindowFilter,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
 import {
@@ -15,6 +16,7 @@ import {
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
 import { colonDelimitedDuration } from 'lib/utils'
+import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -77,7 +79,12 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     path(['scenes', 'session-recordings', 'player', 'consoleLogsListLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionPlayerData']],
+        values: [
+            sessionRecordingLogic,
+            ['sessionPlayerData'],
+            sharedListLogic,
+            ['windowIdFilter', 'onlyMatchingEvents'],
+        ],
     })),
     actions({
         submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),
@@ -101,11 +108,18 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     })),
     selectors({
         consoleLogs: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData) => {
+            (s) => [s.sessionPlayerData, s.windowIdFilter],
+            (sessionPlayerData, windowIdFilter) => {
                 const logs: RecordingConsoleLog[] = []
+
+                // Filter only snapshots from specified window
+                const filteredSnapshotsByWindowId =
+                    windowIdFilter === RecordingWindowFilter.All
+                        ? sessionPlayerData.snapshotsByWindowId
+                        : { [windowIdFilter]: sessionPlayerData.snapshotsByWindowId?.[windowIdFilter] }
+
                 sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
-                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
+                    filteredSnapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
                         if (
                             snapshot.type === 6 && // RRWeb plugin event type
                             snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME &&

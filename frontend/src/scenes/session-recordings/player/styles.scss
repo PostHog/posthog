@@ -226,6 +226,19 @@
                     }
                 }
 
+                .player-filter {
+                    background-color: var(--bg-side);
+                    padding: 0.5rem;
+                    gap: 12px;
+
+                    .player-filter-matching-events {
+                        min-height: 2.5rem;
+                        padding-top: 0.25rem;
+                        padding-bottom: 0.25rem;
+                        background-color: var(--bg-light);
+                    }
+                }
+
                 .player-sidebar {
                     height: 100%;
                     min-height: 20rem;
