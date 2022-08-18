@@ -494,7 +494,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)], False)), 10
         )
 
-    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False)
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
