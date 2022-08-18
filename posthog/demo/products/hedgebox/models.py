@@ -16,7 +16,7 @@ from typing import (
 
 import pytz
 
-from posthog.demo.matrix.models import SimPerson, SimSessionIntent
+from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
 
 from .taxonomy import *
 
@@ -128,7 +128,6 @@ class HedgeboxPerson(SimPerson):
     cluster: "HedgeboxCluster"
 
     # Constant properties
-    person_id: str
     name: str
     email: str
     affinity: float  # 0 roughly means they won't like Hedgebox, 1 means they will - affects need/satisfaction deltas
@@ -148,7 +147,6 @@ class HedgeboxPerson(SimPerson):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.person_id = self.cluster.random.randstr(False, 16)
         self.name = self.cluster.person_provider.full_name()
         self.email = self.cluster.person_provider.email()
         self.affinity = (
@@ -181,9 +179,6 @@ class HedgeboxPerson(SimPerson):
 
     def __str__(self) -> str:
         return f"{self.name} <{self.email}>"
-
-    def __hash__(self) -> int:
-        return hash(self.person_id)
 
     # Internal state - bounded
 
@@ -222,15 +217,15 @@ class HedgeboxPerson(SimPerson):
 
     def decide_feature_flags(self) -> Dict[str, Any]:
         if (
-            self.simulation_time >= self.cluster.matrix.new_signup_page_experiment_start
-            and self.simulation_time < self.cluster.matrix.new_signup_page_experiment_end
+            self.cluster.simulation_time >= self.cluster.matrix.new_signup_page_experiment_start
+            and self.cluster.simulation_time < self.cluster.matrix.new_signup_page_experiment_end
         ):
             return {NEW_SIGNUP_PAGE_FLAG_KEY: "test" if self.falls_into_new_signup_page_bucket else "control"}
         else:
             return {}
 
     def determine_next_session_datetime(self) -> dt.datetime:
-        next_session_datetime = self.simulation_time
+        next_session_datetime = self.cluster.simulation_time
         while True:
             next_session_datetime += dt.timedelta(
                 seconds=self.cluster.random.betavariate(2.5, 1 + self.need)
@@ -481,7 +476,7 @@ class HedgeboxPerson(SimPerson):
                     self.go_to_own_file(file)
             else:
                 file = HedgeboxFile(
-                    id=str(self.roll_uuidt()),
+                    id=str(self.cluster.roll_uuidt()),
                     type=self.cluster.file_provider.mime_type(),
                     size_b=int(self.cluster.random.betavariate(1.3, 3) * 7_000_000_000),
                     popularity=self.cluster.random.random(),
@@ -561,7 +556,7 @@ class HedgeboxPerson(SimPerson):
         if self.account is not None:
             raise ValueError("Already signed up")
         self.account = HedgeboxAccount(
-            id=str(self.roll_uuidt()),
+            id=str(self.cluster.roll_uuidt()),
             team_members={self},
             plan=HedgeboxPlan.PERSONAL_FREE if not self.cluster.company else HedgeboxPlan.BUSINESS_STANDARD,
         )
@@ -601,7 +596,11 @@ class HedgeboxPerson(SimPerson):
         )
         self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
         if self.satisfaction > 0.9:
-            self.affect_all_neighbors(lambda other: other.move_attribute("need", 0.05))
+            self.schedule_effect(
+                self.cluster.simulation_time,
+                lambda other: other.move_attribute("need", 0.05),
+                Effect.Target.ALL_NEIGHBORS,
+            )
 
     def download_file(self, file: HedgeboxFile):
         self.active_client.capture(EVENT_DOWNLOADED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
@@ -614,7 +613,11 @@ class HedgeboxPerson(SimPerson):
     def share_file(self, file: HedgeboxFile):
         self.active_client.capture(EVENT_SHARED_FILE_LINK, {"file_type": file.type, "file_size_b": file.size_b})
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
-        self.affect_random_neighbor(lambda other: other.set_attribute("file_to_view", file))
+        self.schedule_effect(
+            self.cluster.simulation_time,
+            lambda other: other.set_attribute("file_to_view", file),
+            Effect.Target.RANDOM_NEIGHBOR,
+        )
 
     def upgrade_plan(self):
         assert self.account is not None
@@ -626,16 +629,22 @@ class HedgeboxPerson(SimPerson):
             EVENT_UPGRADED_PLAN, {"previous_plan": str(previous_plan), "new_plan": str(new_plan),}
         )
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
-        self.affect_all_neighbors(lambda other: other.move_attribute("satisfaction", 0.03))
+        self.schedule_effect(
+            self.cluster.simulation_time,
+            lambda other: other.move_attribute("satisfaction", 0.03),
+            Effect.Target.ALL_NEIGHBORS,
+        )
         self.account.plan = new_plan
         if not self.account.was_billing_scheduled:
             self.account.was_billing_scheduled = True
             future_months = math.ceil(
-                (self.cluster.end.astimezone(pytz.timezone(self.timezone)) - self.simulation_time).days / 30
+                (self.cluster.end.astimezone(pytz.timezone(self.timezone)) - self.cluster.simulation_time).days / 30
             )
             for i in range(future_months):
-                bill_timestamp = self.simulation_time + dt.timedelta(days=30 * i)
-                self.schedule_effect(bill_timestamp, lambda person: person.bill_account(bill_timestamp))
+                bill_timestamp = self.cluster.simulation_time + dt.timedelta(days=30 * i)
+                self.schedule_effect(
+                    bill_timestamp, lambda person: person.bill_account(bill_timestamp), Effect.Target.SELF
+                )
 
     def downgrade_plan(self):
         assert self.account is not None
@@ -651,10 +660,12 @@ class HedgeboxPerson(SimPerson):
     def invite_team_member(self):
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
         self.active_client.capture(EVENT_INVITED_TEAM_MEMBER)
-        invite_id = str(self.roll_uuidt())
-        self.affect_random_neighbor(
+        invite_id = str(self.cluster.roll_uuidt())
+        self.schedule_effect(
+            self.cluster.simulation_time,
             lambda other: other.set_attribute("invite_to_use_id", invite_id)
             and other.set_attribute("is_invitable", False),
+            Effect.Target.RANDOM_NEIGHBOR,
             condition=lambda other: cast(HedgeboxPerson, other).is_invitable,
         )
 
@@ -692,6 +703,6 @@ class HedgeboxPerson(SimPerson):
     def invitable_neighbors(self) -> List["HedgeboxPerson"]:
         return [
             neighbor
-            for neighbor in cast(List[HedgeboxPerson], self.cluster._list_amenable_neighbors(self.x, self.y))
+            for neighbor in cast(List[HedgeboxPerson], self.cluster.list_neighbors(self))
             if neighbor.is_invitable
         ]

@@ -40,11 +40,14 @@ def _sleep_until_person_data_in_clickhouse(
         person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{expected_person_distinct_id_count}"
         if persons_ready and person_distinct_ids_ready:
             print(
-                f"Source person data fully loaded into ClickHouse. Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                "Source person data fully loaded into ClickHouse. "
+                f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
+                "Setting up project..."
             )
             break
         print(
-            f"Waiting for person data to land in ClickHouse... Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+            "Waiting for person data to land in ClickHouse... "
+            f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
         )
         sleep(0.5)
 
@@ -232,7 +235,7 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
-            person_uuid_str = str(subject.roll_uuidt(subject.past_events[0].timestamp))
+            person_uuid_str = str(subject.cluster.roll_uuidt(subject.past_events[0].timestamp))
             create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
