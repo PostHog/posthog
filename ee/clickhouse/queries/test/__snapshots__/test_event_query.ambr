@@ -34,6 +34,7 @@
   '
   
   SELECT e.timestamp as timestamp,
+         e."person_properties" as "person_properties",
          pdi.person_id as person_id
   FROM events e
   INNER JOIN
@@ -272,6 +273,7 @@
   '
   
   SELECT e.timestamp as timestamp,
+         e."person_properties" as "person_properties",
          pdi.person_id as person_id
   FROM events e
   INNER JOIN
