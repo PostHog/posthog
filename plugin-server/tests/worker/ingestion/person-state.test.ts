@@ -177,6 +177,11 @@ describe('PersonState.update()', () => {
                     b: PropertyUpdateOperation.Set,
                     c: PropertyUpdateOperation.Set,
                 },
+                properties_last_updated_at: {
+                    a: timestamp.toISO(),
+                    b: timestamp.toISO(),
+                    c: timestamp.toISO(),
+                },
                 created_at: timestamp,
                 version: 0,
             })
@@ -194,7 +199,7 @@ describe('PersonState.update()', () => {
         )
     })
 
-    it('updates person properties if needed', async () => {
+    it('unsets person property', async () => {
         await hub.db.createPerson(timestamp, { b: 3, c: 4, d: 7 }, {}, {}, 2, null, false, uuid.toString(), [
             'new-user',
         ])
@@ -203,9 +208,50 @@ describe('PersonState.update()', () => {
             event: '$pageview',
             distinct_id: 'new-user',
             properties: {
+                $unset: ['d'],
+            },
+        }).update()
+
+        expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
+
+        expect(await personContainer.get()).toEqual(
+            expect.objectContaining({
+                id: expect.any(Number),
+                uuid: uuid.toString(),
+                properties: { b: 3, c: 4 },
+                properties_last_operation: {
+                    d: PropertyUpdateOperation.Unset,
+                },
+                properties_last_updated_at: {
+                    d: timestamp.toISO(),
+                },
+                created_at: timestamp,
+                version: 1,
+            })
+        )
+
+        const clickhousePersons = await delayUntilEventIngested(fetchPersonsRows)
+        expect(clickhousePersons.length).toEqual(1)
+        expect(clickhousePersons[0]).toEqual(
+            expect.objectContaining({
+                id: uuid.toString(),
+                properties: JSON.stringify({ b: 4, c: 4 }),
+                created_at: '2020-01-01 12:00:05.000',
+                version: 1,
+            })
+        )
+    })
+
+    it('updates person properties if needed', async () => {
+        await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, 2, null, false, uuid.toString(), ['new-user'])
+
+        const personContainer = await personState({
+            event: '$pageview',
+            distinct_id: 'new-user',
+            properties: {
                 $set_once: { c: 3, e: 4 },
                 $set: { b: 4 },
-                $unset: ['d'],
             },
         }).update()
 
@@ -220,7 +266,10 @@ describe('PersonState.update()', () => {
                 properties_last_operation: {
                     b: PropertyUpdateOperation.Set,
                     e: PropertyUpdateOperation.SetOnce,
-                    d: PropertyUpdateOperation.Unset,
+                },
+                properties_last_updated_at: {
+                    b: timestamp.toISO(),
+                    e: timestamp.toISO(),
                 },
                 created_at: timestamp,
                 version: 1,
@@ -292,6 +341,8 @@ describe('PersonState.update()', () => {
                 id: expect.any(Number),
                 uuid: uuid.toString(),
                 properties: { b: 3, c: 4 },
+                properties_last_operation: {},
+                properties_last_updated_at: {},
                 created_at: timestamp,
                 version: 0,
             })
