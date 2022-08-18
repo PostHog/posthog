@@ -6,6 +6,7 @@ from posthog.clickhouse.kafka_engine import (
 )
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
+from posthog.models.person.sql import GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 GROUPS_TABLE = "groups"
@@ -84,4 +85,8 @@ COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
 
 SELECT_GROUPS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
     table_name=GROUPS_TABLE,
+)
+
+GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES = GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
+    table_name=GROUPS_TABLE, properties_column="group_properties",
 )

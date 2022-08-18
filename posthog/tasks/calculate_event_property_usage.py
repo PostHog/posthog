@@ -49,16 +49,36 @@ def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
     return None
 
 
-def _get_property_types(team: Team, since: timezone.datetime) -> Dict[str, Optional[PropertyType]]:
+def _get_property_types(
+    team: Team, since: timezone.datetime, *, include_actors_properties: bool
+) -> Dict[str, Optional[PropertyType]]:
     from posthog.client import sync_execute
     from posthog.models.event.sql import GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES
+    from posthog.models.group.sql import GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES
+    from posthog.models.person.sql import GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES
 
-    return {
+    property_types = {
         property_key: _infer_property_type(sample_json_value)
         for property_key, sample_json_value in sync_execute(
             GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk, "timestamp": since}
         )
     }
+
+    if include_actors_properties:
+        # In the periodic job we only care about event properties, but in the demo environment – where data is ingested
+        # bypassing the plugin server - we also want to calculate person and group properties for taxonomy integrity
+        for property_key, sample_json_value in sync_execute(
+            GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}
+        ):
+            if property_key not in property_types:
+                property_types[property_key] = _infer_property_type(sample_json_value)
+        for property_key, sample_json_value in sync_execute(
+            GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team.pk}
+        ):
+            if property_key not in property_types:
+                property_types[property_key] = _infer_property_type(sample_json_value)
+
+    return property_types
 
 
 def _get_event_properties(team: Team, since: timezone.datetime) -> List[Tuple[str, str]]:
@@ -69,7 +89,7 @@ def _get_event_properties(team: Team, since: timezone.datetime) -> List[Tuple[st
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_event_property_usage_for_team(team_id: int) -> None:
+def calculate_event_property_usage_for_team(team_id: int, *, include_actors_properties: bool = False) -> None:
     team = Team.objects.get(pk=team_id)
     event_definition_payloads: DefaultDict[str, EventDefinitionPayload] = defaultdict(
         EventDefinitionPayload,
@@ -100,7 +120,7 @@ def calculate_event_property_usage_for_team(team_id: int) -> None:
         event_definition_payloads[event].volume_30_day = volume
         event_definition_payloads[event].last_seen_at = last_seen_at
 
-    property_types = _get_property_types(team, since)
+    property_types = _get_property_types(team, since, include_actors_properties=include_actors_properties)
     for property_key, property_type in property_types.items():
         property_definition_payloads[property_key].property_type = property_type
     event_properties = _get_event_properties(team, since)
