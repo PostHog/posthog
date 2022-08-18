@@ -155,6 +155,7 @@ export function LemonTaxonomicPopup({
                             <LemonButton
                                 className="side-buttons-row-button"
                                 type="tertiary"
+                                status="stealth"
                                 icon={<IconClose style={{ fontSize: 16 }} />}
                                 tooltip="Clear selection"
                                 noPadding
@@ -168,6 +169,7 @@ export function LemonTaxonomicPopup({
                             <LemonButton
                                 className="side-buttons-row-button side-buttons-row-button-no-hover"
                                 type="tertiary"
+                                status="stealth"
                                 noPadding
                                 icon={<IconArrowDropDown />}
                             />
