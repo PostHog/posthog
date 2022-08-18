@@ -1,20 +1,16 @@
 import { runInstrumentedFunction } from '../../../main/utils'
-import { Element, PostIngestionEvent } from '../../../types'
+import { Element, IngestionPersonData, PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent, runOnSnapshot } from '../../plugins/run'
-import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
 export async function runAsyncHandlersStep(
     runner: EventPipelineRunner,
     event: PostIngestionEvent,
-    personContainer: LazyPersonContainer
+    person: IngestionPersonData | undefined
 ): Promise<StepResult> {
     if (runner.hub.capabilities.processAsyncHandlers) {
-        await Promise.all([
-            processOnEvent(runner, event),
-            processWebhooks(runner, event, personContainer, event.elementsList),
-        ])
+        await Promise.all([processOnEvent(runner, event), processWebhooks(runner, event, person, event.elementsList)])
     }
 
     return null
@@ -37,7 +33,7 @@ async function processOnEvent(runner: EventPipelineRunner, event: PostIngestionE
 async function processWebhooks(
     runner: EventPipelineRunner,
     event: PostIngestionEvent,
-    personContainer: LazyPersonContainer,
+    personContainer: IngestionPersonData | undefined,
     elements: Element[] | undefined
 ) {
     if (event.event !== '$snapshot') {
