@@ -290,7 +290,6 @@
                          toStartOfDay(toDateTime(timestamp), 'UTC') as date
         FROM
           (SELECT e.timestamp as timestamp,
-                  e."mat_pp_name" as "mat_pp_name",
                   pdi.person_id as person_id
            FROM events e
            INNER JOIN
