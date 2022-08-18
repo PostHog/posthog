@@ -231,6 +231,11 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Identify',
             description: 'A user has been identified with properties',
         },
+
+        $create_alias: {
+            label: 'Alias',
+            description: 'A user has been aliased with another user',
+        },
         $groupidentify: {
             label: 'Group Identify',
             description: 'A group has been identified with properties',
