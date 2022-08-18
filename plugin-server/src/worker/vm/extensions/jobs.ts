@@ -46,8 +46,11 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 server.statsd,
                 {
                     metricName: 'vm.enqueuePluginJob',
-                    key: 'type',
-                    tag: type,
+                    key: 'plugin',
+                    tag: pluginConfig.plugin?.name ?? '?',
+                    tags: {
+                        type,
+                    },
                     data: {
                         type,
                         payload,
