@@ -93,11 +93,10 @@ class Command(BaseCommand):
             summary_lines.append(
                 f"    Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}.",
             )
-            if verbosity < 2:
-                continue
             for y, person_row in enumerate(cluster.people_matrix):
                 for x, person in enumerate(person_row):
-                    summary_lines.append(f"        Person {x, y}: {person}",)
+                    if verbosity >= 2:
+                        summary_lines.append(f"        Person {x, y}: {person}",)
                     total_event_count += len(person.past_events) + len(person.future_events)
                     future_event_count += len(person.future_events)
                     if person.all_events:
@@ -110,7 +109,7 @@ class Command(BaseCommand):
                                     summary_lines.append(f"            Session {session_id}:",)
                                 active_session_id = session_id
                             summary_lines.append(f"            {event}",)
-                    else:
+                    elif verbosity >= 2:
                         event_count = len(person.past_events) + len(person.future_events)
                         if not event_count:
                             summary_lines.append("            No events",)

@@ -1,7 +1,6 @@
 import datetime as dt
 import math
 from dataclasses import dataclass, field
-from decimal import Decimal
 from enum import Enum, auto
 from typing import (
     TYPE_CHECKING,
@@ -84,6 +83,7 @@ class HedgeboxFile:
 @dataclass
 class HedgeboxAccount:
     id: str
+    created_at: dt.datetime
     team_members: Set["HedgeboxPerson"]
     plan: HedgeboxPlan
     files: Set[HedgeboxFile] = field(default_factory=set)
@@ -111,15 +111,15 @@ class HedgeboxAccount:
         return self.current_used_mb / self.current_allowed_mb
 
     @property
-    def current_monthly_bill_usd(self) -> Decimal:
+    def current_monthly_bill_usd(self) -> float:
         if self.plan == HedgeboxPlan.PERSONAL_FREE:
-            return Decimal("0.00")
+            return 0
         elif self.plan == HedgeboxPlan.PERSONAL_PRO:
-            return Decimal("10.00")
+            return 10
         elif self.plan == HedgeboxPlan.BUSINESS_STANDARD:
-            return Decimal("10.00") * len(self.team_members)
+            return 10 * len(self.team_members)
         elif self.plan == HedgeboxPlan.BUSINESS_ENTERPRISE:
-            return Decimal("20.00") * len(self.team_members)
+            return 20 * len(self.team_members)
         else:
             raise ValueError(f"Unknown plan: {self.plan}")
 
@@ -143,6 +143,7 @@ class HedgeboxPerson(SimPerson):
     # Internal state - bounded
     _need: float  # 0 means no need, 1 means desperate
     _satisfaction: float  # -1 means hate, 0 means ambivalence, 1 means love
+    _churned: bool
     _personal_account: Optional[HedgeboxAccount]  # In company clusters the cluster-level account is used
 
     def __init__(self, *args, **kwargs):
@@ -165,6 +166,7 @@ class HedgeboxPerson(SimPerson):
         max_need = (0.9 if self.kernel else 0.1) + self.affinity / 10
         self._need = self.cluster.random.uniform(min_need, max_need)
         self._satisfaction = 0.0
+        self._churned = False
         self._personal_account = None
         while True:
             self.country_code = (
@@ -247,7 +249,16 @@ class HedgeboxPerson(SimPerson):
                 return next_session_datetime  # If the time is right, let's act - otherwise, let's advance further
 
     def determine_session_intent(self) -> Optional[HedgeboxSessionIntent]:
-        if self.affinity < 0.1 or not self.kernel and self.cluster.company:
+        weeks_since_account_creation = (
+            (self.cluster.simulation_time - self.account.created_at).total_seconds() / 86_400 / 7 if self.account else 0
+        )
+        boredom_churned = (
+            self.affinity < 0.3 and self.cluster.random.random() < math.log2(weeks_since_account_creation + 1) / 8
+        )
+        satisfaction_churned = self.satisfaction < -0.5 and self.need < 0.9
+        if boredom_churned or satisfaction_churned:
+            self._churned = True
+        if self._churned or self.affinity < 0.1 or not self.kernel and self.cluster.company:
             # Very low affinity users aren't interested
             # Non-kernel business users can't log in or sign up
             return None
@@ -281,7 +292,7 @@ class HedgeboxPerson(SimPerson):
                 and self.account.allocation_used_fraction > 0.9
             ):
                 possible_intents_with_weights.append((HedgeboxSessionIntent.UPGRADE_PLAN, 0.1))
-            elif self.satisfaction < -0.5 and self.need < 0.9 and self.account.plan.predecessor:
+            elif self.satisfaction < 0 and self.need < 0.9 and self.account.plan.predecessor:
                 possible_intents_with_weights.append((HedgeboxSessionIntent.DOWNGRADE_PLAN, 0.1))
             if self.account.plan.is_business and len(self.cluster.people) > 1:
                 if len(self.account.team_members) < len(self.cluster.people):
@@ -454,6 +465,9 @@ class HedgeboxPerson(SimPerson):
     def go_to_files(self):
         assert self.account is not None
         self.active_client.capture_pageview(URL_FILES)
+        if self.affinity < 0.2:
+            # Something seriously wrong happened and now this person is pissed
+            self.satisfaction += self.cluster.random.uniform(-0.6, -1.2)
         if self.active_session_intent in (
             HedgeboxSessionIntent.CONSIDER_PRODUCT,
             HedgeboxSessionIntent.UPLOAD_FILE_S,
@@ -482,6 +496,15 @@ class HedgeboxPerson(SimPerson):
                     popularity=self.cluster.random.random(),
                 )
                 self.upload_file(file)
+        elif self.active_session_intent in (
+            HedgeboxSessionIntent.UPGRADE_PLAN,
+            HedgeboxSessionIntent.DOWNGRADE_PLAN,
+            HedgeboxSessionIntent.INVITE_TEAM_MEMBER,
+            HedgeboxSessionIntent.REMOVE_TEAM_MEMBER,
+        ):
+            self.go_to_account_settings()
+        else:
+            raise ValueError(f"Unknown session intent {self.active_session_intent}")
 
     def go_to_own_file(self, file: HedgeboxFile):
         self.active_client.capture_pageview(dyn_url_file(file.id))
@@ -557,6 +580,7 @@ class HedgeboxPerson(SimPerson):
             raise ValueError("Already signed up")
         self.account = HedgeboxAccount(
             id=str(self.cluster.roll_uuidt()),
+            created_at=self.cluster._simulation_time,
             team_members={self},
             plan=HedgeboxPlan.PERSONAL_FREE if not self.cluster.company else HedgeboxPlan.BUSINESS_STANDARD,
         )
@@ -570,6 +594,7 @@ class HedgeboxPerson(SimPerson):
                 "name": self.cluster.company.name if self.cluster.company else self.name,
                 "industry": self.cluster.company.industry if self.cluster.company else None,
                 "used_mb": 0,
+                "file_count": 0,
                 "plan": self.account.plan,
                 "team_size": 1,
             },
@@ -594,6 +619,11 @@ class HedgeboxPerson(SimPerson):
             EVENT_UPLOADED_FILE,
             properties={"file_type": file.type, "file_size_b": file.size_b, "used_mb": self.account.current_used_mb},
         )
+        self.active_client.group(
+            GROUP_TYPE_ACCOUNT,
+            self.account.id,
+            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files),},
+        )
         self.satisfaction += self.cluster.random.uniform(-0.19, 0.2)
         if self.satisfaction > 0.9:
             self.schedule_effect(
@@ -609,6 +639,11 @@ class HedgeboxPerson(SimPerson):
         assert self.account is not None
         self.account.files.remove(file)
         self.active_client.capture(EVENT_DELETED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
+        self.active_client.group(
+            GROUP_TYPE_ACCOUNT,
+            self.account.id,
+            {"used_mb": self.account.current_used_mb, "file_count": len(self.account.files),},
+        )
 
     def share_file(self, file: HedgeboxFile):
         self.active_client.capture(EVENT_SHARED_FILE_LINK, {"file_type": file.type, "file_size_b": file.size_b})
@@ -642,9 +677,7 @@ class HedgeboxPerson(SimPerson):
             )
             for i in range(future_months):
                 bill_timestamp = self.cluster.simulation_time + dt.timedelta(days=30 * i)
-                self.schedule_effect(
-                    bill_timestamp, lambda person: person.bill_account(bill_timestamp), Effect.Target.SELF
-                )
+                self.schedule_effect(bill_timestamp, lambda person: person.bill_account(), Effect.Target.SELF)
 
     def downgrade_plan(self):
         assert self.account is not None

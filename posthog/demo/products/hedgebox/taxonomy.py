@@ -38,7 +38,7 @@ EVENT_PAID_BILL = "paid_bill"  # Properties: plan, amount_usd
 
 # Group taxonomy
 
-GROUP_TYPE_ACCOUNT = "account"  # Properties: name, industry, used_mb, plan, team_size
+GROUP_TYPE_ACCOUNT = "account"  # Properties: name, industry, used_mb, file_count, plan, team_size
 
 # Feature flags
 

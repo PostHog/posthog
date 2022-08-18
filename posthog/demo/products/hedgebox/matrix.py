@@ -648,7 +648,7 @@ class HedgeboxMatrix(Matrix):
                     {"key": "control", "rollout_percentage": 100 - NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
                     {"key": "test", "rollout_percentage": NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT},
                 ],
-                "recommended_sample_size": int(len(self.clusters) * 0.43),
+                "recommended_sample_size": int(len(self.clusters) * 0.274),
                 "recommended_running_time": None,
                 "minimum_detectable_effect": 1,
             },

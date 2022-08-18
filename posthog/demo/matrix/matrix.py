@@ -109,7 +109,12 @@ class Cluster(ABC):
 
     def raw_schedule_effect(self, effect: Effect):
         """Schedule an effect to apply at a given time."""
-        self._scheduled_effects.append(effect)
+        for i, existing_effect in enumerate(self._scheduled_effects):
+            if existing_effect.timestamp > effect.timestamp:
+                self._scheduled_effects.insert(i, effect)
+                break
+        else:
+            self._scheduled_effects.append(effect)
 
     def advance_timer(self, seconds: float):
         """Advance simulation time by the given amount of time."""
