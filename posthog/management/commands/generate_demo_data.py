@@ -36,7 +36,6 @@ class Command(BaseCommand):
             help="At how many days after 'now' should the simulation end (default: 30)",
         )
         parser.add_argument("--n-clusters", type=int, default=50, help="Number of clusters (default: 50)")
-        parser.add_argument("--list-events", action="store_true", help="Print events individually")
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
         parser.add_argument(
             "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)",
@@ -49,6 +48,7 @@ class Command(BaseCommand):
         timer = monotonic()
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.timezone.utc)
+        print("Instantiating the Matrix...")
         matrix = HedgeboxMatrix(
             seed,
             now=now,
@@ -56,8 +56,9 @@ class Command(BaseCommand):
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
         )
+        print("Running simulation...")
         matrix.simulate()
-        self.print_results(matrix, seed=seed, duration=monotonic() - timer, list_events=options["list_events"])
+        self.print_results(matrix, seed=seed, duration=monotonic() - timer, verbosity=options["verbosity"])
         if not options["dry_run"]:
             email = options["email"]
             password = options["password"]
@@ -83,7 +84,7 @@ class Command(BaseCommand):
             print("Dry run - not saving results.")
 
     @staticmethod
-    def print_results(matrix: Matrix, *, seed: str, duration: float, list_events: bool):
+    def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
         active_people_count = 0  # Active means they have at least one event
         total_event_count = 0
         future_event_count = 0
@@ -92,6 +93,8 @@ class Command(BaseCommand):
             summary_lines.append(
                 f"    Cluster {cluster.index}: {cluster}. Radius = {cluster.radius}. Population = {len(cluster.people_matrix) * len(cluster.people_matrix[0])}.",
             )
+            if verbosity < 2:
+                continue
             for y, person_row in enumerate(cluster.people_matrix):
                 for x, person in enumerate(person_row):
                     summary_lines.append(f"        Person {x, y}: {person}",)
@@ -99,7 +102,7 @@ class Command(BaseCommand):
                     future_event_count += len(person.future_events)
                     if person.all_events:
                         active_people_count += 1
-                    if list_events:
+                    if verbosity >= 3:
                         active_session_id = None
                         for event in person.all_events:
                             if session_id := event.properties.get("$session_id"):
