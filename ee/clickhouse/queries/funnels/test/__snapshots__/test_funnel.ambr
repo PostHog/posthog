@@ -267,6 +267,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 e."person_properties" as "person_properties",
                                  e."properties" as "properties",
                                  pdi.person_id as person_id
                           FROM events e
@@ -375,6 +376,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 e."person_properties" as "person_properties",
                                  e."properties" as "properties",
                                  pdi.person_id as person_id
                           FROM events e
@@ -487,6 +489,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 e."person_properties" as "person_properties",
                                  e."properties" as "properties",
                                  pdi.person_id as person_id
                           FROM events e
@@ -599,6 +602,7 @@
                                  e.distinct_id as distinct_id,
                                  e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
+                                 e."person_properties" as "person_properties",
                                  e."properties" as "properties",
                                  pdi.person_id as person_id
                           FROM events e

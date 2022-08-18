@@ -463,6 +463,7 @@
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
                               e."$window_id" as "$window_id",
+                              e."person_properties" as "person_properties",
                               pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
@@ -603,6 +604,7 @@
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
                               e."$window_id" as "$window_id",
+                              e."person_properties" as "person_properties",
                               pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
@@ -741,6 +743,7 @@
                               e.uuid AS uuid,
                               e."$session_id" as "$session_id",
                               e."$window_id" as "$window_id",
+                              e."person_properties" as "person_properties",
                               pdi.person_id as person_id
                        FROM events e
                        INNER JOIN
