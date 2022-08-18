@@ -601,8 +601,8 @@
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
-            e."person_properties" as "person_properties",
             e."properties" as "properties",
+            e."person_properties" as "person_properties",
             pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
