@@ -169,17 +169,17 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         optimizer = lambda: EnterpriseColumnOptimizer(FILTER_WITH_PROPERTIES, self.team.id)
         optimizer_groups = lambda: EnterpriseColumnOptimizer(FILTER_WITH_GROUPS, self.team.id)
 
-        self.assertEqual(optimizer().event_columns_to_query, {"properties"})
+        self.assertEqual(optimizer().event_columns_to_query, {"person_properties", "properties"})
         self.assertEqual(optimizer().person_columns_to_query, {"properties"})
-        self.assertEqual(optimizer_groups().event_columns_to_query, {"properties"})
+        self.assertEqual(optimizer_groups().event_columns_to_query, {"person_properties", "properties"})
         self.assertEqual(optimizer_groups().person_columns_to_query, {"properties"})
 
         materialize("events", "event_prop")
         materialize("person", "person_prop")
 
-        self.assertEqual(optimizer().event_columns_to_query, {"mat_event_prop"})
+        self.assertEqual(optimizer().event_columns_to_query, {"person_properties", "mat_event_prop"})
         self.assertEqual(optimizer().person_columns_to_query, {"pmat_person_prop"})
-        self.assertEqual(optimizer_groups().event_columns_to_query, {"mat_event_prop"})
+        self.assertEqual(optimizer_groups().event_columns_to_query, {"person_properties", "mat_event_prop"})
         self.assertEqual(optimizer_groups().person_columns_to_query, {"pmat_person_prop"})
 
     def test_should_query_element_chain_column(self):
