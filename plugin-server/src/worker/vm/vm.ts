@@ -11,7 +11,7 @@ import { createJobs } from './extensions/jobs'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
-import { imports } from './imports'
+import { getVmImports } from './imports'
 import { transformCode } from './transforms'
 import { upgradeExportEvents } from './upgrades/export-events'
 import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
@@ -43,6 +43,7 @@ export function createPluginConfigVM(
         })
     }
 
+    const imports = getVmImports(hub)
     const transformedCode = transformCode(indexJs, hub, imports)
 
     // Create virtual machine

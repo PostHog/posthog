@@ -12,33 +12,39 @@ import * as jsonwebtoken from 'jsonwebtoken'
 import * as pg from 'pg'
 import snowflake from 'snowflake-sdk'
 import { PassThrough } from 'stream'
+import { Hub } from 'types'
 import * as url from 'url'
 import * as zlib from 'zlib'
 
 import fetch from '../../utils/fetch'
 import { writeToFile } from './extensions/test-utils'
+import { BufferOptions, ExportEventsBuffer } from './upgrades/utils/export-events-buffer'
 
-export const imports = {
-    ...(process.env.NODE_ENV === 'test'
-        ? {
-              'test-utils/write-to-file': writeToFile,
-          }
-        : {}),
-    '@google-cloud/bigquery': bigquery,
-    '@google-cloud/pubsub': pubsub,
-    '@google-cloud/storage': gcs,
-    '@posthog/plugin-contrib': contrib,
-    '@posthog/plugin-scaffold': scaffold,
-    'aws-sdk': AWS,
-    ethers: ethers,
-    'generic-pool': genericPool,
-    'node-fetch': fetch,
-    'snowflake-sdk': snowflake,
-    crypto: crypto,
-    jsonwebtoken: jsonwebtoken,
-    faker: faker,
-    pg: pg,
-    stream: { PassThrough },
-    url: url,
-    zlib: zlib,
+export function getVmImports(hub: Hub): Record<string, any> {
+    const createBuffer = (bufferOptions?: BufferOptions): ExportEventsBuffer =>
+        new ExportEventsBuffer(hub, bufferOptions)
+    return {
+        ...(process.env.NODE_ENV === 'test'
+            ? {
+                  'test-utils/write-to-file': writeToFile,
+              }
+            : {}),
+        '@google-cloud/bigquery': bigquery,
+        '@google-cloud/pubsub': pubsub,
+        '@google-cloud/storage': gcs,
+        '@posthog/plugin-contrib': { ...contrib, createBuffer },
+        '@posthog/plugin-scaffold': scaffold,
+        'aws-sdk': AWS,
+        ethers: ethers,
+        'generic-pool': genericPool,
+        'node-fetch': fetch,
+        'snowflake-sdk': snowflake,
+        crypto: crypto,
+        jsonwebtoken: jsonwebtoken,
+        faker: faker,
+        pg: pg,
+        stream: { PassThrough },
+        url: url,
+        zlib: zlib,
+    }
 }
