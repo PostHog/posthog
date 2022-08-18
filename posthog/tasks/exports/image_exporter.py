@@ -138,8 +138,7 @@ def _screenshot_asset(
             raise e
     finally:
         if driver:
-
-            driver.close()
+            driver.quit()
 
 
 @timed("image_exporter")
