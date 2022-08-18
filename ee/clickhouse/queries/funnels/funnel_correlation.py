@@ -529,6 +529,7 @@ class FunnelCorrelation:
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
+                        allow_denormalized_props=False,  # TODO: handle pushdown in correlation CTE
                     )
                 else:
                     expression, _ = get_property_string_expr(
@@ -536,6 +537,7 @@ class FunnelCorrelation:
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
+                        allow_denormalized_props=False,  # TODO: handle pushdown in correlation CTE
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)
