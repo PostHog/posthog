@@ -45,7 +45,10 @@ class FOSSColumnOptimizer:
         # TODO: get table column name somehow?
         # TODO: Why is this a duplicate of EE?
         materialized_columns = get_materialized_columns(table)
-        return set(materialized_columns.get(property_name, "properties") for property_name, _, _ in used_properties)
+        return set(
+            materialized_columns.get((property_name, "properties"), "properties")
+            for property_name, _, _ in used_properties
+        )
 
     @cached_property
     def is_using_person_properties(self) -> bool:

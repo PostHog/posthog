@@ -589,8 +589,9 @@ def get_property_string_expr(
 
     table_string = f"{table_alias}." if table_alias is not None else ""
 
-    if allow_denormalized_props and (property_name, column) in materialized_columns:
-        return f'{table_string}"{materialized_columns[(property_name, column)]}"', True
+    # TODO: Support group & person on events here!
+    if allow_denormalized_props and (property_name, "properties") in materialized_columns:
+        return f'{table_string}"{materialized_columns[(property_name, "properties")]}"', True
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
