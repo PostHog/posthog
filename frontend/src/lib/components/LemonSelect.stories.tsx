@@ -64,6 +64,19 @@ SectionedOptions.args = {
     ] as LemonSelectOptions<string>,
 }
 
+export const MixedValuesTypes = Template.bind({})
+MixedValuesTypes.args = {
+    dropdownMatchSelectWidth: false,
+    options: [
+        { value: 'orange', label: 'Orange' },
+        { value: 2, label: 'Pineapple - 2' },
+        { value: 'apple', label: 'Apple' },
+        { value: '4', label: 'Potato - string 4' },
+        { value: 'lettuce', label: 'Lettuce' },
+        { value: 6, label: 'Tomato - 6' },
+    ] as LemonSelectOptions<string | number>,
+}
+
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }
 

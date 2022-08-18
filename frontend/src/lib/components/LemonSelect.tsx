@@ -130,9 +130,7 @@ export function LemonSelect<T>({
                                         }
                                     }}
                                     status="stealth"
-                                    /* Intentionally == instead of === because JS treats object number keys as strings, */
-                                    /* messing comparisons up a bit */
-                                    active={option.value == localValue}
+                                    active={option.value === localValue}
                                     disabled={option.disabled}
                                     fullWidth
                                     data-attr={option['data-attr']}
