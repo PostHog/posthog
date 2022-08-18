@@ -6,7 +6,7 @@ import SnappyCodec from 'kafkajs-snappy'
 
 import { runInSpan } from '../../sentry'
 import { PluginsServerConfig } from '../../types'
-import { instrumentQuery } from '../metrics'
+import { instrument } from '../metrics'
 import { timeoutGuard } from './utils'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -104,7 +104,7 @@ export class KafkaProducerWrapper {
             return Promise.resolve()
         }
 
-        return instrumentQuery(this.statsd, 'query.kafka_send', undefined, async () => {
+        return instrument(this.statsd, { metricName: 'query.kafka_send' }, async () => {
             const messages = this.currentBatch
             const batchSize = this.currentBatchSize
             this.lastFlushTime = Date.now()
