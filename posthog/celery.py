@@ -367,9 +367,10 @@ def clickhouse_mutation_count():
 
 @app.task(ignore_result=True)
 def clickhouse_clear_removed_data():
-    from posthog.models.team.util import delete_clickhouse_data_for_deleted_teams
+    from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
 
-    delete_clickhouse_data_for_deleted_teams()
+    mark_deletions_done()
+    run_event_table_deletions()
 
 
 @app.task(ignore_result=True)
