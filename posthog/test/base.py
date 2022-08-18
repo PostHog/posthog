@@ -232,6 +232,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
                 materialize("events", prop)
             for prop in person_properties:
                 materialize("person", prop)
+                materialize("events", prop, table_column="person_properties")
 
             try:
                 with self.capture_select_queries() as sqls:
@@ -244,9 +245,12 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
                     column_name = get_materialized_columns("person")[(prop, "properties")]
                     sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
 
+                    column_name = get_materialized_columns("events")[(prop, "person_properties")]
+                    sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+
             if verify_no_jsonextract:
                 for sql in sqls:
-                    self.assertNotIn("JSONExtract(properties", sql)
+                    self.assertNotIn("JSONExtract", sql)
 
         # To add the test, we inspect the frame this function was called in and add the test there
         frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
