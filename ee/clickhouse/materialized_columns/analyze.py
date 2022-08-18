@@ -19,7 +19,11 @@ from ee.settings import (
 from posthog.clickhouse.materialized_columns.util import instance_memoize
 from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
+from posthog.models.person.sql import (
+    GET_GROUP_PROPERTIES_ON_EVENTS_COUNT,
+    GET_PERSON_PROPERTIES_COUNT,
+    GET_PERSON_PROPERTIES_ON_EVENTS_COUNT,
+)
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.models.property_definition import PropertyDefinition
 from posthog.models.team import Team
@@ -32,12 +36,23 @@ logger = structlog.get_logger(__name__)
 class TeamManager:
     @instance_memoize
     def person_properties(self, team_id: str) -> Set[str]:
-        rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": team_id})
-        return set(name for name, _ in rows)
+        return self._get_properties(GET_PERSON_PROPERTIES_COUNT, team_id)
 
     @instance_memoize
     def event_properties(self, team_id: str) -> Set[str]:
         return set(PropertyDefinition.objects.filter(team_id=team_id).values_list("name", flat=True))
+
+    @instance_memoize
+    def person_on_events_properties(self, team_id: str) -> Set[str]:
+        return self._get_properties(GET_PERSON_PROPERTIES_ON_EVENTS_COUNT, team_id)
+
+    @instance_memoize
+    def group_properties(self, group_type_index: int, team_id: str) -> Set[str]:
+        return self._get_properties(GET_GROUP_PROPERTIES_ON_EVENTS_COUNT.format(index=group_type_index), team_id)
+
+    def _get_properties(self, query, team_id) -> Set[str]:
+        rows = sync_execute(query, {"team_id": team_id})
+        return set(name for name, _ in rows)
 
 
 class Query:
@@ -68,11 +83,16 @@ class Query:
         # :KLUDGE: Note that the same property will be found on both tables if both are used.
         person_props = team_manager.person_properties(self.team_id)
         event_props = team_manager.event_properties(self.team_id)
+        person_on_events_props = team_manager.person_on_events_properties(self.team_id)
+        group_properties: Set[str] = set()
+        for index in range(5):
+            group_properties |= team_manager.group_properties(index, self.team_id)
+
         for property in self._all_properties:
+            if property in event_props or property in person_on_events_props or property in group_properties:
+                yield "events", property
             if property in person_props:
                 yield "person", property
-            if property in event_props:
-                yield "events", property
 
 
 def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
