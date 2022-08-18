@@ -22,5 +22,5 @@ gunicorn posthog.wsgi \
     --threads=4 \
     --worker-class=gthread \
     ${STATSD_HOST:+--statsd-host $STATSD_HOST} \
-    ${STATSD_HOST:+--statsd-predix $STATSD_PREFIX} \
+    ${STATSD_HOST:+--statsd-prefix $STATSD_PREFIX} \
     --limit-request-line=8190 $@
