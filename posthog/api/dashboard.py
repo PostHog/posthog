@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, cast
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, response, serializers, viewsets
@@ -241,10 +241,8 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
-        queryset = (
-            queryset.prefetch_related("sharingconfiguration_set")
-            .select_related("team__organization", "created_by")
-            .prefetch_related(Prefetch("insights", queryset=Insight.objects.filter(deleted=False).order_by("order"),),)
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
+            "team__organization", "created_by"
         )
         return queryset
 

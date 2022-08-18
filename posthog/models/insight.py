@@ -89,6 +89,10 @@ class Insight(models.Model):
             "short_id",
         )
 
+    @property
+    def dashboards(self):
+        return self.dashboardtile_set.exclude(dashboard__deleted=True).values("dashboard")
+
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
         if dashboard:
             dashboard_filters = {**dashboard.filters}

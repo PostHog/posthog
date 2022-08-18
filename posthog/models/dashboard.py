@@ -38,7 +38,10 @@ class Dashboard(models.Model):
     restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
-    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
+
+    deprecated_insights = models.ManyToManyField(
+        "posthog.Insight", related_name="deprecated_dashboards", through="DashboardTile", blank=True
+    )
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
@@ -50,6 +53,10 @@ class Dashboard(models.Model):
     share_token: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED: using the new "is_sharing_enabled" relation instead
     is_shared: models.BooleanField = models.BooleanField(default=False)
+
+    @property
+    def insights(self):
+        return self.dashboardtile_set.filter(insight__isnull=False).filter(insight__deleted=False).values("insight")
 
     @property
     def is_sharing_enabled(self):

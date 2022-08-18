@@ -83,11 +83,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(instance.name, "My new dashboard")
 
     def test_update_dashboard(self):
-        dashboard = Dashboard.objects.create(
-            team=self.team, name="private dashboard", created_by=self.user, creation_mode="template",
+
+        dashboard_id, _ = self._create_dashboard(
+            {"name": "to be replaced", "use_template": "DEFAULT_APP"}, self.team.id
         )
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}",
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {"name": "dashboard new name", "creation_mode": "duplicate", "description": "Internal system metrics.",},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -102,8 +103,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             response_data["effective_privilege_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         )
 
-        dashboard.refresh_from_db()
-        self.assertEqual(dashboard.name, "dashboard new name")
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "dashboard new name")
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
@@ -494,9 +496,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(response.json()["items"]), len(existing_dashboard.insights.all()))
 
-        existing_dashboard_item_id_set = set(map(lambda x: x.id, existing_dashboard.insights.all()))
+        existing_dashboard_item_id_set = set(list(existing_dashboard.insights.values_list("id", flat=True).all()))
         response_item_id_set = set(map(lambda x: x.get("id", None), response.json()["items"]))
-        # check both sets are disjoint to verify that the new items' ids are different than the existing items
+        # check both sets are disjoint to verify that the new items' ids are different from the existing items
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
 
         for item in response.json()["items"]:
