@@ -31,9 +31,13 @@ class ColumnOptimizer:
     def event_columns_to_query(self) -> Set[ColumnName]:
         "Returns a list of event table columns containing materialized properties that this query needs"
 
-        self.columns_to_query("events", set(self._used_properties_with_type("event"))) | self.columns_to_query(
-            "events", set(self._used_properties_with_type("person")), "person_properties"
-        )
+        return self.columns_to_query("events", set(self._used_properties_with_type("event")))
+
+    @cached_property
+    def person_on_event_columns_to_query(self) -> Set[ColumnName]:
+        "Returns a list of event table person columns containing materialized properties that this query needs"
+
+        return self.columns_to_query("events", set(self._used_properties_with_type("person")), "person_properties")
 
     @cached_property
     def person_columns_to_query(self) -> Set[ColumnName]:
