@@ -233,7 +233,7 @@ export const keyMapping: KeyMappingInterface = {
         },
         $create_alias: {
             label: 'Alias',
-            description: 'A user has been aliased with another user',
+            description: 'An alias ID has been added to a user',
         },
         $groupidentify: {
             label: 'Group Identify',
