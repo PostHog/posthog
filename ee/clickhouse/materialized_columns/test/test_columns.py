@@ -23,6 +23,10 @@ EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
+    # TODO: Add moaaar tests for all the new stuff added to the materialized columns code.
+    # TODO: Add tests for the backfill code.
+    # Specifically, for different kinds of columns, not just properties, and their interaction with each other.
+    # ALSO MAJOR TODO: Find other places that use `get_materialised_columns` and `materialize()` and see if I need to fix things
     def setUp(self):
         self.recreate_database()
         return super().setUp()
@@ -37,10 +41,16 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         create_clickhouse_tables(0)
 
     def test_get_columns_default(self):
-        self.assertCountEqual(get_materialized_columns("events"), EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS)
+        self.assertCountEqual(
+            [property_name for property_name, _ in get_materialized_columns("events")],
+            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
+        )
         self.assertCountEqual(get_materialized_columns("person"), [])
+        # TODO: Check where this is used and how severely its affected. Since we don't materialise anything else in recordings,
+        # weird to have this here.
         self.assertEqual(
-            get_materialized_columns("session_recording_events"), {"has_full_snapshot": "has_full_snapshot"}
+            get_materialized_columns("session_recording_events"),
+            {("has_full_snapshot", "properties"): "has_full_snapshot"},
         )
 
     def test_caching_and_materializing(self):
@@ -50,21 +60,21 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             materialize("person", "$zeta")
 
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(),
+                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
-            self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), ["$zeta"])
+            self.assertCountEqual(get_materialized_columns("person", use_cache=True).keys(), [("$zeta", "properties")])
 
             materialize("events", "abc")
 
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(),
+                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
                 ["$foo", "$bar", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
         with freeze_time("2020-01-04T14:00:01Z"):
             self.assertCountEqual(
-                get_materialized_columns("events", use_cache=True).keys(),
+                [property_name for property_name, _ in get_materialized_columns("events", use_cache=True).keys()],
                 ["$foo", "$bar", "abc", *EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS],
             )
 
@@ -78,14 +88,14 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         self.assertDictContainsSubset(
             {
-                "$foO();--sqlinject": "mat_$foO_____sqlinject",
-                "$foO();ääsqlinject": "mat_$foO_____sqlinject_yWAc",
-                "$foO_____sqlinject": "mat_$foO_____sqlinject_qGFz",
+                ("$foO();--sqlinject", "properties"): "mat_$foO_____sqlinject",
+                ("$foO();ääsqlinject", "properties"): "mat_$foO_____sqlinject_yWAc",
+                ("$foO_____sqlinject", "properties"): "mat_$foO_____sqlinject_qGFz",
             },
             get_materialized_columns("events"),
         )
 
-        self.assertEqual(get_materialized_columns("person"), {"SoMePrOp": "pmat_SoMePrOp"})
+        self.assertEqual(get_materialized_columns("person"), {("SoMePrOp", "properties"): "pmat_SoMePrOp"})
 
     def test_backfilling_data(self):
         sync_execute("ALTER TABLE events DROP COLUMN IF EXISTS mat_prop")
@@ -128,7 +138,10 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         with freeze_time("2021-05-10T14:00:01Z"):
             backfill_materialized_columns(
-                "events", ["prop", "another"], timedelta(days=50), test_settings={"mutations_sync": "0"}
+                "events",
+                [("prop", "properties"), ("another", "properties")],
+                timedelta(days=50),
+                test_settings={"mutations_sync": "0"},
             )
 
         _create_event(
@@ -158,7 +171,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         expr = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         self.assertEqual(("MATERIALIZED", expr), self._get_column_types("mat_myprop"))
 
-        backfill_materialized_columns("events", ["myprop"], timedelta(days=50))
+        backfill_materialized_columns("events", [("myprop", "properties")], timedelta(days=50))
         self.assertEqual(("DEFAULT", expr), self._get_column_types("mat_myprop"))
 
         try:

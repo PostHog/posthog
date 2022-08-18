@@ -393,19 +393,10 @@ GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
 """
 
-GET_PERSON_PROPERTIES_ON_EVENTS_COUNT = """
+GET_EVENT_PROPERTIES_COUNT = """
 SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
 FROM events
-ARRAY JOIN JSONExtractKeysAndValuesRaw(person_properties) as keysAndValues
-WHERE team_id = %(team_id)s
-GROUP BY tupleElement(keysAndValues, 1)
-ORDER BY count DESC, key ASC
-"""
-
-GET_GROUP_PROPERTIES_ON_EVENTS_COUNT = """
-SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
-FROM events
-ARRAY JOIN JSONExtractKeysAndValuesRaw(group{index}_properties) as keysAndValues
+ARRAY JOIN JSONExtractKeysAndValuesRaw({column_name}) as keysAndValues
 WHERE team_id = %(team_id)s
 GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC

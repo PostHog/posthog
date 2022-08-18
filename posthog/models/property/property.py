@@ -45,6 +45,15 @@ PropertyType = Literal[
 
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
+TableColumn = Literal[
+    "properties",
+    "person_properties",
+    "group0_properties",
+    "group1_properties",
+    "group2_properties",
+    "group3_properties",
+    "group4_properties",
+]
 OperatorType = Literal[
     "exact",
     "is_not",
