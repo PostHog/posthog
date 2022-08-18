@@ -220,5 +220,8 @@ class Matrix(ABC):
             raise Exception(f"Cannot add group type {group_type} to simulation, limit of {GROUP_TYPES_LIMIT} reached!")
         self.groups[group_type][group_key].update(set_properties)
 
-    def _get_group_type_index(self, group_type: str) -> int:
-        return list(self.groups.keys()).index(group_type)
+    def _get_group_type_index(self, group_type: str) -> Optional[int]:
+        try:
+            return list(self.groups.keys()).index(group_type)
+        except ValueError:
+            return None
