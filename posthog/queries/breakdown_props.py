@@ -204,6 +204,7 @@ def _to_value_expression(
             column=f"group{breakdown_group_type_index}_properties"
             if direct_on_events
             else f"group_properties_{breakdown_group_type_index}",
+            allow_denormalized_props=False if direct_on_events else True,
         )
     else:
         value_expression = get_single_or_multi_property_string_expr(
