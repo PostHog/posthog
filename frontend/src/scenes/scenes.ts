@@ -295,6 +295,8 @@ export const routes: Record<string, Scene> = {
     [urls.instanceKafkaInspector()]: Scene.SystemStatus,
     [urls.instanceMetrics()]: Scene.SystemStatus,
     [urls.asyncMigrations()]: Scene.AsyncMigrations,
+    [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
+    [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.mySettings()]: Scene.MySettings,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
