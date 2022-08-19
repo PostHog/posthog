@@ -74,11 +74,6 @@ class TestSubscriptionsTasks(APIBaseTest):
         mock_send_email: MagicMock,
         mock_send_slack: MagicMock,
     ) -> None:
-        self.insight.deleted = True
-        self.insight.save()
-        self.dashboard.deleted = True
-        self.dashboard.save()
-
         create_subscription(
             team=self.team,
             insight=self.insight,
@@ -94,6 +89,11 @@ class TestSubscriptionsTasks(APIBaseTest):
             target_type="slack",
             target_value="C12345|#test-channel",
         )
+
+        self.insight.deleted = True
+        self.insight.save()
+        self.dashboard.deleted = True
+        self.dashboard.save()
 
         schedule_all_subscriptions()
 
