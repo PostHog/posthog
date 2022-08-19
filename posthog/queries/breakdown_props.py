@@ -195,15 +195,21 @@ def _to_value_expression(
             table="events" if direct_on_events else "person",
             column="person_properties" if direct_on_events else "person_props",
             allow_denormalized_props=True,
+            materialised_table_column="person_properties" if direct_on_events else "properties",
         )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
-            table="groups",
+            table="events"
+            if direct_on_events
+            else "groups",  # TODO: bug from old times! Scary that it wasn't tested, test now!
             property_name=cast(str, breakdown),
             var="%(key)s",
             column=f"group{breakdown_group_type_index}_properties"
             if direct_on_events
             else f"group_properties_{breakdown_group_type_index}",
+            materialised_table_column=f"group{breakdown_group_type_index}_properties"
+            if direct_on_events
+            else "group_properties",
         )
     else:
         value_expression = get_single_or_multi_property_string_expr(

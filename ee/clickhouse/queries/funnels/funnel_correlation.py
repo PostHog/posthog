@@ -553,6 +553,7 @@ class FunnelCorrelation:
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
+                        materialised_table_column=aggregation_properties_alias,
                     )
                 else:
                     expression, _ = get_property_string_expr(
@@ -560,6 +561,7 @@ class FunnelCorrelation:
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
+                        materialised_table_column=aggregation_properties_alias,
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)
@@ -828,9 +830,8 @@ class FunnelCorrelation:
     def get_funnel_actors_cte(self) -> Tuple[str, Dict[str, Any]]:
         extra_fields = ["steps", "final_timestamp", "first_timestamp"]
 
-        if self.properties_to_include:
-            for prop in self.properties_to_include:
-                extra_fields.append(prop)
+        for prop in self.properties_to_include:
+            extra_fields.append(prop)
 
         return self._funnel_actors_generator.actor_query(limit_actors=False, extra_fields=extra_fields)
 

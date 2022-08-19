@@ -121,6 +121,7 @@ class TrendsEventQuery(EventQuery):
                         allow_denormalized_props=False,
                         column="person_properties",
                         table_alias=self.EVENT_TABLE_ALIAS,
+                        materialised_table_column="person_properties",
                     ),
                     column_name=column_name,
                 )

@@ -693,6 +693,7 @@ class ClickhouseFunnelBase(ABC):
                     query_alias="prop_basic",
                     column="person_properties",
                     allow_denormalized_props=True,
+                    materialised_table_column="person_properties",
                 )
             else:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
@@ -715,7 +716,8 @@ class ClickhouseFunnelBase(ABC):
                     property_name=self._filter.breakdown,
                     var="%(breakdown)s",
                     column=properties_field,
-                    allow_denormalized_props=False,
+                    allow_denormalized_props=True,
+                    materialised_table_column=properties_field,
                 )
             else:
                 properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"

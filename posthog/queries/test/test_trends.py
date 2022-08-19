@@ -2332,20 +2332,52 @@ def trend_test_factory(trends):
 
             journey = {
                 "person1": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"order": "1", "name": "1"},
+                    },
                 ],
                 "person2": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"order": "1", "name": "2"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 2, 12),
+                        "properties": {"order": "2", "name": "2"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 2, 12),
+                        "properties": {"order": "2", "name": "2"},
+                    },
                 ],
                 "person3": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 3, 12), "properties": {"order": "2"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"order": "1", "name": "3"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 2, 12),
+                        "properties": {"order": "2", "name": "3"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 3, 12),
+                        "properties": {"order": "2", "name": "3"},
+                    },
                 ],
                 "person4": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 5, 12), "properties": {"order": "1"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 5, 12),
+                        "properties": {"order": "1", "name": "4"},
+                    },
                 ],
             }
 
@@ -2362,6 +2394,44 @@ def trend_test_factory(trends):
                     Filter(
                         data={
                             "properties": [{"key": "name", "value": "person1", "type": "person",}],
+                            "events": [{"id": "watched movie"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+            self.assertEqual(response[0]["data"][5], 0)
+
+        @test_with_materialized_columns(["name"], person_properties=["name"])
+        @snapshot_clickhouse_queries
+        def test_person_property_filtering_clashing_with_event_property(self):
+            # This test needs to choose the right materialised column for it to pass.
+            # For resiliency, we reverse the filter as well.
+            self._create_multiple_people()
+            with freeze_time("2020-01-04"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "properties": [{"key": "name", "value": "person1", "type": "person",}],
+                            "events": [{"id": "watched movie"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+            self.assertEqual(response[0]["data"][5], 0)
+
+            with freeze_time("2020-01-04"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "properties": [{"key": "name", "value": "1", "type": "event",}],
                             "events": [{"id": "watched movie"}],
                         }
                     ),
