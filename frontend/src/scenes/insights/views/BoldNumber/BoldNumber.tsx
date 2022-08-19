@@ -85,7 +85,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const showComparison = filters.compare && insight.result?.length > 1
+    const showComparison = filters.compare && insight.result.length > 1
     const resultSeries = insight?.result?.[0] as TrendResult | undefined
 
     return resultSeries ? (
