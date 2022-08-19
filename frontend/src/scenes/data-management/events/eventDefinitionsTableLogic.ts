@@ -225,6 +225,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             event_names: [definition.name],
                             excluded_properties: keyMappingKeys,
                             is_event_property: true,
+                            is_feature_flag: false,
                             limit: PROPERTY_DEFINITIONS_PER_EVENT,
                         })
                     }
