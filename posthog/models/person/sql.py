@@ -446,3 +446,6 @@ GROUP BY value
 ORDER BY count(value) DESC
 LIMIT 20
 """
+
+GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
+GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"
