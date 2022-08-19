@@ -67,7 +67,6 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "persons_count_new_in_period": 0,
         "persons_count_total": 0,
         "events_count_total": 0,
-        "recordings_count_total": 0,
         "dashboards_count": 0,
         "ff_count": 0,
         "using_groups": False,
