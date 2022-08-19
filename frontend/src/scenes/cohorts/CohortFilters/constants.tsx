@@ -943,14 +943,11 @@ export const CRITERIA_VALIDATIONS: Record<
     [FilterType.Behavioral]: () => CohortClientErrors.EmptyBehavioral,
 }
 
-export const COHORT_TYPE_OPTIONS: LemonSelectOptions = {
-    [CohortTypeEnum.Static]: {
-        label: 'Static · Updated manually',
-    },
-    [CohortTypeEnum.Dynamic]: {
-        label: 'Dynamic · Updates automatically',
-    },
-}
+export const COHORT_TYPE_OPTIONS: LemonSelectOptions<CohortTypeEnum> = [
+    { value: CohortTypeEnum.Static, label: 'Static · Updated manually' },
+    { value: CohortTypeEnum.Dynamic, label: 'Dynamic · Updates automatically' },
+]
+
 export const NEW_CRITERIA = {
     type: BehavioralFilterKey.Behavioral,
     value: BehavioralEventType.PerformEvent,

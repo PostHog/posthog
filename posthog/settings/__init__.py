@@ -44,8 +44,6 @@ CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, t
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
-DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
 INSTANCE_PREFERENCES = {

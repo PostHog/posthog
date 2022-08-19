@@ -324,7 +324,6 @@ class TrendsBreakdown:
 
         elif self.using_person_on_events:
             if self.filter.breakdown_type == "person":
-                # TODO: add test! This was broken earlier because we overrode a person property with a materialised event property :$ :$
                 breakdown_value, _ = get_property_string_expr(
                     "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
                 )

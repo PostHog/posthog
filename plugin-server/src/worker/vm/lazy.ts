@@ -2,7 +2,6 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { VM } from 'vm2'
 
-import { runInSpan } from '../../sentry'
 import {
     Hub,
     PluginConfig,
@@ -15,6 +14,7 @@ import {
 } from '../../types'
 import { clearError, processError } from '../../utils/db/error'
 import { disablePlugin, setPluginCapabilities } from '../../utils/db/sql'
+import { instrument } from '../../utils/metrics'
 import { status } from '../../utils/status'
 import { pluginDigest } from '../../utils/utils'
 import { getNextRetryMs } from '../retries'
@@ -182,10 +182,12 @@ export class LazyPluginVM {
         if (!this.ready) {
             const vm = (await this.resolveInternalVm)?.vm
             try {
-                await runInSpan(
+                await instrument(
+                    this.hub.statsd,
                     {
-                        op: 'vm.setup',
-                        description: this.pluginConfig.plugin?.name || '?',
+                        metricName: 'vm.setup',
+                        key: 'plugin',
+                        tag: this.pluginConfig.plugin?.name || '?',
                     },
                     () => this._setupPlugin(vm)
                 )
@@ -204,10 +206,12 @@ export class LazyPluginVM {
         this.totalInitAttemptsCounter++
         const timer = new Date()
         try {
-            await runInSpan(
+            await instrument(
+                this.hub.statsd,
                 {
-                    op: 'plugin.setupPlugin',
-                    description: this.pluginConfig.plugin?.name || '?',
+                    metricName: 'plugin.setupPlugin',
+                    key: 'plugin',
+                    tag: this.pluginConfig.plugin?.name || '?',
                 },
                 () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
             )

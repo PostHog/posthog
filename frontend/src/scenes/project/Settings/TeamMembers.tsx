@@ -1,9 +1,9 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
-import { DownOutlined, CrownFilled, UpOutlined, CloseCircleOutlined, LogoutOutlined } from '@ant-design/icons'
+import { CloseCircleOutlined, LogoutOutlined, CrownFilled } from '@ant-design/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { TeamType, UserType, FusedTeamMemberType } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
@@ -12,10 +12,10 @@ import {
     getReasonForAccessLevelChangeProhibition,
     membershipLevelToName,
     teamMembershipLevelIntegers,
-} from '../../../lib/utils/permissioning'
+} from 'lib/utils/permissioning'
 import { AddMembersModalWithButton } from './AddMembersModal'
-import { RestrictedArea, RestrictionScope } from '../../../lib/components/RestrictedArea'
-import { LemonButton, LemonButtonWithPopup, LemonTable } from '@posthog/lemon-ui'
+import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
+import { LemonButton, LemonSelect, LemonSelectOption, LemonTable } from '@posthog/lemon-ui'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonDialog } from 'lib/components/LemonDialog'
@@ -38,44 +38,43 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
         (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
     )
 
-    const levelButton = (
-        <LemonButtonWithPopup
-            type="secondary"
-            data-attr="change-membership-level"
-            icon={member.level === OrganizationMembershipLevel.Owner ? <CrownFilled /> : undefined}
-            // Org admins have implicit access anyway, so it doesn't make sense to edit them
-            disabled={isImplicit}
-            popup={{
-                overlay: (
-                    <>
-                        {allowedLevels.map((listLevel) => (
-                            <LemonButton
-                                key={listLevel}
-                                status="stealth"
-                                fullWidth
-                                onClick={() => {
-                                    changeUserAccessLevel(member.user, listLevel)
-                                }}
-                            >
-                                {listLevel > member.level ? (
-                                    <>
-                                        <UpOutlined style={{ marginRight: '0.5rem' }} />
-                                        Upgrade to project {membershipLevelToName.get(listLevel)}
-                                    </>
-                                ) : (
-                                    <>
-                                        <DownOutlined style={{ marginRight: '0.5rem' }} />
-                                        Downgrade to project {membershipLevelToName.get(listLevel)}
-                                    </>
-                                )}
-                            </LemonButton>
-                        ))}
-                    </>
-                ),
-            }}
-        >
+    const possibleOptions = member.explicit_team_level
+        ? allowedLevels.concat([member.explicit_team_level])
+        : allowedLevels
+
+    const changeForbiddenReason = getReasonForAccessLevelChangeProhibition(
+        myMembershipLevel,
+        user,
+        member,
+        allowedLevels
+    )
+
+    const levelButton = changeForbiddenReason ? (
+        <div className="border rounded px-3 py-2 flex inline-flex items-center">
+            {isImplicit && <CrownFilled className={'mr-2'} />}
             {levelName}
-        </LemonButtonWithPopup>
+        </div>
+    ) : (
+        <LemonSelect
+            dropdownMatchSelectWidth={false}
+            onChange={(listLevel) => {
+                if (listLevel !== null) {
+                    changeUserAccessLevel(member.user, listLevel)
+                }
+            }}
+            options={possibleOptions.map(
+                (listLevel) =>
+                    ({
+                        value: listLevel,
+                        disabled: listLevel === member.explicit_team_level,
+                        label:
+                            listLevel > member.level
+                                ? membershipLevelToName.get(listLevel)
+                                : membershipLevelToName.get(listLevel),
+                    } as LemonSelectOption<TeamMembershipLevel>)
+            )}
+            value={member.explicit_team_level}
+        />
     )
 
     const disallowedReason = isImplicit

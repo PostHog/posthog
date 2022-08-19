@@ -36,7 +36,7 @@ export function VerificationPanel(): JSX.Element {
                                 Once you have integrated the snippet and sent an event, we will verify it was properly
                                 received and continue.
                             </p>
-                            <EventBufferNotice />
+                            <EventBufferNotice className="mb-4" />
                             <LemonButton
                                 fullWidth
                                 center

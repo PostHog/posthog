@@ -2687,6 +2687,36 @@ def trend_test_factory(trends):
                 event_response, action_response,
             )
 
+        @test_with_materialized_columns(["name"], person_properties=["name"])
+        def test_breakdown_by_person_property_for_person_on_events(self):
+            person1, person2, person3, person4 = self._create_multiple_people()
+
+            with freeze_time("2020-01-04T13:01:01Z"):
+                event_response = trends().run(
+                    Filter(
+                        data={
+                            "date_from": "-14d",
+                            "breakdown": "name",
+                            "breakdown_type": "person",
+                            "events": [{"id": "watched movie", "name": "watched movie", "type": "events", "order": 0,}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertListEqual(
+                sorted(res["breakdown_value"] for res in event_response), ["person1", "person2", "person3"]
+            )
+
+            for response in event_response:
+                if response["breakdown_value"] == "person1":
+                    self.assertEqual(response["count"], 1)
+                    self.assertEqual(response["label"], "watched movie - person1")
+                if response["breakdown_value"] == "person2":
+                    self.assertEqual(response["count"], 3)
+                if response["breakdown_value"] == "person3":
+                    self.assertEqual(response["count"], 3)
+
         def test_breakdown_by_property_pie(self):
             person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"], immediate=True)
             _create_event(
