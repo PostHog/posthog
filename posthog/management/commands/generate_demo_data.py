@@ -35,7 +35,7 @@ class Command(BaseCommand):
             default=30,
             help="At how many days after 'now' should the simulation end (default: 30)",
         )
-        parser.add_argument("--n-clusters", type=int, default=50, help="Number of clusters (default: 50)")
+        parser.add_argument("--n-clusters", type=int, default=500, help="Number of clusters (default: 500)")
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
         parser.add_argument(
             "--reset-master", action="store_true", help="Reset master project instead of creating a demo project"
@@ -65,7 +65,7 @@ class Command(BaseCommand):
         if not options["dry_run"]:
             email = options["email"]
             password = options["password"]
-            matrix_manager = MatrixManager(matrix, use_pre_save=False)
+            matrix_manager = MatrixManager(matrix)
             with transaction.atomic():
                 try:
                     if options["reset_master"]:

@@ -69,7 +69,7 @@ class MatrixManager:
     _persons_created: int
     _person_distinct_ids_created: int
 
-    def __init__(self, matrix: Matrix, *, use_pre_save: bool):
+    def __init__(self, matrix: Matrix, *, use_pre_save: bool = False):
         self.matrix = matrix
         self.use_pre_save = use_pre_save
         self._persons_created = 0
