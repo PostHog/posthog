@@ -1,7 +1,4 @@
-import { DateTime } from 'luxon'
-
-import { ISOTimestamp, Person, PreIngestionEvent } from '../../../../src/types'
-import { UUIDT } from '../../../../src/utils/utils'
+import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-createEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
@@ -16,19 +13,6 @@ const preIngestionEvent: PreIngestionEvent = {
     event: '$pageview',
     properties: {},
     elementsList: [],
-}
-
-const person: Person = {
-    id: 123,
-    team_id: 2,
-    properties: {},
-    is_user_id: 0,
-    is_identified: true,
-    uuid: new UUIDT().toString(),
-    properties_last_updated_at: {},
-    properties_last_operation: {},
-    created_at: DateTime.now(),
-    version: 0,
 }
 
 describe('createEventStep()', () => {
@@ -46,9 +30,9 @@ describe('createEventStep()', () => {
     })
 
     it('calls `createEvent` and forwards to `runAsyncHandlersStep`', async () => {
-        const personContainer = new LazyPersonContainer(2, 'my_id', runner.hub, person)
+        const personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
         const response = await createEventStep(runner, preIngestionEvent, personContainer)
 
-        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, person])
+        expect(response).toEqual(['runAsyncHandlersStep', preIngestionEvent, personContainer])
     })
 })
