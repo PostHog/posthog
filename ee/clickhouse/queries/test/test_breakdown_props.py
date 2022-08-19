@@ -183,7 +183,6 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
                 self.assertEqual(res, ["test", "test2"])
 
-    @test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_breakdown_group_props(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

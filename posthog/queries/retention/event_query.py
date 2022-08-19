@@ -64,6 +64,7 @@ class RetentionEventsQuery(EventQuery):
             breakdown_type = self._filter.breakdown_type
             table = "events"
             column = "properties"
+            materalised_table_column = "properties"
 
             if breakdown_type == "person":
                 table = "person" if not self._using_person_on_events else "events"
