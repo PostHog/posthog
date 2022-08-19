@@ -95,7 +95,7 @@ def _get_event_properties(team: Team, since: timezone.datetime) -> List[Tuple[st
 
 
 @shared_task(ignore_result=True, max_retries=1)
-def calculate_event_property_usage_for_team(team_id: int, *, include_actors_properties: bool = False) -> None:
+def calculate_event_property_usage_for_team(team_id: int, *, include_actor_properties: bool = False) -> None:
     team = Team.objects.get(pk=team_id)
     event_definition_payloads: DefaultDict[str, EventDefinitionPayload] = defaultdict(
         EventDefinitionPayload,
@@ -126,7 +126,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, include_actors_prop
         event_definition_payloads[event].volume_30_day = volume
         event_definition_payloads[event].last_seen_at = last_seen_at
 
-    property_types = _get_property_types(team, since, include_actor_properties=include_actors_properties)
+    property_types = _get_property_types(team, since, include_actor_properties=include_actor_properties)
     for property_key, property_type in property_types.items():
         if property_definition_payloads[property_key].property_type is None:
             property_definition_payloads[property_key].property_type = property_type
