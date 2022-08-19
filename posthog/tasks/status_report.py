@@ -21,6 +21,7 @@ from posthog.models.event.util import (
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.person.util import count_duplicate_distinct_ids_for_team, count_total_persons_with_multiple_ids
 from posthog.models.plugin import PluginConfig
+from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.utils import namedtuplefetchall
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_week
 from posthog.version import VERSION
@@ -66,6 +67,7 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
         "persons_count_new_in_period": 0,
         "persons_count_total": 0,
         "events_count_total": 0,
+        "recordings_count_total": 0,
         "dashboards_count": 0,
         "ff_count": 0,
         "using_groups": False,
@@ -87,6 +89,10 @@ def status_report(*, dry_run: bool = False) -> Dict[str, Any]:
                 team.id, period_start, period_end
             )
             team_report["events_count_by_name"] = get_events_count_for_team_by_event_type(
+                team.id, period_start, period_end
+            )
+
+            team_report["recordings_count_new_in_period"] = get_recording_count_for_team_and_period(
                 team.id, period_start, period_end
             )
 
