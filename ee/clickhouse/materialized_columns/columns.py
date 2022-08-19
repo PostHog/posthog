@@ -23,6 +23,7 @@ TRIM_AND_EXTRACT_PROPERTY = trim_quotes_expr("JSONExtractRaw({table_column}, %(p
 
 SHORT_TABLE_COLUMN_NAME = {
     "properties": "p",
+    "group_properties": "gp",
     "person_properties": "pp",
     "group0_properties": "gp0",
     "group1_properties": "gp1",
@@ -165,7 +166,7 @@ def _materialized_column_name(
 ) -> str:
     "Returns a sanitized and unique column name to use for materialized column"
 
-    prefix = "mat_" if table == "events" else "pmat_"
+    prefix = "mat_" if table == "events" or table == "groups" else "pmat_"
 
     if table_column != DEFAULT_TABLE_COLUMN:
         prefix += f"{SHORT_TABLE_COLUMN_NAME[table_column]}_"

@@ -23,7 +23,14 @@ from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    cleanup_materialized_columns,
+    snapshot_clickhouse_queries,
+)
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
@@ -708,6 +715,7 @@ TEST_BREAKDOWN_PROCESSING = [
 @pytest.mark.django_db
 @pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
+    clean_up_materialised_columns,
     breakdown: Union[str, List[str]],
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
@@ -747,6 +755,7 @@ TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
     TEST_BREAKDOWN_PROCESSING_MATERIALIZED,
 )
 def test_breakdown_query_expression_materialised(
+    clean_up_materialised_columns,
     breakdown: Union[str, List[str]],
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
@@ -983,6 +992,14 @@ def test_events(db, team) -> List[UUID]:
     ]
 
 
+@pytest.fixture
+def clean_up_materialised_columns():
+    yield
+
+    # after test cleanup
+    cleanup_materialized_columns()
+
+
 TEST_PROPERTIES = [
     pytest.param(Property(key="email", value="test@posthog.com"), [0]),
     pytest.param(Property(key="email", value="test@posthog.com", operator="exact"), [0]),
@@ -1147,7 +1164,7 @@ TEST_PROPERTIES = [
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract(test_events, property, expected_event_indexes, team):
+def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
     uuids = list(
         sorted(
@@ -1167,7 +1184,9 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract_materialized(test_events, property, expected_event_indexes, team):
+def test_prop_filter_json_extract_materialized(
+    test_events, clean_up_materialised_columns, property, expected_event_indexes, team
+):
     materialize("events", property.key)
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
@@ -1191,7 +1210,9 @@ def test_prop_filter_json_extract_materialized(test_events, property, expected_e
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract_person_on_events_materialized(test_events, property, expected_event_indexes, team):
+def test_prop_filter_json_extract_person_on_events_materialized(
+    test_events, clean_up_materialised_columns, property, expected_event_indexes, team
+):
     # simulates a group property being materialised
     materialize("events", property.key, table_column="group2_properties")
 

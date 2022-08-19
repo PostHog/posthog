@@ -46,7 +46,9 @@ PropertyType = Literal[
 PropertyName = str
 TableWithProperties = Literal["events", "person", "groups"]
 TableColumn = Literal[
-    "properties",
+    "properties",  # for events & persons table
+    "group_properties",  # for groups table
+    # all below are for person&groups on events table
     "person_properties",
     "group0_properties",
     "group1_properties",

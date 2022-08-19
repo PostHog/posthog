@@ -216,7 +216,43 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
     return response
 
 
-def test_with_materialized_columns(event_properties=[], person_properties=[], verify_no_jsonextract=True):
+def default_materialised_columns():
+    try:
+        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+        from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+
+    except:
+        # EE not available? Skip
+        return []
+
+    default_columns = []
+    for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
+        column_name = get_materialized_columns("events")[(prop, "properties")]
+        default_columns.append(column_name)
+
+    return default_columns
+
+
+def cleanup_materialized_columns():
+    try:
+        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+    except:
+        # EE not available? Skip
+        return
+
+    default_columns = default_materialised_columns()
+    for column_name in get_materialized_columns("events").values():
+        if column_name not in default_columns:
+            sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
+    for column_name in get_materialized_columns("person").values():
+        sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+    for column_name in get_materialized_columns("groups").values():
+        sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
+
+
+def test_with_materialized_columns(
+    event_properties=[], person_properties=[], group_properties=[], verify_no_jsonextract=True
+):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
 
@@ -224,7 +260,7 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
     """
 
     try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns, materialize
+        from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
         return lambda fn: fn
@@ -241,15 +277,15 @@ def test_with_materialized_columns(event_properties=[], person_properties=[], ve
             for prop in person_properties:
                 materialize("person", prop)
                 materialize("events", prop, table_column="person_properties")
+            for group_type_index, prop in group_properties:
+                materialize("groups", prop, table_column="group_properties")
+                materialize("events", prop, table_column=f"group{group_type_index}_properties")  # type: ignore
 
             try:
                 with self.capture_select_queries() as sqls:
                     fn(self, *args, **kwargs)
             finally:
-                for column_name in get_materialized_columns("events").values():
-                    sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
-                for column_name in get_materialized_columns("person").values():
-                    sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
+                cleanup_materialized_columns()
 
             if verify_no_jsonextract:
                 for sql in sqls:
