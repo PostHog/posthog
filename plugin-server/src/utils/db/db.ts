@@ -1245,25 +1245,7 @@ export class DB {
         return insertResult.rows[0]
     }
 
-    public async doesPersonBelongToCohort(
-        cohortId: number,
-        person: IngestionPersonData,
-        teamId: Team['id']
-    ): Promise<boolean> {
-        const chResult = await this.clickhouseQuery(
-            `SELECT 1 FROM person_static_cohort
-            WHERE
-                team_id = ${teamId}
-                AND cohort_id = ${cohortId}
-                AND person_id = '${escapeClickHouseString(person.uuid)}'
-            LIMIT 1`
-        )
-
-        if (chResult.rows > 0) {
-            // Cohort is static and our person belongs to it
-            return true
-        }
-
+    public async doesPersonBelongToCohort(cohortId: number, person: IngestionPersonData): Promise<boolean> {
         const psqlResult = await this.postgresQuery(
             `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2)`,
             [cohortId, person.id],

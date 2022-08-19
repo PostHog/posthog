@@ -373,7 +373,7 @@ export class ActionMatcher {
         if (isNaN(cohortId)) {
             throw new Error(`Can't match against invalid cohort ID value "${filter.value}!"`)
         }
-        return await this.db.doesPersonBelongToCohort(Number(filter.value), person, person.team_id)
+        return await this.db.doesPersonBelongToCohort(Number(filter.value), person)
     }
 
     /**
