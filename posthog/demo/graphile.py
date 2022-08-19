@@ -65,7 +65,7 @@ def copy_graphile_jobs_between_teams(source_team_id: int, target_team_id: int):
 
 
 def erase_graphile_jobs_of_team(team_id: int):
-    """Copy all scheduled demo events between projects.
+    """Erase all scheduled demo events of project.
 
     This is a bit dirty and only intended for demo data, not production.
     """
