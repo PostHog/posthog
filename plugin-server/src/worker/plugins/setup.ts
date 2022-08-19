@@ -101,7 +101,7 @@ async function loadPluginsFromDB(hub: Hub): Promise<Pick<Hub, 'plugins' | 'plugi
         }
         pluginConfigs.set(row.id, pluginConfig)
 
-        if (row.team_id === undefined || row.team_id === null) {
+        if (!row.team_id) {
             console.error(`🔴 PluginConfig(id=${row.id}) without team_id!`)
             continue
         }
