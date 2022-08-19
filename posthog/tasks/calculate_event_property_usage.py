@@ -39,6 +39,7 @@ def _get_events_volume(team: Team, since: timezone.datetime) -> Dict[str, Tuple[
 
 
 def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
+    """Parse the provided sample value as JSON and return its property type."""
     parsed_value = json.loads(sample_json_value)
     if isinstance(parsed_value, bool):
         return PropertyType.Boolean
@@ -50,8 +51,12 @@ def _infer_property_type(sample_json_value: str) -> Optional[PropertyType]:
 
 
 def _get_property_types(
-    team: Team, since: timezone.datetime, *, include_actors_properties: bool
+    team: Team, since: timezone.datetime, *, include_actor_properties: bool
 ) -> Dict[str, Optional[PropertyType]]:
+    """Determine property types based on ClickHouse data.
+
+    Only event properties are analyzed in production PostHog, but for the purposes of the demo environment,
+    actor properties can be included too optionally."""
     from posthog.client import sync_execute
     from posthog.models.event.sql import GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES
     from posthog.models.group.sql import GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES
@@ -64,7 +69,7 @@ def _get_property_types(
         )
     }
 
-    if include_actors_properties:
+    if include_actor_properties:
         # In the periodic job we only care about event properties, but in the demo environment – where data is ingested
         # bypassing the plugin server - we also want to calculate person and group properties for taxonomy integrity
         for property_key, sample_json_value in sync_execute(
@@ -82,6 +87,7 @@ def _get_property_types(
 
 
 def _get_event_properties(team: Team, since: timezone.datetime) -> List[Tuple[str, str]]:
+    """Determine which properties have been since with which events based on ClickHouse data."""
     from posthog.client import sync_execute
     from posthog.models.event.sql import GET_EVENT_PROPERTIES
 
@@ -120,7 +126,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, include_actors_prop
         event_definition_payloads[event].volume_30_day = volume
         event_definition_payloads[event].last_seen_at = last_seen_at
 
-    property_types = _get_property_types(team, since, include_actors_properties=include_actors_properties)
+    property_types = _get_property_types(team, since, include_actor_properties=include_actors_properties)
     for property_key, property_type in property_types.items():
         if property_definition_payloads[property_key].property_type is None:
             property_definition_payloads[property_key].property_type = property_type
