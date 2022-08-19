@@ -66,7 +66,9 @@ export function LemonSwitch({
             >
                 <div className="LemonSwitch__slider" />
                 <div className="LemonSwitch__handle">
-                    {loading && <Spinner size="sm" type={checked ? 'inverse' : 'primary'} traceless />}
+                    {loading && (
+                        <Spinner size="sm" monocolor className={clsx('p-1', checked ? 'text-white' : 'text-primary')} />
+                    )}
                 </div>
             </button>
         </div>
