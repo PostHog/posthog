@@ -11,7 +11,6 @@ from ee.tasks.subscriptions import (
     schedule_all_subscriptions,
 )
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
-from posthog.models import dashboard
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.exported_asset import ExportedAsset
@@ -159,4 +158,3 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert mock_send_slack.call_args_list == [
             call(subscription, [self.asset], total_asset_count=1, is_new_subscription=False),
         ]
-
