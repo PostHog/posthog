@@ -12,9 +12,9 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { Group as IGroup, PersonsTabType } from '~/types'
-import { Loading } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 const { TabPane } = Tabs
 
@@ -51,7 +51,7 @@ export function Group(): JSX.Element {
     const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex } = useValues(groupLogic)
 
     if (!groupData) {
-        return groupDataLoading ? <Loading /> : <PageHeader title="Group not found" />
+        return groupDataLoading ? <SpinnerOverlay /> : <PageHeader title="Group not found" />
     }
 
     return (

@@ -13,3 +13,11 @@ export interface SpinnerProps {
 export function Spinner({ size = 'md', monocolor, className }: SpinnerProps): JSX.Element {
     return <IconSpinner monocolor={monocolor} className={clsx('Spinner', size && `Spinner--${size}`, className)} />
 }
+
+export function SpinnerOverlay(props: SpinnerProps): JSX.Element {
+    return (
+        <div className="SpinnerOverlay">
+            <Spinner size="lg" {...props} />
+        </div>
+    )
+}

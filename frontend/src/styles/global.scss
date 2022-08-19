@@ -835,27 +835,3 @@ body {
         max-width: 350px;
     }
 }
-
-.loading-overlay {
-    width: 100%;
-    height: 100%;
-    position: absolute;
-    top: 0;
-    left: 0;
-    background: rgba(255, 255, 255, 0.5);
-    text-align: center;
-    min-height: 6rem;
-    z-index: var(--z-content-overlay);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    &.over-table {
-        display: block;
-        background: rgba(0, 0, 0, 0.1);
-
-        td {
-            display: block;
-        }
-    }
-}
