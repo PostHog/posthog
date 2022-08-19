@@ -1,7 +1,7 @@
 from django.db import models
 
 
-class DeletionType:
+class DeletionType(models.IntegerChoices):
     Team = 0
     Person = 1
     Group = 2
@@ -27,8 +27,9 @@ class AsyncDeletion(models.Model):
         ]
 
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
-    # Should be one of the DeletionType enum
-    deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=False, blank=False)
+    deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
+        null=False, blank=False, choices=DeletionType.choices
+    )
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 

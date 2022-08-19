@@ -24,6 +24,8 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion.delete import process_found_event_table_deletions
 from posthog.models.utils import UUIDT
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
@@ -190,9 +192,9 @@ class MatrixManager:
 
     @classmethod
     def _erase_master_team_data(cls):
-        from posthog.models.team.util import delete_teams_clickhouse_data
-
-        delete_teams_clickhouse_data([cls.MASTER_TEAM_ID])
+        process_found_event_table_deletions(
+            [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
+        )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
         erase_graphile_jobs_of_team(cls.MASTER_TEAM_ID)
 
