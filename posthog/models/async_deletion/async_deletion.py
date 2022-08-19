@@ -1,7 +1,7 @@
 from django.db import models
 
 
-class DeletionType:
+class DeletionType(models.IntegerChoices):
     Team = 0
     Person = 1
     Group = 2

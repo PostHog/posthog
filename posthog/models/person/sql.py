@@ -1,9 +1,5 @@
-from posthog.clickhouse.kafka_engine import (
-    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
-    KAFKA_COLUMNS,
-    STORAGE_POLICY,
-    kafka_engine,
-)
+from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -465,3 +461,6 @@ GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES = """
 GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES = GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
     table_name=PERSONS_TABLE, properties_column="properties",
 )
+
+GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"
+GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM = "SELECT count() AS count FROM person_distinct_id2 WHERE team_id = %(team_id)s"

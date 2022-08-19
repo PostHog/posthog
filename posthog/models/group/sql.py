@@ -1,9 +1,5 @@
-from posthog.clickhouse.kafka_engine import (
-    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
-    KAFKA_COLUMNS,
-    STORAGE_POLICY,
-    kafka_engine,
-)
+from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.models.person.sql import GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES
