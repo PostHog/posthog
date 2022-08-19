@@ -1134,5 +1134,18 @@ describe('DB', () => {
 
             expect(await hub.db.doesPersonBelongToCohort(cohort.id, person)).toEqual(false)
         })
+
+        it('handles NULL version cohorts', async () => {
+            const cohort2 = await hub.db.createCohort({
+                name: 'null_cohort',
+                description: '',
+                team_id: team.id,
+                version: null,
+            })
+            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(false)
+
+            await hub.db.addPersonToCohort(cohort2.id, person.id, null)
+            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(true)
+        })
     })
 })
