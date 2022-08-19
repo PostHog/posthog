@@ -252,8 +252,8 @@ class HedgeboxPerson(SimPerson):
         weeks_since_account_creation = (
             (self.cluster.simulation_time - self.account.created_at).total_seconds() / 86_400 / 7 if self.account else 0
         )
-        boredom_churned = (
-            self.affinity < 0.3 and self.cluster.random.random() < math.log2(weeks_since_account_creation + 1) / 8
+        boredom_churned = self.cluster.random.random() < math.log2(weeks_since_account_creation + 1) / 4 * (
+            0.75 - self.affinity
         )
         satisfaction_churned = self.satisfaction < -0.5 and self.need < 0.9
         if boredom_churned or satisfaction_churned:

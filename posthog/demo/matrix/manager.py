@@ -7,7 +7,12 @@ from django.conf import settings
 from django.core import exceptions
 
 from posthog.client import query_with_columns, sync_execute
-from posthog.demo.graphile import GraphileJob, bulk_queue_graphile_jobs, copy_graphile_jobs_between_teams
+from posthog.demo.graphile import (
+    GraphileJob,
+    bulk_queue_graphile_jobs,
+    copy_graphile_jobs_between_teams,
+    erase_graphile_jobs_of_team,
+)
 from posthog.models import (
     Cohort,
     Group,
@@ -19,6 +24,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.team.util import delete_teams_clickhouse_data
 from posthog.models.utils import UUIDT
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
@@ -55,8 +61,6 @@ def _sleep_until_person_data_in_clickhouse(
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
     MASTER_TEAM_ID = 0
-    # Pre-save team
-    MASTER_TEAM = Team(id=MASTER_TEAM_ID)
 
     matrix: Matrix
     use_pre_save: bool
@@ -116,6 +120,17 @@ class MatrixManager:
                 existing_user.save()
             return (existing_user.organization, existing_user.team, existing_user)
 
+    def reset_master(self):
+        if self.matrix.is_complete is None:
+            self.matrix.simulate()
+        master_team = self._prepare_master_team(ensure_blank_slate=True)
+        self._save_analytics_data(master_team)
+        _sleep_until_person_data_in_clickhouse(
+            self.MASTER_TEAM_ID,
+            expected_person_count=self._persons_created,
+            expected_person_distinct_id_count=self._person_distinct_ids_created,
+        )
+
     @staticmethod
     def create_team(organization: Organization, **kwargs) -> Team:
         team = Team.objects.create(
@@ -124,7 +139,7 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
-        source_team = self.MASTER_TEAM if self.use_pre_save else team
+        source_team = self._prepare_master_team() if self.use_pre_save else team
         if not self.use_pre_save or not self._is_demo_data_pre_saved():
             if self.matrix.is_complete is None:
                 self.matrix.simulate()
@@ -145,28 +160,40 @@ class MatrixManager:
             cohort.calculate_people_ch(pending_version=0)
         team.save()
 
-    def _save_analytics_data(self, target_team: Team):
-        if target_team.pk == self.MASTER_TEAM_ID:
-            self._prepare_master_team()
+    def _save_analytics_data(self, data_team: Team):
         bulk_group_type_mappings = []
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             bulk_group_type_mappings.append(
-                GroupTypeMapping(team=target_team, group_type_index=group_type_index, group_type=group_type)
+                GroupTypeMapping(team=data_team, group_type_index=group_type_index, group_type=group_type)
             )
             for group_key, group in groups.items():
                 self._save_sim_group(
-                    target_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
+                    data_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
                 )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         sim_persons = self.matrix.people
         for sim_person in sim_persons:
-            self._save_sim_person(target_team, sim_person)
+            self._save_sim_person(data_team, sim_person)
 
     @classmethod
-    def _prepare_master_team(cls):
-        if not Team.objects.filter(id=cls.MASTER_TEAM_ID).exists():
-            organization = Organization.objects.create(id=cls.MASTER_TEAM_ID, name="PostHog")
-            cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
+    def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
+        master_team = Team.objects.filter(id=cls.MASTER_TEAM_ID).first()
+        if master_team is None:
+            master_team = cls._create_master_team()
+        elif ensure_blank_slate:
+            cls._erase_master_team_data()
+        return master_team
+
+    @classmethod
+    def _create_master_team(cls) -> Team:
+        organization = Organization.objects.create(id=cls.MASTER_TEAM_ID, name="PostHog")
+        return cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
+
+    @classmethod
+    def _erase_master_team_data(cls):
+        delete_teams_clickhouse_data([cls.MASTER_TEAM_ID])
+        GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
+        erase_graphile_jobs_of_team(cls.MASTER_TEAM_ID)
 
     @classmethod
     def _copy_analytics_data_from_master_team(cls, target_team: Team):
@@ -183,7 +210,7 @@ class MatrixManager:
         GroupTypeMapping.objects.bulk_create(
             (
                 GroupTypeMapping(team=target_team, **record)
-                for record in GroupTypeMapping.objects.filter(team=cls.MASTER_TEAM).values(
+                for record in GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
             )
@@ -199,11 +226,12 @@ class MatrixManager:
         clickhouse_persons = query_with_columns(
             SELECT_PERSONS_OF_TEAM, list_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
         )
-        bulk_persons = []
-        for row in clickhouse_persons:
+        bulk_persons: Dict[str, Person] = {}
+        for i, row in enumerate(clickhouse_persons):
+            synthetic_id = target_team_id * 100_000_000 + i
             properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons.append(Person(team_id=target_team_id, properties=properties, **row))
-        Person.objects.bulk_create(bulk_persons)
+            bulk_persons[row["uuid"]] = Person(id=synthetic_id, team_id=target_team_id, properties=properties, **row)
+        Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
         clickhouse_distinct_ids = query_with_columns(
             SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
@@ -215,11 +243,9 @@ class MatrixManager:
         for row in clickhouse_distinct_ids:
             person_uuid = row.pop("person_uuid")
             bulk_person_distinct_ids.append(
-                PersonDistinctId(
-                    team_id=target_team_id, person=Person.objects.get(team_id=target_team_id, uuid=person_uuid), **row
-                )
+                PersonDistinctId(team_id=target_team_id, person_id=bulk_persons[person_uuid].pk, **row)
             )
-        PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids)
+        PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
         clickhouse_groups = query_with_columns(
             SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"],

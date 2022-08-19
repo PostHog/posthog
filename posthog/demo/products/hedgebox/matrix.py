@@ -2,7 +2,7 @@ import datetime as dt
 from dataclasses import dataclass
 from typing import Optional
 
-from posthog.constants import INSIGHT_TRENDS, PAGEVIEW_EVENT, TRENDS_LINEAR, TRENDS_WORLD_MAP
+from posthog.constants import INSIGHT_TRENDS, PAGEVIEW_EVENT, RETENTION_FIRST_TIME, TRENDS_LINEAR, TRENDS_WORLD_MAP
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.models import (
@@ -211,11 +211,11 @@ class HedgeboxMatrix(Matrix):
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 10, "minH": 5, "minW": 3, "moved": False, "static": False},
             },
         )
-        weekly_uploader_retention = Insight.objects.create(
+        new_user_retention = Insight.objects.create(
             team=team,
             dashboard=key_metrics_dashboard,
             saved=True,
-            name="App retention",
+            name="New user retention",
             filters={
                 "period": "Week",
                 "display": "ActionsTable",
@@ -229,13 +229,8 @@ class HedgeboxMatrix(Matrix):
                         }
                     ],
                 },
-                "target_entity": {
-                    "id": interacted_with_file_action.pk,
-                    "name": interacted_with_file_action.name,
-                    "type": "actions",
-                    "order": 0,
-                },
-                "retention_type": "retention_recurring",
+                "target_entity": {"id": EVENT_SIGNED_UP, "name": EVENT_SIGNED_UP, "type": "events", "order": 0,},
+                "retention_type": RETENTION_FIRST_TIME,
                 "total_intervals": 9,
                 "returning_entity": {
                     "id": interacted_with_file_action.pk,
@@ -249,7 +244,7 @@ class HedgeboxMatrix(Matrix):
         )
         DashboardTile.objects.create(
             dashboard=key_metrics_dashboard,
-            insight=weekly_uploader_retention,
+            insight=new_user_retention,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 15, "minH": 5, "minW": 3, "moved": False, "static": False},
@@ -381,7 +376,7 @@ class HedgeboxMatrix(Matrix):
                         "name": "paid_bill",
                         "type": "events",
                         "order": 0,
-                        "math_group_type_index": self._get_group_type_index(GROUP_TYPE_ACCOUNT),
+                        "math_group_type_index": 0,
                     }
                 ],
                 "actions": [],

@@ -38,6 +38,9 @@ class Command(BaseCommand):
         parser.add_argument("--n-clusters", type=int, default=50, help="Number of clusters (default: 50)")
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
         parser.add_argument(
+            "--reset-master", action="store_true", help="Reset master project instead of creating a demo project"
+        )
+        parser.add_argument(
             "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)",
         )
         parser.add_argument(
@@ -62,21 +65,27 @@ class Command(BaseCommand):
         if not options["dry_run"]:
             email = options["email"]
             password = options["password"]
+            matrix_manager = MatrixManager(matrix, use_pre_save=False)
             with transaction.atomic():
                 try:
-                    MatrixManager(matrix, use_pre_save=False).ensure_account_and_save(
-                        email,
-                        "Employee 427",
-                        "Hedgebox Inc.",
-                        password=password,
-                        disallow_collision=True,
-                        print_steps=True,
-                    )
+                    if options["reset_master"]:
+                        matrix_manager.reset_master()
+                    else:
+                        matrix_manager.ensure_account_and_save(
+                            email,
+                            "Employee 427",
+                            "Hedgebox Inc.",
+                            password=password,
+                            disallow_collision=True,
+                            print_steps=True,
+                        )
                 except exceptions.ValidationError as e:
                     print(f"Error: {e}")
                 else:
                     print(
-                        f"Demo data ready! Log in as {email} with password {password}.\n"
+                        "Master project reset!"
+                        if options["reset_master"]
+                        else f"Demo data ready! Log in as {email} with password {password}.\n"
                         "If running DEMO mode locally, log in instantly with this link:\n"
                         f"http://localhost:8000/signup?email={email}"
                     )

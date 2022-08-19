@@ -1,12 +1,7 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import (
-    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
-    KAFKA_COLUMNS,
-    STORAGE_POLICY,
-    kafka_engine,
-    trim_quotes_expr,
-)
+from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -374,7 +369,7 @@ GET_EVENT_PROPERTIES = """
     WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s"""
 
 #
-# Copying demo data
+# Demo data
 #
 
 COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
