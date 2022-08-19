@@ -1,7 +1,12 @@
 from django.conf import settings
 
-from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
+from posthog.clickhouse.kafka_engine import (
+    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
+    KAFKA_COLUMNS,
+    STORAGE_POLICY,
+    kafka_engine,
+    trim_quotes_expr,
+)
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -354,22 +359,11 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 """
 
 GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
-GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
-    WITH property_tuples AS (
-        SELECT arrayJoin(JSONExtractKeysAndValuesRaw(properties)) AS property_key_value_pair FROM events
-        WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s
-    )
-    SELECT
-        property_key_value_pair.1 AS property_key,
-        anyLast(property_key_value_pair.2) AS sample_json_value
-    FROM property_tuples
-    GROUP BY property_key"""
-GET_EVENT_PROPERTIES = """
-    SELECT DISTINCT event, arrayJoin(JSONExtractKeys(properties)) AS property_key FROM events
-    WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s"""
+
+GET_TOTAL_EVENTS_VOLUME = "SELECT count() AS count FROM events WHERE team_id = %(team_id)s"
 
 #
-# Demo data
+# Copying demo data
 #
 
 COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
