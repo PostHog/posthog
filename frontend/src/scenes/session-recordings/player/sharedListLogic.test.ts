@@ -35,19 +35,4 @@ describe('sharedListLogic', () => {
                 })
         })
     })
-
-    describe('setOnlyMatchingEvents', () => {
-        it('happy case', async () => {
-            await expectLogic(logic).toMatchValues({
-                onlyMatchingEvents: false,
-            })
-            await expectLogic(logic, () => {
-                logic.actions.setOnlyMatchingEvents(true)
-            })
-                .toDispatchActions(['setOnlyMatchingEvents'])
-                .toMatchValues({
-                    onlyMatchingEvents: true,
-                })
-        })
-    })
 })

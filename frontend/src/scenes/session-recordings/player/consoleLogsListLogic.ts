@@ -79,12 +79,7 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     path(['scenes', 'session-recordings', 'player', 'consoleLogsListLogic']),
     connect(() => ({
         logic: [eventUsageLogic],
-        values: [
-            sessionRecordingLogic,
-            ['sessionPlayerData'],
-            sharedListLogic,
-            ['windowIdFilter', 'onlyMatchingEvents'],
-        ],
+        values: [sessionRecordingLogic, ['sessionPlayerData'], sharedListLogic, ['windowIdFilter']],
     })),
     actions({
         submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),

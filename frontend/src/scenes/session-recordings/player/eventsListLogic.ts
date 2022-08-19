@@ -23,7 +23,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
             sessionRecordingPlayerLogic,
             ['currentPlayerTime'],
             sharedListLogic,
-            ['windowIdFilter', 'onlyMatchingEvents'],
+            ['windowIdFilter'],
         ],
     },
     actions: {

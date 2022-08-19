@@ -136,7 +136,7 @@ describe('eventsListLogic', () => {
     })
 
     describe('eventsList', () => {
-        it('should load and parse events from the snapshot', async () => {
+        it('should load and parse events', async () => {
             await expectLogic(logic, () => {
                 sessionRecordingLogic.actions.loadRecordingSnapshots('1')
                 sessionRecordingLogic.actions.loadRecordingMeta('1')
