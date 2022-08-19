@@ -1247,11 +1247,16 @@ export class DB {
 
     public async doesPersonBelongToCohort(cohortId: number, person: IngestionPersonData): Promise<boolean> {
         const psqlResult = await this.postgresQuery(
-            `SELECT EXISTS (SELECT 1 FROM posthog_cohortpeople WHERE cohort_id = $1 AND person_id = $2)`,
+            `
+            SELECT count(1) AS count
+            FROM posthog_cohortpeople
+            JOIN posthog_cohort ON (posthog_cohort.id = posthog_cohortpeople.cohort_id)
+            WHERE cohort_id=$1 AND person_id=$2 AND posthog_cohortpeople.version=posthog_cohort.version
+            `,
             [cohortId, person.id],
             'doesPersonBelongToCohort'
         )
-        return psqlResult.rows[0].exists
+        return psqlResult.rows[0].count > 0
     }
 
     public async addPersonToCohort(cohortId: number, personId: Person['id'], version: number): Promise<CohortPeople> {
