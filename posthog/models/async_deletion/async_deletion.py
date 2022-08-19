@@ -27,9 +27,8 @@ class AsyncDeletion(models.Model):
         ]
 
     id: models.BigAutoField = models.BigAutoField(primary_key=True)
-    deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        null=False, blank=False, choices=DeletionType.choices
-    )
+    # Should be one of the DeletionType enum
+    deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=False, blank=False)
 
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
