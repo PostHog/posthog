@@ -10,6 +10,7 @@ trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PREFIX=${STATSD_PREFIX:-posthog}
+export STATSD_PORT=${STATSD_PORT:-8125}
 
 gunicorn posthog.wsgi \
     --config gunicorn.config.py \
@@ -21,6 +22,6 @@ gunicorn posthog.wsgi \
     --workers=2 \
     --threads=4 \
     --worker-class=gthread \
-    ${STATSD_HOST:+--statsd-host $STATSD_HOST} \
+    ${STATSD_HOST:+--statsd-host $STATSD_HOST:$STATSD_PORT} \
     ${STATSD_HOST:+--statsd-prefix $STATSD_PREFIX} \
     --limit-request-line=8190 $@
