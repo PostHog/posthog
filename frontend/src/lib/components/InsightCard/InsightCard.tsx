@@ -194,7 +194,7 @@ function InsightMeta({
     showDetailsControls = true,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboards } = insight
-    const { exporterResourceParams } = useValues(insightLogic)
+    const { exporterResourceParams, insightProps } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
@@ -383,6 +383,7 @@ function InsightMeta({
                                                                 {
                                                                     export_format: ExporterFormat.PNG,
                                                                     insight: insight.id,
+                                                                    dashboard: insightProps.dashboardId,
                                                                 },
                                                                 {
                                                                     export_format: ExporterFormat.CSV,

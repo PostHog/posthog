@@ -61,9 +61,9 @@ CONSTANCE_CONFIG = {
         "(Advanced) Whether having an async migration running, errored or required should prevent upgrades.",
         bool,
     ),
-    "ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION": (
-        get_from_env("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION", False, type_cast=str_to_bool),
-        "(Advanced) Whether to show the experimental 0006 async migration.",
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION": (
+        get_from_env("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION", False, type_cast=str_to_bool),
+        "(Advanced) Whether to ignore async migrations posthog version restrictions",
         bool,
     ),
     "STRICT_CACHING_TEAMS": (
@@ -154,7 +154,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
-    "ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION",
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
