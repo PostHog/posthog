@@ -4,6 +4,7 @@ import { Spinner } from '../Spinner/Spinner'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps {
+    className?: string
     onChange?: (newChecked: boolean) => void
     checked: boolean
     label?: string | JSX.Element
@@ -21,6 +22,7 @@ export interface LemonSwitchProps {
 let switchCounter = 0
 
 export function LemonSwitch({
+    className,
     id: rawId,
     onChange,
     checked,
@@ -38,7 +40,7 @@ export function LemonSwitch({
 
     return (
         <div
-            className={clsx('LemonSwitch', {
+            className={clsx('LemonSwitch', className, {
                 'LemonSwitch--checked': checked,
                 'LemonSwitch--active': isActive,
                 'LemonSwitch--bordered': bordered,

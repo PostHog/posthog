@@ -404,6 +404,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
         ],
     })),
     selectors({
+        // TODO: Move eventsToShow into eventsListLogic
         eventsToShow: [
             (selectors) => [selectors.filters, selectors.sessionEventsData],
             (filters, sessionEventsData) => {
