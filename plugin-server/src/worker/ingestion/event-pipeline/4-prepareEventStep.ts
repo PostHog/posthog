@@ -25,7 +25,7 @@ export async function prepareEventStep(
     if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
         return runner.nextStep('createEventStep', preIngestionEvent, personContainer)
     } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
-        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent as PostIngestionEvent, undefined)
+        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent as PostIngestionEvent, personContainer)
     } else {
         return null
     }

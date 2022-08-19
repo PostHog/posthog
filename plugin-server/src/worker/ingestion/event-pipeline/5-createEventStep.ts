@@ -8,6 +8,5 @@ export async function createEventStep(
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
     const ingestionEvent = await runner.hub.eventsProcessor.createEvent(event, personContainer)
-    const person = await personContainer.get()
-    return runner.nextStep('runAsyncHandlersStep', ingestionEvent, person)
+    return runner.nextStep('runAsyncHandlersStep', ingestionEvent, personContainer)
 }
