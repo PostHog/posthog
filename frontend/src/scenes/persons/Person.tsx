@@ -85,22 +85,9 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-<<<<<<< HEAD
     const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
         useValues(personsLogic)
-    const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
-=======
-    const {
-        person,
-        personLoading,
-        deletedPersonLoading,
-        currentTab,
-        showSessionRecordings,
-        splitMergeModalShown,
-        urlId,
-    } = useValues(personsLogic)
     const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, showPersonDeleteModal } =
->>>>>>> b7025a5b5... Add table UI for person deletion
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
