@@ -19,9 +19,8 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsTable({ personUUID, isPersonPage = false }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { sessionRecordings, sessionRecordingsResponseLoading, sessionRecordingId, hasNext, hasPrev } = useValues(
-        sessionRecordingsTableLogicInstance
-    )
+    const { sessionRecordings, sessionRecordingsResponseLoading, activeSessionRecordingId, hasNext, hasPrev } =
+        useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, closeSessionPlayer, loadNext, loadPrev } = useActions(
         sessionRecordingsTableLogicInstance
     )
@@ -107,7 +106,9 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 </Row>
             )}
             <div style={{ marginBottom: 64 }} />
-            {!!sessionRecordingId && <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />}
+            {!!activeSessionRecordingId && (
+                <SessionPlayerDrawer isPersonPage={isPersonPage} onClose={closeSessionPlayer} />
+            )}
         </div>
     )
 }
