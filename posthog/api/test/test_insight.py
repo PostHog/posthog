@@ -295,6 +295,58 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             set(response.json()["results"][1].keys()), expected_fields,
         )
 
+    def test_insight_reports_its_dashboards(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+
+        dashboard = Dashboard.objects.create(team=self.team)
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        self.assertEqual(
+            response.json()["results"][0]["dashboards"], [dashboard.id],
+        )
+
+        self.assertEqual(
+            response.json()["results"][1]["dashboards"], [],
+        )
+
+    def test_insight_reports_its_dashboards_when_viewed_basic(self):
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+        }
+
+        dashboard = Dashboard.objects.create(team=self.team)
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
+        )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?basic=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        self.assertEqual(
+            set(response.json()["results"][0]["dashboards"]), [dashboard.id],
+        )
+
+        self.assertEqual(
+            set(response.json()["results"][1]["dashboards"]), [],
+        )
+
     def test_listing_insights_does_not_nplus1(self):
         query_counts: List[int] = []
         queries = []

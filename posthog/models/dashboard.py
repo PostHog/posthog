@@ -39,9 +39,8 @@ class Dashboard(models.Model):
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT, choices=RestrictionLevel.choices,
     )
 
-    deprecated_insights = models.ManyToManyField(
-        "posthog.Insight", related_name="deprecated_dashboards", through="DashboardTile", blank=True
-    )
+    # deprecated
+    insights = models.ManyToManyField("posthog.Insight", related_name="dashboards", through="DashboardTile", blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)

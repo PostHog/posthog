@@ -104,7 +104,7 @@ class DashboardsField(serializers.Field):
         return instance
 
     def to_representation(self, insight: Insight) -> List[int]:
-        return [d.id for d in insight.dashboard_tiles.all()]
+        return [tile.dashboard.id for tile in insight.dashboard_tiles.all()]
 
     def to_internal_value(self, data) -> List[Dashboard]:
         return list(Dashboard.objects.filter(id__in=data))
