@@ -286,9 +286,10 @@ class InsightSerializer(InsightBasicSerializer):
 
             if dashboards is not None:
                 old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+                new_dashboard_ids = [d.id for d in dashboards]
 
                 ids_to_add = [d.id for d in dashboards if d.id not in old_dashboard_ids]
-                ids_to_remove = [id for id in old_dashboard_ids if id not in [d.id for d in dashboards]]
+                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
 
                 # does this user have permission on dashboards to add... if they are restricted
                 # it will mean this dashboard becomes restricted because of the patch
