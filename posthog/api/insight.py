@@ -312,8 +312,7 @@ class InsightSerializer(InsightBasicSerializer):
                     DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
                 # also update in-model dashboards set so activity log can detect the change
-                # TODO is this still necessary?
-                # instance.dashboard_tiles.set(DashboardTile.objects)
+                instance.refresh_from_db()
 
         updated_insight = super().update(instance, validated_data)
 

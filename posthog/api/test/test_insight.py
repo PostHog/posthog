@@ -420,10 +420,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             response_data["id"], [],
         )
 
+    @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items_on_a_dashboard(self):
         dashboard_id, _ = self._create_dashboard({})
 
-        insight_id, _ = self._create_insight(
+        insight_id, insight_json = self._create_insight(
             {
                 "filters": {
                     "events": [{"id": "$pageview"}],
@@ -431,11 +432,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "date_from": "-90d",
                 },
                 "dashboards": [dashboard_id],
+                "name": "my created insight",
             }
         )
 
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile.filters_hash)
+
+        self.assert_insight_activity(
+            insight_id,
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "my created insight",
+                        "short_id": insight_json["short_id"],
+                    },
+                }
+            ],
+        )
 
     def test_adding_insight_to_a_dashboard_sets_filters_hash(self) -> None:
         dashboard_id, _ = self._create_dashboard({})
@@ -454,6 +475,68 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile.filters_hash)
+
+    @freeze_time("2012-01-14T03:21:34.000Z")
+    def test_adding_insight_to_a_dashboard_logs_activity(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard"})
+
+        insight_id, _ = self._create_insight(
+            {
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
+                    "date_from": "-90d",
+                },
+                "name": "my insight",
+            }
+        )
+
+        _, insight_json = self._add_insight_to_dashboard(dashboard_ids=[dashboard_id], insight_id=insight_id)
+
+        self.assert_insight_activity(
+            insight_id,
+            [
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com",},
+                    "activity": "created",
+                    "created_at": "2012-01-14T03:21:34Z",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": None,
+                        "merge": None,
+                        "name": "my insight",
+                        "short_id": insight_json["short_id"],
+                    },
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Insight",
+                    "item_id": str(insight_id),
+                    "detail": {
+                        "changes": [
+                            {
+                                "type": "Insight",
+                                "action": "changed",
+                                "field": "dashboards",
+                                "before": [],
+                                "after": [
+                                    {
+                                        "dashboard": {"id": dashboard_id, "name": "the dashboard"},
+                                        "insight": {"id": insight_id},
+                                    }
+                                ],
+                            }
+                        ],
+                        "merge": None,
+                        "name": "my insight",
+                        "short_id": insight_json["short_id"],
+                    },
+                    "created_at": "2012-01-14T03:21:34Z",
+                },
+            ],
+        )
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_logs_derived_name_if_there_is_no_name(self):
@@ -1748,11 +1831,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     def _add_insight_to_dashboard(
         self, dashboard_ids: List[int], insight_id: int, expected_status: int = status.HTTP_200_OK
-    ):
+    ) -> Tuple[int, Dict[str, Any]]:
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": dashboard_ids,},
         )
         self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json["id"], response_json
 
     def _get_insight(
         self,

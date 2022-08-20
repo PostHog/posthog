@@ -22,12 +22,28 @@ const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | n
     return short_id ? <Link to={urls.insightView(short_id)}>{displayName}</Link> : displayName
 }
 
-interface DashboardLink {
+interface TileStyleDashboardLink {
+    insight: { id: number }
+    dashboard: BareDashboardLink
+}
+
+interface BareDashboardLink {
     id: number
     name: string
 }
 
-const linkToDashboard = (dashboard: DashboardLink): JSX.Element => (
+// insight activity logs changed the format that dashboard changes were reported in
+type DashboardLink = TileStyleDashboardLink | BareDashboardLink
+
+const unboxBareLink = (boxedLink: DashboardLink): BareDashboardLink => {
+    if ('dashboard' in boxedLink) {
+        return boxedLink.dashboard
+    } else {
+        return boxedLink
+    }
+}
+
+const linkToDashboard = (dashboard: BareDashboardLink): JSX.Element => (
     <div className="highlighted-activity">
         <Link to={urls.dashboard(dashboard.id)}>{dashboard.name}</Link>
     </div>
@@ -148,8 +164,8 @@ const insightActionsMapping: Record<
         return { description: changes }
     },
     dashboards: function onDashboardsChange(change, logItem) {
-        const dashboardsBefore = change?.before as DashboardLink[]
-        const dashboardsAfter = change?.after as DashboardLink[]
+        const dashboardsBefore = (change?.before as DashboardLink[]).map(unboxBareLink)
+        const dashboardsAfter = (change?.after as DashboardLink[]).map(unboxBareLink)
 
         const addedDashboards = dashboardsAfter.filter(
             (after) => !dashboardsBefore.some((before) => before.id === after.id)
