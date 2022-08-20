@@ -97,12 +97,28 @@ def log_insight_activity(
         )
 
 
+class DashboardsField(serializers.Field):
+    def get_attribute(self, instance):
+        # We pass the object instance onto `to_representation`,
+        # not just the field attribute.
+        return instance
+
+    def to_representation(self, insight: Insight) -> List[int]:
+        return [d.id for d in insight.dashboard_tiles.all()]
+
+    def to_internal_value(self, data) -> List[Dashboard]:
+        return list(Dashboard.objects.filter(id__in=data))
+
+
 class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
 
     created_by = UserBasicSerializer(read_only=True)
+    dashboards = DashboardsField(
+        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.", required=False,
+    )
 
     class Meta:
         model = Insight
@@ -130,7 +146,9 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        filters = instance.dashboard_filters()
+
+        dashboard: Optional[Dashboard] = self.context.get("dashboard")
+        filters = instance.dashboard_filters(dashboard=dashboard)
 
         if not filters.get("date_from"):
             filters.update(
@@ -155,12 +173,6 @@ class InsightSerializer(InsightBasicSerializer):
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
-    dashboards = serializers.PrimaryKeyRelatedField(
-        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
-        many=True,
-        required=False,
-        queryset=Dashboard.objects.filter(deleted=False),
-    )
     filters_hash = serializers.CharField(
         read_only=True,
         help_text="""A hash of the filters that generate this insight.
@@ -233,6 +245,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         if dashboards is not None:
             for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
+                # todo reject soft deleted dashboards?
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
@@ -256,7 +269,7 @@ class InsightSerializer(InsightBasicSerializer):
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
         try:
-            before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
+            before_update = Insight.objects.prefetch_related("dashboard_tiles", "tagged_items__tag").get(pk=instance.id)
         except Insight.DoesNotExist:
             before_update = None
 
@@ -269,13 +282,13 @@ class InsightSerializer(InsightBasicSerializer):
         if validated_data.get("deleted", False):
             DashboardTile.objects.filter(insight__id=instance.id).delete()
         else:
-            dashboards = validated_data.pop("dashboards", None)
-            if dashboards is not None:
-                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboardtile_set.all()]
-                new_dashboard_ids = [d.id for d in dashboards]
+            dashboards: List[Dashboard] = validated_data.pop("dashboards", None)
 
-                ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
-                ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
+            if dashboards is not None:
+                old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
+
+                ids_to_add = [d.id for d in dashboards if d.id not in old_dashboard_ids]
+                ids_to_remove = [id for id in old_dashboard_ids if id not in [d.id for d in dashboards]]
 
                 # does this user have permission on dashboards to add... if they are restricted
                 # it will mean this dashboard becomes restricted because of the patch
@@ -289,16 +302,17 @@ class InsightSerializer(InsightBasicSerializer):
                             f"You don't have permission to add insights to dashboard: {dashboard.id}"
                         )
 
-                for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
                     if dashboard.team != instance.team:
                         raise serializers.ValidationError("Dashboard not found")
+
                     DashboardTile.objects.create(insight=instance, dashboard=dashboard)
 
                 if ids_to_remove:
                     DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).delete()
 
                 # also update in-model dashboards set so activity log can detect the change
-                instance.dashboards.set(dashboards)
+                # TODO is this still necessary?
+                # instance.dashboard_tiles.set(DashboardTile.objects)
 
         updated_insight = super().update(instance, validated_data)
 
@@ -426,8 +440,13 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboards", "dashboards__created_by", "dashboards__team", "dashboards__team__organization",
+            "dashboard_tiles",
+            "dashboard_tiles__dashboard",
+            "dashboard_tiles__dashboard__created_by",
+            "dashboard_tiles__dashboard__team",
+            "dashboard_tiles__dashboard__team__organization",
         )
+        queryset.exclude(dashboard_tiles__dashboard__deleted=True)
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
@@ -458,7 +477,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         for key in filters:
             if key == "saved":
                 if str_to_bool(request.GET["saved"]):
-                    queryset = queryset.annotate(dashboards_count=Count("dashboards"))
+                    queryset = queryset.annotate(dashboards_count=Count("dashboard_tiles__dashboard", distinct=True))
                     queryset = queryset.filter(Q(saved=True) | Q(dashboards_count__gte=1))
                 else:
                     queryset = queryset.filter(Q(saved=False))

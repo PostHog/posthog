@@ -89,10 +89,6 @@ class Insight(models.Model):
             "short_id",
         )
 
-    @property
-    def dashboards(self):
-        return self.dashboardtile_set.exclude(dashboard__deleted=True).values("dashboard")
-
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
         if dashboard:
             dashboard_filters = {**dashboard.filters}
@@ -124,11 +120,11 @@ class Insight(models.Model):
 
     @property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        dashboards = list(self.dashboards.all())
-        if not dashboards:
+        tiles = list(self.dashboard_tiles.all())
+        if not tiles:
             return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
-        restrictions = [d.effective_restriction_level for d in dashboards]
+        restrictions = [tile.dashboard.effective_restriction_level for tile in tiles]
         restriction_set_to_only_collaborators = next(
             (x for x in restrictions if x == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT), None
         )
@@ -138,10 +134,11 @@ class Insight(models.Model):
             return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
     def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        if self.dashboards.count() == 0:
+        tiles = list(self.dashboard_tiles.all())
+        if not tiles:
             return Dashboard.PrivilegeLevel.CAN_EDIT
 
-        edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
+        edit_permissions = [tile.dashboard.can_user_edit(user_id) for tile in tiles]
         if any(edit_permissions):
             return Dashboard.PrivilegeLevel.CAN_EDIT
         else:

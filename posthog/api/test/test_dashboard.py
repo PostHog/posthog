@@ -119,7 +119,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard_item = Insight.objects.get()
         self.assertEqual(dashboard_item.name, "dashboard item")
-        self.assertEqual(list(dashboard_item.dashboards.all()), [dashboard])
+        self.assertEqual(list(dashboard_item.dashboard_tiles.all()), [dashboard])
         # Short ID is automatically generated
         self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
@@ -494,9 +494,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["creation_mode"], "duplicate")
 
-        self.assertEqual(len(response.json()["items"]), len(existing_dashboard.insights.all()))
+        self.assertEqual(len(response.json()["items"]), len(existing_dashboard.insight_tiles.all()))
 
-        existing_dashboard_item_id_set = set(list(existing_dashboard.insights.values_list("id", flat=True).all()))
+        existing_dashboard_item_id_set = set(list(existing_dashboard.insight_tiles.values_list("id", flat=True).all()))
         response_item_id_set = set(map(lambda x: x.get("id", None), response.json()["items"]))
         # check both sets are disjoint to verify that the new items' ids are different from the existing items
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
@@ -565,16 +565,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(insight_two_original_filter_hash, Insight.objects.get(pk=insight_two_id).filters_hash)
 
         # the updated filters_hashes are from the dashboard tiles
-        tile_one = DashboardTile.objects.filter(insight__id=insight_one_id).first()
-        if tile_one is None:
-            breakpoint()
+        tile_one: Optional[DashboardTile] = DashboardTile.objects.filter(insight__id=insight_one_id).first()
         self.assertEqual(
             patch_response_json["items"][0]["filters_hash"],
             tile_one.filters_hash
             if tile_one is not None
             else f"should have been able to load a single tile for {insight_one_id}",
         )
-        tile_two = DashboardTile.objects.filter(insight__id=insight_two_id).first()
+        tile_two: Optional[DashboardTile] = DashboardTile.objects.filter(insight__id=insight_two_id).first()
         self.assertEqual(
             patch_response_json["items"][1]["filters_hash"],
             tile_two.filters_hash

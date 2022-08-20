@@ -255,9 +255,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             "events": [{"id": "$pageview"}],
         }
 
-        Insight.objects.create(
+        dashboard = Dashboard.objects.create(team=self.team)
+        insight = Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="12345678",
         )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(), team=self.team, saved=True,
         )
@@ -266,25 +268,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(len(response.json()["results"]), 2)
+
+        expected_fields = {
+            "id",
+            "short_id",
+            "name",
+            "favorited",
+            "filters",
+            "dashboards",
+            "description",
+            "last_refresh",
+            "refreshing",
+            "saved",
+            "updated_at",
+            "created_by",
+            "created_at",
+            "last_modified_at",
+            "tags",
+        }
+
         self.assertEqual(
-            set(response.json()["results"][0].keys()),
-            {
-                "id",
-                "short_id",
-                "name",
-                "favorited",
-                "filters",
-                "dashboards",
-                "description",
-                "last_refresh",
-                "refreshing",
-                "saved",
-                "updated_at",
-                "created_by",
-                "created_at",
-                "last_modified_at",
-                "tags",
-            },
+            set(response.json()["results"][0].keys()), expected_fields,
+        )
+
+        self.assertEqual(
+            set(response.json()["results"][1].keys()), expected_fields,
         )
 
     def test_listing_insights_does_not_nplus1(self):
@@ -317,8 +325,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # adding more insights doesn't change the query count
         self.assertTrue(
-            all(x == query_counts[0] for x in query_counts),
-            f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
+            all(x == query_counts[0] for x in query_counts), f"received query counts\n\n{query_counts}",
         )
 
     @freeze_time("2012-01-14T03:21:34.000Z")

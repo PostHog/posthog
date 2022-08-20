@@ -55,8 +55,18 @@ class Dashboard(models.Model):
     is_shared: models.BooleanField = models.BooleanField(default=False)
 
     @property
-    def insights(self):
-        return self.dashboardtile_set.filter(insight__isnull=False).filter(insight__deleted=False).values("insight")
+    def insight_tiles(self):
+        return (
+            self.dashboardtile_set.filter(insight__isnull=False)
+            .filter(insight__deleted=False)
+            .select_related(
+                "insight__created_by",
+                "insight__last_modified_by",
+                "insight__team__organization",
+                "dashboard__team__organization",
+            )
+            .order_by("insight__order")
+        )
 
     @property
     def is_sharing_enabled(self):
@@ -122,7 +132,7 @@ class Dashboard(models.Model):
         """
         return {
             "pinned": self.pinned,
-            "item_count": self.insights.count(),
+            "item_count": self.insight_tiles.count(),
             "is_shared": self.is_sharing_enabled,
             "created_at": self.created_at,
             "has_description": self.description != "",
