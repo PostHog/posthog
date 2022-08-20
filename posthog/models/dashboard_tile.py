@@ -10,7 +10,7 @@ from posthog.models.insight import Insight, generate_insight_cache_key
 
 class DashboardTile(models.Model):
     # Relations
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="dashboard_tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles")
 
     # Dashboard layout and style

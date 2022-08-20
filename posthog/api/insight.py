@@ -227,7 +227,7 @@ class InsightSerializer(InsightBasicSerializer):
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
         dashboard_tile: Optional[DashboardTile] = None
         if dashboard:
-            dashboard_tile = DashboardTile.objects.filter(insight=insight, dashboard=dashboard).first()
+            dashboard_tile = dashboard.dashboard_tiles.filter(insight=insight).first()
 
         return dashboard_tile
 
@@ -244,7 +244,7 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
         if dashboards is not None:
-            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
+            for dashboard in dashboards:
                 # todo reject soft deleted dashboards?
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
@@ -401,9 +401,6 @@ class InsightSerializer(InsightBasicSerializer):
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
-
-        dashboard: Optional[Dashboard] = self.context.get("dashboard")
-        representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
 
         context_cache_key = self.context.get("filters_hash")
         representation["filters_hash"] = context_cache_key if context_cache_key is not None else instance.filters_hash

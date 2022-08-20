@@ -334,7 +334,7 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.insight_tiles.count(), 6)
+        self.assertEqual(dashboard.dashboard_tiles.count(), 6)
         self.assertEqual(dashboard.name, "My App Dashboard")
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 

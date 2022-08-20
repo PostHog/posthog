@@ -108,10 +108,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["name"], "dashboard new name")
 
     def test_create_dashboard_item(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
+        dashboard_id, _ = self._create_dashboard({"name": "public dashboard"}, self.team.id)
         self._create_insight(
             {
-                "dashboards": [dashboard.pk],
+                "dashboards": [dashboard_id],
                 "name": "dashboard item",
                 "last_refresh": now(),  # This happens when you duplicate a dashboard item, caused error,
             }
@@ -119,7 +119,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         dashboard_item = Insight.objects.get()
         self.assertEqual(dashboard_item.name, "dashboard item")
-        self.assertEqual(list(dashboard_item.dashboard_tiles.all()), [dashboard])
+        self.assertEqual(list(dashboard_item.dashboard_tiles.values_list("dashboard__id", flat=True)), [dashboard_id])
         # Short ID is automatically generated
         self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
 
@@ -483,7 +483,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["creation_mode"], "default")
 
     def test_dashboard_duplication(self):
-        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        existing_dashboard: Dashboard = Dashboard.objects.create(
+            team=self.team, name="existing dashboard", created_by=self.user
+        )
         insight1 = Insight.objects.create(filters={"name": "test1"}, team=self.team, last_refresh=now(),)
         DashboardTile.objects.create(dashboard=existing_dashboard, insight=insight1)
         insight2 = Insight.objects.create(filters={"name": "test2"}, team=self.team, last_refresh=now(),)
@@ -494,9 +496,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["creation_mode"], "duplicate")
 
-        self.assertEqual(len(response.json()["items"]), len(existing_dashboard.insight_tiles.all()))
+        self.assertEqual(len(response.json()["items"]), len(existing_dashboard.dashboard_tiles.all()))
 
-        existing_dashboard_item_id_set = set(list(existing_dashboard.insight_tiles.values_list("id", flat=True).all()))
+        existing_dashboard_item_id_set = set(
+            list(existing_dashboard.dashboard_tiles.values_list("id", flat=True).all())
+        )
         response_item_id_set = set(map(lambda x: x.get("id", None), response.json()["items"]))
         # check both sets are disjoint to verify that the new items' ids are different from the existing items
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
@@ -603,8 +607,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             response.content,
         )
 
-    def test_insights_with_no_insight_set(self):
-        # We were saving some insights on the default dashboard with no insight
+    def test_insights_defaults_are_set(self):
+        # We were saving some insights on the default dashboard with no insight property set
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
         item = Insight.objects.create(filters={"events": [{"id": "$pageview"}]}, team=self.team, last_refresh=now(),)
         DashboardTile.objects.create(insight=item, dashboard=dashboard)

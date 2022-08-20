@@ -178,7 +178,19 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         self.context.update({"dashboard": dashboard})
 
         insights = []
-        for tile in dashboard.insight_tiles:
+
+        tiles = (
+            DashboardTile.objects.filter(dashboard=dashboard)
+            .select_related("insight__created_by", "insight__last_modified_by",)
+            .prefetch_related(
+                "insight__dashboard_tiles__dashboard__created_by",
+                "insight__dashboard_tiles__dashboard__team",
+                "insight__dashboard_tiles__dashboard__team__organization",
+            )
+            .order_by("insight__order")
+        )
+
+        for tile in tiles:
             if tile.insight:
                 insight = tile.insight
                 layouts = tile.layouts
@@ -234,9 +246,9 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
-            "team__organization", "created_by"
-        )
+        queryset = queryset.prefetch_related(
+            "dashboard_tiles", "dashboard_tiles__insight", "sharingconfiguration_set"
+        ).select_related("team__organization", "created_by")
         return queryset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
