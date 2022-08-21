@@ -1,10 +1,11 @@
 import json
-from typing import Any, Dict, cast
+from typing import Any, Dict, List, cast
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, response, serializers, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 
@@ -16,7 +17,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import INSIGHT_TRENDS
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.models import Dashboard, DashboardTile, Insight, Team
+from posthog.models import Dashboard, DashboardTextTile, DashboardTile, Insight, Team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -30,6 +31,42 @@ class CanEditDashboard(BasePermission):
         return dashboard.can_user_edit(cast(User, request.user).id)
 
 
+class TextTileListSerializer(serializers.ListSerializer):
+    def update(self, text_tiles: List[DashboardTextTile], validated_data: List[Dict]) -> List[DashboardTextTile]:
+
+        if not isinstance(self.parent.instance, Dashboard):
+            raise ValidationError("Text tiles must be updated on a dashboard")
+
+        for validated_tile in validated_data:
+            if "id" not in validated_tile:
+                new_tile = DashboardTextTile.objects.create(**validated_tile, dashboard_id=self.parent.instance.id)
+                text_tiles.append(new_tile)
+            else:
+                for tile in text_tiles:
+                    if tile.id == validated_tile["id"]:
+                        if "body" in validated_tile:
+                            tile.body = validated_tile["body"]
+                        if "layouts" in validated_tile:
+                            tile.layouts = validated_tile["layouts"]
+                        if "color" in validated_tile:
+                            tile.color = validated_tile["color"]
+                        tile.save()
+                    else:
+                        new_tile = DashboardTextTile.objects.create(**validated_tile)
+                        text_tiles.append(new_tile)
+
+        return text_tiles
+
+
+class TextTileSerializer(serializers.ModelSerializer):
+    id: serializers.UUIDField = serializers.UUIDField()
+
+    class Meta:
+        model = DashboardTextTile
+        fields = ["id", "layouts", "color", "body"]
+        list_serializer_class = TextTileListSerializer
+
+
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -37,6 +74,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     effective_privilege_level = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
+    text_tiles = TextTileSerializer(many=True, required=False)
 
     class Meta:
         model = Dashboard
@@ -55,6 +93,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "use_dashboard",
             "filters",
             "tags",
+            "text_tiles",
             "restriction_level",
             "effective_restriction_level",
             "effective_privilege_level",
@@ -146,6 +185,11 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
+
+        if "text_tiles" in validated_data:
+            # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
+            self.fields["text_tiles"].update(list(instance.text_tiles.all()), validated_data.pop("text_tiles"))  # type: ignore
+
         instance = super().update(instance, validated_data)
 
         if validated_data.get("deleted", False):
@@ -247,7 +291,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "insight_tiles", "insight_tiles__insight", "sharingconfiguration_set"
+            "insight_tiles", "insight_tiles__insight", "sharingconfiguration_set", "text_tiles"
         ).select_related("team__organization", "created_by")
         return queryset
 

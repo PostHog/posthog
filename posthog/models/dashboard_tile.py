@@ -16,8 +16,17 @@ class BaseDashboardTile(models.Model):
         abstract = True
 
 
+class DashboardTextTile(BaseDashboardTile):
+    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="text_tiles")
+    body: models.CharField = models.CharField(max_length=4000, null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["dashboard"], name="query_by_dashboard_idx"),
+        ]
+
+
 class DashboardTile(BaseDashboardTile):
-    # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="insight_tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles")
 
@@ -57,7 +66,7 @@ def on_dashboard_saved(sender, instance: Dashboard, **kwargs):
     update_filters_hashes(tile_update_candidates)
 
 
-def update_filters_hashes(tile_update_candidates):
+def update_filters_hashes(tile_update_candidates) -> None:
     tiles_to_update = []
 
     for tile in tile_update_candidates:
