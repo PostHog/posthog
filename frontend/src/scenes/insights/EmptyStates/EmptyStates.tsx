@@ -230,8 +230,9 @@ export function FunnelInvalidExclusionState(): JSX.Element {
 
 const SAVED_INSIGHTS_COPY = {
     [`${SavedInsightsTabs.All}`]: {
-        title: 'There are no insights $CONDITION.',
-        description: 'Once you create an insight, it will show up here.',
+        title: 'No insights matched your search for $CONDITION.',
+        description:
+            'Refine your keyword search, or try using other filters such as type, last modified or created by.',
     },
     [`${SavedInsightsTabs.Yours}`]: {
         title: "You haven't created insights $CONDITION.",

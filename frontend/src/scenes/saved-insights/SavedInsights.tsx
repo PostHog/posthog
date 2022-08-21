@@ -425,7 +425,7 @@ export function SavedInsights(): JSX.Element {
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
                                       count === 1 ? '' : 's'
                                   }`
-                                : 'No insights yet'}
+                                : 'No matching insights'}
                         </span>
                         <div>
                             <Radio.Group
