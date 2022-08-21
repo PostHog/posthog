@@ -117,11 +117,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
         )
 
-        dashboard_item = Insight.objects.get()
-        self.assertEqual(dashboard_item.name, "dashboard item")
-        self.assertEqual(list(dashboard_item.dashboard_tiles.values_list("dashboard__id", flat=True)), [dashboard_id])
+        insight: Insight = Insight.objects.get()
+        self.assertEqual(insight.name, "dashboard item")
+        self.assertEqual(list(insight.dashboard_tiles.values_list("dashboard__id", flat=True)), [dashboard_id])
         # Short ID is automatically generated
-        self.assertRegex(dashboard_item.short_id, r"[0-9A-Za-z_-]{8}")
+        self.assertRegex(insight.short_id, r"[0-9A-Za-z_-]{8}")
 
     def test_shared_dashboard(self):
         self.client.logout()
@@ -496,11 +496,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["creation_mode"], "duplicate")
 
-        self.assertEqual(len(response.json()["items"]), len(existing_dashboard.dashboard_tiles.all()))
+        self.assertEqual(len(response.json()["items"]), len(existing_dashboard.insight_tiles.all()))
 
-        existing_dashboard_item_id_set = set(
-            list(existing_dashboard.dashboard_tiles.values_list("id", flat=True).all())
-        )
+        existing_dashboard_item_id_set = set(list(existing_dashboard.insight_tiles.values_list("id", flat=True).all()))
         response_item_id_set = set(map(lambda x: x.get("id", None), response.json()["items"]))
         # check both sets are disjoint to verify that the new items' ids are different from the existing items
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))

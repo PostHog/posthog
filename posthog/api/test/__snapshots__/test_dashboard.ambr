@@ -65,10 +65,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.10
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -161,10 +161,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.14
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -484,10 +484,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.23
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -557,10 +557,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.26
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -838,10 +838,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.32
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -920,10 +920,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.33
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1053,10 +1053,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.38
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1071,10 +1071,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.39
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1128,10 +1128,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.40
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1146,10 +1146,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.41
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1164,10 +1164,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.42
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1197,10 +1197,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.5
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1315,10 +1315,10 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.8
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1353,10 +1353,10 @@
 # name: TestDashboard.test_retrieve_dashboard
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1628,10 +1628,10 @@
 # name: TestDashboard.test_retrieve_dashboard.6
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1664,10 +1664,10 @@
 # name: TestDashboard.test_retrieve_dashboard.8
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1724,10 +1724,10 @@
 # name: TestDashboard.test_retrieve_dashboard.9
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -1870,10 +1870,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list.10
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -2116,10 +2116,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list.17
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -2290,10 +2290,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list.23
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -2653,10 +2653,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list.32
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -2719,10 +2719,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list.4
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -2930,10 +2930,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.10
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -3254,10 +3254,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.19
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -3462,10 +3462,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.26
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -3648,10 +3648,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.32
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -3894,10 +3894,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.39
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -3954,10 +3954,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.4
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -4101,10 +4101,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.45
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -4366,10 +4366,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.52
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -4513,10 +4513,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.58
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",
@@ -4844,10 +4844,10 @@
 # name: TestDashboard.test_retrieve_dashboard_list_query_count_does_not_increase_with_the_dashboard_count.67
   '
   SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."layouts",
          "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
          "posthog_dashboardtile"."filters_hash",
          "posthog_dashboardtile"."last_refresh",
          "posthog_dashboardtile"."refreshing",

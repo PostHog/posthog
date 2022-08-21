@@ -19,7 +19,7 @@ def _deliver_subscription_report(
 ) -> None:
 
     subscription = (
-        Subscription.objects.prefetch_related("dashboard__dashboard_tiles")
+        Subscription.objects.prefetch_related("dashboard__insight_tiles")
         .select_related("created_by", "insight", "dashboard",)
         .get(pk=subscription_id)
     )

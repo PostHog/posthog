@@ -247,7 +247,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             queryset = queryset.filter(deleted=False)
 
         queryset = queryset.prefetch_related(
-            "dashboard_tiles", "dashboard_tiles__insight", "sharingconfiguration_set"
+            "insight_tiles", "insight_tiles__insight", "sharingconfiguration_set"
         ).select_related("team__organization", "created_by")
         return queryset
 

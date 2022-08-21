@@ -8,14 +8,18 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight, generate_insight_cache_key
 
 
-class DashboardTile(models.Model):
-    # Relations
-    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="dashboard_tiles")
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles")
-
-    # Dashboard layout and style
+class BaseDashboardTile(models.Model):
     layouts: models.JSONField = models.JSONField(default=dict)
     color: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+
+class DashboardTile(BaseDashboardTile):
+    # Relations
+    dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="insight_tiles")
+    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles")
 
     # caching for this dashboard & insight filter combination
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
