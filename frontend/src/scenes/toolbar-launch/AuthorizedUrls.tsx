@@ -112,17 +112,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     />
                     {appUrlsKeyed.map((keyedAppURL, index) => {
                         return (
-                            <div
-                                key={index}
-                                className={clsx('border rounded flex items-center py-2 px-4 min-h-14 cursor-pointer')}
-                                onClick={() =>
-                                    Object.assign(document.createElement('a'), {
-                                        target: '_blank',
-                                        rel: 'noopener noreferrer',
-                                        href: launchUrl(keyedAppURL.url),
-                                    }).click()
-                                }
-                            >
+                            <div key={index} className={clsx('border rounded flex items-center py-2 px-4 min-h-14 ')}>
                                 {editUrlIndex === index ? (
                                     <AuthorizedUrlForm actionId={actionId} />
                                 ) : (
@@ -132,12 +122,13 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                 Suggestion
                                             </LemonTag>
                                         )}
-                                        <Typography.Text
-                                            ellipsis={{ tooltip: keyedAppURL.url }}
-                                            className="text-muted-alt flex-1"
-                                        >
-                                            {keyedAppURL.url}
-                                        </Typography.Text>
+                                        <div className="flex-1">
+                                            <LemonButton tooltip="Launch toolbar" href={launchUrl(keyedAppURL.url)}>
+                                                <Typography.Text ellipsis={{ tooltip: keyedAppURL.url }}>
+                                                    {keyedAppURL.url}
+                                                </Typography.Text>
+                                            </LemonButton>
+                                        </div>
                                         <div className="Actions flex space-x-2 shrink-0">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
