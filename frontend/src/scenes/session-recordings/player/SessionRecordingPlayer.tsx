@@ -7,7 +7,7 @@ import { PlayerControllerV2, PlayerControllerV3 } from 'scenes/session-recording
 import { Col, Row } from 'antd'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerInspectorV2, PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
-import { PlayerFilter } from 'scenes/session-recordings/player/PlayerFilter'
+import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
 
 export function useFrameRef(): React.MutableRefObject<HTMLDivElement | null> {
     const { setRootFrame } = useActions(sessionRecordingPlayerLogic)

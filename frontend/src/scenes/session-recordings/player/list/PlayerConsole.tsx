@@ -1,16 +1,16 @@
 import './PlayerConsole.scss'
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { sessionRecordingLogic } from '../sessionRecordingLogic'
-import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
+import { sessionRecordingLogic } from '../../sessionRecordingLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { RecordingConsoleLog } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { consoleLogsListLogic, FEEDBACK_OPTIONS } from 'scenes/session-recordings/player/consoleLogsListLogic'
+import { consoleLogsListLogic, FEEDBACK_OPTIONS } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 
 export function PlayerConsole(): JSX.Element | null {
-    const { feedbackSubmitted, consoleLogs } = useValues(consoleLogsListLogic)
+    const { feedbackSubmitted, data } = useValues(consoleLogsListLogic)
     const { submitFeedback } = useActions(consoleLogsListLogic)
     const { sessionPlayerDataLoading } = useValues(sessionRecordingLogic)
     const { seek } = useActions(sessionRecordingPlayerLogic)
@@ -45,14 +45,14 @@ export function PlayerConsole(): JSX.Element | null {
                     <div style={{ display: 'flex', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
                         <Spinner size="lg" />
                     </div>
-                ) : consoleLogs.length > 0 ? (
+                ) : data.length > 0 ? (
                     <AutoSizer>
                         {({ height, width }: { height: number; width: number }) => (
                             <div style={{ height: height, width: width, overflowY: 'scroll', paddingBottom: 5 }}>
                                 {/* Only display the first 150 logs because the list ins't virtualized */}
-                                {consoleLogs.slice(0, 150).map((log, index) => renderLogLine(log, index))}
+                                {data.slice(0, 150).map((log, index) => renderLogLine(log, index))}
                                 <div>
-                                    {consoleLogs.length > 150 && (
+                                    {data.length > 150 && (
                                         <div className="more-logs-available">
                                             While console logs are in beta, only 150 logs are displayed.
                                         </div>

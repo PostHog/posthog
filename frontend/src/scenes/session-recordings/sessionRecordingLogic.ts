@@ -29,7 +29,7 @@ import {
     getPlayerTimeFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './player/playerUtils'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -249,7 +249,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                 eventUsageLogic
                     .findMounted()
                     ?.actions?.reportRecordingConsoleViewed(
-                        consoleLogsListLogic.findMounted()?.values?.consoleLogs?.length ?? 0
+                        consoleLogsListLogic.findMounted()?.values?.data?.length ?? 0
                     )
             }
         },
@@ -338,7 +338,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                         // If possible, place the event 1s before the actual event
                         const timesToAttemptToPlaceEvent = [+dayjs(event.timestamp) - 1000, +dayjs(event.timestamp)]
                         let eventPlayerPosition = null
-                        let isOutOfBandEvent = false
+                        let isOutOfBand = false
                         for (const eventEpochTimeToAttempt of timesToAttemptToPlaceEvent) {
                             if (
                                 !event.properties.$window_id &&
@@ -353,7 +353,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                                     values.sessionPlayerData?.metadata?.segments
                                 )
                                 if (eventPlayerPosition) {
-                                    isOutOfBandEvent = true
+                                    isOutOfBand = true
                                     break
                                 }
                             } else {
@@ -378,7 +378,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                                     ...event,
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
-                                    isOutOfBandEvent: isOutOfBandEvent,
+                                    isOutOfBand,
                                     percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
                                         ? (100 * eventPlayerTime) /
                                           values.sessionPlayerData.metadata.recordingDurationMs

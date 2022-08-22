@@ -1,6 +1,6 @@
-import { kea, reducers, path, actions } from 'kea'
-import type { sharedListLogicType } from './sharedListLogicType'
+import { actions, kea, reducers, path } from 'kea'
 import { PlayerPosition, RecordingWindowFilter } from '~/types'
+import type { sharedListLogicType } from './sharedListLogicType'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 

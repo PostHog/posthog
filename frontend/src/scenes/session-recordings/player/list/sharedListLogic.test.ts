@@ -1,6 +1,6 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { RecordingWindowFilter } from '~/types'
 
 describe('sharedListLogic', () => {

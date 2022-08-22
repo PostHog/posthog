@@ -4,9 +4,9 @@ import { useActions, useValues } from 'kea'
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
 import { RecordingWindowFilter } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/sharedListLogic'
 import { IconInfo } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/list/sharedListLogic'
 
 export function PlayerFilter(): JSX.Element {
     const { windowIdFilter } = useValues(sharedListLogic)

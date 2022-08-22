@@ -16,7 +16,7 @@ import {
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
 import { colonDelimitedDuration } from 'lib/utils'
-import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -95,16 +95,16 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     listeners(({ values }) => ({
         submitFeedback: ({ feedback }) => {
             eventUsageLogic.actions.reportRecordingConsoleFeedback(
-                values.consoleLogs.length,
+                values.data.length,
                 feedback,
                 'Are you finding the console log feature useful?'
             )
         },
     })),
     selectors({
-        consoleLogs: [
+        data: [
             (s) => [s.sessionPlayerData, s.windowIdFilter],
-            (sessionPlayerData, windowIdFilter) => {
+            (sessionPlayerData, windowIdFilter): RecordingConsoleLog[] => {
                 const logs: RecordingConsoleLog[] = []
 
                 // Filter only snapshots from specified window

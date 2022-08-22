@@ -2,8 +2,9 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { listLogic } from 'scenes/session-recordings/player/list/listLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
@@ -28,7 +29,7 @@ describe('consoleLogsListLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionRecordingLogic, eventUsageLogic, sharedListLogic])
+            await expectLogic(logic).toMount([sessionRecordingLogic, eventUsageLogic, listLogic])
         })
     })
 
@@ -61,7 +62,7 @@ describe('consoleLogsListLogic', () => {
                     sessionRecordingLogic.actionTypes.loadRecordingMetaSuccess,
                 ])
                 .toMatchValues({
-                    consoleLogs: [
+                    data: [
                         '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                         '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                     ]
@@ -140,7 +141,7 @@ describe('consoleLogsListLogic', () => {
                     sharedListLogic.actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
-                    consoleLogs: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']
+                    data: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']
                         .map((windowId) => [
                             // Empty payload object
                             expect.objectContaining({
