@@ -44,7 +44,7 @@ def format_person_query(cohort: Cohort, index: int,) -> Tuple[str, Dict[str, Any
 
     if not cohort.properties.values:
         # No person can match an empty cohort
-        return "0 = 19", {}
+        return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
     from posthog.queries.cohort_query import CohortQuery
 
