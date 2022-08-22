@@ -17,7 +17,7 @@ export function BillingLocked(): JSX.Element | null {
         <BillingSubscribedTheme>
             <div className="flex items-center justify-center gap-2">
                 <IconCancel className="text-danger text-3xl mb-2" />
-                <h2 className="subtitle">Please enter a credit card</h2>
+                <h2>Please enter a credit card</h2>
             </div>
             <p>
                 You've used{' '}
