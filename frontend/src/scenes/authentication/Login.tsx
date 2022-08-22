@@ -135,7 +135,7 @@ export function Login(): JSX.Element {
                         <SSOLoginButton provider="saml" email={login.email} status="primary" />
                     )}
                 </Form>
-                <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
+                <div className="flex items-center justify-center flex-wrap gap-4 mt-4 font-semibold">
                     {preflight?.cloud && (
                         <Link to="/signup" data-attr="signup">
                             Create an account

@@ -64,13 +64,13 @@
             position: absolute;
             left: 30px;
             bottom: 280px;
-            transform: rotate(5deg);
             max-width: 150px;
             background-color: var(--primary-alt);
             border-radius: 1rem;
             padding: 0.5rem 0.75rem;
             color: var(--white);
             font-size: 0.8em;
+            transition: 200ms ease-out opacity, 200ms ease-out transform;
 
             &:after {
                 position: absolute;
@@ -80,6 +80,25 @@
                 content: ' ';
                 border: 10px solid transparent;
                 border-right-color: var(--primary-alt);
+            }
+
+            opacity: 0;
+            transform: rotate(0deg) translateY(50px) scale(0.5);
+            transition: 200ms opacity, 200ms transform;
+            transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
+
+            &.BridgePage__art__message--enter {
+                opacity: 0;
+                transform: translateY(50px) rotate(0deg) scale(0.5);
+            }
+
+            &.BridgePage__art__message--enter-active {
+                opacity: 1;
+                transform: translateY(0px) rotate(5deg) scale(1);
+            }
+
+            @media (prefers-reduced-motion) {
+                transition: none;
             }
         }
 
