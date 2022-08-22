@@ -326,7 +326,7 @@
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00')), 'UTC'), 'UTC')
     AND timestamp <= toDateTime('2021-05-07 00:00:00')
     AND (pdi.person_id IN
-           (SELECT person_id
+           (SELECT person_id as id
             FROM person_static_cohort
             WHERE cohort_id = 2
               AND team_id = 2))
