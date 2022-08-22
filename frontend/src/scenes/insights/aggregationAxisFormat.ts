@@ -1,27 +1,17 @@
-import { LemonSelectOption } from 'lib/components/LemonSelect'
-import { compactNumber, humanFriendlyDuration, percentage } from 'lib/utils'
+import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { ChartDisplayType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
 export type AggregationAxisFormat = typeof formats[number]
 
-export const aggregationAxisFormatSelectOptions: Record<AggregationAxisFormat, LemonSelectOption> = {
-    numeric: {
-        label: 'None',
-    },
-    duration: {
-        label: 'Duration (s)',
-    },
-    duration_ms: {
-        label: 'Duration (ms)',
-    },
-    percentage: {
-        label: 'Percent (0-100)',
-    },
-    percentage_scaled: {
-        label: 'Percent (0-1)',
-    },
-}
+export const aggregationAxisFormatSelectOptions: LemonSelectOptions<AggregationAxisFormat> = [
+    { value: 'numeric', label: 'None' },
+    { value: 'duration', label: 'Duration (s)' },
+    { value: 'duration_ms', label: 'Duration (ms)' },
+    { value: 'percentage', label: 'Percent (0-100)' },
+    { value: 'percentage_scaled', label: 'Percent (0-1)' },
+]
 
 export const formatAggregationAxisValue = (
     axisFormat: AggregationAxisFormat | undefined,
@@ -39,23 +29,8 @@ export const formatAggregationAxisValue = (
             return percentage(value)
         case 'numeric': // numeric is default
         default:
-            return compactNumber(value)
+            return humanFriendlyNumber(value)
     }
-}
-
-export const canFormatAxis = (chartDisplayType: ChartDisplayType | undefined): boolean => {
-    return (
-        !!chartDisplayType &&
-        [
-            ChartDisplayType.ActionsLineGraph,
-            ChartDisplayType.ActionsLineGraphCumulative,
-            ChartDisplayType.ActionsBar,
-            ChartDisplayType.ActionsBarValue,
-            ChartDisplayType.ActionsTable,
-            ChartDisplayType.WorldMap,
-            ChartDisplayType.ActionsPie,
-        ].includes(chartDisplayType)
-    )
 }
 
 export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): string => {
@@ -66,9 +41,6 @@ export const axisLabel = (chartDisplayType: ChartDisplayType | undefined): strin
             return 'Y-axis unit'
         case ChartDisplayType.ActionsBarValue:
             return 'X-axis unit'
-        case ChartDisplayType.ActionsTable:
-        case ChartDisplayType.ActionsPie:
-        case ChartDisplayType.WorldMap:
         default:
             return 'Unit'
     }

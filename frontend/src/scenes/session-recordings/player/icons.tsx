@@ -33,11 +33,13 @@ export function IconSeekBack({
     time: number
 } & IconProps): JSX.Element {
     return (
-        <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
-            <>
-                <span className="seek-seconds">{time}</span>
-                <LemonButton type="alt" icon={<UndoOutlined className="seek-icon" rotate={90} />} />
-            </>
+        <BaseIcon onClick={onClick} style={style}>
+            <LemonButton status="primary-alt" size="small">
+                <div className="rrweb-controller-icon-seek">
+                    <span className="seek-seconds">{time}</span>
+                    <UndoOutlined className="seek-icon" rotate={90} />
+                </div>
+            </LemonButton>
         </BaseIcon>
     )
 }
@@ -50,11 +52,13 @@ export function IconSeekForward({
     time: number
 } & IconProps): JSX.Element {
     return (
-        <BaseIcon onClick={onClick} className="rrweb-controller-icon-seek" style={style}>
-            <>
-                <span className="seek-seconds">{time}</span>
-                <LemonButton type="alt" icon={<RedoOutlined className="seek-icon" rotate={270} />} />
-            </>
+        <BaseIcon onClick={onClick} style={style}>
+            <LemonButton status="primary-alt" size="small">
+                <div className="rrweb-controller-icon-seek">
+                    <span className="seek-seconds">{time}</span>
+                    <RedoOutlined className="seek-icon" rotate={270} />
+                </div>
+            </LemonButton>
         </BaseIcon>
     )
 }
@@ -82,19 +86,28 @@ export function IconPause({ onClick, style, className = '' }: IconProps): JSX.El
 export function IconWindow({
     onClick,
     style,
-    windowNumber,
+    value,
     className = '',
-}: { windowNumber: number } & IconProps): JSX.Element {
+}: { value: number | string } & IconProps): JSX.Element {
     return (
-        <div onClick={onClick} className={clsx('icon-window', className)} style={style}>
-            <span className="icon-window-number">{windowNumber}</span>
+        <div
+            onClick={onClick}
+            className={clsx('flex justify-center items-center relative shrink-0', className)}
+            style={style}
+        >
+            <span className="absolute font-semibold" style={{ fontSize: 8, top: 1 }}>
+                {value}
+            </span>
             <svg
-                className="icon-window-icon"
+                className="text-lg"
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
+                style={{
+                    fontSize: 18,
+                }}
             >
                 <path
                     d="M19 4H5C3.89 4 3 4.9 3 6V18C3 19.1 3.89 20 5 20H19C20.1 20 21 19.1 21 18V6C21 4.9 20.11 4 19 4ZM19 18H5V8H19V18Z"

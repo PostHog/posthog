@@ -72,18 +72,25 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
-    # Cloud (posthog-cloud) cron jobs
+    # PostHog Cloud cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+        # Calculate billing usage for the day every day at midnight UTC
+        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
+        # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+
+    # PostHog Demo cron jobs
+    if settings.DEMO:
+        # Reset master project data every day at 5 AM UTC
+        sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    # Send the emails at 3PM UTC every day
+    # Send the emails at 3 PM UTC every day
     sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
     sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
 
-    # sync all Organization.available_features every hour
+    # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
@@ -367,9 +374,10 @@ def clickhouse_mutation_count():
 
 @app.task(ignore_result=True)
 def clickhouse_clear_removed_data():
-    from posthog.models.team.util import delete_clickhouse_data_for_deleted_teams
+    from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
 
-    delete_clickhouse_data_for_deleted_teams()
+    mark_deletions_done()
+    run_event_table_deletions()
 
 
 @app.task(ignore_result=True)
@@ -481,6 +489,13 @@ def send_second_ingestion_reminder_emails():
     from posthog.tasks.email import send_second_ingestion_reminder_emails
 
     send_second_ingestion_reminder_emails()
+
+
+@app.task(ignore_result=True)
+def demo_reset_master_team():
+    from posthog.tasks.demo_reset_master_team import demo_reset_master_team
+
+    demo_reset_master_team()
 
 
 @app.task(ignore_result=True)

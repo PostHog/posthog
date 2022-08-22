@@ -2,6 +2,8 @@ from .action import Action
 from .action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .annotation import Annotation
+from .async_deletion import AsyncDeletion, DeletionType
+from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .cohort import Cohort, CohortPeople
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile
@@ -42,10 +44,14 @@ __all__ = [
     "ActionStep",
     "ActivityLog",
     "Annotation",
+    "AsyncDeletion",
+    "AsyncMigration",
+    "AsyncMigrationError",
     "Cohort",
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
+    "DeletionType",
     "Element",
     "ElementGroup",
     "Entity",
@@ -64,6 +70,7 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "MessagingRecord",
+    "MigrationStatus",
     "Organization",
     "OrganizationDomain",
     "OrganizationInvite",

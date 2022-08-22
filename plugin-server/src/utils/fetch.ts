@@ -9,7 +9,7 @@ function fetchWrapper(...args: Parameters<typeof fetch>): Promise<Response> {
     return runInSpan(
         {
             op: 'fetch',
-            description: `${request.method} ${request.hostname}`,
+            description: `${request.method} ${request.url}`,
         },
         () => fetch(...args)
     )

@@ -97,7 +97,10 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                             eventDefinitionsModel
                                 .findMounted()
                                 ?.actions.updateEventDefinition(definition as EventDefinition)
-                        } else if (values.type === TaxonomicFilterGroupType.EventProperties) {
+                        } else if (
+                            values.type === TaxonomicFilterGroupType.EventProperties ||
+                            values.type === TaxonomicFilterGroupType.EventFeatureFlags
+                        ) {
                             // Event Property Definitions
                             const _eventProperty = definition as PropertyDefinition
                             definition = await api.update(
@@ -163,6 +166,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                     TaxonomicFilterGroupType.CustomEvents,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
                 ].includes(type),
         ],
         isAction: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Actions],
@@ -176,6 +180,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                 [
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.NumericalEventProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
-import { Button, Popconfirm } from 'antd'
+import { Popconfirm } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription } from 'lib/utils'
@@ -38,6 +38,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -138,13 +139,7 @@ export function EventsTable({
             children:
                 date_break ||
                 (new_events ? (
-                    <LemonButton
-                        icon={<IconSync />}
-                        style={{ borderRadius: 0 }}
-                        onClick={() => prependNewEvents()}
-                        center
-                        fullWidth
-                    >
+                    <LemonButton icon={<IconSync />} onClick={() => prependNewEvents()} center fullWidth>
                         There are new events. Click here to load them
                     </LemonButton>
                 ) : (
@@ -364,7 +359,7 @@ export function EventsTable({
                                 <>
                                     {currentTeam && (
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             onClick={() =>
                                                 createActionFromEvent(
                                                     currentTeam.id,
@@ -381,7 +376,7 @@ export function EventsTable({
                                     )}
                                     {insightParams && (
                                         <LemonButton
-                                            type="stealth"
+                                            status="stealth"
                                             to={urls.insightNew(insightParams)}
                                             fullWidth
                                             data-attr="events-table-usage"
@@ -399,140 +394,132 @@ export function EventsTable({
         return fixedColumns ? columnsSoFar.concat(fixedColumns) : columnsSoFar
     }, [selectedColumns, tableWidth])
 
-    return (
-        <div data-attr="manage-events-table">
-            <div className="events" data-attr="events-table">
-                {(showEventFilter || showPropertyFilter) && (
-                    <div className="flex py-4 space-x-4 border-t">
-                        {showEventFilter && (
-                            <LemonEventName
-                                value={eventFilter}
-                                onChange={(value: string) => {
-                                    setEventFilter(value || '')
-                                }}
-                            />
-                        )}
-                        {showPropertyFilter && (
-                            <PropertyFilters
-                                propertyFilters={properties}
-                                onChange={setProperties}
-                                pageKey={pageKey}
-                                style={{ marginBottom: 0, marginTop: 0 }}
-                                eventNames={eventFilter ? [eventFilter] : []}
-                                useLemonButton
-                            />
-                        )}
-                    </div>
-                )}
+    const showFirstRow = showEventFilter || showPropertyFilter
+    const showSecondRow = showAutoload || showCustomizeColumns || showExport
 
-                {showAutoload || showCustomizeColumns || showExport ? (
-                    <div
-                        className={clsx(
-                            'flex justify-between pt-4 mb-4',
-                            (showEventFilter || showPropertyFilter) && 'border-t'
-                        )}
-                    >
-                        {showAutoload && (
-                            <LemonSwitch
-                                type="primary"
-                                data-tooltip="live-events-refresh-toggle"
-                                id="autoload-switch"
-                                label="Automatically load new events"
-                                checked={automaticLoadEnabled}
-                                onChange={toggleAutomaticLoad}
+    return (
+        <div className="events" data-attr="events-table">
+            {showFirstRow && (
+                <div className="flex space-x-4 mb-4">
+                    {showEventFilter && (
+                        <LemonEventName
+                            value={eventFilter}
+                            onChange={(value: string) => {
+                                setEventFilter(value || '')
+                            }}
+                        />
+                    )}
+                    {showPropertyFilter && (
+                        <PropertyFilters
+                            propertyFilters={properties}
+                            onChange={setProperties}
+                            pageKey={pageKey}
+                            style={{ marginBottom: 0, marginTop: 0 }}
+                            eventNames={eventFilter ? [eventFilter] : []}
+                        />
+                    )}
+                </div>
+            )}
+
+            {showFirstRow && showSecondRow ? (
+                <div className="my-4">
+                    <LemonDivider />
+                </div>
+            ) : null}
+
+            {showSecondRow ? (
+                <div className={clsx('flex justify-between items-center mb-4')}>
+                    {showAutoload && (
+                        <LemonSwitch
+                            bordered
+                            data-tooltip="live-events-refresh-toggle"
+                            id="autoload-switch"
+                            label="Automatically load new events"
+                            checked={automaticLoadEnabled}
+                            onChange={toggleAutomaticLoad}
+                        />
+                    )}
+                    <div className="flex space-x-2">
+                        {showCustomizeColumns && (
+                            <LemonTableConfig
+                                immutableColumns={['event', 'person']}
+                                defaultColumns={defaultColumns.map((e) => e.key || '')}
                             />
                         )}
-                        <div className="flex space-x-2">
-                            {showCustomizeColumns && (
-                                <LemonTableConfig
-                                    immutableColumns={['event', 'person']}
-                                    defaultColumns={defaultColumns.map((e) => e.key || '')}
-                                />
-                            )}
-                            {showExport && (
-                                <Popconfirm
-                                    placement="topRight"
-                                    title={
-                                        <>
-                                            Exporting by csv is limited to 3,500 events.
-                                            <br />
-                                            To return more, please use{' '}
-                                            <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
-                                            export by CSV?
-                                        </>
-                                    }
-                                    onConfirm={startDownload}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                    >
-                                        Export
-                                    </LemonButton>
-                                </Popconfirm>
-                            )}
-                        </div>
+                        {showExport && (
+                            <Popconfirm
+                                placement="topRight"
+                                title={
+                                    <>
+                                        Exporting by csv is limited to 3,500 events.
+                                        <br />
+                                        To return more, please use{' '}
+                                        <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to export
+                                        by CSV?
+                                    </>
+                                }
+                                onConfirm={startDownload}
+                            >
+                                <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
+                                    Export
+                                </LemonButton>
+                            </Popconfirm>
+                        )}
                     </div>
-                ) : null}
-                <EventBufferNotice additionalInfo=" – this helps ensure accuracy of insights grouped by unique users" />
-                <LemonTable
-                    data-tooltip={dataTooltip}
-                    dataSource={eventsFormatted}
-                    loading={isLoading}
-                    columns={columns}
-                    key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
-                    className="ph-no-capture"
-                    loadingSkeletonRows={20}
-                    emptyState={
-                        isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
-                          eventFilter ? (
-                            `No events matching filters found in the last ${months} months!`
-                        ) : (
-                            <>
-                                This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
-                                <Link to="/project/settings">
-                                    click here to instrument analytics with PostHog in your product
-                                </Link>
-                                .
-                            </>
-                        )
-                    }
-                    rowKey={(row) =>
-                        row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || ''
-                    }
-                    rowClassName={(row) => {
-                        return clsx({
-                            'event-row': row.event,
-                            highlighted: row.event && highlightEvents[row.event.id],
-                            'event-row-is-exception': row.event && row.event.event === '$exception',
-                            'event-row-date-separator': row.date_break,
-                            'event-row-new': row.new_events,
-                        })
-                    }}
-                    expandable={
-                        showRowExpanders
-                            ? {
-                                  expandedRowRender: function renderExpand({ event }) {
-                                      return event && <EventDetails event={event} />
-                                  },
-                                  rowExpandable: ({ event, date_break, new_events }) =>
-                                      date_break || new_events ? -1 : !!event,
-                              }
-                            : undefined
-                    }
-                />
-                <Button
-                    type="primary"
-                    onClick={fetchNextEvents}
-                    loading={isLoadingNext}
-                    style={{
-                        display: hasNext || isLoadingNext ? 'block' : 'none',
-                        margin: '2rem auto 1rem',
-                    }}
-                >
+                </div>
+            ) : null}
+            <EventBufferNotice
+                additionalInfo=" - this helps ensure accuracy of insights grouped by unique users"
+                className="mb-4"
+            />
+            <LemonTable
+                data-tooltip={dataTooltip}
+                dataSource={eventsFormatted}
+                loading={isLoading}
+                columns={columns}
+                key={selectedColumns === 'DEFAULT' ? 'default' : selectedColumns.join('-')}
+                className="ph-no-capture"
+                loadingSkeletonRows={20}
+                emptyState={
+                    isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) || eventFilter ? (
+                        `No events matching filters found in the last ${months} months!`
+                    ) : (
+                        <>
+                            This project doesn't have any events. If you haven't integrated PostHog yet,{' '}
+                            <Link to="/project/settings">
+                                click here to instrument analytics with PostHog in your product
+                            </Link>
+                            .
+                        </>
+                    )
+                }
+                rowKey={(row) => (row.event ? row.event.id + '-' + row.event.event : row.date_break?.toString() || '')}
+                rowClassName={(row) => {
+                    return clsx({
+                        'event-row': row.event,
+                        highlighted: row.event && highlightEvents[row.event.id],
+                        'event-row-is-exception': row.event && row.event.event === '$exception',
+                        'event-row-date-separator': row.date_break,
+                        'event-row-new': row.new_events,
+                    })
+                }}
+                expandable={
+                    showRowExpanders
+                        ? {
+                              expandedRowRender: function renderExpand({ event }) {
+                                  return event && <EventDetails event={event} />
+                              },
+                              rowExpandable: ({ event, date_break, new_events }) =>
+                                  date_break || new_events ? -1 : !!event,
+                          }
+                        : undefined
+                }
+            />
+            {hasNext || isLoadingNext ? (
+                <LemonButton type="primary" onClick={fetchNextEvents} loading={isLoadingNext} className="my-8 mx-auto">
                     Load more events
-                </Button>
-            </div>
+                </LemonButton>
+            ) : null}
         </div>
     )
 }

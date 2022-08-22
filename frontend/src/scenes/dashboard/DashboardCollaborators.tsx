@@ -15,16 +15,18 @@ import { AlertMessage } from 'lib/components/AlertMessage'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 
-export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions = {
-    [DashboardRestrictionLevel.EveryoneInProjectCanEdit]: {
+export const DASHBOARD_RESTRICTION_OPTIONS: LemonSelectOptions<DashboardRestrictionLevel> = [
+    {
+        value: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         label: 'Everyone in the project can edit',
         icon: <IconLockOpen />,
     },
-    [DashboardRestrictionLevel.OnlyCollaboratorsCanEdit]: {
+    {
+        value: DashboardRestrictionLevel.OnlyCollaboratorsCanEdit,
         label: 'Only those invited to this dashboard can edit',
         icon: <IconLock />,
     },
-}
+]
 
 export function DashboardCollaboration({ dashboardId }: { dashboardId: DashboardType['id'] }): JSX.Element | null {
     const { dashboardLoading } = useValues(dashboardsModel)
@@ -56,8 +58,6 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                         }
                         options={DASHBOARD_RESTRICTION_OPTIONS}
                         loading={dashboardLoading}
-                        type="stealth"
-                        outlined
                         fullWidth
                         disabled={!canRestrictDashboard}
                     />
@@ -149,7 +149,6 @@ function CollaboratorRow({
                         <LemonButton
                             icon={<IconCancel />}
                             onClick={() => deleteCollaborator(user.uuid)}
-                            type="stealth"
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
                             disabled={!wasInvited}
                             status="danger"

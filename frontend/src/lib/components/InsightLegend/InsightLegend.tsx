@@ -28,7 +28,8 @@ export function InsightLegendButton(): JSX.Element | null {
         !(
             ((activeView === InsightType.TRENDS &&
                 filters.display !== ChartDisplayType.WorldMap &&
-                filters.display !== ChartDisplayType.ActionsTable) ||
+                filters.display !== ChartDisplayType.ActionsTable &&
+                filters.display !== ChartDisplayType.BoldNumber) ||
                 activeView === InsightType.STICKINESS) &&
             featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS]
         )
@@ -61,13 +62,13 @@ export function InsightLegend({ horizontal, readOnly = false }: InsightLegendPro
                 {indexedResults &&
                     indexedResults.map((item) => {
                         return (
-                            <div key={item.id} className="InsightLegendMenu-item">
+                            <div key={item.id} className="InsightLegendMenu-item p-2">
                                 <LemonCheckbox
                                     className="InsightLegendMenu-item-inner"
                                     color={getSeriesColor(item.id, !!filters.compare)}
                                     checked={!hiddenLegendKeys[item.id]}
                                     onChange={() => toggleVisibility(item.id)}
-                                    rowProps={{ fullWidth: true }}
+                                    fullWidth
                                     label={
                                         <InsightLabel
                                             key={item.id}

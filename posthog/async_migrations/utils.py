@@ -90,9 +90,9 @@ def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
     async def run_on_all_shards():
         tasks = []
         for _, _, connection_pool in _get_all_shard_connections():
-            tasks.append(asyncio.create_task(run_on_connection(connection_pool)))
+            tasks.append(run_on_connection(connection_pool))
 
-        await asyncio.wait(tasks)
+        await asyncio.gather(*tasks)
 
     async def run_on_connection(connection_pool):
         await asyncio.sleep(0)  # returning control to event loop to make parallelism possible
@@ -250,6 +250,10 @@ def force_stop_migration(
     this call and the time the process is killed
     2. Our Celery tasks are not essential for the functioning of PostHog, meaning losing a task is not the end of the world
     """
+    # Shortcut if we are still in starting state
+    if migration_instance.status == MigrationStatus.Starting:
+        if halt_starting_migration(migration_instance):
+            return
 
     app.control.revoke(migration_instance.celery_task_id, terminate=True)
     process_error(migration_instance, error, rollback=rollback)
@@ -292,16 +296,31 @@ def complete_migration(migration_instance: AsyncMigration, email: bool = True):
             run_next_migration(next_migration)
 
 
-def mark_async_migration_as_running(migration_instance: AsyncMigration):
-    update_async_migration(
-        migration_instance=migration_instance,
-        current_query_id="",
-        progress=0,
-        current_operation_index=0,
-        status=MigrationStatus.Running,
-        started_at=now(),
-        finished_at=None,
-    )
+def mark_async_migration_as_running(migration_instance: AsyncMigration) -> bool:
+    # update to running iff the state was Starting (ui triggered) or NotStarted (api triggered)
+    with transaction.atomic():
+        instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
+        if instance.status not in [MigrationStatus.Starting, MigrationStatus.NotStarted]:
+            return False
+        instance.status = MigrationStatus.Running
+        instance.current_query_id = ""
+        instance.progress = 0
+        instance.current_operation_index = 0
+        instance.started_at = now()
+        instance.finished_at = None
+        instance.save()
+    return True
+
+
+def halt_starting_migration(migration_instance: AsyncMigration) -> bool:
+    # update to RolledBack (which blocks starting a migration) iff the state was Starting
+    with transaction.atomic():
+        instance = AsyncMigration.objects.select_for_update().get(pk=migration_instance.pk)
+        if instance.status != MigrationStatus.Starting:
+            return False
+        instance.status = MigrationStatus.RolledBack
+        instance.save()
+    return True
 
 
 def update_async_migration(

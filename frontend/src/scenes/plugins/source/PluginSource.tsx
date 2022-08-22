@@ -8,11 +8,11 @@ import { Drawer } from 'lib/components/Drawer'
 import { userLogic } from 'scenes/userLogic'
 import { canGloballyManagePlugins } from '../access'
 import { pluginSourceLogic } from 'scenes/plugins/source/pluginSourceLogic'
-import { VerticalForm } from 'lib/forms/VerticalForm'
 import { Field } from 'lib/forms/Field'
 import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import { Form } from 'kea-forms'
 
 interface PluginSourceProps {
     pluginId: number
@@ -33,7 +33,8 @@ export function PluginSource({
     const { user } = useValues(userLogic)
 
     const logicProps = { pluginId, pluginConfigId, onClose: close }
-    const { submitPluginSource, closePluginSource } = useActions(pluginSourceLogic(logicProps))
+    const logic = pluginSourceLogic(logicProps)
+    const { submitPluginSource, closePluginSource } = useActions(logic)
     const { isPluginSourceSubmitting, pluginSourceLoading, currentFile, name } = useValues(
         pluginSourceLogic(logicProps)
     )
@@ -87,7 +88,7 @@ export function PluginSource({
                 </div>
             }
         >
-            <VerticalForm logic={pluginSourceLogic} props={logicProps} formKey="pluginSource" className="PluginSource">
+            <Form logic={pluginSourceLogic} props={logicProps} formKey="pluginSource" className="PluginSource">
                 {visible ? (
                     <>
                         <p>
@@ -108,7 +109,7 @@ export function PluginSource({
                             <Skeleton />
                         ) : (
                             <>
-                                <PluginSourceTabs />
+                                <PluginSourceTabs logic={logic} />
                                 <Field name={[currentFile]}>
                                     {({ value, onChange }) => (
                                         <>
@@ -142,7 +143,7 @@ export function PluginSource({
                         )}
                     </>
                 ) : null}
-            </VerticalForm>
+            </Form>
         </Drawer>
     )
 }

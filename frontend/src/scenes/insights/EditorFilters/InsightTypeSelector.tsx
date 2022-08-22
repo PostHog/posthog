@@ -1,19 +1,9 @@
 import { useActions } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import React from 'react'
 import { EditorFilterProps } from '~/types'
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-
-const INSIGHT_TYPE_OPTIONS: LemonSelectOptions = Object.entries(INSIGHT_TYPES_METADATA).reduce((acc, [key, meta]) => {
-    return {
-        ...acc,
-        [key]: {
-            label: meta.name,
-            icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : null,
-        },
-    }
-}, {})
+import { LemonSelect } from '@posthog/lemon-ui'
 
 export function InsightTypeSelector({ value }: EditorFilterProps): JSX.Element {
     const { setActiveView } = useActions(insightLogic)
@@ -27,8 +17,6 @@ export function InsightTypeSelector({ value }: EditorFilterProps): JSX.Element {
                     setActiveView(v)
                 }
             }}
-            type="stealth"
-            outlined
             fullWidth
             data-attr="insight-type"
         />

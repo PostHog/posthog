@@ -17,7 +17,6 @@ export function escapeQuotes(input: string): string {
     return input.replace(/"/g, '\\"')
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
 export function sanitizeEventName(eventName: any): string {
     if (typeof eventName !== 'string') {
         try {
@@ -45,6 +44,7 @@ const campaignParams = new Set([
     'utm_medium',
     'utm_campaign',
     'utm_content',
+    'utm_name',
     'utm_term',
     'gclid',
     'fbclid',

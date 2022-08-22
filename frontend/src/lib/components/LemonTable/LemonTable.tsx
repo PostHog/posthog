@@ -19,7 +19,8 @@ function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason
 function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: undefined): string | null
 function determineColumnKey(column: LemonTableColumn<any, any>, obligationReason?: string): string | null {
     const columnKey = column.key || column.dataIndex
-    if (obligationReason && !columnKey) {
+    if (obligationReason && columnKey == null) {
+        // == is intentional to catch undefined too
         throw new Error(`Column \`key\` or \`dataIndex\` must be defined for ${obligationReason}`)
     }
     return columnKey
@@ -230,7 +231,7 @@ export function LemonTable<T extends Record<string, any>>({
                                         columnGroup.children.map((column, columnIndex) => (
                                             <th
                                                 key={`LemonTable-th-${columnGroupIndex}-${
-                                                    determineColumnKey(column) || columnIndex
+                                                    determineColumnKey(column) ?? columnIndex
                                                 }`}
                                                 className={clsx(
                                                     column.sorter && 'LemonTable__header--actionable',

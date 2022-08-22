@@ -1,13 +1,20 @@
 import datetime as dt
 import json
+from time import sleep
 from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from django.conf import settings
 from django.core import exceptions
 
 from posthog.client import query_with_columns, sync_execute
-from posthog.demo.graphile import GraphileJob, bulk_queue_graphile_jobs, copy_graphile_jobs_between_teams
+from posthog.demo.graphile import (
+    GraphileJob,
+    bulk_queue_graphile_jobs,
+    copy_graphile_jobs_between_teams,
+    erase_graphile_jobs_of_team,
+)
 from posthog.models import (
+    Cohort,
     Group,
     GroupTypeMapping,
     Organization,
@@ -17,6 +24,8 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion.delete import process_found_event_table_deletions
 from posthog.models.utils import UUIDT
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
@@ -27,15 +36,20 @@ from .models import SimEvent, SimPerson
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
     MASTER_TEAM_ID = 0
-    # Pre-save team
-    MASTER_TEAM = Team(id=MASTER_TEAM_ID)
 
     matrix: Matrix
-    pre_save: bool
+    use_pre_save: bool
+    print_steps: bool
 
-    def __init__(self, matrix: Matrix, *, pre_save: bool):
+    _persons_created: int
+    _person_distinct_ids_created: int
+
+    def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
         self.matrix = matrix
-        self.pre_save = pre_save
+        self.use_pre_save = use_pre_save
+        self.print_steps = print_steps
+        self._persons_created = 0
+        self._person_distinct_ids_created = 0
 
     def ensure_account_and_save(
         self,
@@ -44,31 +58,50 @@ class MatrixManager:
         organization_name: str,
         *,
         password: Optional[str] = None,
+        is_staff: bool = False,
         disallow_collision: bool = False,
     ) -> Tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
+            if self.print_steps:
+                print(f"Creating demo organization, project, and user...")
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
             organization = Organization.objects.create(**organization_kwargs)
             new_user = User.objects.create_and_join(
-                organization, email, password, first_name, OrganizationMembership.Level.ADMIN
+                organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
             )
             team = self.create_team(organization)
+            if self.print_steps:
+                print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
         elif disallow_collision:
             raise exceptions.ValidationError(
-                f"Cannot save simulation data with email collision disallowed - there already is an account for {email}."
+                f"Cannot save simulated data - email collision disallowed but there already is an account for {email}."
             )
         else:
             assert existing_user.organization is not None
             assert existing_user.team is not None
+            if self.print_steps:
+                print(f"Found existing account for {email}.")
+            if is_staff and not existing_user.is_staff:
+                # Make sure the user is marked as staff - this is for users who signed up normally before
+                # and now are logging in securely as a PostHog team member
+                existing_user.is_staff = True
+                existing_user.save()
             return (existing_user.organization, existing_user.team, existing_user)
+
+    def reset_master(self):
+        if self.matrix.is_complete is None:
+            self.matrix.simulate()
+        master_team = self._prepare_master_team(ensure_blank_slate=True)
+        self._save_analytics_data(master_team)
+        self._sleep_until_person_data_in_clickhouse(self.MASTER_TEAM_ID)
 
     @staticmethod
     def create_team(organization: Organization, **kwargs) -> Team:
@@ -78,39 +111,59 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
-        if not self.pre_save or not self._is_demo_data_pre_saved():
-            if self.matrix.simulation_complete is None:
+        source_team = self._prepare_master_team() if self.use_pre_save else team
+        if not self.use_pre_save or not self._is_demo_data_pre_saved():
+            if self.matrix.is_complete is None:
                 self.matrix.simulate()
-            self._save_analytics_data(self.MASTER_TEAM if self.pre_save else team)
-        if self.pre_save:
+            self._save_analytics_data(source_team)
+        if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
-        self._sync_postgres_with_clickhouse_data(team)
+        else:
+            # If we're not using pre-saved data, we need to wait a bit for data just queued into Kafka to show up in CH
+            self._sleep_until_person_data_in_clickhouse(team.pk)
+        self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
-        calculate_event_property_usage_for_team(team.pk)
+        calculate_event_property_usage_for_team(team.pk)  # TODO: include_actor_properties=True
+        for cohort in Cohort.objects.filter(team=team):
+            cohort.calculate_people_ch(pending_version=0)
         team.save()
 
-    def _save_analytics_data(self, target_team: Team):
-        if target_team.pk == self.MASTER_TEAM_ID:
-            self._prepare_master_team()
+    def _save_analytics_data(self, data_team: Team):
         bulk_group_type_mappings = []
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             bulk_group_type_mappings.append(
-                GroupTypeMapping(team=target_team, group_type_index=group_type_index, group_type=group_type)
+                GroupTypeMapping(team=data_team, group_type_index=group_type_index, group_type=group_type)
             )
             for group_key, group in groups.items():
                 self._save_sim_group(
-                    target_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
+                    data_team, cast(Literal[0, 1, 2, 3, 4], group_type_index), group_key, group, self.matrix.now
                 )
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         sim_persons = self.matrix.people
         for sim_person in sim_persons:
-            self._save_sim_person(target_team, sim_person)
+            self._save_sim_person(data_team, sim_person)
 
     @classmethod
-    def _prepare_master_team(cls):
-        if not Team.objects.filter(id=cls.MASTER_TEAM_ID).exists():
-            organization = Organization.objects.create(name="PostHog")
-            cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
+    def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
+        master_team = Team.objects.filter(id=cls.MASTER_TEAM_ID).first()
+        if master_team is None:
+            master_team = cls._create_master_team()
+        elif ensure_blank_slate:
+            cls._erase_master_team_data()
+        return master_team
+
+    @classmethod
+    def _create_master_team(cls) -> Team:
+        organization = Organization.objects.create(id=cls.MASTER_TEAM_ID, name="PostHog")
+        return cls.create_team(organization, id=cls.MASTER_TEAM_ID, name="Master")
+
+    @classmethod
+    def _erase_master_team_data(cls):
+        process_found_event_table_deletions(
+            [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
+        )
+        GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
+        erase_graphile_jobs_of_team(cls.MASTER_TEAM_ID)
 
     @classmethod
     def _copy_analytics_data_from_master_team(cls, target_team: Team):
@@ -127,27 +180,28 @@ class MatrixManager:
         GroupTypeMapping.objects.bulk_create(
             (
                 GroupTypeMapping(team=target_team, **record)
-                for record in GroupTypeMapping.objects.filter(team=cls.MASTER_TEAM).values(
+                for record in GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
             )
         )
 
     @classmethod
-    def _sync_postgres_with_clickhouse_data(cls, target_team: Team):
+    def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
         from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
         from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
-        list_params = {"source_team_id": cls.MASTER_TEAM_ID}
+        list_params = {"source_team_id": source_team_id}
         # Persons
         clickhouse_persons = query_with_columns(
             SELECT_PERSONS_OF_TEAM, list_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
         )
-        bulk_persons = []
-        for row in clickhouse_persons:
+        bulk_persons: Dict[str, Person] = {}
+        for i, row in enumerate(clickhouse_persons):
+            synthetic_id = target_team_id * 100_000_000 + i
             properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons.append(Person(team_id=target_team.pk, properties=properties, **row))
-        Person.objects.bulk_create(bulk_persons)
+            bulk_persons[row["uuid"]] = Person(id=synthetic_id, team_id=target_team_id, properties=properties, **row)
+        Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
         clickhouse_distinct_ids = query_with_columns(
             SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
@@ -159,35 +213,34 @@ class MatrixManager:
         for row in clickhouse_distinct_ids:
             person_uuid = row.pop("person_uuid")
             bulk_person_distinct_ids.append(
-                PersonDistinctId(
-                    team_id=target_team.pk, person=Person.objects.get(team_id=target_team.pk, uuid=person_uuid), **row
-                )
+                PersonDistinctId(team_id=target_team_id, person_id=bulk_persons[person_uuid].pk, **row)
             )
-        PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids)
+        PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
         clickhouse_groups = query_with_columns(
             SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"],
         )
         bulk_groups = []
         for row in clickhouse_groups:
-            properties = json.loads(row.pop("properties", "{}"))
-            bulk_groups.append(Group(team_id=target_team.pk, version=0, **row))
+            group_properties = json.loads(row.pop("group_properties", "{}"))
+            bulk_groups.append(Group(team_id=target_team_id, version=0, group_properties=group_properties, **row))
         Group.objects.bulk_create(bulk_groups)
 
-    @classmethod
-    def _save_sim_person(cls, team: Team, subject: SimPerson):
+    def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
-            person_uuid_str = str(UUIDT(unix_time_ms=int(subject.past_events[0].timestamp.timestamp() * 1000)))
+            person_uuid_str = str(subject.cluster.roll_uuidt(subject.past_events[0].timestamp))
             create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
+            self._persons_created += 1
+            self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
             for distinct_id in subject.distinct_ids_at_now:
                 create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
-            cls._save_past_sim_events(team, subject.past_events)
+            self._save_past_sim_events(team, subject.past_events)
         # We only want to queue future events if there are any
         if subject.future_events:
-            cls._save_future_sim_events(team, subject.future_events)
+            self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
     def _save_past_sim_events(team: Team, events: List[SimEvent]):
@@ -200,7 +253,7 @@ class MatrixManager:
                 event_uuid=event_uuid,
                 event=event.event,
                 team=team,
-                distinct_id=event.properties["$distinct_id"],
+                distinct_id=event.distinct_id,
                 timestamp=event.timestamp,
                 properties=event.properties,
             )
@@ -214,7 +267,7 @@ class MatrixManager:
             timestamp_iso = event.timestamp.isoformat()
             payload = {
                 "eventPayload": {
-                    "distinct_id": event.properties["$distinct_id"],
+                    "distinct_id": event.distinct_id,
                     "team_id": team.pk,
                     "now": timestamp_iso,
                     "timestamp": timestamp_iso,
@@ -237,9 +290,31 @@ class MatrixManager:
 
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
 
+    def _sleep_until_person_data_in_clickhouse(self, team_id: int):
+        from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
+
+        while True:
+            person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+            person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+            persons_ready = person_count >= self._persons_created
+            person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
+            persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
+            person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
+            if persons_ready and person_distinct_ids_ready:
+                if self.print_steps:
+                    print(
+                        "Source person data fully loaded into ClickHouse. "
+                        f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
+                        "Setting up project..."
+                    )
+                break
+            if self.print_steps:
+                print(
+                    "Waiting for person data to land in ClickHouse... "
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                )
+            sleep(0.5)
+
     @classmethod
     def _is_demo_data_pre_saved(cls) -> bool:
-        from posthog.models.event.sql import GET_TOTAL_EVENTS_VOLUME
-
-        total_events_volume = sync_execute(GET_TOTAL_EVENTS_VOLUME, {"team_id": cls.MASTER_TEAM_ID})[0][0]
-        return total_events_volume > 0
+        return Team.objects.filter(pk=cls.MASTER_TEAM_ID).exists()

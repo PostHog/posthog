@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
+import { DateTime } from 'luxon'
 
 import { loadPluginSchedule } from '../../src/main/services/schedule'
 import { Hub, PreIngestionEvent } from '../../src/types'
@@ -83,7 +84,7 @@ describe('worker', () => {
             event: expect.anything(),
         })
 
-        const ingestResponse3 = await ingestEvent({ ...createEvent(), uuid: undefined })
+        const ingestResponse3 = await ingestEvent({ ...createEvent(), uuid: undefined as any })
         expect(ingestResponse3.error).toEqual('Not a valid UUID: "undefined"')
 
         await delay(2000)
@@ -165,7 +166,7 @@ describe('worker', () => {
                 distinctId: 'my_id',
                 ip: '127.0.0.1',
                 teamId: 2,
-                timestamp: '2020-02-23T02:15:00Z',
+                timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }),
                 event: '$pageview',
                 properties: {},
                 elementsList: [],

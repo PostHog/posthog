@@ -1,18 +1,16 @@
-import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
-import { HotkeyButton } from 'lib/components/HotkeyButton/HotkeyButton'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconOpenInNew, IconWarning } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import React, { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { InstanceSetting } from '~/types'
-import { MetricValueInterface, RenderMetricValue } from './RenderMetricValue'
+import { MetricValue, RenderMetricValue } from './RenderMetricValue'
 import { RenderMetricValueEdit } from './RenderMetricValueEdit'
 import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
-import { WarningOutlined } from '@ant-design/icons'
 import { InstanceConfigSaveModal } from './InstanceConfigSaveModal'
 import { pluralize } from 'lib/utils'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
@@ -68,7 +66,7 @@ export function InstanceConfigTab(): JSX.Element {
         {
             title: 'Value',
             render: function renderValue(_, record) {
-                const props: MetricValueInterface = {
+                const props: MetricValue = {
                     value: record.value,
                     key: record.key,
                     emptyNullLabel: 'Unset',
@@ -76,14 +74,13 @@ export function InstanceConfigTab(): JSX.Element {
                     isSecret: record.is_secret,
                 }
                 return instanceConfigMode === ConfigMode.View
-                    ? RenderMetricValue(props)
+                    ? RenderMetricValue(_, props)
                     : RenderMetricValueEdit({
                           ...props,
                           value: instanceConfigEditingState[record.key] ?? record.value,
                           onValueChanged: updateInstanceConfigValue,
                       })
             },
-            width: 300,
         },
     ]
 
@@ -100,13 +97,11 @@ export function InstanceConfigTab(): JSX.Element {
     ]
 
     return (
-        <div>
-            <div className="flex items-center">
-                <div style={{ flexGrow: 1 }}>
-                    <h3 className="l3" style={{ marginTop: 16 }}>
-                        Instance configuration
-                    </h3>
-                    <div className="mb-4">
+        <>
+            <div className="flex items-center gap-2 mb-4">
+                <div className="flex-1">
+                    <h3>Instance configuration</h3>
+                    <div>
                         Changing these settings will take effect on your entire instance.{' '}
                         <a href="https://posthog.com/docs/self-host/configure/instance-settings" target="_blank">
                             Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
@@ -116,31 +111,30 @@ export function InstanceConfigTab(): JSX.Element {
                 </div>
                 {instanceConfigMode === ConfigMode.View ? (
                     <>
-                        <HotkeyButton
+                        <LemonButton
                             type="primary"
                             onClick={() => setInstanceConfigMode(ConfigMode.Edit)}
                             data-attr="instance-config-edit-button"
-                            hotkey="e"
                             disabled={instanceSettingsLoading}
                         >
                             Edit
-                        </HotkeyButton>
+                        </LemonButton>
                     </>
                 ) : (
                     <>
                         {Object.keys(instanceConfigEditingState).length > 0 && (
-                            <span style={{ color: 'var(--warning)' }}>
-                                <WarningOutlined /> You have <b>{Object.keys(instanceConfigEditingState).length}</b>{' '}
-                                unapplied{' '}
+                            <span className="text-warning-dark flex items-center gap-2">
+                                <IconWarning className="text-lg" /> You have{' '}
+                                <b>{Object.keys(instanceConfigEditingState).length}</b> unapplied{' '}
                                 {pluralize(Object.keys(instanceConfigEditingState).length, 'change', undefined, false)}
                             </span>
                         )}
-                        <Button type="link" disabled={instanceSettingsLoading} onClick={discard}>
+                        <LemonButton type="secondary" disabled={instanceSettingsLoading} onClick={discard}>
                             Discard changes
-                        </Button>
-                        <Button type="primary" disabled={instanceSettingsLoading} onClick={save}>
+                        </LemonButton>
+                        <LemonButton type="primary" disabled={instanceSettingsLoading} onClick={save}>
                             Save
-                        </Button>
+                        </LemonButton>
                     </>
                 )}
             </div>
@@ -152,20 +146,21 @@ export function InstanceConfigTab(): JSX.Element {
                 rowKey="key"
             />
 
-            <h3 className="l3" style={{ marginTop: 32 }}>
-                Environment configuration
-            </h3>
-            <div className="mb-4">
-                These settings can only be modified by environment variables.{' '}
-                <a href="https://posthog.com/docs/self-host/configure/environment-variables" target="_blank">
-                    Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
-                </a>
-                .
+            <div className="my-4">
+                <h3>Environment configuration</h3>
+                <div>
+                    These settings can only be modified by environment variables.{' '}
+                    <a href="https://posthog.com/docs/self-host/configure/environment-variables" target="_blank">
+                        Learn more <IconOpenInNew style={{ verticalAlign: 'middle' }} />
+                    </a>
+                    .
+                </div>
             </div>
             <LemonTable dataSource={configOptions} columns={envColumns} loading={preflightLoading} rowKey="key" />
-            {instanceConfigMode === ConfigMode.Saving && (
-                <InstanceConfigSaveModal onClose={() => setInstanceConfigMode(ConfigMode.Edit)} />
-            )}
-        </div>
+            <InstanceConfigSaveModal
+                isOpen={instanceConfigMode === ConfigMode.Saving}
+                onClose={() => setInstanceConfigMode(ConfigMode.Edit)}
+            />
+        </>
     )
 }

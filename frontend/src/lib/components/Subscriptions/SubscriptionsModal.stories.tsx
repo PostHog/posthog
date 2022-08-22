@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
-import { Subscriptions, SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
+import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 import { AvailableFeature, InsightShortId, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -11,9 +11,9 @@ import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/te
 
 export default {
     title: 'Components/Subscriptions',
-    component: Subscriptions,
+    component: SubscriptionsModal,
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
-} as ComponentMeta<typeof Subscriptions>
+} as ComponentMeta<typeof SubscriptionsModal>
 
 const Template = (
     args: Partial<SubscriptionsModalProps> & { noIntegrations?: boolean; featureAvailable?: boolean }
@@ -62,15 +62,14 @@ const Template = (
 
     return (
         <div>
-            <div className="LemonModal">
-                <div className="rounded border ant-modal-body" style={{ width: 650, margin: '20px auto' }}>
-                    <Subscriptions
-                        {...(props as SubscriptionsModalProps)}
-                        closeModal={() => console.log('close')}
-                        insightShortId={insightShortIdRef.current}
-                        visible={true}
-                    />
-                </div>
+            <div className="p-4 bg-default">
+                <SubscriptionsModal
+                    {...(props as SubscriptionsModalProps)}
+                    closeModal={() => console.log('close')}
+                    insightShortId={insightShortIdRef.current}
+                    isOpen={true}
+                    inline
+                />
             </div>
 
             <div className="flex justify-center mt-4">
@@ -83,7 +82,7 @@ const Template = (
                 {...(props as SubscriptionsModalProps)}
                 closeModal={() => setModalOpen(false)}
                 insightShortId={insightShortIdRef.current}
-                visible={modalOpen}
+                isOpen={modalOpen}
             />
         </div>
     )

@@ -137,7 +137,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
                 person_created_at = person.created_at
             except Person.DoesNotExist:
                 person_properties = {}
-                person_id = uuid.uuid4()
+                person_id = event.get("person_id", uuid.uuid4())
                 person_created_at = datetime64_default_timestamp
 
         event = {

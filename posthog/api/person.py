@@ -45,6 +45,7 @@ from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
 from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -222,12 +223,20 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             delete_ch_distinct_ids(
                 person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
             )
+            if "delete_events" in request.GET:
+                AsyncDeletion.objects.create(
+                    deletion_type=DeletionType.Person,
+                    team_id=self.team_id,
+                    key=str(person.uuid),
+                    created_by=cast(User, self.request.user),
+                )
+
             person.delete()
 
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
-                user=request.user,  # type: ignore
+                user=cast(User, request.user),
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",

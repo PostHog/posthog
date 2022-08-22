@@ -23,7 +23,7 @@ import {
     OVERSCANNED_ROW_COUNT,
     DEFAULT_ROW_HEIGHT,
 } from 'scenes/session-recordings/player/eventsListLogic'
-import { AutocaptureIcon, EventIcon, PageleaveIcon, PageviewIcon } from 'lib/components/icons'
+import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -48,17 +48,17 @@ function overscanIndicesGetter({
 
 const renderIcon = (event: RecordingEventType): JSX.Element => {
     if (event.event === '$pageview') {
-        return <PageviewIcon />
+        return <IconPageview />
     }
     if (event.event === '$pageleave') {
-        return <PageleaveIcon />
+        return <IconPageleave />
     }
     if (event.event === '$autocapture') {
-        return <AutocaptureIcon />
+        return <IconAutocapture />
     }
-    return <EventIcon />
+    return <IconEvent />
     // TODO: Have api/events return `event_type` parameter to help distinguish btwn custom events, events, and actions
-    // return <ActionIcon />
+    // return <IconAction />
 }
 
 function noRowsRenderer(): JSX.Element {
@@ -86,12 +86,12 @@ function EventDescription({ description }: { description: string }): JSX.Element
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
     const {
-        localFilters,
         listEvents,
-        currentEventsBoxSizeAndPosition,
+        localFilters,
+        currentBoxSizeAndPosition,
         showPositionFinder,
         isRowIndexRendered,
-        isEventCurrent,
+        isCurrent,
         isDirectionUp,
         renderedRows,
     } = useValues(eventsListLogic)
@@ -111,16 +111,16 @@ export function PlayerEvents(): JSX.Element {
         function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
-            const isCurrent = isEventCurrent(index)
+            const isEventCurrent = isCurrent(index)
 
             return (
                 <Row
                     key={key}
-                    className={clsx('event-list-item', { 'current-event': isCurrent })}
+                    className={clsx('event-list-item', { 'current-event': isEventCurrent })}
                     align="top"
                     style={{ ...style, zIndex: listEvents.length - index }}
                     onClick={() => {
-                        handleEventClick(event.playerPosition)
+                        event.playerPosition && handleEventClick(event.playerPosition)
                     }}
                     data-tooltip="recording-event-list"
                 >
@@ -175,8 +175,8 @@ export function PlayerEvents(): JSX.Element {
             listEvents.length,
             renderedRows.startIndex,
             renderedRows.stopIndex,
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
+            currentBoxSizeAndPosition.top,
+            currentBoxSizeAndPosition.height,
         ]
     )
 
@@ -189,20 +189,15 @@ export function PlayerEvents(): JSX.Element {
                         key="highlight-box"
                         className="current-events-highlight-box"
                         style={{
-                            height: currentEventsBoxSizeAndPosition.height,
-                            transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
+                            height: currentBoxSizeAndPosition.height,
+                            transform: `translateY(${currentBoxSizeAndPosition.top}px)`,
                         }}
                     />
                 )
             }
             return children
         },
-        [
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
-            sessionEventsDataLoading,
-            listEvents.length,
-        ]
+        [currentBoxSizeAndPosition.top, currentBoxSizeAndPosition.height, sessionEventsDataLoading, listEvents.length]
     )
 
     return (

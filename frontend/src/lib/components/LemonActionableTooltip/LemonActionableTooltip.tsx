@@ -42,7 +42,7 @@ export const LemonActionableTooltip = ({
                 <div className="LemonActionableTooltip">
                     <div className="LemonActionableTooltip__header">
                         {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
-                        <LemonButton size="small" type="stealth" onClick={close}>
+                        <LemonButton size="small" status="stealth" onClick={close}>
                             <IconClose />
                         </LemonButton>
                     </div>
@@ -56,7 +56,7 @@ export const LemonActionableTooltip = ({
                                         onClick={previous}
                                         disabled={step === 0}
                                         size="small"
-                                        type="stealth"
+                                        status="stealth"
                                         icon={<IconChevronLeft />}
                                     />
                                     <div>
@@ -67,7 +67,7 @@ export const LemonActionableTooltip = ({
                                         onClick={next}
                                         disabled={step === maxSteps - 1}
                                         size="small"
-                                        type="stealth"
+                                        status="stealth"
                                         icon={<IconChevronRight />}
                                     />
                                 </>

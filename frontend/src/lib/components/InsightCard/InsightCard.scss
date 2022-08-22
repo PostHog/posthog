@@ -31,6 +31,7 @@
     bottom: 0;
     left: 0;
     display: flex;
+    align-items: center;
     justify-content: center;
     min-height: 0;
     width: 100%;
@@ -44,6 +45,12 @@
     .insight-empty-state {
         padding-top: 0;
         padding-bottom: 0;
+    }
+    > :first-child {
+        margin-top: auto;
+    }
+    > :last-child {
+        margin-bottom: auto;
     }
 }
 

@@ -13,7 +13,7 @@ import {
     IconUnfoldLess,
     IconUnfoldMore,
     IconRefresh,
-    IconWarningAmber,
+    IconWarning,
 } from 'lib/components/icons'
 import clsx from 'clsx'
 import { LemonRow } from 'lib/components/LemonRow'
@@ -26,19 +26,15 @@ export const scene: SceneExport = {
 }
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
-    const size = {
-        height: '20px',
-        width: '20px',
-    }
     if (loading) {
         return <LoadingOutlined style={{ color: 'var(--primary)' }} />
     }
     if (status === 'validated') {
-        return <IconCheckCircleOutline {...size} />
+        return <IconCheckCircleOutline />
     } else if (status === 'warning' || status === 'optional') {
-        return <IconWarningAmber {...size} />
+        return <IconWarning />
     }
-    return <IconErrorOutline {...size} />
+    return <IconErrorOutline />
 }
 
 function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element {
@@ -108,7 +104,7 @@ export function PreflightCheck(): JSX.Element {
                             >
                                 Just experimenting
                             </LemonButton>
-                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
+                            <LemonDivider thick dashed className="my-6" />
                             <p className="text-muted text-center mb-0">
                                 We will not enforce some security requirements in experimentation mode.
                             </p>
@@ -189,13 +185,12 @@ export function PreflightCheck(): JSX.Element {
                                     data-attr="preflight-refresh"
                                     onClick={() => revalidatePreflight()}
                                     disabled={preflightLoading || !preflight}
-                                    style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
                                     icon={<IconRefresh />}
                                 >
-                                    <span style={{ paddingLeft: 8 }}>Validate requirements</span>
+                                    Validate requirements
                                 </LemonButton>
                             </div>
-                            <LemonDivider thick dashed large style={{ marginTop: 24, marginBottom: 24 }} />
+                            <LemonDivider thick dashed className="my-6" />
                             {checksSummary.summaryStatus !== 'error' ? (
                                 <LemonButton
                                     fullWidth

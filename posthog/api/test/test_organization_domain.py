@@ -232,6 +232,26 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    def test_domain_is_not_verified_with_missing_domain(self, mock_dns_query):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        mock_dns_query.side_effect = dns.resolver.NXDOMAIN()
+
+        with freeze_time("2021-10-10T10:10:10Z"):
+            with self.settings(MULTI_TENANCY=True):
+                response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.domain.refresh_from_db()
+        self.assertEqual(response_data["domain"], "myposthog.com")
+        self.assertEqual(response_data["verified_at"], None)
+        self.assertEqual(self.domain.verified_at, None)
+        self.assertEqual(
+            self.domain.last_verification_retry, datetime.datetime(2021, 10, 10, 10, 10, 10, tzinfo=pytz.UTC),
+        )
+
+    @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_is_not_verified_with_incorrect_challenge(self, mock_dns_query):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

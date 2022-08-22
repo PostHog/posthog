@@ -1,4 +1,4 @@
-import { Col, Input, Radio, Row, Select, Tabs } from 'antd'
+import { Radio, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -41,8 +41,13 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { CalendarOutlined } from '@ant-design/icons'
+import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 const { TabPane } = Tabs
+
+interface NewInsightButtonProps {
+    dataAttr: string
+}
 
 export interface InsightTypeMetadata {
     name: string
@@ -90,6 +95,15 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
 }
 
+export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
+    { value: 'All types', label: 'All types' },
+    ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
+        value,
+        label: meta.name,
+        icon: meta.icon ? <meta.icon color="#747EA2" noBackground /> : undefined,
+    })),
+]
+
 export const scene: SceneExport = {
     component: SavedInsights,
     logic: savedInsightsLogic,
@@ -103,7 +117,7 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
     return null
 }
 
-function NewInsightButton(): JSX.Element {
+export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
         <LemonButtonWithSideAction
             type="primary"
@@ -118,22 +132,24 @@ function NewInsightButton(): JSX.Element {
                             listedInsightTypeMetadata.inMenu && (
                                 <LemonButton
                                     key={listedInsightType}
-                                    type="stealth"
+                                    status="stealth"
                                     icon={
                                         listedInsightTypeMetadata.icon && (
                                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />
                                         )
                                     }
                                     to={urls.insightNew({ insight: listedInsightType as InsightType })}
-                                    data-attr="saved-insights-create-new-insight"
+                                    data-attr={dataAttr}
                                     data-attr-insight-type={listedInsightType}
                                     onClick={() => {
                                         eventUsageLogic.actions.reportSavedInsightNewInsightClicked(listedInsightType)
                                     }}
                                     fullWidth
-                                    extendedContent={listedInsightTypeMetadata.description}
                                 >
-                                    <strong>{listedInsightTypeMetadata.name}</strong>
+                                    <div className="text-default flex flex-col text-sm py-1">
+                                        <strong>{listedInsightTypeMetadata.name}</strong>
+                                        <span className="text-xs">{listedInsightTypeMetadata.description}</span>
+                                    </div>
                                 </LemonButton>
                             )
                     ),
@@ -277,15 +293,15 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton type="stealth" to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton type="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -293,7 +309,7 @@ export function SavedInsights(): JSX.Element {
                                     Rename
                                 </LemonButton>
                                 <LemonButton
-                                    type="stealth"
+                                    status="stealth"
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-duplicate`}
                                     fullWidth
@@ -302,8 +318,7 @@ export function SavedInsights(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    type="stealth"
-                                    style={{ color: 'var(--danger)' }}
+                                    status="danger"
                                     onClick={() =>
                                         deleteWithUndo({
                                             object: insight,
@@ -326,7 +341,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <PageHeader title="Insights" buttons={<NewInsightButton />} />
+            <PageHeader title="Insights" buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
 
             <Tabs
                 activeKey={tab}
@@ -343,54 +358,25 @@ export function SavedInsights(): JSX.Element {
                 <ActivityLog scope={ActivityScope.INSIGHT} describer={insightActivityDescriber} />
             ) : (
                 <>
-                    <Row style={{ paddingBottom: 16, justifyContent: 'space-between', gap: '0.75rem' }}>
-                        <Col>
-                            <Input.Search
-                                allowClear
-                                enterButton
-                                placeholder="Search for insights"
-                                style={{ width: 240 }}
-                                onChange={(e) => setSavedInsightsFilters({ search: e.target.value })}
-                                value={search || ''}
-                                onSearch={() => loadInsights()}
-                            />
-                        </Col>
-                        <Row style={{ gap: '0.75rem' }}>
-                            <Col>
-                                Type:
-                                <Select
-                                    className="insight-type-icon-dropdown"
+                    <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search for insights"
+                            onChange={(value) => setSavedInsightsFilters({ search: value })}
+                            value={search || ''}
+                        />
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                                <span>Type:</span>
+                                <LemonSelect
+                                    size="small"
+                                    options={INSIGHT_TYPE_OPTIONS}
                                     value={insightType}
-                                    style={{ paddingLeft: 8, width: 140 }}
-                                    onChange={(it) => setSavedInsightsFilters({ insightType: it })}
-                                >
-                                    {Object.entries({
-                                        ['All types']: {
-                                            name: 'All types',
-                                            inMenu: false,
-                                        } as InsightTypeMetadata,
-                                        ...INSIGHT_TYPES_METADATA,
-                                    }).map(([listedInsightType, listedInsightTypeMetadata], index) => (
-                                        <Select.Option key={index} value={listedInsightType}>
-                                            <div className="insight-type-icon-wrapper">
-                                                {listedInsightTypeMetadata.icon ? (
-                                                    <div className="icon-container">
-                                                        <div className="icon-container-inner">
-                                                            {
-                                                                <listedInsightTypeMetadata.icon
-                                                                    color="#747EA2"
-                                                                    noBackground
-                                                                />
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                ) : null}
-                                                <div>{listedInsightTypeMetadata.name}</div>
-                                            </div>
-                                        </Select.Option>
-                                    ))}
-                                </Select>
-                            </Col>
+                                    onChange={(v: any): void => setSavedInsightsFilters({ insightType: v })}
+                                    dropdownMatchSelectWidth={false}
+                                    data-attr="insight-type"
+                                />
+                            </div>
                             <div className="flex items-center gap-2">
                                 <span>Last modified:</span>
                                 <DateFilter
@@ -410,32 +396,37 @@ export function SavedInsights(): JSX.Element {
                                 />
                             </div>
                             {tab !== SavedInsightsTabs.Yours ? (
-                                <Col>
-                                    Created by:
-                                    <Select
+                                <div className="flex items-center gap-2">
+                                    <span>Created by:</span>
+                                    {/* TODO: Fix issues with user name order due to numbers having priority */}
+                                    <LemonSelect
+                                        size="small"
+                                        options={[
+                                            { value: 'All users' as number | 'All users', label: 'All Users' },
+                                            ...meFirstMembers.map((x) => ({
+                                                value: x.user.id,
+                                                label: x.user.first_name,
+                                            })),
+                                        ]}
                                         value={createdBy}
-                                        style={{ paddingLeft: 8, width: 140 }}
-                                        onChange={(cb) => {
-                                            setSavedInsightsFilters({ createdBy: cb })
+                                        onChange={(v: any): void => {
+                                            setSavedInsightsFilters({ createdBy: v })
                                         }}
-                                    >
-                                        <Select.Option value={'All users'}>All users</Select.Option>
-                                        {meFirstMembers.map((member) => (
-                                            <Select.Option key={member.user.id} value={member.user.id}>
-                                                {member.user.first_name}
-                                            </Select.Option>
-                                        ))}
-                                    </Select>
-                                </Col>
+                                        dropdownMatchSelectWidth={false}
+                                    />
+                                </div>
                             ) : null}
-                        </Row>
-                    </Row>
-                    <Row className="list-or-card-layout">
-                        {count
-                            ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                                  count === 1 ? '' : 's'
-                              }`
-                            : 'No insights yet'}
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex justify-between mb-4 mt-2 items-center">
+                        <span className="text-muted-alt">
+                            {count
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
+                                      count === 1 ? '' : 's'
+                                  }`
+                                : 'No insights yet'}
+                        </span>
                         <div>
                             <Radio.Group
                                 onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
@@ -452,7 +443,7 @@ export function SavedInsights(): JSX.Element {
                                 </Radio.Button>
                             </Radio.Group>
                         </div>
-                    </Row>
+                    </div>
                     {!insightsLoading && insights.count < 1 ? (
                         <SavedInsightsEmptyState />
                     ) : (

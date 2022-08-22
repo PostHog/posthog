@@ -9,18 +9,19 @@ import {
     PieChartOutlined,
     GlobalOutlined,
     TableOutlined,
+    NumberOutlined,
 } from '@ant-design/icons'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Tooltip } from '../Tooltip'
 import { LemonTag } from '../LemonTag/LemonTag'
-import { LemonSelect, LemonSelectOptions, LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 interface ChartFilterProps {
     filters: FilterType
     onChange?: (chartFilter: ChartDisplayType | FunnelVizType) => void
-    disabled: boolean
+    disabled?: boolean
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
@@ -28,15 +29,18 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
+    const seriesCount = toLocalFilters(filters).length
     const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const pieDisabled: boolean = filters.insight === InsightType.RETENTION || filters.insight === InsightType.STICKINESS
+    const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
     const worldMapDisabled: boolean =
-        filters.insight === InsightType.RETENTION ||
         filters.insight === InsightType.STICKINESS ||
-        (!!filters.breakdown &&
+        (filters.insight === InsightType.RETENTION &&
+            !!filters.breakdown &&
             filters.breakdown !== '$geoip_country_code' &&
             filters.breakdown !== '$geoip_country_name') ||
-        toLocalFilters(filters).length > 1
+        seriesCount > 1 // World map only works with one series
+    const boldNumberDisabled: boolean =
+        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || seriesCount > 1 // Bold number only works with one series
     const barDisabled: boolean = filters.insight === InsightType.RETENTION
     const barValueDisabled: boolean =
         barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
@@ -58,20 +62,19 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     }): JSX.Element {
         return (
             <Tooltip title={tooltip} placement="left">
-                <div style={{ width: '100%' }}>
+                <div className="w-full">
                     {icon} {children}
                 </div>
             </Tooltip>
         )
     }
 
-    const options: LemonSelectOptions | LemonSelectSection<LemonSelectOptions>[] =
+    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> =
         filters.insight === InsightType.FUNNELS
-            ? {
-                  [FunnelVizType.Steps]: {
-                      label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                  },
-                  [FunnelVizType.Trends]: {
+            ? [
+                  { value: FunnelVizType.Steps, label: <Label icon={<OrderedListOutlined />}>Steps</Label> },
+                  {
+                      value: FunnelVizType.Trends,
                       label: (
                           <Label icon={<LineChartOutlined />}>
                               Trends
@@ -81,44 +84,62 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                           </Label>
                       ),
                   },
-              }
+              ]
             : [
                   {
-                      label: 'Line Chart',
-                      options: {
-                          [ChartDisplayType.ActionsLineGraph]: {
+                      title: 'Line Chart',
+                      options: [
+                          {
+                              value: ChartDisplayType.ActionsLineGraph,
                               label: <Label icon={<LineChartOutlined />}>Linear</Label>,
                           },
-                          [ChartDisplayType.ActionsLineGraphCumulative]: {
+                          {
+                              value: ChartDisplayType.ActionsLineGraphCumulative,
                               label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
                               disabled: cumulativeDisabled,
                           },
-                      },
+                      ],
                   },
                   {
-                      label: 'Bar Chart',
-                      options: {
-                          [ChartDisplayType.ActionsBar]: {
+                      title: 'Bar Chart',
+                      options: [
+                          {
+                              value: ChartDisplayType.ActionsBar,
                               label: <Label icon={<BarChartOutlined />}>Time</Label>,
                               disabled: barDisabled,
                           },
-                          [ChartDisplayType.ActionsBarValue]: {
+                          {
+                              value: ChartDisplayType.ActionsBarValue,
                               label: <Label icon={<BarChartOutlined />}>Value</Label>,
                               disabled: barValueDisabled,
                           },
-                      },
+                      ],
                   },
                   {
-                      label: '',
-                      options: {
-                          [ChartDisplayType.ActionsTable]: {
+                      options: [
+                          {
+                              value: ChartDisplayType.BoldNumber,
+                              label: (
+                                  <Label
+                                      icon={<NumberOutlined />}
+                                      tooltip="Big and bold. Only works with one series at a time."
+                                  >
+                                      Number
+                                  </Label>
+                              ),
+                              disabled: boldNumberDisabled,
+                          },
+                          {
+                              value: ChartDisplayType.ActionsTable,
                               label: <Label icon={<TableOutlined />}>Table</Label>,
                           },
-                          [ChartDisplayType.ActionsPie]: {
+                          {
+                              value: ChartDisplayType.ActionsPie,
                               label: <Label icon={<PieChartOutlined />}>Pie</Label>,
                               disabled: pieDisabled,
                           },
-                          [ChartDisplayType.WorldMap]: {
+                          {
+                              value: ChartDisplayType.WorldMap,
                               label: (
                                   <Label
                                       icon={<GlobalOutlined />}
@@ -129,7 +150,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                               ),
                               disabled: worldMapDisabled,
                           },
-                      },
+                      ],
                   },
               ]
     return (
@@ -140,13 +161,11 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
                 setChartFilter(value as ChartDisplayType | FunnelVizType)
                 onChange?.(value as ChartDisplayType | FunnelVizType)
             }}
-            bordered
             dropdownPlacement={'bottom-end'}
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
-            type={'stealth'}
             size={'small'}
         />
     )

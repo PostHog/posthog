@@ -31,7 +31,7 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingPlayerLogic,
             ['currentPlayerPosition', 'scale'],
             eventsListLogic,
-            ['currentEventStartIndex'],
+            ['currentStartIndex'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
     }),
@@ -46,15 +46,17 @@ export const metaLogic = kea<metaLogicType>({
     selectors: ({ cache }) => ({
         sessionPerson: [
             (selectors) => [selectors.sessionPlayerData],
-            (playerData): Partial<PersonType> => {
-                return playerData?.person ?? {}
+            (playerData): PersonType | null => {
+                return playerData?.person ?? null
             },
         ],
         description: [
             (selectors) => [selectors.sessionPerson],
             (person) => {
-                const location = getPersonProperties(person, ['$geoip_city_name', '$geoip_country_code'])
-                const device = getPersonProperties(person, ['$browser', '$os'])
+                const location = person
+                    ? getPersonProperties(person, ['$geoip_city_name', '$geoip_country_code'])
+                    : null
+                const device = person ? getPersonProperties(person, ['$browser', '$os']) : null
                 return [device, location].filter((s) => s).join(' · ')
             },
         ],
@@ -93,16 +95,20 @@ export const metaLogic = kea<metaLogicType>({
                 return sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
             },
         ],
+        windowIds: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId) ?? []
+            },
+        ],
         currentWindowIndex: [
-            (selectors) => [selectors.sessionPlayerData, selectors.currentPlayerPosition],
-            (sessionPlayerData, currentPlayerPosition) => {
-                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId).findIndex(
-                    (windowId) => windowId === currentPlayerPosition?.windowId ?? -1
-                )
+            (selectors) => [selectors.windowIds, selectors.currentPlayerPosition],
+            (windowIds, currentPlayerPosition) => {
+                return windowIds.findIndex((windowId) => windowId === currentPlayerPosition?.windowId ?? -1)
             },
         ],
         currentUrl: [
-            (selectors) => [selectors.eventsToShow, selectors.currentEventStartIndex],
+            (selectors) => [selectors.eventsToShow, selectors.currentStartIndex],
             (events, startIndex) => {
                 if (startIndex === -1 || !events?.length) {
                     return ''

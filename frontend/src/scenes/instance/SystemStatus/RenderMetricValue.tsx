@@ -1,25 +1,23 @@
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import React from 'react'
-import { InstanceSetting } from '~/types'
-import { MetricRow } from './systemStatusLogic'
+import { InstanceSetting, SystemStatusRow } from '~/types'
 import { IconLock } from 'lib/components/icons'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 
-type BaseValueInterface = Pick<MetricRow, 'key' | 'value'> & Partial<Pick<InstanceSetting, 'value_type'>>
-export interface MetricValueInterface extends BaseValueInterface {
+export interface MetricValue {
+    key: SystemStatusRow['key']
+    value?: SystemStatusRow['value']
+    value_type?: InstanceSetting['value_type']
     emptyNullLabel?: string
     isSecret?: boolean
 }
 
-export function RenderMetricValue({
-    key,
-    value,
-    value_type,
-    emptyNullLabel,
-    isSecret,
-}: MetricValueInterface): JSX.Element | string {
+export function RenderMetricValue(
+    _: any,
+    { key, value, value_type, emptyNullLabel, isSecret }: MetricValue
+): JSX.Element | string {
     if (value && isSecret) {
         return (
             <LemonTag
@@ -31,7 +29,7 @@ export function RenderMetricValue({
         )
     }
 
-    if (TIMESTAMP_VALUES.has(key) && typeof value === 'string') {
+    if (key && TIMESTAMP_VALUES.has(key) && typeof value === 'string') {
         if (new Date(value).getTime() === new Date('1970-01-01T00:00:00').getTime()) {
             return 'Never'
         }

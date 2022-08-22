@@ -123,7 +123,7 @@ export function PlayerMetaV3(): JSX.Element {
                     </Row>
                 </Col>
             </Row>
-            <LemonDivider style={{ margin: 0 }} />
+            <LemonDivider className="my-0" />
             <Row className="player-meta-window-section" justify="space-between" align="middle">
                 <Row align="middle">
                     {loading || currentWindowIndex === -1 ? (
@@ -131,7 +131,7 @@ export function PlayerMetaV3(): JSX.Element {
                     ) : (
                         <Space size={4} align="center">
                             <IconWindow
-                                windowNumber={currentWindowIndex + 1}
+                                value={currentWindowIndex + 1}
                                 className="text-muted"
                                 style={{ marginRight: '0.25rem' }}
                             />

@@ -1,5 +1,5 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/minimal'
+import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginError } from '../../types'
 import { setError } from './sql'

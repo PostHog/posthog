@@ -1,60 +1,34 @@
 .LemonTextArea {
-    color: var(--default);
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    min-height: 2.5rem;
+    padding: 0.5rem;
+    background: none;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    text-align: left;
+    line-height: 1.25rem;
     cursor: text;
+    color: var(--default);
+    border: 1px solid var(--border);
+    outline: none;
 
-    &:not(.LemonTextArea):not(.LemonTextArea--disabled):hover {
+    &:not(:disabled):hover {
         border: 1px solid var(--primary-light);
     }
 
-    &.LemonTextArea--disabled {
-        .LemonRow__icon {
-            opacity: var(--opacity-disabled);
-        }
+    width: 100%;
+    text-overflow: ellipsis;
+
+    &:disabled {
+        opacity: var(--opacity-disabled);
+        cursor: not-allowed;
     }
 
-    .LemonTextArea__input,
-    .LemonTextArea__textarea {
-        border: none;
-        outline: none;
-        background-color: inherit;
-        width: 100%;
-        text-overflow: ellipsis;
-
-        &:disabled {
-            opacity: var(--opacity-disabled);
-            cursor: not-allowed;
-        }
-    }
-}
-
-.LemonRow__icon:first-child {
-    .LemonTextArea & {
-        font-size: 18px;
-        color: var(--muted);
-    }
-
-    .LemonTextArea.LemonTextArea--with-input & {
-        color: var(--primary);
-    }
-}
-
-.LemonTextArea--embedded {
-    color: var(--default);
-    font-weight: 400;
-    border: none !important;
-
-    .LemonRow__icon {
-        color: var(--muted-alt);
-    }
-}
-
-.LemonTextArea--disabled {
-    cursor: not-allowed;
-}
-
-.LemonTextArea--focused {
-    &:not(.LemonTextArea--disabled) {
-        transition: 100ms border;
+    &:focus:not(:disabled) {
         border: 1px solid var(--primary);
+    }
+
+    &:placeholder-shown {
+        font-style: italic;
     }
 }

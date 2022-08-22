@@ -8,20 +8,12 @@ import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import './RollingDateRangeFilter.scss'
 
-const dateOptions: LemonSelectOptions = {
-    days: {
-        label: 'days',
-    },
-    weeks: {
-        label: 'weeks',
-    },
-    months: {
-        label: 'months',
-    },
-    quarter: {
-        label: 'quarters',
-    },
-}
+const dateOptions: LemonSelectOptions<'days' | 'weeks' | 'months' | 'quarter'> = [
+    { value: 'days', label: 'days' },
+    { value: 'weeks', label: 'weeks' },
+    { value: 'months', label: 'months' },
+    { value: 'quarter', label: 'quarters' },
+]
 
 type RollingDateRangeFilterProps = {
     selected?: boolean
@@ -43,9 +35,7 @@ export function RollingDateRangeFilter({
     const logicProps = { onChange, dateFrom, selected }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
-    const { counter, dateOption, isDateOptionsSelectorOpen, formattedDate } = useValues(
-        rollingDateRangeFilterLogic(logicProps)
-    )
+    const { counter, dateOption, formattedDate } = useValues(rollingDateRangeFilterLogic(logicProps))
 
     const onInputChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
         const newValue = event.target.value ? parseFloat(event.target.value) : undefined
@@ -55,22 +45,21 @@ export function RollingDateRangeFilter({
     return (
         <Tooltip title={makeLabel ? makeLabel(formattedDate) : undefined}>
             <LemonButton
-                className={clsx('RollingDateRangeFilter', {
-                    'RollingDateRangeFilter--selected': selected,
-                })}
+                className={clsx('RollingDateRangeFilter')}
                 data-attr="rolling-date-range-filter"
                 onClick={select}
+                status="stealth"
+                active={selected}
             >
                 <p className="RollingDateRangeFilter__label">In the last</p>
                 <div className="RollingDateRangeFilter__counter" onClick={(e): void => e.stopPropagation()}>
-                    <LemonButton
+                    <span
+                        className="RollingDateRangeFilter__counter__step"
                         onClick={decreaseCounter}
                         title={`Decrease rolling date range`}
-                        type={'stealth'}
-                        size="small"
                     >
                         -
-                    </LemonButton>
+                    </span>
                     <Input
                         data-attr="rolling-date-range-input"
                         type="number"
@@ -80,14 +69,13 @@ export function RollingDateRangeFilter({
                         onChange={onInputChange}
                         bordered={false}
                     />
-                    <LemonButton
+                    <span
+                        className="RollingDateRangeFilter__counter__step"
                         onClick={increaseCounter}
                         title={`Increase rolling date range`}
-                        type={'stealth'}
-                        size="small"
                     >
                         +
-                    </LemonButton>
+                    </span>
                 </div>
                 <LemonSelect
                     className="RollingDateRangeFilter__select"
@@ -95,19 +83,16 @@ export function RollingDateRangeFilter({
                     id="rolling-date-range-date-options-selector"
                     value={dateOption}
                     onChange={(newValue): void => setDateOption(newValue as string)}
-                    open={isDateOptionsSelectorOpen}
                     onClick={(e): void => {
                         e.stopPropagation()
                         toggleDateOptionsSelector()
                     }}
                     dropdownMatchSelectWidth={false}
                     options={dateOptions}
-                    type="stealth"
                     popup={{
                         ...popup,
                         className: 'RollingDateRangeFilter__popup',
                     }}
-                    outlined
                     size="small"
                 />
             </LemonButton>

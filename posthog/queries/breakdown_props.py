@@ -194,6 +194,7 @@ def _to_value_expression(
             query_alias=None,
             table="events" if direct_on_events else "person",
             column="person_properties" if direct_on_events else "person_props",
+            allow_denormalized_props=False if direct_on_events else True,
         )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
@@ -203,6 +204,7 @@ def _to_value_expression(
             column=f"group{breakdown_group_type_index}_properties"
             if direct_on_events
             else f"group_properties_{breakdown_group_type_index}",
+            allow_denormalized_props=False if direct_on_events else True,
         )
     else:
         value_expression = get_single_or_multi_property_string_expr(

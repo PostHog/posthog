@@ -7,7 +7,6 @@ describe('Toolbar', () => {
             cy.get('[data-attr="url-save"]').click()
             cy.get('[data-attr="toolbar-open"]')
                 .first()
-                .parent()
                 .invoke('attr', 'href')
                 .then((href) => {
                     cy.visit(href)

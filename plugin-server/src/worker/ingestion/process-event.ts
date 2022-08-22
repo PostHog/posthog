@@ -4,12 +4,15 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
+    ClickHouseTimestamp,
     Element,
     Hub,
-    IngestionEvent,
     IngestionPersonData,
+    ISOTimestamp,
+    PostIngestionEvent,
     PreIngestionEvent,
-    SessionRecordingEvent,
+    RawClickHouseEvent,
+    RawSessionRecordingEvent,
     Team,
     TimestampFormat,
 } from '../../types'
@@ -145,7 +148,7 @@ export class EventsProcessor {
             ip,
             distinctId,
             properties,
-            timestamp,
+            timestamp: timestamp.toISO() as ISOTimestamp,
             elementsList,
             teamId: team.id,
         }
@@ -165,7 +168,7 @@ export class EventsProcessor {
     async createEvent(
         preIngestionEvent: PreIngestionEvent,
         personContainer: LazyPersonContainer
-    ): Promise<IngestionEvent> {
+    ): Promise<PostIngestionEvent> {
         const {
             eventUuid: uuid,
             event,
@@ -176,14 +179,10 @@ export class EventsProcessor {
             elementsList: elements,
         } = preIngestionEvent
 
-        const timestampFormat = this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
-        const timestampString = castTimestampOrNow(timestamp, timestampFormat)
-
         const elementsChain = elements && elements.length ? elementsToString(elements) : ''
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
-        const groupsProperties = await this.db.getPropertiesForGroups(teamId, groupIdentifiers)
-        const groupsCreatedAt = await this.db.getCreatedAtForGroups(teamId, groupIdentifiers)
+        const groupsColumns = await this.db.fetchGroupColumnsValues(teamId, groupIdentifiers)
 
         let eventPersonProperties: string | null = null
         let personInfo: IngestionPersonData | undefined = await personContainer.get()
@@ -206,34 +205,32 @@ export class EventsProcessor {
             }
         }
 
-        const eventPayload = {
+        const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
-            timestamp: timestampString,
+            timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
             team_id: teamId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
-            created_at: castTimestampOrNow(null, timestampFormat),
-        }
-
-        const message = JSON.stringify({
-            ...eventPayload,
+            created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse) as ClickHouseTimestamp,
             person_id: personInfo?.uuid,
-            person_properties: eventPersonProperties,
+            person_properties: eventPersonProperties ?? undefined,
             person_created_at: personInfo
-                ? castTimestampOrNow(personInfo?.created_at, TimestampFormat.ClickHouseSecondPrecision)
-                : null,
-            ...groupsProperties,
-            ...groupsCreatedAt,
-        })
+                ? (castTimestampOrNow(
+                      personInfo?.created_at,
+                      TimestampFormat.ClickHouseSecondPrecision
+                  ) as ClickHouseTimestamp)
+                : undefined,
+            ...groupsColumns,
+        }
 
         await this.kafkaProducer.queueMessage({
             topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
             messages: [
                 {
                     key: uuid,
-                    value: message,
+                    value: JSON.stringify(rawEvent),
                 },
             ],
         })
@@ -251,13 +248,13 @@ export class EventsProcessor {
         snapshot_data: Record<any, any>,
         properties: Properties,
         ip: string | null
-    ): Promise<PreIngestionEvent> {
+    ): Promise<PostIngestionEvent> {
         const timestampString = castTimestampOrNow(
             timestamp,
             this.kafkaProducer ? TimestampFormat.ClickHouse : TimestampFormat.ISO
         )
 
-        const data: SessionRecordingEvent = {
+        const data: RawSessionRecordingEvent = {
             uuid,
             team_id: team_id,
             distinct_id: distinct_id,
@@ -276,7 +273,7 @@ export class EventsProcessor {
             ip,
             distinctId: distinct_id,
             properties,
-            timestamp: timestampString,
+            timestamp: timestamp.toISO() as ISOTimestamp,
             elementsList: [],
             teamId: team_id,
         }

@@ -134,10 +134,9 @@ function DashboardScene(): JSX.Element {
                                     onChange={setProperties}
                                     pageKey={'dashboard_' + dashboard?.id}
                                     propertyFilters={dashboard?.filters.properties}
-                                    useLemonButton
                                 />
                             </div>
-                            <LemonDivider large />
+                            <LemonDivider className="my-4" />
                         </>
                     )}
                     {placement !== DashboardPlacement.Export && (

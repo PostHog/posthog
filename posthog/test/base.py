@@ -17,13 +17,22 @@ from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
 from posthog.models import Organization, Team, User
+from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
+from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
-from posthog.models.person.sql import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL
+from posthog.models.person.sql import (
+    DROP_PERSON_TABLE_SQL,
+    PERSONS_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+    TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+)
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -266,6 +275,8 @@ class QueryMatchingTest:
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+            # feature flag conditions use primary keys as columns in queries, so replace those too
+            query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
 
@@ -486,7 +497,12 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                TRUNCATE_GROUPS_TABLE_SQL,
+                TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+                TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+                TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(

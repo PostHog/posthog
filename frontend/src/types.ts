@@ -427,8 +427,7 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
-export interface RecordingConsoleLog {
-    playerPosition: PlayerPosition | null
+export interface RecordingConsoleLog extends RecordingTimeMixinType {
     parsedPayload: string
     parsedTraceURL?: string
     parsedTraceString?: string
@@ -699,13 +698,17 @@ export interface EventType {
     properties: Record<string, any>
     timestamp: string
     colonTimestamp?: string // Used in session recording events list
-    person?: Partial<PersonType> | null
+    person?: Pick<PersonType, 'is_identified' | 'distinct_ids' | 'properties'>
     event: string
 }
 
-export interface RecordingEventType extends EventType {
-    playerTime: number
-    playerPosition: PlayerPosition
+export interface RecordingTimeMixinType {
+    playerTime: number | null
+    playerPosition: PlayerPosition | null
+    colonTimestamp?: string
+}
+
+export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
     isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }
@@ -985,6 +988,7 @@ export enum ChartDisplayType {
     PathsViz = 'PathsViz',
     FunnelViz = 'FunnelViz',
     WorldMap = 'WorldMap',
+    BoldNumber = 'BoldNumber',
 }
 
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
@@ -1115,6 +1119,10 @@ export interface RecordingEventsFilters {
     query: string
 }
 
+export enum RecordingWindowFilter {
+    All = 'all',
+}
+
 export type InsightEditorFilterGroup = {
     title?: string
     editorFilters: InsightEditorFilter[]
@@ -1133,6 +1141,7 @@ export interface InsightEditorFilter {
     key: string
     label?: string
     tooltip?: JSX.Element
+    showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
     component?: (props: EditorFilterProps) => JSX.Element
@@ -1145,8 +1154,8 @@ export interface SystemStatusSubrows {
 
 export interface SystemStatusRow {
     metric: string
-    value: string | number
-    key?: string
+    value: boolean | string | number | null
+    key: string
     description?: string
     subrows?: SystemStatusSubrows
 }
@@ -1535,6 +1544,7 @@ export enum PropertyType {
     Numeric = 'Numeric',
     Boolean = 'Boolean',
     Duration = 'Duration',
+    Selector = 'Selector',
 }
 
 export interface PropertyDefinition {
@@ -1994,4 +2004,9 @@ export interface ExportedAssetType {
     }
     has_content: boolean
     filename: string
+}
+
+export enum YesOrNoResponse {
+    Yes = 'yes',
+    No = 'no',
 }

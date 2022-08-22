@@ -171,7 +171,7 @@ class OrganizationDomain(UUIDModel):
         try:
             # TODO: Should we manually validate DNSSEC?
             dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")
-        except dns.resolver.NoAnswer:
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
             pass
         else:
             for item in list(dns_response.response.answer[0]):
