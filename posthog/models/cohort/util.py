@@ -23,7 +23,12 @@ from posthog.models.cohort.sql import (
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
 )
-from posthog.models.person.sql import GET_PERSON_IDS_BY_FILTER, INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import (
+    GET_LATEST_PERSON_SQL,
+    GET_PERSON_IDS_BY_FILTER,
+    INSERT_PERSON_STATIC_COHORT,
+    PERSON_STATIC_COHORT_TABLE,
+)
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
@@ -229,6 +234,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
 
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
+            person_query=GET_LATEST_PERSON_SQL,
             distinct_query=filter_query,
             query="",
             GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
@@ -257,11 +263,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    from posthog.queries.person_query import PersonQuery
-
-    cohort_filter, cohort_params = PersonQuery(
-        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team.pk
-    ).get_query()
+    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id", has_joined_person_props=True)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
@@ -273,7 +275,16 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
             size_before=before_count,
         )
 
-    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_filter)
+    person_query = f"""
+    SELECT id FROM (
+        SELECT id, properties as person_props
+        FROM person
+        WHERE {cohort_filter}
+    )
+    """
+
+    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=person_query)
+
     sync_execute(
         recalcluate_cohortpeople_sql,
         {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
