@@ -356,14 +356,11 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
 GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
     WITH property_tuples AS (
-        SELECT arrayJoin(JSONExtractKeysAndValuesRaw(properties)) AS property_key_value_pair FROM events
+        SELECT DISTINCT ON (property_tuple.1)
+            arrayJoin(JSONExtractKeysAndValuesRaw(properties)) AS property_tuple
+        FROM events
         WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s
-    )
-    SELECT
-        property_key_value_pair.1 AS property_key,
-        anyLast(property_key_value_pair.2) AS sample_json_value
-    FROM property_tuples
-    GROUP BY property_key"""
+    ) SELECT property_tuple.1 AS property_key, property_tuple.2 AS sample_json_value FROM property_tuples"""
 GET_EVENT_PROPERTIES = """
     SELECT DISTINCT event, arrayJoin(JSONExtractKeys(properties)) AS property_key FROM events
     WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s"""
