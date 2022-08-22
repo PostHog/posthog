@@ -45,8 +45,8 @@
 
     .BridgePage__art {
         position: relative;
-        width: 300px;
-        padding-right: 48px;
+        width: 280px;
+        margin-right: 60px;
         visibility: none;
         display: none;
         align-self: flex-start;
@@ -57,8 +57,8 @@
 
         .BridgePage__art__message {
             position: absolute;
-            left: 0px;
-            bottom: 250px;
+            left: 30px;
+            bottom: 280px;
             transform: rotate(5deg);
             max-width: 150px;
             background-color: var(--primary-alt);
