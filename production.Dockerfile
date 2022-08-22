@@ -179,4 +179,8 @@ EXPOSE 8000
 # Expose the port from which we serve OpenMetrics data
 EXPOSE 8001
 
+# Use tini as the entrypoint such that signals are propagated to subprocesses
+RUN apk add --no-cache tini==0.19.0-r0
+ENTRYPOINT ["/sbin/tini", "--"]
+
 CMD ["./bin/docker"]
