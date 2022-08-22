@@ -54,17 +54,20 @@ export function DashboardItems(): JSX.Element {
                     }
                 }}
                 onWidthChange={(containerWidth, _, newCols) => {
+                    console.log('onWidthChange', containerWidth, newCols)
                     updateContainerWidth(containerWidth, newCols)
                 }}
                 breakpoints={BREAKPOINTS}
                 resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
                 cols={BREAKPOINT_COLUMN_COUNTS}
                 onResize={(_layout: any, _oldItem: any, newItem: any) => {
+                    console.log('onResize', newItem)
                     if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
                         setResizingItem(newItem)
                     }
                 }}
                 onResizeStop={() => {
+                    console.log('onResizeStop')
                     setResizingItem(null)
                 }}
                 onDrag={() => {
@@ -114,7 +117,7 @@ export function DashboardItems(): JSX.Element {
                 {showTextCards &&
                     dashboard?.text_tiles?.map((textTile: DashboardTextTile) => (
                         <TextCard
-                            key={textTile.id}
+                            key={textTile.id.toString()}
                             body={textTile.body}
                             // dashboardId={dashboard?.id}
                             showResizeHandles={dashboardMode === DashboardMode.Edit}
