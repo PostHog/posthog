@@ -137,8 +137,7 @@ class FunnelCorrelation:
             self._team.actor_on_events_querying_enabled
             and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
         ):
-            # When dealing with properties, make sure funnel response comes with properties
-            # so we don't have to join on persons/groups to get these properties again
+
             if filter.aggregation_group_type_index is not None:
                 self.query_group_properties = True
             else:
@@ -163,21 +162,35 @@ class FunnelCorrelation:
             include_properties=self.properties_to_include,
         )
 
+    # TODO: write test for this!
     @property
     def properties_to_include(self) -> List[str]:
         props_to_include = []
-        if self._team.actor_on_events_querying_enabled:
+        if (
+            self._team.actor_on_events_querying_enabled
+            and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
+        ):
+            # When dealing with properties, make sure funnel response comes with properties
+            # so we don't have to join on persons/groups to get these properties again
             mat_event_cols = get_materialized_columns("events")
 
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
-                    possible_mat_col = mat_event_cols.get((property_name, "group_properties"))
+                    if "$all" == property_name:
+                        return [f"group{self._filter.aggregation_group_type_index}_properties"]
+
+                    possible_mat_col = mat_event_cols.get(
+                        (property_name, f"group{self._filter.aggregation_group_type_index}_properties")
+                    )
                     if possible_mat_col is not None:
                         props_to_include.append(possible_mat_col)
                     else:
                         props_to_include.append(f"group{self._filter.aggregation_group_type_index}_properties")
 
                 else:
+                    if "$all" == property_name:
+                        return [f"person_properties"]
+
                     possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
 
                     if possible_mat_col is not None:
@@ -519,7 +532,6 @@ class FunnelCorrelation:
             aggregation_properties_alias = (
                 "person_properties" if self._filter.aggregation_group_type_index is None else group_properties_field
             )
-
         else:
             group_properties_field = f"groups_{self._filter.aggregation_group_type_index}.group_properties_{self._filter.aggregation_group_type_index}"
             aggregation_properties_alias = (
@@ -561,7 +573,9 @@ class FunnelCorrelation:
                         property_name,
                         f"%({param_name})s",
                         aggregation_properties_alias,
-                        materialised_table_column=aggregation_properties_alias,
+                        materialised_table_column=aggregation_properties_alias
+                        if self._team.actor_on_events_querying_enabled
+                        else "properties",
                     )
                 person_property_params[param_name] = property_name
                 person_property_expressions.append(expression)
