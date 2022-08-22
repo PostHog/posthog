@@ -38,11 +38,9 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def format_person_query(
-    cohort: Cohort, index: int, *, custom_match_field: str = "person_id"
-) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int,) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
-        return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
+        return format_static_cohort_query(cohort.pk, index, prepend="")
 
     if not cohort.properties.values:
         # No person can match an empty cohort
@@ -59,23 +57,17 @@ def format_person_query(
     return query, params
 
 
-def format_static_cohort_query(
-    cohort_id: int, index: int, prepend: str, custom_match_field: str, negate: bool = False
-) -> Tuple[str, Dict[str, Any]]:
+def format_static_cohort_query(cohort_id: int, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
     return (
-        f"{custom_match_field} {'NOT' if negate else ''} IN (SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s)",
+        f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 
 
-def format_precalculated_cohort_query(
-    cohort_id: int, index: int, prepend: str = "", custom_match_field="person_id"
-) -> Tuple[str, Dict[str, Any]]:
+def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
     filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
     return (
-        f"""
-        {custom_match_field} IN ({filter_query})
-        """,
+        filter_query,
         {f"{prepend}_cohort_id_{index}": cohort_id},
     )
 
@@ -211,12 +203,11 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
 def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
-        person_query, params = format_precalculated_cohort_query(
-            cohort.pk, index, custom_match_field=custom_match_field
-        )
+        query, params = format_precalculated_cohort_query(cohort.pk, index)
     else:
-        query, params = format_person_query(cohort, index, custom_match_field=custom_match_field)
-        person_query = f"{custom_match_field} IN ({query})"
+        query, params = format_person_query(cohort, index)
+
+    person_query = f"{custom_match_field} IN ({query})"
     return person_query, params
 
 
@@ -259,7 +250,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    cohort_query, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
+    cohort_query, cohort_params = format_person_query(cohort, 0)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 

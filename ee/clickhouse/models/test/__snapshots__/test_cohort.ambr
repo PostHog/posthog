@@ -10,7 +10,7 @@
      GROUP BY distinct_id
      HAVING argMax(is_deleted, version) = 0)
   WHERE person_id IN
-      (SELECT person_id
+      (SELECT person_id as id
        FROM person_static_cohort
        WHERE cohort_id = %(_cohort_id_0)s
          AND team_id = %(team_id)s)
