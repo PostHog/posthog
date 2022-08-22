@@ -32,7 +32,7 @@ export function PasswordReset(): JSX.Element {
                     <IconCheckCircleOutline className="text-6xl text-success" />
                 </div>
             )}
-            <h2 className="subtitle justify-center">Reset password</h2>
+            <h2>Reset password</h2>
             {preflightLoading ? (
                 <Spinner />
             ) : !preflight?.email_service_available ? (

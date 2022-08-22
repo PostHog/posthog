@@ -61,9 +61,7 @@ export function Signup(): JSX.Element | null {
             }
         >
             <div className="space-y-2">
-                <h2 className="subtitle justify-center">
-                    {!preflight?.demo ? 'Get started' : 'Explore PostHog yourself'}
-                </h2>
+                <h2>{!preflight?.demo ? 'Get started' : 'Explore PostHog yourself'}</h2>
                 {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
                     // If we're in the demo environment, login is unified with signup and it's passwordless
                     // For now, if you're not on Cloud, you wouldn't see this page,

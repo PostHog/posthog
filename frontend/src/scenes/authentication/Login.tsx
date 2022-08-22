@@ -81,7 +81,7 @@ export function Login(): JSX.Element {
     return (
         <BridgePage view="login" noHedgehog>
             <div className="space-y-2">
-                <h2 className="text-center font-bold">Get started</h2>
+                <h2>Get started</h2>
                 {loginManualErrors.generic && (
                     <AlertMessage type="error">
                         {loginManualErrors.generic.errorDetail ||

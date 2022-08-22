@@ -31,6 +31,11 @@
         @include screen($sm) {
             min-width: 400px; // 320px + 80px padding
         }
+
+        h2 {
+            font-weight: bold;
+            text-align: center;
+        }
     }
 
     .BridgePage__footer {
