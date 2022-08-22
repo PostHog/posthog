@@ -11,7 +11,6 @@ from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import create_person
 from posthog.test.base import (
@@ -274,18 +273,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
-
-        run_event_table_deletions()
-        mark_deletions_done()
-
-        async_deletion.refresh_from_db()
-        self.assertIsNotNone(async_deletion.delete_verified_at)
-
-        # All but someone_else's events got deleted
-        ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
-            0
-        ][0]
-        self.assertEqual(ch_events, 1)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     @mock.patch("posthog.api.capture.capture_internal")
