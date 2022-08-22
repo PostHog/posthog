@@ -26,7 +26,7 @@ function nthChar(string: string, character: string, n: number): number {
     return -1
 }
 
-function QueryCol({ item }: { item: query }): JSX.Element {
+function QueryCol({ item }: { item: Query }): JSX.Element {
     const [expanded, setExpanded] = useState(false as boolean)
 
     const has5lines = nthChar(item.query, '\n', 5)
