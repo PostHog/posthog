@@ -3,6 +3,7 @@ import { Resizeable } from 'lib/components/InsightCard/InsightCard'
 import './TextCard.scss'
 import { Textfit } from 'react-textfit'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/InsightCard/handles'
+import clsx from 'clsx'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     body: string
@@ -10,13 +11,13 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
 }
 
 export function TextCardInternal(
-    { body, showResizeHandles, canResizeWidth, children, ...divProps }: TextCardProps,
+    { body, showResizeHandles, canResizeWidth, children, className, ...divProps }: TextCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element {
     return (
-        <div className="TextCard border rounded" data-attr="text-card" {...divProps} ref={ref}>
+        <div className={clsx('TextCard border rounded', className)} data-attr="text-card" {...divProps} ref={ref}>
             <Textfit mode="single" min={32} max={120}>
-                <div className="flex items-center justify-center">{body}</div>
+                <div>{body}</div>
             </Textfit>
             {showResizeHandles && (
                 <>
