@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
+import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/personsModalLogic'
 import {
     ActionType,
     ActorType,

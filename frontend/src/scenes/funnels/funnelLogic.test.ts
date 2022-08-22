@@ -19,7 +19,7 @@ import {
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'

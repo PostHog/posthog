@@ -10,8 +10,6 @@ import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { PersonHeader } from '../persons/PersonHeader'
-import api from '../../lib/api'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
 import { IconPersonFilled, IconSave } from 'lib/components/icons'
@@ -24,6 +22,8 @@ import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingBu
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import api from 'lib/api'
+import { PersonHeader } from 'scenes/persons/PersonHeader'
 
 export interface PersonsModalProps {
     isOpen: boolean

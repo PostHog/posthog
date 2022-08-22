@@ -50,7 +50,7 @@ import {
     getIncompleteConversionWindowStartDate,
     generateBaselineConversionUrl,
 } from './funnelUtils'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
+import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'

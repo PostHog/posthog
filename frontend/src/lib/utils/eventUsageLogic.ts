@@ -28,7 +28,7 @@ import {
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import type { PersonsModalParams } from 'scenes/trends/personsModalLogic'
+import type { PersonsModalParams } from 'scenes/trends/persons-modal/personsModalLogic'
 import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 
