@@ -136,7 +136,6 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "technology"), [people["person2"].uuid])
 
         # TODO: Delete this test when moved to person-on-events
-        @test_with_materialized_columns(group_properties=[(0, "industry")], verify_no_jsonextract=False)
         def test_funnel_aggregate_by_groups_breakdown_group(self):
             self._create_groups()
 
