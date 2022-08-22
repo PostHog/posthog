@@ -313,7 +313,8 @@
     (SELECT e.timestamp as timestamp,
             e.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e.team_id as team_id,
+            e."group0_properties" as "group0_properties"
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
@@ -397,7 +398,8 @@
     (SELECT e.timestamp as timestamp,
             e.person_id as person_id,
             e.distinct_id as distinct_id,
-            e.team_id as team_id
+            e.team_id as team_id,
+            e."mat_gp0_industry" as "mat_gp0_industry"
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
@@ -948,7 +950,8 @@
         FROM
           (SELECT e.timestamp as timestamp,
                   e.person_id as person_id,
-                  e."person_properties" as "person_properties"
+                  e."person_properties" as "person_properties",
+                  e."group0_properties" as "group0_properties"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
@@ -980,7 +983,8 @@
         FROM
           (SELECT e.timestamp as timestamp,
                   e.person_id as person_id,
-                  e."mat_pp_key" as "mat_pp_key"
+                  e."mat_pp_key" as "mat_pp_key",
+                  e."mat_gp0_industry" as "mat_gp0_industry"
            FROM events e
            WHERE team_id = 2
              AND event = '$pageview'
