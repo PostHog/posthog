@@ -590,7 +590,7 @@ describe('PersonState.update()', () => {
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 
-    it.only('updates person properties when other thread merges the user', async () => {
+    it('updates person properties when other thread merges the user', async () => {
         const cachedPerson = await hub.db.createPerson(
             timestamp,
             { a: 1, b: 2 },

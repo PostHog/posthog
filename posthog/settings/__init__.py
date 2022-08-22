@@ -40,7 +40,7 @@ from posthog.settings.web import *
 from posthog.settings.utils import get_from_env, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
-CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
+CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, type_cast=int)
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
@@ -122,9 +122,13 @@ KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC: str = os.getenv(
 )
 
 
-# Schedule to run column materialization on. Follows crontab syntax.
+# Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this
-CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env("CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON", optional=True)
+CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env(
+    "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+    # Defaults to 5AM UTC on Sunday
+    "0 5 * * SUN",
+)
 
 
 # Extend and override these settings with EE's ones

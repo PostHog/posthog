@@ -1,14 +1,14 @@
 import datetime as dt
 import logging
 import secrets
-from time import time
+from time import monotonic
 from typing import cast
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.demo.matrix.manager import MatrixManager
+from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 
@@ -36,8 +36,10 @@ class Command(BaseCommand):
             help="At how many days after 'now' should the simulation end (default: 30)",
         )
         parser.add_argument("--n-clusters", type=int, default=50, help="Number of clusters (default: 50)")
-        parser.add_argument("--list-events", action="store_true", help="Print events individually")
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
+        parser.add_argument(
+            "--reset-master", action="store_true", help="Reset master project instead of creating a demo project"
+        )
         parser.add_argument(
             "--email", type=str, default="test@posthog.com", help="Email of the demo user (default: test@posthog.com)",
         )
@@ -46,9 +48,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        timer = time()
+        timer = monotonic()
         seed = options.get("seed") or secrets.token_hex(16)
         now = options.get("now") or dt.datetime.now(dt.timezone.utc)
+        print("Instantiating the Matrix...")
         matrix = HedgeboxMatrix(
             seed,
             now=now,
@@ -56,8 +59,41 @@ class Command(BaseCommand):
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
         )
+        print("Running simulation...")
         matrix.simulate()
-        duration = time() - timer
+        self.print_results(matrix, seed=seed, duration=monotonic() - timer, verbosity=options["verbosity"])
+        if not options["dry_run"]:
+            email = options["email"]
+            password = options["password"]
+            matrix_manager = MatrixManager(matrix, use_pre_save=False)
+            with transaction.atomic():
+                try:
+                    if options["reset_master"]:
+                        matrix_manager.reset_master()
+                    else:
+                        matrix_manager.ensure_account_and_save(
+                            email,
+                            "Employee 427",
+                            "Hedgebox Inc.",
+                            password=password,
+                            disallow_collision=True,
+                            print_steps=True,
+                        )
+                except exceptions.ValidationError as e:
+                    print(f"Error: {e}")
+                else:
+                    print(
+                        "Master project reset!"
+                        if options["reset_master"]
+                        else f"Demo data ready! Log in as {email} with password {password}.\n"
+                        "If running DEMO mode locally, log in instantly with this link:\n"
+                        f"http://localhost:8000/signup?email={email}"
+                    )
+        else:
+            print("Dry run - not saving results.")
+
+    @staticmethod
+    def print_results(matrix: Matrix, *, seed: str, duration: float, verbosity: int):
         active_people_count = 0  # Active means they have at least one event
         total_event_count = 0
         future_event_count = 0
@@ -68,12 +104,13 @@ class Command(BaseCommand):
             )
             for y, person_row in enumerate(cluster.people_matrix):
                 for x, person in enumerate(person_row):
-                    summary_lines.append(f"        Person {x, y}: {person}",)
+                    if verbosity >= 2:
+                        summary_lines.append(f"        Person {x, y}: {person}",)
                     total_event_count += len(person.past_events) + len(person.future_events)
                     future_event_count += len(person.future_events)
                     if person.all_events:
                         active_people_count += 1
-                    if options["list_events"]:
+                    if verbosity >= 3:
                         active_session_id = None
                         for event in person.all_events:
                             if session_id := event.properties.get("$session_id"):
@@ -81,7 +118,7 @@ class Command(BaseCommand):
                                     summary_lines.append(f"            Session {session_id}:",)
                                 active_session_id = session_id
                             summary_lines.append(f"            {event}",)
-                    else:
+                    elif verbosity >= 2:
                         event_count = len(person.past_events) + len(person.future_events)
                         if not event_count:
                             summary_lines.append("            No events",)
@@ -101,20 +138,3 @@ class Command(BaseCommand):
             f"for a total of {total_event_count} event{'' if total_event_count == 1 else 's'} (of which {future_event_count} {'is' if future_event_count == 1 else 'are'} in the future)."
         )
         print("\n".join(summary_lines))
-        if not options["dry_run"]:
-            email = options["email"]
-            password = options["password"]
-            with transaction.atomic():
-                try:
-                    MatrixManager(matrix, use_pre_save=False).ensure_account_and_save(
-                        email,
-                        "Employee 427",
-                        "Hedgebox Inc.",
-                        password=password,
-                        disallow_collision=True,
-                        print_steps=True,
-                    )
-                except exceptions.ValidationError as e:
-                    print(f"Error: {e}")
-                else:
-                    print(f"Demo data ready! Log in as {email} with password {password}.")

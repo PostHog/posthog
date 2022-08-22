@@ -12,6 +12,7 @@ from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import Insight, Organization, Team, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
@@ -24,7 +25,6 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
 )
-from posthog.tasks.delete_clickhouse_data import delete_clickhouse_data
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -215,7 +215,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     def perform_destroy(self, team: Team):
         team_id = team.pk
         delete_bulky_postgres_data(team_ids=[team_id])
-        delete_clickhouse_data.delay(team_ids=[team_id])
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=cast(User, self.request.user)
+        )
         with mute_selected_signals():
             super().perform_destroy(team)
 

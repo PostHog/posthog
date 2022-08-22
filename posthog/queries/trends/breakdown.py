@@ -324,10 +324,15 @@ class TrendsBreakdown:
 
         elif self.using_person_on_events:
             if self.filter.breakdown_type == "person":
-                breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "person_properties")
+                # person props are not materialised on events yet, so don't allow denormalisation
+                breakdown_value, _ = get_property_string_expr(
+                    "events", breakdown, "%(key)s", "person_properties", allow_denormalized_props=False
+                )
             elif self.filter.breakdown_type == "group":
                 properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
-                breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", properties_field)
+                breakdown_value, _ = get_property_string_expr(
+                    "events", breakdown, "%(key)s", properties_field, allow_denormalized_props=False
+                )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
         else:

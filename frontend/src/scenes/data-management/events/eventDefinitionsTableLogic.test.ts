@@ -224,6 +224,7 @@ describe('eventDefinitionsTableLogic', () => {
                 event_names: ['event1'],
                 excluded_properties: keyMappingKeys,
                 is_event_property: true,
+                is_feature_flag: false,
             }).search
         }`
         const url = urls.eventDefinitions()

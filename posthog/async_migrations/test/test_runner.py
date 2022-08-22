@@ -169,3 +169,14 @@ class TestRunner(AsyncMigrationBaseTest):
         self.assertEqual(sm.status, MigrationStatus.RolledBack)
         self.assertEqual(sm.progress, 0)
         self.assertEqual(self.migration.sec.side_effect_rollback_count, 2)  # checking we ran current index rollback too
+
+    @pytest.mark.ee
+    def test_fail_at_startup_with_no_definition(self):
+        sm = AsyncMigration.objects.get(name="test_migration")
+        sm.name = "no_such_definition"
+        sm.save()
+
+        migration_successful = start_async_migration("no_such_definition")
+        self.assertFalse(migration_successful)
+        sm.refresh_from_db()
+        self.assertEqual(sm.status, MigrationStatus.FailedAtStartup)
