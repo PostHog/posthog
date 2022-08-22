@@ -37,7 +37,7 @@ export function BridgePage({
             <div className="BridgePage__main">
                 {!noHedgehog ? (
                     <div className="BridgePage__art">
-                        <img src={hedgehogMain} alt="" />
+                        <img src={hedgehogMain} alt="" draggable="false" />
                         {message ? (
                             <CSSTransition in={messageShowing} timeout={200} classNames="BridgePage__art__message-">
                                 <div className="BridgePage__art__message">{message}</div>
