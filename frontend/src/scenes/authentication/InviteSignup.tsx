@@ -100,7 +100,9 @@ function ErrorView(): JSX.Element | null {
         },
         [ErrorCodes.Unknown]: {
             title: 'Oops! We could not validate this invite link',
-            detail: `${error?.detail} There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
+            detail: `${
+                error?.detail || ''
+            } There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
             actions: user ? <BackToPostHog /> : <HelperLinks />,
         },
     }

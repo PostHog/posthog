@@ -67,7 +67,6 @@
             padding: 0.5rem 0.75rem;
             color: var(--white);
             font-size: 0.8em;
-            transition: 200ms ease-out opacity, 200ms ease-out transform;
 
             &:after {
                 position: absolute;
@@ -80,8 +79,6 @@
             }
 
             opacity: 0;
-            transform: rotate(0deg) translateY(50px) scale(0.5);
-            transition: 200ms opacity, 200ms transform;
             transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
 
             &.BridgePage__art__message--enter {
@@ -89,9 +86,11 @@
                 transform: translateY(50px) rotate(0deg) scale(0.5);
             }
 
-            &.BridgePage__art__message--enter-active {
+            &.BridgePage__art__message--enter-active,
+            &.BridgePage__art__message--enter-done {
                 opacity: 1;
                 transform: translateY(0px) rotate(5deg) scale(1);
+                transition: 200ms opacity, 200ms transform;
             }
 
             @media (prefers-reduced-motion) {
