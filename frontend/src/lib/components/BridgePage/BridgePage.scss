@@ -7,6 +7,7 @@
     flex-direction: column;
     flex: 1;
     min-height: 100vh;
+    overflow: hidden;
 
     .BridgePage__main {
         display: flex;
@@ -17,7 +18,7 @@
     }
 
     .BridgePage__content-wrapper {
-        max-width: 400px; // same as for .inner
+        max-width: 100%;
     }
 
     .BridgePage__content {
@@ -27,10 +28,6 @@
         padding: 2rem;
         background-color: white;
         border-radius: var(--radius);
-
-        @include screen($sm) {
-            min-width: 400px; // 320px + 80px padding
-        }
 
         h2 {
             font-weight: bold;
@@ -114,6 +111,15 @@
             text-align: center;
             img {
                 height: 24px;
+            }
+        }
+    }
+
+    &.BridgePage--fixed-width {
+        @include screen($md) {
+            .BridgePage__content {
+                max-width: 400px;
+                width: 400px;
             }
         }
     }

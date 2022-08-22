@@ -12,6 +12,7 @@ export type BridgePageProps = {
     view: string
     noHedgehog?: boolean
     message?: React.ReactNode
+    fixedWidth?: boolean
 }
 
 export function BridgePage({
@@ -21,6 +22,7 @@ export function BridgePage({
     view,
     message,
     noHedgehog = false,
+    fixedWidth = true,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
 
@@ -31,7 +33,7 @@ export function BridgePage({
         return () => clearTimeout(t)
     }, [])
     return (
-        <div className={clsx('BridgePage', className)}>
+        <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width', className)}>
             <div className="BridgePage__main">
                 {!noHedgehog ? (
                     <div className="BridgePage__art">

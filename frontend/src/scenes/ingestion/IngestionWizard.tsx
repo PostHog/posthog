@@ -104,7 +104,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
                 {/* <div className="IngestionContainer" */}
-                <BridgePage view="ingestion" noHedgehog>
+                <BridgePage view="ingestion" noHedgehog fixedWidth={false}>
                     {children}
                 </BridgePage>
             </div>
