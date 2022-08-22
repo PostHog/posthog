@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+import structlog
 from semantic_version.base import SimpleSpec
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
@@ -18,6 +19,7 @@ from posthog.async_migrations.utils import (
     update_async_migration,
 )
 from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT
 from posthog.version_requirement import ServiceVersionRequirement
 
@@ -25,6 +27,8 @@ from posthog.version_requirement import ServiceVersionRequirement
 Important to prevent us taking up too many celery workers and also to enable running migrations sequentially
 """
 MAX_CONCURRENT_ASYNC_MIGRATIONS = 1
+
+logger = structlog.get_logger(__name__)
 
 
 def start_async_migration(
@@ -47,20 +51,38 @@ def start_async_migration(
 
     migration_instance = AsyncMigration.objects.get(name=migration_name)
     over_concurrent_migrations_limit = get_all_running_async_migrations().count() >= MAX_CONCURRENT_ASYNC_MIGRATIONS
-    posthog_version_valid = ignore_posthog_version or is_posthog_version_compatible(
-        migration_instance.posthog_min_version, migration_instance.posthog_max_version
-    )
 
     if (
         not migration_instance
         or over_concurrent_migrations_limit
-        or not posthog_version_valid
-        or migration_instance.status == MigrationStatus.Running
+        or migration_instance.status not in [MigrationStatus.Starting, MigrationStatus.NotStarted]
     ):
+        logger.error(f"Initial check failed for async migration {migration_name}")
+        return False
+
+    if not (
+        ignore_posthog_version
+        or is_posthog_version_compatible(migration_instance.posthog_min_version, migration_instance.posthog_max_version)
+    ):
+        process_error(
+            migration_instance,
+            f"Migration is not available on this PostHog version",
+            status=MigrationStatus.FailedAtStartup,
+            rollback=False,
+        )
         return False
 
     if migration_definition is None:
-        migration_definition = get_async_migration_definition(migration_name)
+        try:
+            migration_definition = get_async_migration_definition(migration_name)
+        except LookupError:
+            process_error(
+                migration_instance,
+                f"Migration definition not available",
+                status=MigrationStatus.FailedAtStartup,
+                rollback=False,
+            )
+            return False
 
     if not migration_definition.is_required():
         complete_migration(migration_instance, email=False)
@@ -92,7 +114,10 @@ def start_async_migration(
         )
         return False
 
-    mark_async_migration_as_running(migration_instance)
+    if not mark_async_migration_as_running(migration_instance):
+        # we don't want to touch the migration, i.e. don't process_error
+        logger.error(f"Migration state has unexpectedly changed for async migration {migration_name}")
+        return False
 
     return run_async_migration_operations(migration_name, migration_instance)
 
@@ -207,7 +232,9 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
-    return POSTHOG_VERSION in SimpleSpec(f">={posthog_min_version},<={posthog_max_version}")
+    return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or POSTHOG_VERSION in SimpleSpec(
+        f">={posthog_min_version},<={posthog_max_version}"
+    )
 
 
 def run_next_migration(candidate: str):

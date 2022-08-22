@@ -4,12 +4,13 @@ import { teamMembersLogic } from './teamMembersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { membershipLevelToName, teamMembershipLevelIntegers } from '../../../lib/utils/permissioning'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { IconPlus } from 'lib/components/icons'
+import { TeamMembershipLevel } from 'lib/constants'
 
 export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { addableMembers, allMembersLoading } = useValues(teamMembersLogic)
@@ -54,14 +55,12 @@ export function AddMembersModalWithButton({ isRestricted }: RestrictedComponentP
                         <Field name="level" label="With project-specific access level">
                             <LemonSelect
                                 fullWidth
-                                options={teamMembershipLevelIntegers.reduce(
-                                    (acc, teamMembershipLevel) => ({
-                                        ...acc,
-                                        [teamMembershipLevel]: {
+                                options={teamMembershipLevelIntegers.map(
+                                    (teamMembershipLevel) =>
+                                        ({
+                                            value: teamMembershipLevel,
                                             label: membershipLevelToName.get(teamMembershipLevel),
-                                        },
-                                    }),
-                                    {}
+                                        } as LemonSelectOption<TeamMembershipLevel>)
                                 )}
                             />
                         </Field>

@@ -1,11 +1,12 @@
 import { kea } from 'kea'
-import { PlayerPosition, RecordingEventsFilters, RecordingEventType } from '~/types'
+import { PlayerPosition, RecordingEventsFilters, RecordingEventType, RecordingWindowFilter } from '~/types'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
 
 export const DEFAULT_ROW_HEIGHT = 65 // Two lines
 export const OVERSCANNED_ROW_COUNT = 50
@@ -21,6 +22,8 @@ export const eventsListLogic = kea<eventsListLogicType>({
             ['eventsToShow', 'sessionEventsDataLoading'],
             sessionRecordingPlayerLogic,
             ['currentPlayerTime'],
+            sharedListLogic,
+            ['windowIdFilter'],
         ],
     },
     actions: {
@@ -71,7 +74,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
             actions.setFilters(values.localFilters)
         },
         scrollTo: async ({ rowIndex: _rowIndex }, breakpoint) => {
-            const rowIndex = _rowIndex ?? values.currentEventsIndices.startIndex
+            const rowIndex = _rowIndex ?? values.currentIndices.startIndex
             if (values.list) {
                 values.list.scrollToPosition(values.list.getOffsetForRow({ alignment: 'center', index: rowIndex }))
                 eventUsageLogic.actions.reportRecordingScrollTo(rowIndex)
@@ -89,22 +92,28 @@ export const eventsListLogic = kea<eventsListLogicType>({
     }),
     selectors: () => ({
         listEvents: [
-            (selectors) => [selectors.eventsToShow],
-            (events: RecordingEventType[]): RecordingEventType[] => {
-                return events.map((e) => ({
-                    ...e,
-                    colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
-                }))
+            (selectors) => [selectors.eventsToShow, selectors.windowIdFilter],
+            (events: RecordingEventType[], windowIdFilter): RecordingEventType[] => {
+                return events
+                    .filter(
+                        (e) =>
+                            windowIdFilter === RecordingWindowFilter.All ||
+                            e.playerPosition?.windowId === windowIdFilter
+                    )
+                    .map((e) => ({
+                        ...e,
+                        colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
+                    }))
             },
         ],
-        currentEventStartIndex: [
+        currentStartIndex: [
             (selectors) => [selectors.listEvents, selectors.currentPlayerTime],
             (events, currentPlayerTime): number => {
                 return events.findIndex((e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0))
             },
         ],
-        currentEventsTimeRange: [
-            (selectors) => [selectors.currentEventStartIndex, selectors.listEvents, selectors.currentPlayerTime],
+        currentTimeRange: [
+            (selectors) => [selectors.currentStartIndex, selectors.listEvents, selectors.currentPlayerTime],
             (startIndex, events, currentPlayerTime) => {
                 if (events.length < 1) {
                     return { start: 0, end: 0 }
@@ -118,28 +127,28 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 return { start, end }
             },
         ],
-        isEventCurrent: [
-            (selectors) => [selectors.currentEventsTimeRange, selectors.listEvents],
+        isCurrent: [
+            (selectors) => [selectors.currentTimeRange, selectors.listEvents],
             (indices, events) => (index: number) =>
                 (events?.[index]?.playerTime ?? 0) >= indices.start && (events?.[index]?.playerTime ?? 0) < indices.end,
         ],
-        currentEventsIndices: [
-            (selectors) => [selectors.listEvents, selectors.isEventCurrent],
-            (events, isEventCurrent) => ({
+        currentIndices: [
+            (selectors) => [selectors.listEvents, selectors.isCurrent],
+            (events, isCurrent) => ({
                 startIndex: clamp(
-                    events.findIndex((_, i) => isEventCurrent(i)),
+                    events.findIndex((_, i) => isCurrent(i)),
                     0,
                     events.length - 1
                 ),
                 stopIndex: clamp(
-                    findLastIndex(events, (_, i) => isEventCurrent(i)),
+                    findLastIndex(events, (_, i) => isCurrent(i)),
                     0,
                     events.length - 1
                 ),
             }),
         ],
-        currentEventsBoxSizeAndPosition: [
-            (selectors) => [selectors.currentEventsIndices, selectors.list],
+        currentBoxSizeAndPosition: [
+            (selectors) => [selectors.currentIndices, selectors.list],
             (indices, list) => {
                 if (
                     !list ||
@@ -174,7 +183,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 index >= renderedRows.overscanStartIndex && index <= renderedRows.overscanStopIndex,
         ],
         showPositionFinder: [
-            (selectors) => [selectors.renderedRows, selectors.currentEventsIndices, selectors.shouldHidePositionFinder],
+            (selectors) => [selectors.renderedRows, selectors.currentIndices, selectors.shouldHidePositionFinder],
             (visibleRange, currentEventsRange, shouldHidePositionFinder) => {
                 // Only show finder if there's no overlap of view range and current events range
                 return (
@@ -185,7 +194,7 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
         isDirectionUp: [
-            (selectors) => [selectors.renderedRows, selectors.currentEventsIndices],
+            (selectors) => [selectors.renderedRows, selectors.currentIndices],
             (visibleRange, currentEventsRange) => {
                 // Where are we relative to the current event
                 return visibleRange.startIndex > currentEventsRange.stopIndex

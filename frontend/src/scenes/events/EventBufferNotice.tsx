@@ -9,7 +9,7 @@ export interface EventBufferNoticeProps {
     className?: string
 }
 
-export function EventBufferNotice({ additionalInfo = '', className = '' }: EventBufferNoticeProps): JSX.Element | null {
+export function EventBufferNotice({ additionalInfo, className }: EventBufferNoticeProps): JSX.Element | null {
     const { preflight, eventBufferAcknowledged } = useValues(preflightLogic)
     const { acknowledgeEventBuffer } = useActions(preflightLogic)
 

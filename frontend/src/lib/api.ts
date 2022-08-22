@@ -589,6 +589,7 @@ const api = {
             event_names?: string[]
             excluded_properties?: string[]
             is_event_property?: boolean
+            is_feature_flag?: boolean
             limit?: number
             offset?: number
             teamId?: TeamType['id']

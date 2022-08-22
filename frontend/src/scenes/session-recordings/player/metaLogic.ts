@@ -31,7 +31,7 @@ export const metaLogic = kea<metaLogicType>({
             sessionRecordingPlayerLogic,
             ['currentPlayerPosition', 'scale'],
             eventsListLogic,
-            ['currentEventStartIndex'],
+            ['currentStartIndex'],
         ],
         actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
     }),
@@ -95,16 +95,20 @@ export const metaLogic = kea<metaLogicType>({
                 return sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
             },
         ],
+        windowIds: [
+            (selectors) => [selectors.sessionPlayerData],
+            (sessionPlayerData) => {
+                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId) ?? []
+            },
+        ],
         currentWindowIndex: [
-            (selectors) => [selectors.sessionPlayerData, selectors.currentPlayerPosition],
-            (sessionPlayerData, currentPlayerPosition) => {
-                return Object.keys(sessionPlayerData?.metadata?.startAndEndTimesByWindowId).findIndex(
-                    (windowId) => windowId === currentPlayerPosition?.windowId ?? -1
-                )
+            (selectors) => [selectors.windowIds, selectors.currentPlayerPosition],
+            (windowIds, currentPlayerPosition) => {
+                return windowIds.findIndex((windowId) => windowId === currentPlayerPosition?.windowId ?? -1)
             },
         ],
         currentUrl: [
-            (selectors) => [selectors.eventsToShow, selectors.currentEventStartIndex],
+            (selectors) => [selectors.eventsToShow, selectors.currentStartIndex],
             (events, startIndex) => {
                 if (startIndex === -1 || !events?.length) {
                     return ''

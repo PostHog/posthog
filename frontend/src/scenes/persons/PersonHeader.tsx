@@ -27,7 +27,7 @@ export function asDisplay(person: PersonType | PersonActorType | null | undefine
     const propertyIdentifier = customPropertyKey ? person.properties?.[customPropertyKey] : undefined
 
     const customIdentifier: string =
-        typeof propertyIdentifier === 'object' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
+        typeof propertyIdentifier !== 'string' ? JSON.stringify(propertyIdentifier) : propertyIdentifier
 
     const display: string | undefined = (customIdentifier || person.distinct_ids?.[0])?.trim()
 

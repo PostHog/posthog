@@ -6,6 +6,11 @@ import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PersonHeader } from './PersonHeader'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconDelete } from 'lib/components/icons'
+import { useActions } from 'kea'
+import { personsLogic } from 'scenes/persons/personsLogic'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
 interface PersonsTableType {
     people: PersonType[]
@@ -26,6 +31,8 @@ export function PersonsTable({
     loadNext,
     compact,
 }: PersonsTableType): JSX.Element {
+    const { showPersonDeleteModal } = useActions(personsLogic)
+
     const columns: LemonTableColumns<PersonType> = [
         {
             title: 'Person',
@@ -54,52 +61,67 @@ export function PersonsTable({
             },
         },
         ...(!compact
-            ? [
+            ? ([
                   {
                       title: 'First seen',
                       dataIndex: 'created_at',
                       render: function Render(created_at: PersonType['created_at']) {
                           return created_at ? <TZLabel time={created_at} /> : <></>
                       },
-                  } as LemonTableColumn<PersonType, keyof PersonType | undefined>,
-              ]
+                  },
+                  {
+                      render: function Render(_, person: PersonType) {
+                          return (
+                              <LemonButton
+                                  onClick={() => showPersonDeleteModal(person)}
+                                  icon={<IconDelete />}
+                                  status="danger"
+                                  size="small"
+                              />
+                          )
+                      },
+                  },
+              ] as Array<LemonTableColumn<PersonType, keyof PersonType | undefined>>)
             : []),
     ]
 
     return (
-        <LemonTable
-            data-tooltip="persons-table"
-            columns={columns}
-            loading={loading}
-            rowKey="id"
-            pagination={{
-                controlled: true,
-                pageSize: 100, // From `posthog/api/person.py`
-                onForward: hasNext
-                    ? () => {
-                          loadNext?.()
-                          window.scrollTo(0, 0)
-                      }
-                    : undefined,
-                onBackward: hasPrevious
-                    ? () => {
-                          loadPrevious?.()
-                          window.scrollTo(0, 0)
-                      }
-                    : undefined,
-            }}
-            expandable={{
-                expandedRowRender: function RenderPropertiesTable({ properties }) {
-                    return Object.keys(properties).length ? (
-                        <PropertiesTable properties={properties} />
-                    ) : (
-                        'This person has no properties.'
-                    )
-                },
-            }}
-            dataSource={people}
-            emptyState="No persons"
-            nouns={['person', 'persons']}
-        />
+        <>
+            <LemonTable
+                data-tooltip="persons-table"
+                columns={columns}
+                loading={loading}
+                rowKey="id"
+                pagination={{
+                    controlled: true,
+                    pageSize: 100, // From `posthog/api/person.py`
+                    onForward: hasNext
+                        ? () => {
+                              loadNext?.()
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                    onBackward: hasPrevious
+                        ? () => {
+                              loadPrevious?.()
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                }}
+                expandable={{
+                    expandedRowRender: function RenderPropertiesTable({ properties }) {
+                        return Object.keys(properties).length ? (
+                            <PropertiesTable properties={properties} />
+                        ) : (
+                            'This person has no properties.'
+                        )
+                    },
+                }}
+                dataSource={people}
+                emptyState="No persons"
+                nouns={['person', 'persons']}
+            />
+            <PersonDeleteModal />
+        </>
     )
 }

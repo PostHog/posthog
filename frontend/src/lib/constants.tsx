@@ -1,5 +1,5 @@
 import { urls } from 'scenes/urls'
-import { AnnotationScope, AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
+import { AvailableFeature, ChartDisplayType, LicensePlan, SSOProviders } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
 export const NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -32,12 +32,6 @@ export enum PluginsAccessLevel {
     Install = 6,
     Root = 9,
 }
-
-export const annotationScopeToName = new Map<string, string>([
-    [AnnotationScope.Insight, 'insight'],
-    [AnnotationScope.Project, 'project'],
-    [AnnotationScope.Organization, 'organization'],
-])
 
 /** Collaboration restriction level (which is a dashboard setting). Sync with DashboardPrivilegeLevel. */
 export enum DashboardRestrictionLevel {
@@ -129,7 +123,8 @@ export const FEATURE_FLAGS = {
     PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
-    SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner @alexkim205
+    SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
+    SESSION_RECORDINGS_PLAYER_V3_FILTERING: 'session-recording-player-v3-filtering', // owner: @alexkim205
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

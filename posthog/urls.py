@@ -2,6 +2,7 @@ from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib import admin
 from django.http import HttpRequest, HttpResponse
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators import csrf
@@ -47,6 +48,13 @@ except ImportError:
     pass
 else:
     extend_api_router_cloud(router, organizations_router=organizations_router, projects_router=projects_router)
+
+# The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
+admin_urlpatterns = (
+    [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
+    if settings.MULTI_TENANCY or settings.DEMO
+    else []
+)
 
 
 @csrf.ensure_csrf_cookie
@@ -105,6 +113,8 @@ urlpatterns = [
     opt_slash_path("_preflight", preflight_check),
     # ee
     *ee_urlpatterns,
+    # admin
+    *admin_urlpatterns,
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
