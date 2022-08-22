@@ -251,7 +251,7 @@ def parse_prop_clauses(
                 idx,
                 prepend,
                 prop_var=group_column,
-                allow_denormalized_props=False,
+                allow_denormalized_props=True,
                 property_operator=property_operator,
                 use_event_column=group_column,
             )

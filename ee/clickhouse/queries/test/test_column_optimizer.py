@@ -2,7 +2,7 @@ from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from posthog.models import Action, ActionStep
 from posthog.models.filters import Filter
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 
 PROPERTIES_OF_ALL_TYPES = [
     {"key": "event_prop", "value": ["foo", "bar"], "type": "event"},
@@ -22,6 +22,8 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         self.team.test_account_filters = PROPERTIES_OF_ALL_TYPES
         self.team.save()
+
+        cleanup_materialized_columns()
 
     def test_properties_used_in_filter(self):
         properties_used_in_filter = lambda filter: EnterpriseColumnOptimizer(
@@ -181,6 +183,51 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(optimizer().person_columns_to_query, {"pmat_person_prop"})
         self.assertEqual(optimizer_groups().event_columns_to_query, {"mat_event_prop"})
         self.assertEqual(optimizer_groups().person_columns_to_query, {"pmat_person_prop"})
+
+    def test_materialized_columns_checks_person_on_events(self):
+        optimizer = lambda: EnterpriseColumnOptimizer(
+            BASE_FILTER.with_data(
+                {
+                    "properties": [
+                        {
+                            "key": "group_prop",
+                            "value": ["value"],
+                            "operator": "exact",
+                            "type": "group",
+                            "group_type_index": 2,
+                        },
+                        {
+                            "key": "group_prop",
+                            "value": ["value"],
+                            "operator": "exact",
+                            "type": "group",
+                            "group_type_index": 0,
+                        },
+                        {"key": "person_prop", "value": ["value"], "operator": "exact", "type": "person"},
+                    ]
+                }
+            ),
+            self.team.id,
+        )
+
+        self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
+        self.assertEqual(optimizer().group_on_event_columns_to_query, {"group0_properties", "group2_properties"})
+
+        # materialising the props on `person` or `group` table should make no difference
+        materialize("person", "person_prop")
+        materialize("groups", "group_prop", table_column="group_properties")
+
+        self.assertEqual(optimizer().person_on_event_columns_to_query, {"person_properties"})
+        self.assertEqual(optimizer().group_on_event_columns_to_query, {"group0_properties", "group2_properties"})
+
+        materialize("events", "person_prop", table_column="person_properties")
+        materialize("events", "group_prop", table_column="group0_properties")
+
+        self.assertEqual(optimizer().person_on_event_columns_to_query, {"mat_pp_person_prop"})
+        self.assertEqual(optimizer().group_on_event_columns_to_query, {"mat_gp0_group_prop", "group2_properties"})
+
+        materialize("events", "group_prop", table_column="group2_properties")
+        self.assertEqual(optimizer().group_on_event_columns_to_query, {"mat_gp0_group_prop", "mat_gp2_group_prop"})
 
     def test_should_query_element_chain_column(self):
         should_query_elements_chain_column = lambda filter: EnterpriseColumnOptimizer(

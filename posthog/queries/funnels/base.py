@@ -808,6 +808,9 @@ class ClickhouseFunnelBase(ABC):
                 self._team,
                 extra_params={"offset": 0},
                 use_all_funnel_entities=use_all_funnel_entities,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._team.actor_on_events_querying_enabled
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             )
 
         return None
