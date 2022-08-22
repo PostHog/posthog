@@ -55,6 +55,9 @@ TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0006"
 TEMPORARY_PDI2_TABLE_NAME = "tmp_person_distinct_id2_0006"
 TEMPORARY_GROUPS_TABLE_NAME = "tmp_groups_0006"
 
+# :KLUDGE: On cloud, groups and person tables now have storage_policy sometimes attached
+STORAGE_POLICY_SETTING = lambda: ", storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
+
 
 class Migration(AsyncMigrationDefinition):
     description = "Backfill persons and groups data on the sharded_events table"
@@ -104,7 +107,7 @@ class Migration(AsyncMigrationDefinition):
                     CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.person
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, id)
-                    SETTINGS index_granularity = 128
+                    SETTINGS index_granularity = 128 {STORAGE_POLICY_SETTING()}
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,
@@ -124,7 +127,7 @@ class Migration(AsyncMigrationDefinition):
                     CREATE TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.groups
                     ENGINE = ReplacingMergeTree(_timestamp)
                     ORDER BY (team_id, group_type_index, group_key)
-                    SETTINGS index_granularity = 128
+                    SETTINGS index_granularity = 128 {STORAGE_POLICY_SETTING()}
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,
