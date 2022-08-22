@@ -814,21 +814,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([p1.uuid, p2.uuid, p3.uuid], [r[0] for r in res])
 
-        # using just conditions
-        q, params = CohortQuery(filter=filter, team=self.team, has_joined_person_props=True).get_query()
-
-        res = sync_execute(
-            f"""
-        SELECT id, properties as person_props
-        FROM person
-        WHERE team_id = {self.team.pk}
-        AND {q}
-        """,
-            params,
-        )
-
-        self.assertCountEqual([p1.uuid, p2.uuid, p3.uuid], [r[0] for r in res])
-
     @snapshot_clickhouse_queries
     def test_person_properties_with_pushdowns(self):
 
