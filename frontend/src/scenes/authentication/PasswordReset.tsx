@@ -29,7 +29,7 @@ export function PasswordReset(): JSX.Element {
         <BridgePage view="password-reset">
             {requestPasswordResetSucceeded && (
                 <div className="text-center">
-                    <IconCheckCircleOutline className="text-6xl text-success" />
+                    <IconCheckCircleOutline className="text-5xl text-success" />
                 </div>
             )}
             <h2>Reset password</h2>

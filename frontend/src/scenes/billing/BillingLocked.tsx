@@ -16,7 +16,7 @@ export function BillingLocked(): JSX.Element | null {
     return (
         <BillingSubscribedTheme>
             <div className="flex items-center justify-center gap-2">
-                <IconCancel className="text-danger text-3xl" />
+                <IconCancel className="text-danger text-3xl mb-2" />
                 <h2 className="subtitle">Please enter a credit card</h2>
             </div>
             <p>

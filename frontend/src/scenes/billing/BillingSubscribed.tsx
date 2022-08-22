@@ -36,8 +36,8 @@ export function BillingSubscribed(): JSX.Element {
     return (
         <BillingSubscribedTheme>
             <div className="flex items-center justify-center gap-2">
-                <IconCheckmark className="text-success text-3xl" />
-                <h2 className="subtitle">You're all set!</h2>
+                <IconCheckmark className="text-success text-3xl mb-2" />
+                <h2>You're all set!</h2>
             </div>
             <p>
                 You are now subscribed
