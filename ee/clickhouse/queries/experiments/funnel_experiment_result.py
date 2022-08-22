@@ -134,7 +134,7 @@ class ClickhouseFunnelExperimentResult:
             raise ValidationError("No control variant data found", code="no_data")
 
         if len(test_variants) > 3:
-            raise ValidationError("Can't calculate A/B test results for more than 3 variants", code="too_much_data")
+            raise ValidationError("Can't calculate A/B test results for more than 4 variants", code="too_much_data")
 
         if len(test_variants) < 1:
             raise ValidationError("Can't calculate A/B test results for less than 2 variants", code="no_data")
