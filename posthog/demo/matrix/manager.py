@@ -33,45 +33,21 @@ from .matrix import Matrix
 from .models import SimEvent, SimPerson
 
 
-def _sleep_until_person_data_in_clickhouse(
-    team_id: int, *, expected_person_count: int, expected_person_distinct_id_count: int
-):
-    from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
-
-    while True:
-        person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
-        person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
-        persons_ready = person_count >= expected_person_count
-        person_distinct_ids_ready = person_distinct_id_count >= expected_person_distinct_id_count
-        persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{expected_person_count}"
-        person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{expected_person_distinct_id_count}"
-        if persons_ready and person_distinct_ids_ready:
-            print(
-                "Source person data fully loaded into ClickHouse. "
-                f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
-                "Setting up project..."
-            )
-            break
-        print(
-            "Waiting for person data to land in ClickHouse... "
-            f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
-        )
-        sleep(0.5)
-
-
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
     MASTER_TEAM_ID = 0
 
     matrix: Matrix
     use_pre_save: bool
+    print_steps: bool
 
     _persons_created: int
     _person_distinct_ids_created: int
 
-    def __init__(self, matrix: Matrix, *, use_pre_save: bool = False):
+    def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
         self.matrix = matrix
         self.use_pre_save = use_pre_save
+        self.print_steps = print_steps
         self._persons_created = 0
         self._person_distinct_ids_created = 0
 
@@ -84,12 +60,11 @@ class MatrixManager:
         password: Optional[str] = None,
         is_staff: bool = False,
         disallow_collision: bool = False,
-        print_steps: bool = False,
     ) -> Tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
         if existing_user is None:
-            if print_steps:
+            if self.print_steps:
                 print(f"Creating demo organization, project, and user...")
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
@@ -99,7 +74,7 @@ class MatrixManager:
                 organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
             )
             team = self.create_team(organization)
-            if print_steps:
+            if self.print_steps:
                 print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
@@ -112,7 +87,7 @@ class MatrixManager:
         else:
             assert existing_user.organization is not None
             assert existing_user.team is not None
-            if print_steps:
+            if self.print_steps:
                 print(f"Found existing account for {email}.")
             if is_staff and not existing_user.is_staff:
                 # Make sure the user is marked as staff - this is for users who signed up normally before
@@ -126,11 +101,7 @@ class MatrixManager:
             self.matrix.simulate()
         master_team = self._prepare_master_team(ensure_blank_slate=True)
         self._save_analytics_data(master_team)
-        _sleep_until_person_data_in_clickhouse(
-            self.MASTER_TEAM_ID,
-            expected_person_count=self._persons_created,
-            expected_person_distinct_id_count=self._person_distinct_ids_created,
-        )
+        self._sleep_until_person_data_in_clickhouse(self.MASTER_TEAM_ID)
 
     @staticmethod
     def create_team(organization: Organization, **kwargs) -> Team:
@@ -149,11 +120,7 @@ class MatrixManager:
             self._copy_analytics_data_from_master_team(team)
         else:
             # If we're not using pre-saved data, we need to wait a bit for data just queued into Kafka to show up in CH
-            _sleep_until_person_data_in_clickhouse(
-                team.pk,
-                expected_person_count=self._persons_created,
-                expected_person_distinct_id_count=self._person_distinct_ids_created,
-            )
+            self._sleep_until_person_data_in_clickhouse(team.pk)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk)  # TODO: include_actor_properties=True
@@ -322,6 +289,31 @@ class MatrixManager:
         from posthog.models.group.util import raw_create_group_ch
 
         raw_create_group_ch(team.pk, type_index, key, properties, timestamp)
+
+    def _sleep_until_person_data_in_clickhouse(self, team_id: int):
+        from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
+
+        while True:
+            person_count = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+            person_distinct_id_count = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
+            persons_ready = person_count >= self._persons_created
+            person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
+            persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
+            person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
+            if persons_ready and person_distinct_ids_ready:
+                if self.print_steps:
+                    print(
+                        "Source person data fully loaded into ClickHouse. "
+                        f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
+                        "Setting up project..."
+                    )
+                break
+            if self.print_steps:
+                print(
+                    "Waiting for person data to land in ClickHouse... "
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                )
+            sleep(0.5)
 
     @classmethod
     def _is_demo_data_pre_saved(cls) -> bool:

@@ -65,19 +65,14 @@ class Command(BaseCommand):
         if not options["dry_run"]:
             email = options["email"]
             password = options["password"]
-            matrix_manager = MatrixManager(matrix)
+            matrix_manager = MatrixManager(matrix, print_steps=True)
             with transaction.atomic():
                 try:
                     if options["reset_master"]:
                         matrix_manager.reset_master()
                     else:
                         matrix_manager.ensure_account_and_save(
-                            email,
-                            "Employee 427",
-                            "Hedgebox Inc.",
-                            password=password,
-                            disallow_collision=True,
-                            print_steps=True,
+                            email, "Employee 427", "Hedgebox Inc.", password=password, disallow_collision=True
                         )
                 except exceptions.ValidationError as e:
                     print(f"Error: {e}")
