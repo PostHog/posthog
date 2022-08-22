@@ -2,7 +2,6 @@
 Scene to request a password reset email.
 */
 import React from 'react'
-import { CheckCircleOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
@@ -15,6 +14,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AuthenticationButton } from './AuthenticationButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconCheckCircleOutline } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -29,7 +29,7 @@ export function PasswordReset(): JSX.Element {
         <BridgePage view="password-reset">
             {requestPasswordResetSucceeded && (
                 <div className="text-center">
-                    <CheckCircleOutlined style={{ color: 'var(--success)', fontSize: '4em' }} />
+                    <IconCheckCircleOutline className="text-6xl text-success" />
                 </div>
             )}
             <h2 className="subtitle justify-center">Reset password</h2>

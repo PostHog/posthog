@@ -21,6 +21,7 @@
     }
 
     .BridgePage__content {
+        position: relative;
         box-shadow: var(--shadow-elevation);
         width: 100%;
         padding: 2rem;
@@ -43,10 +44,39 @@
     }
 
     .BridgePage__art {
+        position: relative;
         width: 300px;
         padding-right: 48px;
         visibility: none;
         display: none;
+        align-self: flex-start;
+
+        img {
+            width: 100%;
+        }
+
+        .BridgePage__art__message {
+            position: absolute;
+            left: 0px;
+            bottom: 250px;
+            transform: rotate(5deg);
+            max-width: 150px;
+            background-color: var(--primary-alt);
+            border-radius: 1rem;
+            padding: 0.5rem 0.75rem;
+            color: var(--white);
+            font-size: 0.8em;
+
+            &:after {
+                position: absolute;
+                top: 100%;
+                left: 20px;
+                margin-top: -10px;
+                content: ' ';
+                border: 10px solid transparent;
+                border-right-color: var(--primary-alt);
+            }
+        }
 
         @include screen($md) {
             display: block;

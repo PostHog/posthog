@@ -15,7 +15,7 @@ export function Unsubscribe(): JSX.Element {
     return (
         <BridgePage view="unsubscribe">
             {unsubscriptionLoading ? (
-                <div className="p-4">
+                <div className="p-4 flex justify-center">
                     <Spinner />
                 </div>
             ) : unsubscription ? (

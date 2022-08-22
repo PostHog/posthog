@@ -10,13 +10,26 @@ export type BridgePageProps = {
     footer?: React.ReactNode
     view: string
     noHedgehog?: boolean
+    message?: React.ReactNode
 }
 
-export function BridgePage({ children, className, footer, view, noHedgehog = false }: BridgePageProps): JSX.Element {
+export function BridgePage({
+    children,
+    className,
+    footer,
+    view,
+    message,
+    noHedgehog = false,
+}: BridgePageProps): JSX.Element {
     return (
         <div className={clsx('BridgePage', className)}>
             <div className="BridgePage__main">
-                {!noHedgehog ? <img src={hedgehogMain} alt="" className="BridgePage__art" /> : null}
+                {!noHedgehog ? (
+                    <div className="BridgePage__art">
+                        <img src={hedgehogMain} alt="" />
+                        {message ? <div className="BridgePage__art__message">{message}</div> : null}
+                    </div>
+                ) : null}
                 <div className="BridgePage__content-wrapper">
                     <div className="BridgePage__header-logo">
                         <WelcomeLogo view={view} />

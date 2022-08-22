@@ -44,6 +44,12 @@ export function Signup(): JSX.Element | null {
     return !user ? (
         <BridgePage
             view="signup"
+            message={
+                <>
+                    Welcome to
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!!!!
+                </>
+            }
             footer={
                 <>
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (

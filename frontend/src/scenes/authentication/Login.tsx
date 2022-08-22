@@ -79,7 +79,7 @@ export function Login(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <BridgePage view="login">
+        <BridgePage view="login" noHedgehog>
             <div className="space-y-2">
                 <h2 className="text-center font-bold">Get started</h2>
                 {loginManualErrors.generic && (
