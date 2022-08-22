@@ -85,8 +85,8 @@ export function getFormattedDate(dayInput?: string | number, interval?: Interval
 
 export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum[] {
     // NOTE: These logics should not be loaded as hooks unless converted to a "use" function
-    const { cohorts } = cohortsModel.values
-    const { formatPropertyValueForDisplay } = propertyDefinitionsModel.values
+    const cohorts = cohortsModel.findMounted()?.values?.cohorts
+    const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
     seriesData.forEach((s) => {
         let datumTitle
