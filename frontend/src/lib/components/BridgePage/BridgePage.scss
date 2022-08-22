@@ -1,0 +1,51 @@
+@import '../../../styles/mixins';
+
+.BridgePage {
+    background-color: var(--bg-bridge);
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding-top: 2rem;
+    min-height: 100vh;
+    padding-bottom: 100px;
+
+    .BridgePage__content-wrapper {
+        max-width: 400px; // same as for .inner
+    }
+
+    .BridgePage__content {
+        box-shadow: var(--shadow-elevation);
+        width: 100%;
+        max-width: 400px; // 320px + 80px padding
+        padding: 1rem 2.5rem 1.75rem;
+        background-color: white;
+        border-radius: var(--radius);
+    }
+
+    .BridgePage__footer {
+        position: absolute;
+        bottom: 40px;
+        left: 0px;
+        right: 0px;
+        display: flex;
+        justify-content: center;
+        gap: 10%;
+        margin-top: 5rem;
+        color: var(--muted);
+        font-weight: 500;
+        width: 100%;
+    }
+
+    .BridgePage__art {
+        width: 300px;
+        padding-right: 48px;
+        visibility: none;
+        display: none;
+
+        @include screen($md) {
+            display: block;
+            visibility: visible;
+        }
+    }
+}

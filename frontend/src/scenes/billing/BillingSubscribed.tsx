@@ -1,16 +1,12 @@
-import { Button, Col, Row } from 'antd'
 import React, { PropsWithChildren } from 'react'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
-import './BillingSubscribed.scss'
-import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
-import { CheckCircleOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
 import { billingLogic } from './billingLogic'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconCheckmark } from 'lib/components/icons'
 
 export const scene: SceneExport = {
     component: BillingSubscribed,
@@ -20,36 +16,27 @@ export function BillingSubscribedTheme({ children }: PropsWithChildren<unknown>)
     const { toggleHelp } = useActions(helpButtonLogic)
 
     return (
-        <div className="BridgePage billing-subscribed">
-            <Row>
-                <Col span={24} className="AuthContent">
-                    <img src={hedgehogMain} alt="" className="main-art" />
-                    <div className="inner-wrapper">
-                        <WelcomeLogo view="signup" />
-                        <div className="inner">
-                            {children}
-                            <div className="support-footer">
-                                Have questions?{' '}
-                                <Button type="link" onClick={toggleHelp} style={{ paddingLeft: 0 }}>
-                                    Get help
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </Col>
-            </Row>
-        </div>
+        <BridgePage view={'billing'}>
+            {children}
+
+            <LemonDivider dashed className="my-4" />
+            <div className="text-center">
+                Have questions?{' '}
+                <Link type="link" onClick={toggleHelp}>
+                    Get help
+                </Link>
+            </div>
+        </BridgePage>
     )
 }
 
 export function BillingSubscribed(): JSX.Element {
-    const { push } = useActions(router)
     const { billing } = useValues(billingLogic)
 
     return (
         <BillingSubscribedTheme>
-            <div className="title">
-                <CheckCircleOutlined style={{ color: 'var(--success)' }} className="title-icon" />
+            <div className="flex items-center justify-center gap-2">
+                <IconCheckmark className="text-success text-3xl" />
                 <h2 className="subtitle">You're all set!</h2>
             </div>
             <p>
@@ -72,7 +59,7 @@ export function BillingSubscribed(): JSX.Element {
                 Please reach out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing
                 questions.
             </p>
-            <LemonButton className="cta-button" type="primary" size="large" center={true} onClick={() => push('/')}>
+            <LemonButton className="cta-button" type="primary" size="large" center={true} fullWidth to="/">
                 Finish
             </LemonButton>
         </BillingSubscribedTheme>
