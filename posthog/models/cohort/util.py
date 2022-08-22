@@ -275,12 +275,11 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
             size_before=before_count,
         )
 
+    cohort_filter = cohort_filter.replace("person_props", "properties")
     person_query = f"""
-    SELECT id FROM (
-        SELECT id, properties as person_props
-        FROM person
-        WHERE {cohort_filter}
-    )
+    SELECT id
+    FROM person
+    WHERE {cohort_filter}
     """
 
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=person_query)
