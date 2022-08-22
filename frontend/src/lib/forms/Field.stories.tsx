@@ -138,7 +138,7 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                     <LemonInput type="email" />
                 </Field>
                 <Field name="pineappleOnPizza">
-                    <LemonCheckbox bordered label="Checkbox labels are set differently" fullWidth />
+                    <LemonCheckbox bordered label="Pineapple on your pizza?" fullWidth />
                 </Field>
 
                 <div className="flex justify-end gap-2 border-t mt-4 pt-4">

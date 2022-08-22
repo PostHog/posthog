@@ -41,12 +41,7 @@ export function Library(): JSX.Element {
     const [showBorder, setShowBorder] = React.useState(true)
     return (
         <div className="space-y-2">
-            <LemonCheckbox
-                bordered
-                checked={showBorder}
-                onChange={(e) => setShowBorder(e.target.checked)}
-                label="Show border"
-            />
+            <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
             <LemonTable
                 dataSource={allIcons}
                 columns={[

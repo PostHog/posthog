@@ -240,7 +240,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <LemonCheckbox
                                     id="webhook-checkbox"
                                     checked={!!value}
-                                    onChange={(e) => onChange(e.target.checked)}
+                                    onChange={onChange}
                                     disabled={!slackEnabled}
                                     label={
                                         <>
