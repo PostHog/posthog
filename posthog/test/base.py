@@ -402,9 +402,10 @@ def _create_person(*args, **kwargs):
     Pass immediate=True to create immediately and get a pk back
     """
     global persons_ordering_int
-    kwargs["uuid"] = uuid.UUID(
-        int=persons_ordering_int, version=4
-    )  # make sure the ordering of uuids is always consistent
+    if not (kwargs.get("uuid")):
+        kwargs["uuid"] = uuid.UUID(
+            int=persons_ordering_int, version=4
+        )  # make sure the ordering of uuids is always consistent
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
     if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):

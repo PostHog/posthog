@@ -4,7 +4,6 @@ from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.property import Property, PropertyGroup
-from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.foss_cohort_query import (
     FOSSCohortQuery,
@@ -47,15 +46,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
-            if self._has_joined_person_props:
-                return parse_prop_grouped_clauses(
-                    team_id=self._team_id,
-                    property_group=self._inner_property_groups,
-                    person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-                    _top_level=False,
-                )
-            else:
-                return self._person_query.get_query(prepend=self._cohort_pk)
+            return self._person_query.get_query(prepend=self._cohort_pk)
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
         conditions, condition_params = self._get_conditions()

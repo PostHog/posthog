@@ -8,7 +8,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_static_cohort_query, get_count_operator, get_entity_query
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import BehavioralPropertyType, OperatorInterval, Property, PropertyGroup, PropertyName
-from posthog.models.property.util import parse_prop_grouped_clauses, prop_filter_json_extract
+from posthog.models.property.util import prop_filter_json_extract
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 
@@ -119,7 +119,6 @@ class FOSSCohortQuery(EventQuery):
     _events: List[str]
     _earliest_time_for_event_query: Union[Relative_Date, None]
     _restrict_event_query_by_time: bool
-    _has_joined_person_props: Optional[bool]
 
     def __init__(
         self,
@@ -135,7 +134,6 @@ class FOSSCohortQuery(EventQuery):
         extra_event_properties: List[PropertyName] = [],
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
-        has_joined_person_props: Optional[bool] = False,
         **kwargs,
     ) -> None:
         self._fields = []
@@ -143,7 +141,6 @@ class FOSSCohortQuery(EventQuery):
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
-        self._has_joined_person_props = has_joined_person_props
 
         super().__init__(
             filter=FOSSCohortQuery.unwrap_cohort(filter, team.pk),
@@ -164,10 +161,6 @@ class FOSSCohortQuery(EventQuery):
         property_groups = self._column_optimizer.property_optimizer.parse_property_groups(self._filter.property_groups)
         self._inner_property_groups = property_groups.inner
         self._outer_property_groups = property_groups.outer
-
-    @cached_property
-    def is_subquery(self) -> bool:
-        return bool(self._outer_property_groups) or not self._has_joined_person_props
 
     @staticmethod
     def unwrap_cohort(filter: Filter, team_id: int) -> Filter:
@@ -249,15 +242,7 @@ class FOSSCohortQuery(EventQuery):
         if not self._outer_property_groups:
             # everything is pushed down, no behavioral stuff to do
             # thus, use personQuery directly
-            if self._has_joined_person_props:
-                return parse_prop_grouped_clauses(
-                    team_id=self._team_id,
-                    property_group=self._inner_property_groups,
-                    person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
-                    _top_level=False,
-                )
-            else:
-                return self._person_query.get_query(prepend=self._cohort_pk)
+            return self._person_query.get_query(prepend=self._cohort_pk)
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
         conditions, condition_params = self._get_conditions()

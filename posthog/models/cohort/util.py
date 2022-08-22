@@ -39,7 +39,7 @@ logger = structlog.get_logger(__name__)
 
 
 def format_person_query(
-    cohort: Cohort, index: int, *, custom_match_field: str = "person_id", has_joined_person_props: bool = False
+    cohort: Cohort, index: int, *, custom_match_field: str = "person_id"
 ) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="", custom_match_field=custom_match_field)
@@ -51,18 +51,12 @@ def format_person_query(
     from posthog.queries.cohort_query import CohortQuery
 
     query_builder = CohortQuery(
-        Filter(data={"properties": cohort.properties}, team=cohort.team),
-        cohort.team,
-        cohort_pk=cohort.pk,
-        has_joined_person_props=has_joined_person_props,
+        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk
     )
 
     query, params = query_builder.get_query()
 
-    if query_builder.is_subquery:
-        return f"{custom_match_field} IN ({query})", params
-    else:
-        return query, params
+    return query, params
 
 
 def format_static_cohort_query(
@@ -219,7 +213,7 @@ def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="perso
     person_query, params = (
         format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
         if is_precalculated
-        else format_person_query(cohort, index, custom_match_field=custom_match_field)
+        else f"AND id IN {format_person_query(cohort, index, custom_match_field=custom_match_field)}"
     )
     return person_query, params
 
@@ -263,7 +257,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id", has_joined_person_props=True)
+    cohort_query, cohort_params = format_person_query(cohort, 0, custom_match_field="id")
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
@@ -275,14 +269,9 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
             size_before=before_count,
         )
 
-    cohort_filter = cohort_filter.replace("person_props", "properties")
-    person_query = f"""
-    SELECT id
-    FROM person
-    WHERE {cohort_filter}
-    """
+    cohort_query = cohort_query.replace("person_props", "properties")
 
-    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=person_query)
+    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
     sync_execute(
         recalcluate_cohortpeople_sql,
