@@ -671,7 +671,7 @@
   WHERE 1 = 1
     AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
            AND (id NOT IN
-                  (SELECT person_id
+                  (SELECT person_id as id
                    FROM person_static_cohort
                    WHERE cohort_id = 2
                      AND team_id = 2)))
