@@ -125,7 +125,12 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
     ) as DisplayedType
 }
 
-export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface Resizeable {
+    showResizeHandles?: boolean
+    canResizeWidth?: boolean
+}
+
+export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     /** Insight to display. */
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -138,8 +143,6 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     highlighted?: boolean
     /** Whether loading timed out. */
     timedOut?: boolean
-    showResizeHandles?: boolean
-    canResizeWidth?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
     /** Whether the  controls for showing details should be enabled or not. */

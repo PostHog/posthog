@@ -1,0 +1,44 @@
+.TextCard {
+    transition: border 200ms ease;
+    position: relative;
+    height: 30rem;
+    min-width: 0;
+    max-width: 100%;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    z-index: 3;
+    background: #fff;
+
+    &--highlighted {
+        border-color: var(--primary);
+        outline: 1px solid var(--primary);
+    }
+}
+
+.handle {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: var(--z-raised);
+    &.horizontal {
+        svg {
+            transform: rotate(90deg) translateX(0.75rem);
+        }
+    }
+    &.vertical {
+        flex-direction: column;
+        svg {
+            transform: translateX(0.5rem);
+        }
+    }
+    &.corner {
+        justify-content: flex-end;
+        svg {
+            transform: translate(0.5rem, 0.5rem);
+        }
+    }
+}

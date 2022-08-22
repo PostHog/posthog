@@ -38,6 +38,14 @@ export const MIN_ITEM_HEIGHT_UNITS = 5
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
+export interface CanBeLaidOut {
+    deleted: boolean
+    layouts: Record<string, any>
+    filters?: Partial<FilterType>
+    short_id?: string
+    id?: string
+}
+
 export interface DashboardLogicProps {
     id?: number
     dashboard?: DashboardType
@@ -418,39 +426,63 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         layouts: [
-            (s) => [s.items],
-            (items) => {
+            (s) => [s.items, s.dashboard],
+            (items, dashboard) => {
+                const { text_tiles } = dashboard ?? { text_tiles: [] }
                 // The dashboard redesign includes constraints on the size of dashboard items
                 const minW = MIN_ITEM_WIDTH_UNITS
                 const minH = MIN_ITEM_HEIGHT_UNITS
 
                 const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout[]>> = {}
 
+                const candidates: CanBeLaidOut[] = (items || [])
+                    .map((i) => i as unknown as CanBeLaidOut)
+                    .concat(text_tiles.map((t) => t as unknown as CanBeLaidOut))
+
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
-                    const layouts = items
-                        ?.filter((i) => !i.deleted)
+                    const layouts = candidates
+                        .filter((i) => !i.deleted)
                         .map((item) => {
-                            const isRetention =
-                                item.filters.insight === InsightType.RETENTION &&
-                                item.filters.display === ChartDisplayType.ActionsLineGraph
-                            const defaultWidth =
-                                isRetention || item.filters.display === ChartDisplayType.PathsViz ? 8 : 6
-                            const defaultHeight = isRetention
-                                ? 8
-                                : item.filters.display === ChartDisplayType.PathsViz
-                                ? 12.5
-                                : 5
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}
-                            const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
-                            return {
-                                i: item.short_id,
-                                x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
-                                y: Number.isInteger(y) ? y : Infinity,
-                                w: width,
-                                h: h || defaultHeight,
-                                minW,
-                                minH,
+
+                            if ('filters' in item) {
+                                const isRetention =
+                                    item.filters?.insight === InsightType.RETENTION &&
+                                    item.filters?.display === ChartDisplayType.ActionsLineGraph
+                                const defaultWidth =
+                                    isRetention || item.filters?.display === ChartDisplayType.PathsViz ? 8 : 6
+                                const defaultHeight = isRetention
+                                    ? 8
+                                    : item.filters?.display === ChartDisplayType.PathsViz
+                                    ? 12.5
+                                    : 5
+
+                                const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
+
+                                return {
+                                    i: item.short_id as string,
+                                    x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
+                                    y: Number.isInteger(y) ? y : Infinity,
+                                    w: width,
+                                    h: h || defaultHeight,
+                                    minW,
+                                    minH,
+                                }
+                            } else {
+                                const defaultWidth = 6
+                                const defaultHeight = 5
+                                const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
+
+                                return {
+                                    i: item.id as string,
+                                    x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
+                                    y: Number.isInteger(y) ? y : Infinity,
+                                    w: width,
+                                    h: h || defaultHeight,
+                                    minW,
+                                    minH,
+                                }
                             }
                         })
 

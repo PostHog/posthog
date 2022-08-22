@@ -790,13 +790,24 @@ export enum InsightColor {
     Purple = 'purple',
 }
 
-export interface DashboardTile {
-    result: any | null
-    layouts: Record<string, any>
-    color: InsightColor | null
+export interface Cacheable {
     last_refresh: string | null
     filters: Partial<FilterType>
     filters_hash: string
+}
+
+export interface Tileable {
+    layouts: Record<string, any>
+    color: InsightColor | null
+}
+
+export interface DashboardTile extends Tileable, Cacheable {
+    result: any | null
+}
+
+export interface DashboardTextTile extends Tileable, Cacheable {
+    id: number
+    body: string
 }
 
 export interface InsightModel extends DashboardTile {
@@ -845,6 +856,7 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+    text_tiles: DashboardTextTile[]
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'

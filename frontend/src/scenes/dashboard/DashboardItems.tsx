@@ -4,12 +4,13 @@ import React, { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
-import { InsightModel, DashboardMode, DashboardType, DashboardPlacement } from '~/types'
+import { InsightModel, DashboardMode, DashboardType, DashboardPlacement, DashboardTextTile } from '~/types'
 import { insightsModel } from '~/models/insightsModel'
 import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/dashboard/dashboardLogic'
 import clsx from 'clsx'
 import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { TextCard } from 'scenes/dashboard/TextCard'
 
 export function DashboardItems(): JSX.Element {
     const { dashboard, items, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
@@ -103,6 +104,28 @@ export function DashboardItems(): JSX.Element {
                             DashboardPlacement.ProjectHomepage,
                         ].includes(placement)}
                         showDetailsControls={placement != DashboardPlacement.Export}
+                    />
+                ))}
+                {dashboard?.text_tiles?.map((textTile: DashboardTextTile) => (
+                    <TextCard
+                        key={textTile.id}
+                        body={textTile.body}
+                        // dashboardId={dashboard?.id}
+                        showResizeHandles={dashboardMode === DashboardMode.Edit}
+                        canResizeWidth={canResizeWidth}
+                        // updateColor={(color) => updateTextTileColor(textTile.id, color)}
+                        // removeFromDashboard={() => removeTextTile(textTile)}
+                        // duplicate={() => duplicateInsight(item)}
+                        // moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                        //     if (!dashboard) {
+                        //         throw new Error('must be on a dashboard to move an insight')
+                        //     }
+                        //     moveToDashboard(item, dashboard.id, id, name)
+                        // }}
+                        // showEditingControls={[
+                        //     DashboardPlacement.Dashboard,
+                        //     DashboardPlacement.ProjectHomepage,
+                        // ].includes(placement)}
                     />
                 ))}
             </ReactGridLayout>
