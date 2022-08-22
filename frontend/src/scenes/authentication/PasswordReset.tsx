@@ -2,7 +2,6 @@
 Scene to request a password reset email.
 */
 import React from 'react'
-import { WelcomeLogo } from './WelcomeLogo'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -15,6 +14,7 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AuthenticationButton } from './AuthenticationButton'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -26,28 +26,23 @@ export function PasswordReset(): JSX.Element {
     const { requestPasswordResetSucceeded } = useValues(passwordResetLogic)
 
     return (
-        <div className="BridgePage password-reset">
-            <div className="AuthContent">
-                <WelcomeLogo view="login" />
-                <div className="inner">
-                    {requestPasswordResetSucceeded && (
-                        <div className="text-center">
-                            <CheckCircleOutlined style={{ color: 'var(--success)', fontSize: '4em' }} />
-                        </div>
-                    )}
-                    <h2 className="subtitle justify-center">Reset password</h2>
-                    {preflightLoading ? (
-                        <Spinner />
-                    ) : !preflight?.email_service_available ? (
-                        <EmailUnavailable />
-                    ) : requestPasswordResetSucceeded ? (
-                        <ResetSuccess />
-                    ) : (
-                        <ResetForm />
-                    )}
+        <BridgePage view="password-reset">
+            {requestPasswordResetSucceeded && (
+                <div className="text-center">
+                    <CheckCircleOutlined style={{ color: 'var(--success)', fontSize: '4em' }} />
                 </div>
-            </div>
-        </div>
+            )}
+            <h2 className="subtitle justify-center">Reset password</h2>
+            {preflightLoading ? (
+                <Spinner />
+            ) : !preflight?.email_service_available ? (
+                <EmailUnavailable />
+            ) : requestPasswordResetSucceeded ? (
+                <ResetSuccess />
+            ) : (
+                <ResetForm />
+            )}
+        </BridgePage>
     )
 }
 

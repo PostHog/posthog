@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react'
 import './IngestionWizard.scss'
-import '../authentication/bridgePagesShared.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
@@ -19,6 +18,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { SitePopover } from '~/layout/navigation/TopBar/SitePopover'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const scene: SceneExport = {
     component: IngestionWizard,
@@ -103,12 +103,10 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
             <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
-                <div className="BridgePage IngestionContainer">
-                    <div className="mb-4">
-                        <FriendlyLogo style={{ fontSize: '1.125rem' }} />
-                    </div>
+                {/* <div className="IngestionContainer" */}
+                <BridgePage view="ingestion" noHedgehog>
                     {children}
-                </div>
+                </BridgePage>
             </div>
         </div>
     )

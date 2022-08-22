@@ -6,7 +6,6 @@ import { Link } from 'lib/components/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import clsx from 'clsx'
-import { WelcomeLogo } from './WelcomeLogo'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
@@ -16,6 +15,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { AuthenticationButton } from './AuthenticationButton'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     no_new_organizations:
@@ -79,77 +79,74 @@ export function Login(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <div className="BridgePage">
-            <div className="AuthContent">
-                <WelcomeLogo view="login" />
-                <div className="inner space-y-2">
-                    <h2 className="subtitle justify-center">Get started</h2>
-                    {loginManualErrors.generic && (
-                        <AlertMessage type="error">
-                            {loginManualErrors.generic.errorDetail ||
-                                ERROR_MESSAGES[loginManualErrors.generic.errorCode] ||
-                                'Could not complete your login. Please try again.'}
-                        </AlertMessage>
-                    )}
-                    <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
-                        <Field name="email" label="Email">
+        <BridgePage view="login">
+            <div className="space-y-2">
+                <h2 className="text-center font-bold">Get started</h2>
+                {loginManualErrors.generic && (
+                    <AlertMessage type="error">
+                        {loginManualErrors.generic.errorDetail ||
+                            ERROR_MESSAGES[loginManualErrors.generic.errorCode] ||
+                            'Could not complete your login. Please try again.'}
+                    </AlertMessage>
+                )}
+                <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
+                    <Field name="email" label="Email">
+                        <LemonInput
+                            className="ph-ignore-input"
+                            autoFocus
+                            data-attr="login-email"
+                            placeholder="email@yourcompany.com"
+                            type="email"
+                            onBlur={() => precheck({ email: login.email })}
+                            onPressEnter={() => {
+                                precheck({ email: login.email })
+                                document.getElementById('password')?.focus()
+                            }}
+                            autoComplete="off"
+                        />
+                    </Field>
+                    <div
+                        className={clsx(
+                            'PasswordWrapper',
+                            (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) && 'hidden'
+                        )}
+                    >
+                        <Field name="password" label="Password">
                             <LemonInput
+                                type="password"
                                 className="ph-ignore-input"
-                                autoFocus
-                                data-attr="login-email"
-                                placeholder="email@yourcompany.com"
-                                type="email"
-                                onBlur={() => precheck({ email: login.email })}
-                                onPressEnter={() => {
-                                    precheck({ email: login.email })
-                                    document.getElementById('password')?.focus()
-                                }}
-                                autoComplete="off"
+                                data-attr="password"
+                                placeholder="••••••••••"
                             />
                         </Field>
-                        <div
-                            className={clsx(
-                                'PasswordWrapper',
-                                (precheckResponse.status === 'pending' || precheckResponse.sso_enforcement) && 'hidden'
-                            )}
-                        >
-                            <Field name="password" label="Password">
-                                <LemonInput
-                                    type="password"
-                                    className="ph-ignore-input"
-                                    data-attr="password"
-                                    placeholder="••••••••••"
-                                />
-                            </Field>
-                        </div>
-                        {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
-                            <AuthenticationButton
-                                htmlType="submit"
-                                data-attr="password-login"
-                                loading={isLoginSubmitting || precheckResponseLoading}
-                            >
-                                Login
-                            </AuthenticationButton>
-                        ) : (
-                            <SSOLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
-                        )}
-                        {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                            <SSOLoginButton provider="saml" email={login.email} status="primary" />
-                        )}
-                    </Form>
-                    <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
-                        {preflight?.cloud && (
-                            <Link to="/signup" data-attr="signup">
-                                Create an account
-                            </Link>
-                        )}
-                        <Link to="/reset" data-attr="forgot-password">
-                            Forgot your password?
-                        </Link>
                     </div>
-                    <SocialLoginButtons caption="Or log in with" topDivier />
+                    {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
+                        <AuthenticationButton
+                            htmlType="submit"
+                            data-attr="password-login"
+                            loading={isLoginSubmitting || precheckResponseLoading}
+                        >
+                            Login
+                        </AuthenticationButton>
+                    ) : (
+                        <SSOLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                    )}
+                    {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                        <SSOLoginButton provider="saml" email={login.email} status="primary" />
+                    )}
+                </Form>
+                <div className="flex items-center justify-center flex-wrap gap-2 mt-4">
+                    {preflight?.cloud && (
+                        <Link to="/signup" data-attr="signup">
+                            Create an account
+                        </Link>
+                    )}
+                    <Link to="/reset" data-attr="forgot-password">
+                        Forgot your password?
+                    </Link>
                 </div>
+                <SocialLoginButtons caption="Or log in with" topDivier />
             </div>
-        </div>
+        </BridgePage>
     )
 }

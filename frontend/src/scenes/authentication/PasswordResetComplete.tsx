@@ -2,7 +2,6 @@
 Scene to enter a new password from a received reset link
 */
 import React from 'react'
-import { WelcomeLogo } from './WelcomeLogo'
 import { StopOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { passwordResetLogic } from './passwordResetLogic'
@@ -14,6 +13,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { AuthenticationButton } from './AuthenticationButton'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const scene: SceneExport = {
     component: PasswordResetComplete,
@@ -24,28 +24,21 @@ export function PasswordResetComplete(): JSX.Element {
     const { validatedResetToken, validatedResetTokenLoading } = useValues(passwordResetLogic)
     const invalidLink = !validatedResetTokenLoading && !validatedResetToken?.success
     return (
-        <div className="BridgePage password-reset-complete">
-            <div className="AuthContent">
-                <WelcomeLogo view="login" />
-                <div className="inner">
-                    {invalidLink && (
-                        <div className="text-center">
-                            <StopOutlined style={{ color: 'var(--muted)', fontSize: '4em' }} />
-                        </div>
-                    )}
-                    <h2 className="subtitle justify-center">
-                        {invalidLink ? 'Unable to reset' : 'Set a new password'}
-                    </h2>
-                    {validatedResetTokenLoading ? (
-                        <Spinner />
-                    ) : !validatedResetToken?.token ? (
-                        <ResetInvalid />
-                    ) : (
-                        <NewPasswordForm />
-                    )}
+        <BridgePage view="password-reset-complete">
+            {invalidLink && (
+                <div className="text-center">
+                    <StopOutlined style={{ color: 'var(--muted)', fontSize: '4em' }} />
                 </div>
-            </div>
-        </div>
+            )}
+            <h2 className="subtitle justify-center">{invalidLink ? 'Unable to reset' : 'Set a new password'}</h2>
+            {validatedResetTokenLoading ? (
+                <Spinner />
+            ) : !validatedResetToken?.token ? (
+                <ResetInvalid />
+            ) : (
+                <NewPasswordForm />
+            )}
+        </BridgePage>
     )
 }
 

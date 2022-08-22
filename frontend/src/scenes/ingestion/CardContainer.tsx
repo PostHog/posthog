@@ -19,7 +19,7 @@ export function CardContainer({
     const { isSmallScreen } = useValues(ingestionLogic)
 
     return (
-        <div className="ingestion-card-container">
+        <div>
             {!isSmallScreen ? (
                 <div className="flex items-center" data-attr="wizard-step-counter">
                     {index !== 0 && (
