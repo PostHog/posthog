@@ -124,6 +124,7 @@ export const FEATURE_FLAGS = {
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
     SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner @alexkim205
+    TEXT_CARDS: 'text-cards', // owner @pauldambra
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

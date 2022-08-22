@@ -11,7 +11,7 @@ export function TextCard({ body }: TextCardProps): JSX.Element {
     return (
         <div className="TextCard">
             <Textfit mode="single" min={32} max={120}>
-                <div className="">{body}</div>
+                <div className="flex items-center justify-center">{body}</div>
             </Textfit>
         </div>
     )

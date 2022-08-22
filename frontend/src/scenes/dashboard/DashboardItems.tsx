@@ -11,6 +11,8 @@ import clsx from 'clsx'
 import { InsightCard } from 'lib/components/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { TextCard } from 'scenes/dashboard/TextCard'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function DashboardItems(): JSX.Element {
     const { dashboard, items, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
@@ -18,6 +20,9 @@ export function DashboardItems(): JSX.Element {
     const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
         useActions(dashboardLogic)
     const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showTextCards = featureFlags[FEATURE_FLAGS.TEXT_CARDS]
 
     const [resizingItem, setResizingItem] = useState<any>(null)
 
@@ -106,28 +111,29 @@ export function DashboardItems(): JSX.Element {
                         showDetailsControls={placement != DashboardPlacement.Export}
                     />
                 ))}
-                {dashboard?.text_tiles?.map((textTile: DashboardTextTile) => (
-                    <TextCard
-                        key={textTile.id}
-                        body={textTile.body}
-                        // dashboardId={dashboard?.id}
-                        showResizeHandles={dashboardMode === DashboardMode.Edit}
-                        canResizeWidth={canResizeWidth}
-                        // updateColor={(color) => updateTextTileColor(textTile.id, color)}
-                        // removeFromDashboard={() => removeTextTile(textTile)}
-                        // duplicate={() => duplicateInsight(item)}
-                        // moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                        //     if (!dashboard) {
-                        //         throw new Error('must be on a dashboard to move an insight')
-                        //     }
-                        //     moveToDashboard(item, dashboard.id, id, name)
-                        // }}
-                        // showEditingControls={[
-                        //     DashboardPlacement.Dashboard,
-                        //     DashboardPlacement.ProjectHomepage,
-                        // ].includes(placement)}
-                    />
-                ))}
+                {showTextCards &&
+                    dashboard?.text_tiles?.map((textTile: DashboardTextTile) => (
+                        <TextCard
+                            key={textTile.id}
+                            body={textTile.body}
+                            // dashboardId={dashboard?.id}
+                            showResizeHandles={dashboardMode === DashboardMode.Edit}
+                            canResizeWidth={canResizeWidth}
+                            // updateColor={(color) => updateTextTileColor(textTile.id, color)}
+                            // removeFromDashboard={() => removeTextTile(textTile)}
+                            // duplicate={() => duplicateInsight(item)}
+                            // moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                            //     if (!dashboard) {
+                            //         throw new Error('must be on a dashboard to move an insight')
+                            //     }
+                            //     moveToDashboard(item, dashboard.id, id, name)
+                            // }}
+                            // showEditingControls={[
+                            //     DashboardPlacement.Dashboard,
+                            //     DashboardPlacement.ProjectHomepage,
+                            // ].includes(placement)}
+                        />
+                    ))}
             </ReactGridLayout>
         </div>
     )
