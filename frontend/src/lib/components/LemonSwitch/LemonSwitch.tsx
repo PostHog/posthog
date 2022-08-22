@@ -69,7 +69,7 @@ export function LemonSwitch({
                 <div className="LemonSwitch__slider" />
                 <div className="LemonSwitch__handle">
                     {loading && (
-                        <Spinner size="sm" monocolor className={clsx('p-1', checked ? 'text-white' : 'text-primary')} />
+                        <Spinner size="sm" monocolor className={clsx(checked ? 'text-white' : 'text-primary')} />
                     )}
                 </div>
             </button>
