@@ -65,4 +65,8 @@
         width: 100%;
         max-width: 100%;
     }
+
+    .Field--error & {
+        border: 1px solid var(--danger) !important;
+    }
 }

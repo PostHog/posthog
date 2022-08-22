@@ -99,5 +99,11 @@
                 gap: 0.5rem;
             }
         }
+
+        .Field--error & {
+            label {
+                border: 1px solid var(--danger);
+            }
+        }
     }
 }
