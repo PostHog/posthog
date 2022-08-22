@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { Hub, Person, PropertyOperator, PropertyUpdateOperation, Team, TimestampFormat } from '../../src/types'
+import { Cohort, Hub, Person, PropertyOperator, PropertyUpdateOperation, Team, TimestampFormat } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
@@ -1093,6 +1093,59 @@ describe('DB', () => {
                     },
                 ])
             )
+        })
+    })
+
+    describe('doesPersonBelongToCohort()', () => {
+        let team: Team
+        let cohort: Cohort
+        let person: Person
+
+        beforeEach(async () => {
+            team = await getFirstTeam(hub)
+            cohort = await hub.db.createCohort({
+                name: 'testCohort',
+                description: '',
+                team_id: team.id,
+                version: 10,
+            })
+            person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
+        })
+
+        it('returns false if person does not belong to cohort', async () => {
+            const cohort2 = await hub.db.createCohort({
+                name: 'testCohort2',
+                description: '',
+                team_id: team.id,
+            })
+            await hub.db.addPersonToCohort(cohort2.id, person.id, cohort.version)
+
+            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person)).toEqual(false)
+        })
+
+        it('returns true if person belongs to cohort', async () => {
+            await hub.db.addPersonToCohort(cohort.id, person.id, cohort.version)
+
+            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person)).toEqual(true)
+        })
+
+        it('returns false if person does not belong to current version of the cohort', async () => {
+            await hub.db.addPersonToCohort(cohort.id, person.id, -1)
+
+            expect(await hub.db.doesPersonBelongToCohort(cohort.id, person)).toEqual(false)
+        })
+
+        it('handles NULL version cohorts', async () => {
+            const cohort2 = await hub.db.createCohort({
+                name: 'null_cohort',
+                description: '',
+                team_id: team.id,
+                version: null,
+            })
+            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(false)
+
+            await hub.db.addPersonToCohort(cohort2.id, person.id, null)
+            expect(await hub.db.doesPersonBelongToCohort(cohort2.id, person)).toEqual(true)
         })
     })
 })
