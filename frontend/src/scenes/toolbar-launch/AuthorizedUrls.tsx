@@ -112,7 +112,17 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                     />
                     {appUrlsKeyed.map((keyedAppURL, index) => {
                         return (
-                            <div key={index} className={clsx('border rounded flex items-center py-2 px-4 min-h-14')}>
+                            <div
+                                key={index}
+                                className={clsx('border rounded flex items-center py-2 px-4 min-h-14 cursor-pointer')}
+                                onClick={() =>
+                                    Object.assign(document.createElement('a'), {
+                                        target: '_blank',
+                                        rel: 'noopener noreferrer',
+                                        href: launchUrl(keyedAppURL.url),
+                                    }).click()
+                                }
+                            >
                                 {editUrlIndex === index ? (
                                     <AuthorizedUrlForm actionId={actionId} />
                                 ) : (
