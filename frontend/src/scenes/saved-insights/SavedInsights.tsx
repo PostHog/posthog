@@ -189,7 +189,12 @@ function SavedInsightsGrid(): JSX.Element {
                         }
                     />
                 ))}
-                {insightsLoading && <SpinnerOverlay />}
+                {insightsLoading && (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div style={{ minHeight: '30rem' }}>
+                        <SpinnerOverlay />
+                    </div>
+                )}
             </div>
             <PaginationControl {...paginationState} nouns={['insight', 'insights']} />
         </>

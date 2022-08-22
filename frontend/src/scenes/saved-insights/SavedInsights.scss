@@ -103,8 +103,4 @@
     @include screen($xxl) {
         grid-template-columns: repeat(3, 1fr);
     }
-    // TODO: Remove this
-    .loading-overlay {
-        min-height: 30rem;
-    }
 }
