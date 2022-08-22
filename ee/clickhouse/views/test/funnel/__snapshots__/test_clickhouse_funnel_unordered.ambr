@@ -1,6 +1,6 @@
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups
   '
-  /* user_id:80 request:_api_projects_84_insights_funnel */
+  /* user_id:81 request:_api_projects_85_insights_funnel */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -97,7 +97,7 @@
 ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
   '
-  /* user_id:80 request:_api_person_funnel_ */
+  /* user_id:81 request:_api_person_funnel_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
