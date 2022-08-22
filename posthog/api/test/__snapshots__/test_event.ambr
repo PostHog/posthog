@@ -1,6 +1,6 @@
 # name: TestEvents.test_event_property_values
   '
-  /* user_id:160 request:_api_projects_164_events_values_ */
+  /* user_id:161 request:_api_projects_165_events_values_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
@@ -12,7 +12,7 @@
 ---
 # name: TestEvents.test_event_property_values.1
   '
-  /* user_id:160 request:_api_projects_164_events_values_ */
+  /* user_id:161 request:_api_projects_165_events_values_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
@@ -24,7 +24,7 @@
 ---
 # name: TestEvents.test_event_property_values.2
   '
-  /* user_id:160 request:_api_projects_164_events_values_ */
+  /* user_id:161 request:_api_projects_165_events_values_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
@@ -36,7 +36,7 @@
 ---
 # name: TestEvents.test_event_property_values.3
   '
-  /* user_id:160 request:_api_projects_164_events_values_ */
+  /* user_id:161 request:_api_projects_165_events_values_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2

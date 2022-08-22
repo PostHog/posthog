@@ -1,6 +1,6 @@
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins
   '
-  /* user_id:285 request:_api_projects_266_insights_funnel_ */ WITH step_runs AS
+  /* user_id:286 request:_api_projects_267_insights_funnel_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -133,7 +133,7 @@
 ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_strict
   '
-  /* user_id:286 request:_api_projects_267_insights_funnel_ */ WITH step_runs AS
+  /* user_id:287 request:_api_projects_268_insights_funnel_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -244,7 +244,7 @@
 ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_unordered
   '
-  /* user_id:287 request:_api_projects_268_insights_funnel_ */ WITH step_runs AS
+  /* user_id:288 request:_api_projects_269_insights_funnel_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
