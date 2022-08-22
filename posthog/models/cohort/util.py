@@ -257,7 +257,11 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    cohort_filter, cohort_params = format_person_query(cohort, 0, custom_match_field="id", has_joined_person_props=True)
+    from posthog.queries.person_query import PersonQuery
+
+    cohort_filter, cohort_params = PersonQuery(
+        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team.pk
+    ).get_query()
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
@@ -269,18 +273,10 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
             size_before=before_count,
         )
 
-    cohort_filter = GET_PERSON_IDS_BY_FILTER.format(
-        distinct_query="AND " + cohort_filter,
-        query="",
-        offset="",
-        limit="",
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
-    )
-
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_filter)
     sync_execute(
         recalcluate_cohortpeople_sql,
-        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version,},
+        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
     )
 
     count = get_cohort_size(cohort.pk, cohort.team_id)
