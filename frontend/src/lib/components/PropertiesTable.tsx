@@ -279,7 +279,6 @@ export function PropertiesTable({
                         <LemonInput
                             type="search"
                             placeholder="Search for property keys and values"
-                            autoFocus
                             value={searchTerm || ''}
                             onChange={setSearchTerm}
                         />

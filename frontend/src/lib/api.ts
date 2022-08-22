@@ -15,6 +15,8 @@ import {
     InsightModel,
     IntegrationType,
     LicenseType,
+    PersonListParams,
+    PersonType,
     PluginLogEntry,
     PropertyDefinition,
     SharingConfigurationType,
@@ -30,7 +32,6 @@ import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
-import { PersonFilters } from 'scenes/persons/personsLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 
@@ -228,12 +229,12 @@ class ApiRequest {
     }
 
     // # Persons
-    public persons(): ApiRequest {
-        return this.addPathComponent('person')
+    public persons(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('persons')
     }
 
-    public person(id: number): ApiRequest {
-        return this.persons().addPathComponent(id)
+    public person(id: number, teamId?: TeamType['id']): ApiRequest {
+        return this.persons(teamId).addPathComponent(id)
     }
 
     public personActivity(id: number | undefined): ApiRequest {
@@ -630,8 +631,8 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
-        determineCSVUrl(cohortId: number | 'new', filters: PersonFilters): string {
-            return `/api/cohort/${cohortId}/persons?${toParams(filters)}`
+        determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
+            return `/api/cohort/${cohortId}/persons?${toParams(params)}`
         },
     },
 
@@ -658,9 +659,12 @@ const api = {
         },
     },
 
-    person: {
-        determineCSVUrl(filters: PersonFilters): string {
-            return new ApiRequest().persons().withQueryString(toParams(filters)).assembleFullUrl()
+    persons: {
+        async list(params: PersonListParams = {}): Promise<PaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        },
+        determineListUrl(params: PersonListParams = {}): string {
+            return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
     },
 

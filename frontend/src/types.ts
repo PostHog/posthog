@@ -551,6 +551,13 @@ export interface PersonType {
     is_identified?: boolean
 }
 
+export interface PersonListParams {
+    properties?: AnyPropertyFilter[]
+    search?: string
+    cohort?: number
+    distinct_id?: string
+}
+
 interface MatchedRecordingEvents {
     uuid: string
     window_id: string
