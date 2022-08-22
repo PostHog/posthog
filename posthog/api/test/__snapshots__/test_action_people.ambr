@@ -1,6 +1,6 @@
 # name: TestActionPeople.test_trends_people_endpoint_includes_recordings
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:36 request:_api_projects_39_actions_people_ */
   SELECT person_id AS actor_id ,
          groupUniqArray(10)((timestamp,
                              uuid,
@@ -35,7 +35,7 @@
 ---
 # name: TestActionPeople.test_trends_people_endpoint_includes_recordings.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:36 request:_api_projects_39_actions_people_ */
   SELECT DISTINCT session_id
   FROM session_recording_events
   WHERE team_id = 2

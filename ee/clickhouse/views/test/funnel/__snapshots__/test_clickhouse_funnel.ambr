@@ -1,6 +1,6 @@
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:56 request:_api_projects_59_insights_funnel */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -59,7 +59,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_aggregation_with_groups.1
   '
-  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:56 request:_api_person_funnel_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -120,7 +120,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:57 request:_api_projects_60_insights_funnel */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -180,7 +180,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering.1
   '
-  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:57 request:_api_person_funnel_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -242,7 +242,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:58 request:_api_projects_61_insights_funnel */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -309,7 +309,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering.1
   '
-  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:58 request:_api_person_funnel_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
@@ -377,7 +377,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:59 request:_api_projects_62_insights_funnel */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -451,7 +451,7 @@
 ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering.1
   '
-  /* request:api_person_funnel_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:59 request:_api_person_funnel_ */
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,

@@ -1,6 +1,6 @@
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */ WITH step_runs AS
+  /* user_id:285 request:_api_projects_266_insights_funnel_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -92,7 +92,7 @@
                  steps
         HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
      WHERE step_1_average_conversion_time_inner >= 0 ),
-                                                                                                                   histogram_params AS
+                                                                    histogram_params AS
     (SELECT floor(min(step_1_average_conversion_time_inner)) AS from_seconds,
             ceil(max(step_1_average_conversion_time_inner)) AS to_seconds,
             round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
@@ -133,7 +133,7 @@
 ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_strict
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */ WITH step_runs AS
+  /* user_id:286 request:_api_projects_267_insights_funnel_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -203,7 +203,7 @@
                  steps
         HAVING steps = max_steps)
      WHERE step_1_average_conversion_time_inner >= 0 ),
-                                                                                                                   histogram_params AS
+                                                                    histogram_params AS
     (SELECT floor(min(step_1_average_conversion_time_inner)) AS from_seconds,
             ceil(max(step_1_average_conversion_time_inner)) AS to_seconds,
             round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,
@@ -244,7 +244,7 @@
 ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_unordered
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_funnel_?$ (ClickhouseInsightsViewSet) */ WITH step_runs AS
+  /* user_id:287 request:_api_projects_268_insights_funnel_ */ WITH step_runs AS
     (SELECT *
      FROM
        (SELECT aggregation_target,
@@ -417,7 +417,7 @@
                  steps
         HAVING steps = max_steps)
      WHERE step_1_average_conversion_time_inner >= 0 ),
-                                                                                                                   histogram_params AS
+                                                                    histogram_params AS
     (SELECT floor(min(step_1_average_conversion_time_inner)) AS from_seconds,
             ceil(max(step_1_average_conversion_time_inner)) AS to_seconds,
             round(avg(step_1_average_conversion_time_inner), 2) AS average_conversion_time,

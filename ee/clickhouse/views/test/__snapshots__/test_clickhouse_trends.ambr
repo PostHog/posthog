@@ -1,6 +1,6 @@
 # name: ClickhouseTestTrends.test_insight_trends_aggregate
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:45 request:_api_projects_48_insights_trend_ */
   SELECT count(*) as data
   FROM
     (SELECT e.timestamp as timestamp
@@ -13,7 +13,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:45 request:_api_projects_48_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -39,7 +39,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:46 request:_api_projects_49_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -75,7 +75,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:46 request:_api_projects_49_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -101,7 +101,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:47 request:_api_projects_50_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -131,7 +131,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:47 request:_api_projects_50_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -159,7 +159,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -187,7 +187,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:49 request:_api_projects_52_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -213,7 +213,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.10
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
@@ -231,7 +231,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.11
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -294,7 +294,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.12
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:49 request:_api_projects_52_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -322,7 +322,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -362,7 +362,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:49 request:_api_projects_52_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -388,7 +388,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
@@ -406,7 +406,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -452,7 +452,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:49 request:_api_projects_52_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -480,7 +480,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.7
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
@@ -513,7 +513,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.8
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:49 request:_api_projects_52_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -597,7 +597,7 @@
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:49 request:_api_projects_52_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -633,7 +633,7 @@
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:53 request:_api_projects_56_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -669,7 +669,7 @@
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:53 request:_api_projects_56_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -705,7 +705,7 @@
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:55 request:_api_projects_58_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -741,7 +741,7 @@
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:55 request:_api_projects_58_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -777,7 +777,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:51 request:_api_projects_54_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -807,7 +807,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:51 request:_api_projects_54_actions_people_ */
   SELECT $group_0 AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
@@ -826,7 +826,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:52 request:_api_projects_55_insights_trend_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data
   FROM
@@ -855,7 +855,7 @@
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_actions_people_?$ (ActionViewSet) */
+  /* user_id:52 request:_api_projects_55_actions_people_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,

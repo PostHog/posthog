@@ -1,6 +1,6 @@
 # name: TestClickhouseStickiness.test_aggregate_by_groups
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:24 request:_api_projects_27_insights_trend_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -27,7 +27,7 @@
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
   '
-  /* request:api_person_stickiness_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:24 request:_api_person_stickiness_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -54,7 +54,7 @@
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.2
   '
-  /* request:api_person_stickiness_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:24 request:_api_person_stickiness_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -81,7 +81,7 @@
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.3
   '
-  /* request:api_person_stickiness_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:24 request:_api_person_stickiness_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -108,7 +108,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_trend_?$ (ClickhouseInsightsViewSet) */
+  /* user_id:26 request:_api_projects_29_insights_trend_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -142,7 +142,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
   '
-  /* request:api_person_stickiness_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:26 request:_api_person_stickiness_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -175,7 +175,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.2
   '
-  /* request:api_person_stickiness_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:26 request:_api_person_stickiness_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -208,7 +208,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.3
   '
-  /* request:api_person_stickiness_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:26 request:_api_person_stickiness_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
