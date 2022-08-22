@@ -224,7 +224,6 @@ def redirect_to_site(request):
         "actionId": request.GET.get("actionId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
-        "apiURL": request.build_absolute_uri("/")[:-1],
         "dataAttributes": team.data_attributes,
     }
 
