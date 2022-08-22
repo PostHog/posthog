@@ -49,7 +49,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     AND (has(['Jane'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE team_id = 2
     AND event = 'event_name'
     AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2021-01-14 00:00:00')), 'UTC'), 'UTC')
@@ -96,7 +96,7 @@
             WHERE team_id = 2
             GROUP BY id
             HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
   '
 ---
 # name: TestEventQuery.test_denormalised_props
@@ -166,7 +166,7 @@
             WHERE team_id = 2
             GROUP BY id
             HAVING max(is_deleted) = 0
-            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))
+            AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))
   '
 ---
 # name: TestEventQuery.test_entity_filtered_by_multiple_session_duration_filters
@@ -287,7 +287,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+     AND ((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) person ON person.id = pdi.person_id
   INNER JOIN
     (SELECT group_key,
             argMax(group_properties, _timestamp) AS group_properties_0

@@ -339,7 +339,7 @@
      WHERE team_id = 2
      GROUP BY id
      HAVING max(is_deleted) = 0
-     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
+     AND (has(['bla'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) person ON person.id = pdi.person_id
   WHERE 1 = 1
   GROUP BY session_recordings.session_id
   ORDER BY start_time DESC
