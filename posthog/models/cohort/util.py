@@ -210,11 +210,13 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
 
 def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
-    person_query, params = (
-        format_precalculated_cohort_query(cohort.pk, index, custom_match_field=custom_match_field)
-        if is_precalculated
-        else f"AND id IN {format_person_query(cohort, index, custom_match_field=custom_match_field)}"
-    )
+    if is_precalculated:
+        person_query, params = format_precalculated_cohort_query(
+            cohort.pk, index, custom_match_field=custom_match_field
+        )
+    else:
+        query, params = format_person_query(cohort, index, custom_match_field=custom_match_field)
+        person_query = f"{custom_match_field} IN ({query})"
     return person_query, params
 
 
