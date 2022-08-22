@@ -72,7 +72,7 @@ FROM {database}.kafka_{table_name}
 )
 
 GET_LATEST_PERSON_SQL = """
-SELECT *, properties as person_props FROM person JOIN (
+SELECT * FROM person JOIN (
     SELECT id, max(version) as version, max(is_deleted) as is_deleted
     FROM person
     WHERE team_id = %(team_id)s
