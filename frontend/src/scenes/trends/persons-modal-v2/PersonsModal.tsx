@@ -5,7 +5,7 @@ import { Skeleton } from 'antd'
 import { ActorType, ChartDisplayType, ExporterFormat, FilterType, InsightType } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, Loading, midEllipsis, pluralize } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
@@ -24,9 +24,12 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
+import ReactDOM from 'react-dom'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
+    url: string
+    title: React.ReactNode
 
     // view: InsightType
     // filters: Partial<FilterType>
@@ -42,9 +45,15 @@ export function PersonsModalV2({
     // onSaveCohort,
     // showModalActions = true,
     // aggregationTargetLabel,
+    url,
+    title,
     onAfterClose,
 }: PersonsModalProps): JSX.Element {
+    const [searchTerm, setSearchTerm] = useState('')
     const [isOpen, setIsOpen] = useState(true)
+    const logic = personsModalLogic({ url })
+
+    const { allPeople, peopleLoading, people: peopleRes } = useValues(logic)
 
     // const {
     //     people,
@@ -132,69 +141,111 @@ export function PersonsModalV2({
         <>
             {/* {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />} */}
             <LemonModal
-                title={'People modal'}
+                title={title}
                 isOpen={isOpen}
                 onClose={() => setIsOpen(false)}
                 onAfterClose={onAfterClose}
-                // footer={
-                //     people &&
-                //     people.count > 0 &&
-                //     (isDownloadCsvAvailable || isSaveAsCohortAvailable) && (
-                //         <div className="flex gap-2">
-                //             {isDownloadCsvAvailable && (
-                //                 <LemonButton
-                //                     icon={<DownloadOutlined />}
-                //                     type="secondary"
-                //                     onClick={() => {
-                //                         triggerExport({
-                //                             export_format: ExporterFormat.CSV,
-                //                             export_context: {
-                //                                 path: api.actions.determinePeopleCsvUrl(
-                //                                     {
-                //                                         label: people.label,
-                //                                         action: people.action,
-                //                                         date_from: people.day,
-                //                                         date_to: people.day,
-                //                                         breakdown_value: people.breakdown_value,
-                //                                     },
-                //                                     filters
-                //                                 ),
-                //                             },
-                //                         })
-                //                     }}
-                //                     data-attr="person-modal-download-csv"
-                //                 >
-                //                     Download CSV
-                //                 </LemonButton>
-                //             )}
-                //             {isSaveAsCohortAvailable && (
-                //                 <LemonButton
-                //                     onClick={onSaveCohort}
-                //                     icon={<IconSave />}
-                //                     type="secondary"
-                //                     data-attr="person-modal-save-as-cohort"
-                //                 >
-                //                     Save as cohort
-                //                 </LemonButton>
-                //             )}
-                //         </div>
-                //     )
-                // }
+                footer={
+                    <>
+                        <LemonButton
+                            icon={<DownloadOutlined />}
+                            type="secondary"
+                            onClick={() => {
+                                triggerExport({
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: {
+                                        path: url,
+                                    },
+                                })
+                            }}
+                            data-attr="person-modal-download-csv"
+                        >
+                            Download CSV
+                        </LemonButton>
+                    </>
+                }
                 width={600}
             >
                 <LemonInput
                     type="search"
                     placeholder="Search for persons by email, name, or ID"
                     fullWidth
-                    // onChange={(value) => {
-                    //     setSearchTerm(value)
-                    // }}
+                    onChange={(value) => {
+                        setSearchTerm(value)
+                    }}
                     // onBlur={() => filterSearchResults()}
                     // onPressEnter={() => filterSearchResults()}
-                    // value={searchTerm}
+                    value={searchTerm}
                     // disabled={isInitialLoad}
                     className="mb-2"
                 />
+
+                <div>
+                    {peopleLoading ? <Loading /> : null}
+
+                    <div className="flex items-center gap-2">
+                        <IconPersonFilled className="text-xl" />
+                        <span>
+                            This list contains <b>{allPeople?.length} unique results</b>.
+                        </span>
+                    </div>
+
+                    {allPeople && allPeople.length > 0 ? (
+                        <LemonTable
+                            columns={
+                                [
+                                    {
+                                        title: 'Person',
+                                        key: 'person',
+                                        render: function Render(_, actor: ActorType) {
+                                            return <ActorRow actor={actor} />
+                                        },
+                                    },
+                                    {
+                                        width: 0,
+                                        title: 'Recordings',
+                                        key: 'recordings',
+                                        render: function Render(_, actor: ActorType) {
+                                            if (
+                                                actor.matched_recordings?.length &&
+                                                actor.matched_recordings?.length > 0
+                                            ) {
+                                                return (
+                                                    <MultiRecordingButton
+                                                        sessionRecordings={actor.matched_recordings}
+                                                        onOpenRecording={(sessionRecording) => {
+                                                            // openRecordingModal(sessionRecording.session_id)
+                                                        }}
+                                                    />
+                                                )
+                                            }
+                                        },
+                                    },
+                                ] as LemonTableColumns<ActorType>
+                            }
+                            className="persons-table"
+                            rowKey="id"
+                            expandable={{
+                                expandedRowRender: function RenderPropertiesTable({ properties }) {
+                                    return Object.keys(properties).length ? (
+                                        <PropertiesTable properties={properties} />
+                                    ) : (
+                                        'This person has no properties.'
+                                    )
+                                },
+                            }}
+                            embedded
+                            showHeader={false}
+                            dataSource={allPeople}
+                            nouns={['person', 'persons']}
+                        />
+                    ) : (
+                        <div className="person-row-container person-row">
+                            We couldn't find any matching results for this data point.
+                        </div>
+                    )}
+                </div>
+
                 {/* {isInitialLoad ? (
                     <div className="p-4">
                         <Skeleton active />
@@ -324,4 +375,53 @@ export function PersonsModalV2({
             </LemonModal>
         </>
     )
+}
+
+export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
+
+export const openPersonsModal = (props: OpenPersonsModalProps): void => {
+    const div = document.createElement('div')
+    function destroy(): void {
+        const unmountResult = ReactDOM.unmountComponentAtNode(div)
+        if (unmountResult && div.parentNode) {
+            div.parentNode.removeChild(div)
+        }
+    }
+
+    document.body.appendChild(div)
+    ReactDOM.render(<PersonsModalV2 {...props} onAfterClose={destroy} />, div)
+}
+
+interface ActorRowProps {
+    actor: ActorType
+}
+
+export function ActorRow({ actor }: ActorRowProps): JSX.Element {
+    if (isGroupType(actor)) {
+        return (
+            <div key={actor.id} className="person-row">
+                <div className="person-ids">
+                    <strong>
+                        <GroupActorHeader actor={actor} />
+                    </strong>
+                </div>
+            </div>
+        )
+    } else {
+        return (
+            <div key={actor.id} className="person-ids">
+                <strong>
+                    <PersonHeader person={actor} withIcon={false} />
+                </strong>
+                <CopyToClipboardInline
+                    explicitValue={actor.distinct_ids[0]}
+                    iconStyle={{ color: 'var(--primary)' }}
+                    iconPosition="end"
+                    className="text-xs text-muted-alt"
+                >
+                    {midEllipsis(actor.distinct_ids[0], 32)}
+                </CopyToClipboardInline>
+            </div>
+        )
+    }
 }

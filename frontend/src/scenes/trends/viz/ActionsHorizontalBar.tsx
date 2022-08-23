@@ -9,6 +9,8 @@ import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { openPersonsModal } from '../persons-modal-v2/PersonsModal'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 type DataSet = any
 
@@ -107,10 +109,16 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                               pointValue,
                               seriesId,
                           }
-                          if (dataset.persons_urls?.[index].url) {
+                          const personsUrl = dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url
+                          if (personsUrl) {
                               loadPeopleFromUrl({
                                   ...params,
-                                  url: dataset.persons_urls?.[index].url,
+                                  url: personsUrl,
+                              })
+
+                              openPersonsModal({
+                                  url: personsUrl,
+                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
                               })
                           } else {
                               loadPeople(params)

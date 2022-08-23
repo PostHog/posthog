@@ -7,6 +7,7 @@ import { ChartDisplayType, ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
+import { openPersonsModal } from '../persons-modal-v2/PersonsModal'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -77,10 +78,17 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                               seriesId,
                               pointValue: dataset?.data?.[index] ?? undefined,
                           }
-                          if (dataset.persons_urls?.[index].url) {
+
+                          const personsUrl = dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url
+                          if (personsUrl) {
                               loadPeopleFromUrl({
                                   ...params,
-                                  url: dataset.persons_urls[index].url,
+                                  url: personsUrl,
+                              })
+                              // TODO: This is different with breakdowns
+                              openPersonsModal({
+                                  url: personsUrl,
+                                  title: label ?? '',
                               })
                           } else {
                               loadPeople(params)

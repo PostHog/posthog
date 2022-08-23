@@ -14,6 +14,7 @@ import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from '../../filters/ActionFilter/entityFilterLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { openPersonsModal } from 'scenes/trends/persons-modal-v2/PersonsModal'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2
@@ -156,6 +157,25 @@ const WorldMapSVG = React.memo(
                             },
                             onClick: () => {
                                 if (showPersonsModal && countrySeries) {
+                                    if (countrySeries.persons?.url) {
+                                        openPersonsModal({
+                                            url: countrySeries.persons?.url,
+
+                                            title: (
+                                                <>
+                                                    Persons
+                                                    {countrySeries.breakdown_value
+                                                        ? ` in ${countryCodeToFlag(
+                                                              countrySeries.breakdown_value as string
+                                                          )} ${
+                                                              countryCodeToName[countrySeries.breakdown_value as string]
+                                                          }`
+                                                        : ''}
+                                                </>
+                                            ),
+                                        })
+                                    }
+
                                     loadPeople({
                                         action: countrySeries.action,
                                         label: countryCodeToName[countrySeries.breakdown_value as string],

@@ -8,6 +8,7 @@ import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { personsModalLogic } from '../persons-modal/personsModalLogic'
+import { openPersonsModal } from '../persons-modal-v2/PersonsModal'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -85,10 +86,18 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                           seriesId,
                                           breakdown_value: breakdown_value ?? '',
                                       }
-                                      if (dataset.persons_urls?.[index].url) {
+
+                                      const personsUrl =
+                                          dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url
+
+                                      if (personsUrl) {
                                           loadPeopleFromUrl({
                                               ...params,
-                                              url: dataset.persons_urls?.[index].url,
+                                              url: personsUrl,
+                                          })
+                                          openPersonsModal({
+                                              url: personsUrl,
+                                              title: label ?? '',
                                           })
                                       } else {
                                           loadPeople(params)

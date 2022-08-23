@@ -19,6 +19,8 @@ import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import './BoldNumber.scss'
+import { openPersonsModal } from 'scenes/trends/persons-modal-v2/PersonsModal'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -97,6 +99,12 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                         // != is intentional to catch undefined too
                         showPersonsModal && resultSeries.aggregated_value != null
                             ? () => {
+                                  if (resultSeries.persons?.url) {
+                                      openPersonsModal({
+                                          url: resultSeries.persons?.url,
+                                          title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
+                                      })
+                                  }
                                   loadPeople({
                                       action: resultSeries.action,
                                       label: resultSeries.label,
