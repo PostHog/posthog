@@ -129,10 +129,17 @@ def _screenshot_asset(
         if driver:
             # To help with debugging, add a screenshot and any chrome logs
             with configure_scope() as scope:
-                all_logs = [x for x in driver.get_log("browser")]
-                scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
-                driver.save_screenshot(image_path)
-                scope.add_attachment(None, None, image_path)
+                # If we encounter issues getting extra info we should silenty fail rather than creating a new exception
+                try:
+                    all_logs = [x for x in driver.get_log("browser")]
+                    scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
+                except Exception as e:
+                    pass
+                try:
+                    driver.save_screenshot(image_path)
+                    scope.add_attachment(None, None, image_path)
+                except Exception as e:
+                    pass
                 capture_exception(e)
 
             raise e
