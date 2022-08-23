@@ -3,12 +3,14 @@ import { expectLogic } from 'kea-test-utils'
 import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
 import { RecordingWindowFilter } from '~/types'
 
+const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
+
 describe('sharedListLogic', () => {
     let logic: ReturnType<typeof sharedListLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        logic = sharedListLogic()
+        logic = sharedListLogic(playerLogicProps)
         logic.mount()
     })
 

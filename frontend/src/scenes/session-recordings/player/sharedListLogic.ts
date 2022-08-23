@@ -1,11 +1,13 @@
-import { kea, reducers, path, actions } from 'kea'
+import { kea, reducers, path, actions, props, key } from 'kea'
 import type { sharedListLogicType } from './sharedListLogicType'
-import { PlayerPosition, RecordingWindowFilter } from '~/types'
+import { PlayerPosition, RecordingWindowFilter, SessionRecordingPlayerProps } from '~/types'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
 export const sharedListLogic = kea<sharedListLogicType>([
     path(['scenes', 'session-recordings', 'player', 'sharedListLogic']),
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     actions(() => ({
         setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
     })),

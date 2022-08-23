@@ -64,7 +64,7 @@ export function SessionRecordingPlayerV3({ sessionRecordingId, playerKey }: Sess
             </div>
             <LemonDivider className="my-0" />
             <Row className="player-filter" align="middle">
-                <PlayerFilter />
+                <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </Row>
             <LemonDivider className="my-0" />
             <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />

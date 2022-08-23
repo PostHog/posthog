@@ -85,7 +85,7 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
         values: [
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['sessionPlayerData'],
-            sharedListLogic,
+            sharedListLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
     })),
