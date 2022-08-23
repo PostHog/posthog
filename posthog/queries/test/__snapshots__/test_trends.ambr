@@ -659,7 +659,7 @@
 ---
 # name: TestFOSSTrends.test_timezones_hourly.1
   '
-  /* user_id:721 request:_api_projects_730_actions_people_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id
   FROM
     (SELECT e.timestamp as timestamp,
