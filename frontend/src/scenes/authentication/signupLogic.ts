@@ -25,15 +25,17 @@ export const signupLogic = kea<signupLogicType>([
     connect({
         values: [preflightLogic, ['preflight']],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         signup: {
             defaults: { email: '', password: '', first_name: '', organization_name: '' } as SignupForm,
             errors: ({ email, password, first_name, organization_name }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
-                password: !password
-                    ? 'Please enter your password to continue'
-                    : password.length < 8
-                    ? 'Password must be at least 8 characters'
+                password: !values.preflight?.demo
+                    ? !password
+                        ? 'Please enter your password to continue'
+                        : password.length < 8
+                        ? 'Password must be at least 8 characters'
+                        : undefined
                     : undefined,
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,

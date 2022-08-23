@@ -138,9 +138,7 @@ export function Signup(): JSX.Element | null {
                         loading={isSignupSubmitting}
                         disabled={isSignupSubmitting}
                     >
-                        {'TODO' && false // submit success
-                            ? 'Opening PostHog…'
-                            : !preflight?.demo
+                        {!preflight?.demo
                             ? 'Create account'
                             : !isSignupSubmitting
                             ? 'Enter the demo environment'
