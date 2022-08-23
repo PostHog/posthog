@@ -177,7 +177,7 @@ jobs:
                   # removing any layers, soooo, maybe it's fine.
                   cache-to: type=inline
                   file: Dockerfile.cloud
-                  context: deploy
+                  context: cloud
                   build-args: |
                       BASE_IMAGE=${{ needs.build.outputs.docker_image_id }}
 
