@@ -34,7 +34,6 @@ export function BillingLocked(): JSX.Element | null {
                 <LemonButton
                     className="cta-button"
                     type="primary"
-                    size="large"
                     center={true}
                     fullWidth
                     href={billing?.subscription_url}

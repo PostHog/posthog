@@ -14,7 +14,6 @@ import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { AuthenticationButton } from './AuthenticationButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
@@ -121,13 +120,16 @@ export function Login(): JSX.Element {
                         </Field>
                     </div>
                     {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
-                        <AuthenticationButton
+                        <LemonButton
                             htmlType="submit"
                             data-attr="password-login"
+                            fullWidth
+                            type="primary"
+                            center
                             loading={isLoginSubmitting || precheckResponseLoading}
                         >
                             Login
-                        </AuthenticationButton>
+                        </LemonButton>
                     ) : (
                         <SSOLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
                     )}

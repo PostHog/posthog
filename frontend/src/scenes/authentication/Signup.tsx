@@ -8,10 +8,9 @@ import { userLogic } from '../userLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { AuthenticationButton } from './AuthenticationButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const scene: SceneExport = {
@@ -132,7 +131,10 @@ export function Signup(): JSX.Element | null {
 
                     <div className="divider" />
 
-                    <AuthenticationButton
+                    <LemonButton
+                        fullWidth
+                        type="primary"
+                        center
                         htmlType="submit"
                         data-attr="signup-submit"
                         loading={isSignupSubmitting}
@@ -143,7 +145,7 @@ export function Signup(): JSX.Element | null {
                             : !isSignupSubmitting
                             ? 'Enter the demo environment'
                             : 'Preparing demo data…'}
-                    </AuthenticationButton>
+                    </LemonButton>
 
                     <div className="text-center text-muted-alt">
                         By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you agree to

@@ -6,12 +6,11 @@ import { useValues } from 'kea'
 import { passwordResetLogic } from './passwordResetLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Field } from 'lib/forms/Field'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { AuthenticationButton } from './AuthenticationButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconErrorOutline } from 'lib/components/icons'
 
@@ -85,13 +84,16 @@ function NewPasswordForm(): JSX.Element {
                     />
                 </Field>
 
-                <AuthenticationButton
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    center
                     htmlType="submit"
                     data-attr="password-reset-complete"
                     loading={isPasswordResetSubmitting}
                 >
                     Change my password
-                </AuthenticationButton>
+                </LemonButton>
             </Form>
         </>
     )
@@ -102,9 +104,9 @@ function ResetInvalid(): JSX.Element {
         <div className="text-center">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
             <div className="mt-4">
-                <AuthenticationButton data-attr="back-to-login" to={'/reset'}>
+                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={'/reset'}>
                     Request new link
-                </AuthenticationButton>
+                </LemonButton>
             </div>
         </div>
     )

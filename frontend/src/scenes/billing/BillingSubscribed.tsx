@@ -59,7 +59,7 @@ export function BillingSubscribed(): JSX.Element {
                 Please reach out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing
                 questions.
             </p>
-            <LemonButton className="cta-button" type="primary" size="large" center={true} fullWidth to="/">
+            <LemonButton className="cta-button" type="primary" center={true} fullWidth to="/">
                 Finish
             </LemonButton>
         </BillingSubscribedTheme>

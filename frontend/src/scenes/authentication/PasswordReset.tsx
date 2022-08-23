@@ -12,7 +12,6 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { AuthenticationButton } from './AuthenticationButton'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { IconCheckCircleOutline } from 'lib/components/icons'
 
@@ -92,13 +91,16 @@ function ResetForm(): JSX.Element {
                     disabled={isRequestPasswordResetSubmitting}
                 />
             </Field>
-            <AuthenticationButton
+            <LemonButton
+                fullWidth
+                type="primary"
+                center
                 htmlType="submit"
                 data-attr="password-reset"
                 loading={isRequestPasswordResetSubmitting}
             >
                 Continue
-            </AuthenticationButton>
+            </LemonButton>
         </Form>
     )
 }
@@ -112,15 +114,7 @@ function ResetSuccess(): JSX.Element {
             Request received successfully! If the email <b>{requestPasswordReset?.email || 'you typed'}</b> exists,
             you’ll receive an email with a reset link soon.
             <div className="mt-4">
-                <LemonButton
-                    type="primary"
-                    status="primary-alt"
-                    size="large"
-                    data-attr="back-to-login"
-                    center
-                    fullWidth
-                    onClick={() => push('/login')}
-                >
+                <LemonButton type="primary" data-attr="back-to-login" center fullWidth onClick={() => push('/login')}>
                     Back to login
                 </LemonButton>
             </div>

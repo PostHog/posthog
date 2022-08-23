@@ -154,7 +154,6 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         <>
                             <LemonButton
                                 type="primary"
-                                status="primary-alt"
                                 center
                                 fullWidth
                                 onClick={() => acceptInvite()}
@@ -260,7 +259,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <LemonButton
                     type="primary"
-                    status="primary-alt"
                     htmlType="submit"
                     data-attr="password-signup"
                     loading={isSignupSubmitting}
