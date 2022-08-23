@@ -176,9 +176,14 @@
                     }
                 }
                 &:not(:disabled):active {
+                    color: var(--white);
+                    .LemonIcon {
+                        color: var(--white);
+                    }
                     background: var(--#{$status}-dark, var(--#{$status}));
                 }
             }
+
             // Secondary - outlined color style
             &.LemonButton--secondary {
                 background: var(--bg-light);
