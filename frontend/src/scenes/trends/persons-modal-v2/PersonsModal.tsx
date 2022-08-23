@@ -1,22 +1,22 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined } from '@ant-design/icons'
 import { ActorType, ExporterFormat } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { isGroupType, Loading, midEllipsis } from 'lib/utils'
+import { isGroupType, midEllipsis } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled } from 'lib/components/icons'
+import { IconPersonFilled, IconSave } from 'lib/components/icons'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
-import { Skeleton } from 'antd'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { openSaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -39,7 +39,15 @@ export function PersonsModalV2({
     const logic = personsModalLogic({ url })
 
     const { allPeople, peopleLoading, people: peopleRes, searchTerm } = useValues(logic)
-    const { loadPeople, setSearchTerm } = useActions(logic)
+    const { loadPeople, setSearchTerm, saveCohortWithUrl } = useActions(logic)
+
+    const onSaveCohort = (): void => {
+        openSaveCohortModal({
+            onSave: (title) => {
+                saveCohortWithUrl(title)
+            },
+        })
+    }
 
     // const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
     // const isDownloadCsvAvailable: boolean =
@@ -69,7 +77,6 @@ export function PersonsModalV2({
                             fullWidth
                             value={searchTerm}
                             onChange={setSearchTerm}
-                            // disabled={isInitialLoad}
                             className="my-2"
                         />
                         <div className="flex items-center gap-2 text-muted">
@@ -82,8 +89,8 @@ export function PersonsModalV2({
                                 <>
                                     <IconPersonFilled className="text-xl" />
                                     <span>
-                                        {' '}
-                                        This list contains <b>{peopleRes?.total_count} unique results</b>.
+                                        This list contains {peopleRes?.next ? 'more than ' : ''}
+                                        <b>{peopleRes?.results.length} unique results</b>
                                     </span>
                                 </>
                             )}
@@ -92,6 +99,16 @@ export function PersonsModalV2({
                 }
                 footer={
                     <>
+                        {
+                            <LemonButton
+                                onClick={onSaveCohort}
+                                icon={<IconSave />}
+                                type="secondary"
+                                data-attr="person-modal-save-as-cohort"
+                            >
+                                Save as cohort
+                            </LemonButton>
+                        }
                         <LemonButton
                             icon={<DownloadOutlined />}
                             type="secondary"
@@ -111,7 +128,7 @@ export function PersonsModalV2({
                 }
                 width={600}
             >
-                <div className="relative min-h-20">
+                <div className="relative min-h-20" style={{ margin: '0 -1.5rem' }}>
                     {allPeople && allPeople.length > 0 ? (
                         <LemonTable
                             columns={
@@ -214,94 +231,6 @@ export function PersonsModalV2({
                                             ),
                                         }))}
                                     />
-                                )}
-                                <div className="user-count-subheader">
-                                    <IconPersonFilled style={{ fontSize: '1.125rem', marginRight: '0.5rem' }} />
-                                    <span>
-                                        This list contains{' '}
-                                        <b>
-                                            {people.count} unique {aggregationTargetLabel.plural}
-                                        </b>
-                                        {peopleParams?.pointValue !== undefined &&
-                                            (!peopleParams.action?.math || peopleParams.action?.math === 'total') && (
-                                                <>
-                                                    {' '}
-                                                    who performed the event{' '}
-                                                    <b>
-                                                        {peopleParams.pointValue} total{' '}
-                                                        {pluralize(peopleParams.pointValue, 'time', undefined, false)}
-                                                    </b>
-                                                </>
-                                            )}
-                                        .
-                                    </span>
-                                </div>
-                                {people.count > 0 ? (
-                                    <LemonTable
-                                        columns={
-                                            [
-                                                {
-                                                    title: 'Person',
-                                                    key: 'person',
-                                                    render: function Render(_, actor: ActorType) {
-                                                        return <ActorRow actor={actor} />
-                                                    },
-                                                },
-                                                {
-                                                    width: 0,
-                                                    title: 'Recordings',
-                                                    key: 'recordings',
-                                                    render: function Render(_, actor: ActorType) {
-                                                        if (
-                                                            actor.matched_recordings?.length &&
-                                                            actor.matched_recordings?.length > 0
-                                                        ) {
-                                                            return (
-                                                                <MultiRecordingButton
-                                                                    sessionRecordings={actor.matched_recordings}
-                                                                    onOpenRecording={(sessionRecording) => {
-                                                                        openRecordingModal(sessionRecording.session_id)
-                                                                    }}
-                                                                />
-                                                            )
-                                                        }
-                                                    },
-                                                },
-                                            ] as LemonTableColumns<ActorType>
-                                        }
-                                        className="persons-table"
-                                        rowKey="id"
-                                        expandable={{
-                                            expandedRowRender: function RenderPropertiesTable({ properties }) {
-                                                return Object.keys(properties).length ? (
-                                                    <PropertiesTable properties={properties} />
-                                                ) : (
-                                                    'This person has no properties.'
-                                                )
-                                            },
-                                        }}
-                                        embedded
-                                        showHeader={false}
-                                        dataSource={people.people}
-                                        nouns={['person', 'persons']}
-                                    />
-                                ) : (
-                                    <div className="person-row-container person-row">
-                                        We couldn't find any matching {aggregationTargetLabel.plural} for this data
-                                        point.
-                                    </div>
-                                )}
-                                {people?.next && (
-                                    <div className="m-4 flex justify-center">
-                                        <LemonButton
-                                            type="primary"
-                                            size="small"
-                                            onClick={loadMorePeople}
-                                            loading={loadingMorePeople}
-                                        >
-                                            Load more {aggregationTargetLabel.plural}
-                                        </LemonButton>
-                                    </div>
                                 )}
                             </>
                         )}

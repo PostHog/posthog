@@ -5,6 +5,10 @@ import type { personsModalLogicType } from './personsModalLogicType'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { cohortsModel } from '~/models/cohortsModel'
+import { lemonToast } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export interface PersonModalLogicProps {
     url: string
@@ -16,6 +20,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     key((props) => `${props.url}` || ''),
     actions({
         setSearchTerm: (search: string) => ({ search }),
+        saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
@@ -35,8 +40,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     clear?: boolean
                 }) => {
                     if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        // A bit hacky (doesn't account for hash params),
-                        // but it works and only needed while we have this feature flag
                         url += '&include_recordings=true'
                     }
 
@@ -45,8 +48,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     }
 
                     const res = await api.get(url)
-
-                    await new Promise((r) => setTimeout(r, 2000))
 
                     const peopleList = clear
                         ? res?.results[0]?.people
@@ -76,8 +77,27 @@ export const personsModalLogic = kea<personsModalLogicType>([
     listeners(({ actions, props }) => ({
         setSearchTerm: async ({ search }, breakpoint) => {
             await breakpoint(500)
-
             actions.loadPeople({ url: props.url, search, clear: true })
+        },
+        saveCohortWithUrl: async ({ cohortName }) => {
+            const cohortParams = {
+                is_static: true,
+                name: cohortName,
+            }
+
+            const qs = props.url.split('?').pop() || ''
+            const cohort = await api.create('api/cohort?' + qs, cohortParams)
+            cohortsModel.actions.cohortCreated(cohort)
+            lemonToast.success('Cohort saved', {
+                toastId: `cohort-saved-${cohort.id}`,
+                button: {
+                    label: 'View cohort',
+                    action: () => router.actions.push(urls.cohort(cohort.id)),
+                },
+            })
+
+            // const filters = fromParamsGivenUrl('?' + qs) // this function expects the question mark to be included
+            // actions.reportCohortCreatedFromPersonsModal(filters)
         },
     })),
 
