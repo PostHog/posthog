@@ -16,6 +16,7 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Skeleton } from 'antd'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -40,69 +41,6 @@ export function PersonsModalV2({
     const { allPeople, peopleLoading, people: peopleRes, searchTerm } = useValues(logic)
     const { loadPeople, setSearchTerm } = useActions(logic)
 
-    // const {
-    //     people,
-    //     loadingMorePeople,
-    //     firstLoadedPeople,
-    //     searchTerm,
-    //     isInitialLoad,
-    //     peopleParams,
-    //     actorLabel,
-    //     sessionRecordingId,
-    // } = useValues(personsModalLogic)
-    // const {
-    //     hidePeople,
-    //     loadMorePeople,
-    //     setFirstLoadedActors,
-    //     setPersonsModalFilters,
-    //     setSearchTerm,
-    //     switchToDataPoint,
-    //     openRecordingModal,
-    //     closeRecordingModal,
-    // } = useActions(personsModalLogic)
-    // const { featureFlags } = useValues(featureFlagLogic)
-
-    // const title = useMemo(
-    //     () =>
-    //         isInitialLoad ? (
-    //             `Loading ${aggregationTargetLabel.plural}…`
-    //         ) : filters.shown_as === 'Stickiness' ? (
-    //             <>
-    //                 <PropertyKeyInfo value={people?.label || ''} disablePopover /> stickiness on day {people?.day}
-    //             </>
-    //         ) : filters.display === ChartDisplayType.ActionsBarValue ||
-    //           filters.display === ChartDisplayType.ActionsPie ||
-    //           filters.display === ChartDisplayType.BoldNumber ? (
-    //             <PropertyKeyInfo value={people?.label || ''} disablePopover />
-    //         ) : filters.insight === InsightType.FUNNELS ? (
-    //             <>
-    //                 {(people?.funnelStep ?? 0) >= 0 ? 'Completed' : 'Dropped off at'} step{' '}
-    //                 {Math.abs(people?.funnelStep ?? 0)} • <PropertyKeyInfo value={people?.label || ''} disablePopover />{' '}
-    //                 {!!people?.breakdown_value ? `• ${people.breakdown_value}` : ''}
-    //             </>
-    //         ) : filters.insight === InsightType.PATHS ? (
-    //             <>
-    //                 {people?.pathsDropoff ? 'Dropped off after' : 'Completed'} step{' '}
-    //                 <PropertyKeyInfo value={people?.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
-    //             </>
-    //         ) : filters.display === ChartDisplayType.WorldMap ? (
-    //             <>
-    //                 {capitalizeFirstLetter(actorLabel)}
-    //                 {peopleParams?.breakdown_value
-    //                     ? ` in ${countryCodeToFlag(peopleParams?.breakdown_value as string)} ${
-    //                           countryCodeToName[peopleParams?.breakdown_value as string]
-    //                       }`
-    //                     : ''}
-    //             </>
-    //         ) : (
-    //             <>
-    //                 {capitalizeFirstLetter(actorLabel)} on{' '}
-    //                 <DateDisplay interval={filters.interval || 'day'} date={people?.day?.toString() || ''} />
-    //             </>
-    //         ),
-    //     [filters, people, isInitialLoad]
-    // )
-
     // const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
     // const isDownloadCsvAvailable: boolean =
     //     !!featureFlags[FEATURE_FLAGS.PERSON_MODAL_EXPORTS] && InsightType.TRENDS && showModalActions && !!people?.action
@@ -114,13 +52,6 @@ export function PersonsModalV2({
 
     // const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     // const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
-
-    // const filterSearchResults = (): void => {
-    //     if (!searchTerm) {
-    //         setFirstLoadedActors(firstLoadedPeople)
-    //     }
-    //     people && setPersonsModalFilters(searchTerm, people, filters)
-    // }
 
     return (
         <>
@@ -141,17 +72,22 @@ export function PersonsModalV2({
                             // disabled={isInitialLoad}
                             className="my-2"
                         />
-
-                        {peopleLoading ? (
-                            <Skeleton active paragraph={false} />
-                        ) : (
-                            <div className="flex items-center gap-2">
-                                <IconPersonFilled className="text-xl" />
-                                <span>
-                                    This list contains <b>{peopleRes?.total_count} unique results</b>.
-                                </span>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-2 text-muted">
+                            {peopleLoading ? (
+                                <>
+                                    <Spinner size="sm" />
+                                    <span>Loading...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <IconPersonFilled className="text-xl" />
+                                    <span>
+                                        {' '}
+                                        This list contains <b>{peopleRes?.total_count} unique results</b>.
+                                    </span>
+                                </>
+                            )}
+                        </div>
                     </>
                 }
                 footer={
@@ -175,9 +111,7 @@ export function PersonsModalV2({
                 }
                 width={600}
             >
-                <div>
-                    {peopleLoading ? <Loading /> : null}
-
+                <div className="relative min-h-20">
                     {allPeople && allPeople.length > 0 ? (
                         <LemonTable
                             columns={
@@ -228,11 +162,11 @@ export function PersonsModalV2({
                             dataSource={allPeople}
                             nouns={['person', 'persons']}
                         />
-                    ) : (
+                    ) : peopleRes ? (
                         <div className="person-row-container person-row">
                             We couldn't find any matching results for this data point.
                         </div>
-                    )}
+                    ) : null}
                 </div>
 
                 {peopleRes?.next && (
