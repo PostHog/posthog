@@ -262,8 +262,6 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
             size_before=before_count,
         )
 
-    cohort_query = cohort_query.replace("person_props", "properties")
-
     recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
     sync_execute(
