@@ -143,5 +143,10 @@ export const LoggedInWrongUser = (): JSX.Element => {
     useEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
     }, [])
-    return <InviteSignup />
+    return (
+        <div>
+            <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
+            <InviteSignup />
+        </div>
+    )
 }
