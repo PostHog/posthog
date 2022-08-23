@@ -13,7 +13,7 @@ RUN pip install -r cloud_requirements.txt --no-cache-dir
 
 COPY ./multi_tenancy /code/multi_tenancy/
 COPY ./messaging /code/messaging/
-COPY multi_tenancy_settings.py /code/cloud_settings.py
+COPY ./multi_tenancy_settings.py /code/cloud_settings.py
 RUN cat /code/cloud_settings.py > /code/posthog/settings/cloud.py
 
 USER posthog
