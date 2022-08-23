@@ -81,18 +81,15 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
-        compression_codec = sync_execute(
+        zero_person_id_count = sync_execute(
             """
-            SELECT compression_codec
-            FROM system.columns
-            WHERE database = %(database)s
-              AND table = %(events_data_table)s
-              AND name = 'person_properties'
-        """,
-            {"database": settings.CLICKHOUSE_DATABASE, "events_data_table": EVENTS_DATA_TABLE()},
+            SELECT count()
+            FROM events
+            WHERE person_id = toUUIDOrZero('')
+            """,
         )[0][0]
 
-        return compression_codec != "CODEC(ZSTD(3))"
+        return zero_person_id_count > 0
 
     @cached_property
     def operations(self):
