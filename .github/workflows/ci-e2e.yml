@@ -103,19 +103,19 @@ jobs:
     posthog_cloud:
         name: PostHog Cloud image build
         runs-on: ubuntu-latest
-        needs: [build]
+        # needs: [build]
 
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
 
-            - uses: actions/download-artifact@v3
-              with:
-                  name: docker-image
-                  path: /tmp/
+            # - uses: actions/download-artifact@v3
+            #   with:
+            #       name: docker-image
+            #       path: /tmp/
 
-            - name: Load the non-cloud image
-              run: docker load < /tmp/posthog-image.tar
+            # - name: Load the non-cloud image
+            #   run: docker load < /tmp/posthog-image.tar
 
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
@@ -127,6 +127,13 @@ jobs:
             - name: Login to Amazon ECR
               id: login-ecr
               uses: aws-actions/amazon-ecr-login@v1
+
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v1
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Fetch posthog-cloud
               run: |

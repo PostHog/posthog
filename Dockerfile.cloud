@@ -1,8 +1,7 @@
 #
 # Extend the non-Cloud image with anything required for PostHog Cloud (app.posthog.com)
 #
-ARG BASE_IMAGE
-FROM ${BASE_IMAGE}
+FROM ghcr.io/posthog/posthog/posthog:master
 
 WORKDIR /code/
 
