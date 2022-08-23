@@ -50,7 +50,7 @@ function ToolbarLaunch(): JSX.Element {
 
             <div className="my-4">
                 <LemonSwitch
-                    data-attr="toolbar-authorized-toggle"
+                    data-tooltip="toolbar-authorized-toggle"
                     label="Enable the PostHog toolbar"
                     onChange={() =>
                         updateUser({

@@ -47,17 +47,14 @@ export type Prompt = {
     text: string
     placement: Placement
     reference: string
-    buttons?: PromptButton[]
+    buttons: PromptButton[]
     icon?: string
 }
 
 export type Tooltip = Prompt & { type: 'tooltip' }
 
 export type PromptRule = {
-    path: {
-        must_match: string[]
-        exclude?: string[]
-    }
+    path: string
 }
 
 export type PromptSequence = {
@@ -167,7 +164,7 @@ function cancellableTooltipWithRetries(
                 }
                 if (tooltip.reference) {
                     const element = tooltip.reference
-                        ? (document.querySelector(`[data-attr="${tooltip.reference}"]`) as HTMLElement)
+                        ? (document.querySelector(`[data-tooltip="${tooltip.reference}"]`) as HTMLElement)
                         : null
                     if (!element) {
                         throw 'Prompt reference element not found'
@@ -302,9 +299,11 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
                     case 'tooltip':
                         const { close, show } = cancellableTooltipWithRetries(prompt, actions.promptAction, {
                             maxSteps: values.prompts.length,
-                            onClose: actions.dismissSequence,
-                            previous: () => actions.promptAction('previous'),
-                            next: () => actions.promptAction('next'),
+                            onClose: () => {
+                                actions.dismissSequence()
+                            },
+                            previous: actions.previousPrompt,
+                            next: actions.nextPrompt,
                         })
                         cache.runOnClose = close
 
@@ -377,14 +376,8 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             const valid = []
             for (const sequence of values.sequences) {
                 // for now the only valid rule is related to the pathname, can be extended
-                const isMatchingPath = sequence.rule.path.must_match.some((value) => wcmatch(value)(pathname))
-                if (isMatchingPath) {
-                    if (sequence.rule.path.exclude) {
-                        const isMatchingExclusion = sequence.rule.path.exclude.some((value) => wcmatch(value)(pathname))
-                        if (isMatchingExclusion) {
-                            continue
-                        }
-                    }
+                const isWildcardMatch = wcmatch(sequence.rule.path)
+                if (isWildcardMatch(pathname)) {
                     const isTutorialDismissed = sequence.type === 'product-tour' && values.hasSkippedTutorial
                     if (values.userState[sequence.key]) {
                         const sequenceState = values.userState[sequence.key]
@@ -457,19 +450,14 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         },
         setUserState: ({ sync }) => sync && actions.syncState({}),
         promptAction: ({ action }) => {
-            actions.closePrompts()
             switch (action) {
-                case 'next':
-                    actions.nextPrompt()
-                    break
-                case 'previous':
-                    actions.previousPrompt()
-                    break
                 case 'skip':
+                    actions.closePrompts()
                     actions.skipTutorial()
                     inAppPromptEventCaptureLogic.actions.reportTutorialSkipped()
                     break
                 case 'run-tutorial':
+                    actions.closePrompts()
                     actions.findValidSequences()
                     break
                 default:

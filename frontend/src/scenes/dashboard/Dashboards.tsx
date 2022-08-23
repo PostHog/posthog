@@ -223,7 +223,7 @@ export function Dashboards(): JSX.Element {
             <LemonDivider className="my-4" />
             {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <LemonTable
-                    data-attr="dashboards-table"
+                    data-tooltip="dashboards-table"
                     pagination={{ pageSize: 100 }}
                     dataSource={dashboards}
                     rowKey="id"

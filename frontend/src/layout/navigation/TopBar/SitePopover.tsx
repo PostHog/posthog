@@ -336,7 +336,12 @@ export function SitePopover(): JSX.Element {
                 </>
             }
         >
-            <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
+            <div
+                data-tooltip="profile-button"
+                className="SitePopover__crumb"
+                onClick={toggleSitePopover}
+                data-attr="top-menu-toggle"
+            >
                 <div
                     className="SitePopover__profile-picture"
                     title={!systemStatus ? 'Potential system issue' : expired ? 'License expired' : undefined}
