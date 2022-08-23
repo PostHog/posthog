@@ -28,7 +28,7 @@ export interface PersonsModalProps {
 
 export function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
-    const logic = personsModalLogic({ url })
+    const logic = personsModalLogic({ url, closeModal: () => setIsOpen(false) })
 
     const { allPeople, peopleLoading, people: peopleRes, searchTerm } = useValues(logic)
     const { loadPeople, setSearchTerm, saveCohortWithUrl } = useActions(logic)
@@ -40,15 +40,6 @@ export function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps):
             },
         })
     }
-
-    // const flaggedInsights = featureFlags[FEATURE_FLAGS.NEW_INSIGHT_COHORTS]
-    // const isDownloadCsvAvailable: boolean =
-    //     !!featureFlags[FEATURE_FLAGS.PERSON_MODAL_EXPORTS] && InsightType.TRENDS && showModalActions && !!people?.action
-    // const isSaveAsCohortAvailable =
-    //     (view === InsightType.TRENDS ||
-    //         view === InsightType.STICKINESS ||
-    //         (!!flaggedInsights && (view === InsightType.FUNNELS || view === InsightType.PATHS))) && // make sure flaggedInsights isn't evaluated as undefined
-    //     showModalActions
 
     // const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     // const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)

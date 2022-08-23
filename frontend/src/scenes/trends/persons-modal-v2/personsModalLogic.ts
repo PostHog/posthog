@@ -7,11 +7,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 export interface PersonModalLogicProps {
     url: string
+    closeModal?: () => void
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
@@ -30,15 +31,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         people: [
             null as CountedPaginatedResponse<ActorType> | null,
             {
-                loadPeople: async ({
-                    url,
-                    search,
-                    clear = false,
-                }: {
-                    url: string
-                    search?: string
-                    clear?: boolean
-                }) => {
+                loadPeople: async ({ url, search, clear }: { url: string; search?: string; clear?: boolean }) => {
                     if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
                         url += '&include_recordings=true'
                     }
@@ -102,10 +95,21 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     selectors({
-        allPeople: [(s) => [s.people], (res) => res?.results],
+        allPeople: [(s) => [s.people], (res: CountedPaginatedResponse<ActorType> | null) => res?.results],
     }),
 
     afterMount(({ actions, props }) => {
         actions.loadPeople({ url: props.url, clear: true })
     }),
+
+    urlToAction(({ props, cache }) => ({
+        '*': () => {
+            // If we click anything that navigates us away, close the modal
+            if (!cache['loaded']) {
+                cache['loaded'] = true
+                return
+            }
+            props.closeModal?.()
+        },
+    })),
 ])
