@@ -1,6 +1,6 @@
 # name: TestClickhouseStickiness.test_aggregate_by_groups
   '
-  /* user_id:25 request:_api_projects_28_insights_trend_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -27,7 +27,7 @@
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
   '
-  /* user_id:25 request:_api_person_stickiness_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -54,7 +54,7 @@
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.2
   '
-  /* user_id:25 request:_api_person_stickiness_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -81,7 +81,7 @@
 ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.3
   '
-  /* user_id:25 request:_api_person_stickiness_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT e."$group_0" AS aggregation_target,
@@ -108,7 +108,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
   '
-  /* user_id:27 request:_api_projects_30_insights_trend_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
@@ -142,7 +142,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
   '
-  /* user_id:27 request:_api_person_stickiness_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -175,7 +175,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.2
   '
-  /* user_id:27 request:_api_person_stickiness_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
@@ -208,7 +208,7 @@
 ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.3
   '
-  /* user_id:27 request:_api_person_stickiness_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
     (SELECT pdi.person_id AS aggregation_target,
