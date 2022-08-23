@@ -16,7 +16,13 @@ from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_insert_cohortpeople_queries,
+)
 
 
 def _create_action(**kwargs):
@@ -326,6 +332,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = get_person_ids_by_cohort_id(self.team, cohort.id)
         self.assertEqual(len(results), 3)
 
+    @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_basic(self):
         Person.objects.create(
             team_id=self.team.pk,
