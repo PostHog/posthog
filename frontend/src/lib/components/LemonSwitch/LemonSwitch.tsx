@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import React, { useMemo, useState } from 'react'
-import { Spinner } from '../Spinner/Spinner'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps {
@@ -10,7 +9,6 @@ export interface LemonSwitchProps {
     label?: string | JSX.Element
     id?: string
     fullWidth?: boolean
-    loading?: boolean
     bordered?: boolean
     disabled?: boolean
     'data-attr'?: string
@@ -26,7 +24,6 @@ export function LemonSwitch({
     id: rawId,
     onChange,
     checked,
-    loading,
     fullWidth,
     bordered,
     disabled,
@@ -67,11 +64,7 @@ export function LemonSwitch({
                 disabled={disabled}
             >
                 <div className="LemonSwitch__slider" />
-                <div className="LemonSwitch__handle">
-                    {loading && (
-                        <Spinner size="sm" monocolor className={clsx(checked ? 'text-white' : 'text-primary')} />
-                    )}
-                </div>
+                <div className="LemonSwitch__handle" />
             </button>
         </div>
     )
