@@ -1,6 +1,6 @@
 # name: TestEvents.test_event_property_values
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
@@ -12,7 +12,7 @@
 ---
 # name: TestEvents.test_event_property_values.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
@@ -24,7 +24,7 @@
 ---
 # name: TestEvents.test_event_property_values.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
@@ -36,7 +36,7 @@
 ---
 # name: TestEvents.test_event_property_values.3
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
@@ -48,7 +48,7 @@
 ---
 # name: TestEvents.test_event_property_values_materialized
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
@@ -60,7 +60,7 @@
 ---
 # name: TestEvents.test_event_property_values_materialized.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
@@ -72,7 +72,7 @@
 ---
 # name: TestEvents.test_event_property_values_materialized.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
@@ -84,7 +84,7 @@
 ---
 # name: TestEvents.test_event_property_values_materialized.3
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_events_values_?$ (EventViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
