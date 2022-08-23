@@ -106,6 +106,9 @@ jobs:
         needs: [build]
 
         steps:
+            - name: Checkout PR branch
+              uses: actions/checkout@v2
+
             - uses: actions/download-artifact@v3
               with:
                   name: docker-image
