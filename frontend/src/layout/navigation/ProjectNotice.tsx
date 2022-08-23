@@ -38,7 +38,7 @@ export function ProjectNotice(): JSX.Element | null {
                         <Link to="/project/settings" data-attr="real_project_with_no_events-settings">
                             Project Settings
                         </Link>{' '}
-                        to get things moving.
+                        to get things moving
                     </>
                 ),
                 action: {
@@ -49,7 +49,7 @@ export function ProjectNotice(): JSX.Element | null {
                 },
             },
             invite_teammates: {
-                message: 'Share PostHog insights with your team for free',
+                message: 'Get more out of PostHog by inviting your team for free',
                 action: {
                     'data-attr': 'invite-warning-cta',
                     onClick: showInviteModal,
