@@ -6,7 +6,6 @@ import {
     PropertyDefinitionState,
     PropertyFilterValue,
     PropertyType,
-    SelectOption,
 } from '~/types'
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
@@ -14,11 +13,6 @@ import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
 import { combineUrl } from 'kea-router'
 
-export interface PropertySelectOption extends SelectOption {
-    is_numerical?: boolean
-}
-
-// Null means loading
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
 // List of property definitions that are calculated on the backend. These
@@ -53,7 +47,7 @@ export const updatePropertyDefinition = (propertyDefinitions: PropertyDefinition
 
 /** Schedules a background task with a 10ms debounce to fetch property definitions */
 const checkOrLoadPropertyDefinition = (
-    propertyName: BreakdownKeyType,
+    propertyName: BreakdownKeyType | undefined,
     propertyDefinitionStorage: PropertyDefinitionStorage
 ): void => {
     // first time we see this, schedule a fetch
