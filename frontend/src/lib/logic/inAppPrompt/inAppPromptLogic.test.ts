@@ -42,7 +42,7 @@ const config: PromptConfig & { state: PromptUserState } = {
             ],
             rule: {
                 path: {
-                    must_match: '/events',
+                    must_match: ['/events'],
                 },
             },
             type: 'product-tour',
@@ -61,8 +61,8 @@ const config: PromptConfig & { state: PromptUserState } = {
             ],
             rule: {
                 path: {
-                    must_match: '/dashboard',
-                    exclude: '/dashboard/*',
+                    must_match: ['/dashboard'],
+                    exclude: ['/dashboard/*'],
                 },
             },
             type: 'product-tour',
