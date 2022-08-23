@@ -38,7 +38,6 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
      * */
     size?: 'small' | 'medium' | 'tall' | 'large'
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> extends LemonRowPropsBase<T> {

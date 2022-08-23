@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { inAppPromptLogic, PromptSequence } from './inAppPromptLogic'
+import { inAppPromptLogic, PromptConfig, PromptSequence, PromptUserState } from './inAppPromptLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
 import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
 
-const config = {
+const config: PromptConfig & { state: PromptUserState } = {
     sequences: [
         {
             key: 'experiment-events-product-tour',
@@ -40,7 +40,11 @@ const config = {
                     reference: 'tooltip-test',
                 },
             ],
-            rule: { path: '/events' },
+            rule: {
+                path: {
+                    must_match: '/events',
+                },
+            },
             type: 'product-tour',
         },
         {
@@ -55,7 +59,12 @@ const config = {
                     reference: 'tooltip-test',
                 },
             ],
-            rule: { path: '/dashboard' },
+            rule: {
+                path: {
+                    must_match: '/dashboard',
+                    exclude: '/dashboard/*',
+                },
+            },
             type: 'product-tour',
         },
     ],
@@ -75,7 +84,7 @@ describe('inAppPromptLogic', () => {
 
     beforeEach(async () => {
         const div = document.createElement('div')
-        div['data-tooltip'] = 'tooltip-test'
+        div['data-attr'] = 'tooltip-test'
         const spy = jest.spyOn(document, 'querySelector')
         spy.mockReturnValue(div)
         jest.spyOn(api, 'update')
@@ -102,6 +111,13 @@ describe('inAppPromptLogic', () => {
     })
 
     afterEach(() => logic.unmount())
+
+    it('changes route and dismissed the sequence in an excluded path', async () => {
+        router.actions.push(urls.dashboard('my-dashboard'))
+        await expectLogic(logic)
+            .toDispatchActions(['closePrompts', 'findValidSequences', 'setValidSequences', 'runFirstValidSequence'])
+            .toNotHaveDispatchedActions(['runSequence'])
+    })
 
     it('changes route and correctly triggers an unseen sequence', async () => {
         router.actions.push(urls.dashboards())
