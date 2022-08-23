@@ -221,6 +221,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                 })}
                 rowClassName="cursor-pointer"
                 data-attr="session-recording-table"
+                data-tooltip="session-recording-table"
                 emptyState="No matching recordings found"
             />
             {(hasPrev || hasNext) && (

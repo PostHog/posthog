@@ -88,7 +88,7 @@ export function PersonsTable({
     return (
         <>
             <LemonTable
-                data-attr="persons-table"
+                data-tooltip="persons-table"
                 columns={columns}
                 loading={loading}
                 rowKey="id"

@@ -40,6 +40,7 @@ export interface LemonButtonPropsBase
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
+    'data-tooltip'?: string
     'aria-label'?: string
 }
 
