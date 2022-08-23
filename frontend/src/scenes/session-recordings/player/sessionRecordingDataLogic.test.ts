@@ -10,7 +10,7 @@ import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 
@@ -21,7 +21,7 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
 const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events`
 
-describe('sessionRecordingLogic', () => {
+describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
     beforeEach(() => {
@@ -33,7 +33,7 @@ describe('sessionRecordingLogic', () => {
             },
         })
         initKeaTests()
-        logic = sessionRecordingDataLogic()
+        logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
         logic.mount()
     })
 
@@ -58,20 +58,6 @@ describe('sessionRecordingLogic', () => {
                 source: RecordingWatchedSource.Unknown,
             })
         })
-        it('reads recording ids from the url', async () => {
-            router.actions.push(
-                '/recordings',
-                {},
-                {
-                    sessionRecordingId: '1',
-                }
-            )
-
-            await expectLogic(logic).toDispatchActions([
-                logic.actionCreators.loadRecordingMeta('1'),
-                logic.actionCreators.loadRecordingSnapshots('1'),
-            ])
-        })
     })
 
     describe('loading session core', () => {
@@ -84,7 +70,7 @@ describe('sessionRecordingLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
                 .toMatchValues({
@@ -103,7 +89,7 @@ describe('sessionRecordingLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
@@ -120,7 +106,7 @@ describe('sessionRecordingLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
@@ -138,7 +124,7 @@ describe('sessionRecordingLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
                 .toMatchValues({
@@ -155,7 +141,7 @@ describe('sessionRecordingLogic', () => {
 
             silenceKeaLoadersErrors()
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaFailure'])
                 .toMatchValues({
@@ -170,7 +156,7 @@ describe('sessionRecordingLogic', () => {
                 .toFinishAllListeners()
             resumeKeaLoadersErrors()
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
@@ -197,7 +183,7 @@ describe('sessionRecordingLogic', () => {
                 },
             })
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
                 .toMatchValues({
@@ -206,7 +192,7 @@ describe('sessionRecordingLogic', () => {
                 .toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
                 .toMatchValues({
@@ -227,7 +213,7 @@ describe('sessionRecordingLogic', () => {
 
         it('load events after metadata with 1min buffer', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents'])
                 .toMatchValues({
@@ -241,7 +227,7 @@ describe('sessionRecordingLogic', () => {
         })
         it('no next url', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toNotHaveDispatchedActions(['loadEvents'])
@@ -261,7 +247,7 @@ describe('sessionRecordingLogic', () => {
             })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toMatchValues({
@@ -310,7 +296,7 @@ describe('sessionRecordingLogic', () => {
                     throw new Error('Error in third request')
                 })
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toMatchValues({
@@ -338,7 +324,7 @@ describe('sessionRecordingLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta('1')
+                logic.actions.loadRecordingMeta()
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toMatchValues({
@@ -366,7 +352,7 @@ describe('sessionRecordingLogic', () => {
 
         it('no next url', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
@@ -402,7 +388,7 @@ describe('sessionRecordingLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
@@ -418,7 +404,7 @@ describe('sessionRecordingLogic', () => {
                     },
                 })
                 .toDispatchActions([
-                    logic.actionCreators.loadRecordingSnapshots(undefined, firstNext),
+                    logic.actionCreators.loadRecordingSnapshots(firstNext),
                     'loadRecordingSnapshotsSuccess',
                 ])
                 .toMatchValues({
@@ -461,7 +447,7 @@ describe('sessionRecordingLogic', () => {
                 })
 
             await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots('1')
+                logic.actions.loadRecordingSnapshots()
             })
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
@@ -477,7 +463,7 @@ describe('sessionRecordingLogic', () => {
                     },
                 })
                 .toDispatchActions([
-                    logic.actionCreators.loadRecordingSnapshots(undefined, firstNext),
+                    logic.actionCreators.loadRecordingSnapshots(firstNext),
                     'loadRecordingSnapshotsFailure',
                 ])
             resumeKeaLoadersErrors()

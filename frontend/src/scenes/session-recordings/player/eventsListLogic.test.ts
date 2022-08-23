@@ -14,6 +14,8 @@ import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recordin
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 
+const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
+
 describe('eventsListLogic', () => {
     let logic: ReturnType<typeof eventsListLogic.build>
 
@@ -26,17 +28,17 @@ describe('eventsListLogic', () => {
             },
         })
         initKeaTests()
-        logic = eventsListLogic()
+        logic = eventsListLogic(playerLogicProps)
         logic.mount()
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
             await expectLogic(logic).toMount([
-                sessionRecordingDataLogic,
-                sessionRecordingPlayerLogic,
-                eventUsageLogic,
-                sharedListLogic,
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }),
+                sessionRecordingPlayerLogic(playerLogicProps),
+                eventUsageLogic(playerLogicProps),
+                sharedListLogic(playerLogicProps),
             ])
         })
     })
@@ -49,9 +51,13 @@ describe('eventsListLogic', () => {
                 logic.actions.setLocalFilters(filters)
             })
                 .toNotHaveDispatchedActions([
-                    sessionRecordingDataLogic.actionCreators.setFilters({ query: 'no mini pretzels' }),
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionCreators.setFilters({
+                        query: 'no mini pretzels',
+                    }),
                 ])
-                .toDispatchActions([sessionRecordingDataLogic.actionCreators.setFilters(filters)])
+                .toDispatchActions([
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionCreators.setFilters(filters),
+                ])
         })
     })
 
@@ -63,7 +69,10 @@ describe('eventsListLogic', () => {
             }
             await expectLogic(logic, () => {
                 logic.actions.handleEventClick(playerPosition)
-            }).toDispatchActions(['handleEventClick', sessionRecordingPlayerLogic.actionCreators.seek(playerPosition)])
+            }).toDispatchActions([
+                'handleEventClick',
+                sessionRecordingPlayerLogic(playerLogicProps).actionCreators.seek(playerPosition),
+            ])
         })
 
         const nanInputs: Record<string, any> = {
@@ -82,7 +91,12 @@ describe('eventsListLogic', () => {
                     })
                 })
                     .toDispatchActions(['handleEventClick'])
-                    .toNotHaveDispatchedActions([sessionRecordingPlayerLogic.actionCreators.seek(value)])
+                    .toNotHaveDispatchedActions([
+                        sessionRecordingPlayerLogic({
+                            sessionRecordingId: '1',
+                            playerKey: 'playlist',
+                        }).actionCreators.seek(value),
+                    ])
             })
         })
     })
@@ -138,13 +152,13 @@ describe('eventsListLogic', () => {
     describe('eventsList', () => {
         it('should load and parse events', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingDataLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingDataLogic.actions.loadRecordingMeta('1')
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingDataLogic.actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingDataLogic.actionTypes.loadRecordingMetaSuccess,
-                    sessionRecordingDataLogic.actionTypes.loadEventsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
                 ])
                 .toMatchValues({
                     listEvents: [
@@ -193,14 +207,14 @@ describe('eventsListLogic', () => {
         })
         it('should filter events by specified window id', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingDataLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingDataLogic.actions.loadRecordingMeta('1')
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
                 sharedListLogic.actions.setWindowIdFilter(
                     '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
                 )
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingDataLogic.actionTypes.loadEventsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
                     sharedListLogic.actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({

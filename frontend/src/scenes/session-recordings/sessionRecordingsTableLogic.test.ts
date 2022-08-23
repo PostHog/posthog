@@ -88,17 +88,19 @@ describe('sessionRecordingsTableLogic', () => {
 
         describe('sessionRecordingId', () => {
             it('starts as null', () => {
-                expectLogic(logic).toMatchValues({ sessionRecordingId: null })
+                expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
             })
             it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
                 expectLogic(logic, () =>
                     logic.actions.openSessionPlayer('abc', RecordingWatchedSource.RecordingsList)
                 ).toMatchValues({
-                    sessionRecordingId: 'abc',
+                    activeSessionRecordingId: 'abc',
                 })
                 expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
-                expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({ sessionRecordingId: null })
+                expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({
+                    activeSessionRecordingId: null,
+                })
                 expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
             })
 
@@ -108,7 +110,7 @@ describe('sessionRecordingsTableLogic', () => {
 
                 await expectLogic(logic)
                     .toDispatchActions(['openSessionPlayer'])
-                    .toMatchValues({ sessionRecordingId: 'recording1212' })
+                    .toMatchValues({ activeSessionRecordingId: 'recording1212' })
             })
         })
 
@@ -310,7 +312,7 @@ describe('sessionRecordingsTableLogic', () => {
 
             await expectLogic(logic)
                 .toDispatchActions(['openSessionPlayer'])
-                .toMatchValues({ sessionRecordingId: 'recording1212' })
+                .toMatchValues({ activeSessionRecordingId: 'recording1212' })
         })
     })
 })
