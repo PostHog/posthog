@@ -102,7 +102,6 @@ export function Login(): JSX.Element {
                                 precheck({ email: login.email })
                                 document.getElementById('password')?.focus()
                             }}
-                            autoComplete="off"
                         />
                     </Field>
                     <div
@@ -117,6 +116,7 @@ export function Login(): JSX.Element {
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 placeholder="••••••••••"
+                                autoComplete="current-password"
                             />
                         </Field>
                     </div>

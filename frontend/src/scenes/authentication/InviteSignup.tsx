@@ -210,7 +210,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             <h2 className="text-center">Create your PostHog account</h2>
             <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
                 <PureField label="Email">
-                    <LemonInput type="email" disabled id="email" value={invite?.target_email} />
+                    <LemonInput type="email" disabled value={invite?.target_email} />
                 </PureField>
                 <Field
                     name="password"
@@ -228,8 +228,8 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         className="ph-ignore-input"
                         data-attr="password"
                         placeholder="••••••••••"
+                        autoComplete="new-password"
                         autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
-                        id="password"
                         disabled={isSignupSubmitting}
                     />
                 </Field>
@@ -241,7 +241,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         invite?.first_name ? 'Your name was provided in the invite, feel free to change it.' : undefined
                     }
                 >
-                    <LemonInput placeholder="Jane" id="first_name" />
+                    <LemonInput data-attr="first_name" placeholder="Jane" />
                 </Field>
 
                 <Field name="email_opt_in">

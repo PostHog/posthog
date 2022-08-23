@@ -66,11 +66,23 @@ function NewPasswordForm(): JSX.Element {
                         </div>
                     }
                 >
-                    <LemonInput type="password" className="ph-ignore-input" placeholder="••••••••••" />
+                    <LemonInput
+                        autoComplete="new-password"
+                        type="password"
+                        className="ph-ignore-input"
+                        placeholder="••••••••••"
+                        data-attr="password"
+                    />
                 </Field>
 
                 <Field name="passwordConfirm" label="Confirm Password">
-                    <LemonInput type="password" className="ph-ignore-input" placeholder="••••••••••" />
+                    <LemonInput
+                        autoComplete="new-password"
+                        type="password"
+                        className="ph-ignore-input"
+                        placeholder="••••••••••"
+                        data-attr="password-confirm"
+                    />
                 </Field>
 
                 <AuthenticationButton

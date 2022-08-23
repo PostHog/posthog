@@ -86,6 +86,7 @@ export function Signup(): JSX.Element | null {
                             data-attr="signup-email"
                             placeholder="email@yourcompany.com"
                             type="email"
+                            autoComplete="email"
                             ref={emailInputRef}
                             disabled={isSignupSubmitting}
                         />
@@ -104,6 +105,7 @@ export function Signup(): JSX.Element | null {
                         >
                             <LemonInput
                                 type="password"
+                                autoComplete="new-password"
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 placeholder="••••••••••"
