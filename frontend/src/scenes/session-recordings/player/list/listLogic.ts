@@ -2,10 +2,7 @@ import { actions, connect, kea, key, listeners, Logic, path, props, reducers, se
 import { PlayerPosition, RecordingTimeMixinType, SessionRecordingTab } from '~/types'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    DEFAULT_SCROLLING_RESET_TIME_INTERVAL,
-    eventsListLogic,
-} from 'scenes/session-recordings/player/list/eventsListLogic'
+import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { ceilMsToClosestSecond, clamp, findLastIndex, floorMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
@@ -16,6 +13,10 @@ export const TAB_TO_LOGIC: Record<SessionRecordingTab, Logic> = {
     [SessionRecordingTab.EVENTS]: eventsListLogic,
     [SessionRecordingTab.CONSOLE]: consoleLogsListLogic,
 }
+
+export const DEFAULT_ROW_HEIGHT = 40 + 4 // Default height + padding
+export const OVERSCANNED_ROW_COUNT = 50
+const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
 export interface ListLogicProps {
     tab: SessionRecordingTab
@@ -83,12 +84,10 @@ export const listLogic = kea<listLogicType>([
             }
         },
     })),
-    selectors(() => ({
+    selectors(({ props }) => ({
         data: [
-            () => [(_, props) => props.tab],
-            (tab): RecordingTimeMixinType[] => {
-                return TAB_TO_LOGIC[tab]?.findMounted?.values?.data
-            },
+            () => [TAB_TO_LOGIC[props.tab]?.selectors.data],
+            (data: RecordingTimeMixinType[]): RecordingTimeMixinType[] => data ?? [],
         ],
         currentStartIndex: [
             (selectors) => [selectors.data, selectors.currentPlayerTime],

@@ -10,6 +10,7 @@ import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PlayerConsole } from 'scenes/session-recordings/player/list/PlayerConsole'
 import React from 'react'
 import { SessionRecordingTab } from '~/types'
+import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 
 const { TabPane } = Tabs
 
@@ -68,8 +69,8 @@ export function PlayerInspectorV3(): JSX.Element {
 
     return (
         <Col className="player-sidebar">
-            <div className="player-events">
-                {sessionConsoleEnabled && tab === SessionRecordingTab.CONSOLE ? <PlayerConsole /> : <PlayerEvents />}
+            <div className="player-list">
+                <PlayerList tab={sessionConsoleEnabled ? tab : SessionRecordingTab.EVENTS} />
             </div>
         </Col>
     )
