@@ -123,7 +123,7 @@ class MatrixManager:
             self._sleep_until_person_data_in_clickhouse(team.pk)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
-        calculate_event_property_usage_for_team(team.pk)  # TODO: include_actor_properties=True
+        calculate_event_property_usage_for_team(team.pk, complete_inference=True)
         for cohort in Cohort.objects.filter(team=team):
             cohort.calculate_people_ch(pending_version=0)
         team.save()
