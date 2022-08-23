@@ -1,6 +1,7 @@
 import React from 'react'
 import { Progress } from 'antd'
 import zxcvbn from 'zxcvbn'
+import { Tooltip } from './Tooltip'
 
 export default function PasswordStrength({
     password = '',
@@ -14,14 +15,16 @@ export default function PasswordStrength({
     const passwordScore: number = password.length && zxcvbn(password).score * 20 + 20
 
     return (
-        <Progress
-            percent={passwordScore}
-            size="small"
-            strokeColor={
-                passwordScore <= 50 ? 'var(--danger)' : passwordScore <= 75 ? 'var(--warning)' : 'var(--success)'
-            }
-            className={className}
-            showInfo={false}
-        />
+        <Tooltip title="Password strength">
+            <Progress
+                percent={passwordScore}
+                size="small"
+                strokeColor={
+                    passwordScore <= 50 ? 'var(--danger)' : passwordScore <= 75 ? 'var(--warning)' : 'var(--success)'
+                }
+                className={className}
+                showInfo={false}
+            />
+        </Tooltip>
     )
 }

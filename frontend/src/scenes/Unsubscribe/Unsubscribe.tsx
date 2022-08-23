@@ -1,10 +1,9 @@
 import React from 'react'
-import './Unsubscribe.scss'
 import { SceneExport } from 'scenes/sceneTypes'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { unsubscribeLogic } from './unsubscribeLogic'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export const scene: SceneExport = {
     component: Unsubscribe,
@@ -14,13 +13,9 @@ export const scene: SceneExport = {
 export function Unsubscribe(): JSX.Element {
     const { unsubscriptionLoading, unsubscription } = useValues(unsubscribeLogic)
     return (
-        <div className="Unsubscribe text-center gap-4">
-            <div className="mb-4">
-                <WelcomeLogo view="unsubscribe" />
-            </div>
-
+        <BridgePage view="unsubscribe">
             {unsubscriptionLoading ? (
-                <div className="p-4">
+                <div className="p-4 flex justify-center">
                     <Spinner />
                 </div>
             ) : unsubscription ? (
@@ -34,7 +29,7 @@ export function Unsubscribe(): JSX.Element {
                     <p>Your may already be unsubscribed or the link you clicked may be invalid.</p>
                 </div>
             )}
-        </div>
+        </BridgePage>
     )
 }
 

@@ -1,40 +1,27 @@
 import { useActions, useValues } from 'kea'
-import React, { useRef } from 'react'
+import React from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import { Loading } from 'lib/utils'
 import './InviteSignup.scss'
-import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
-import { PrevalidatedInvite, UserType } from '~/types'
+import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ProfilePicture } from '../../lib/components/ProfilePicture'
-import { IconArrowDropDown, IconChevronLeft, IconChevronRight } from 'lib/components/icons'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field, PureField } from 'lib/forms/Field'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import clsx from 'clsx'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: InviteSignup,
     logic: inviteSignupLogic,
-}
-
-export function WhoAmI({ user }: { user: UserType }): JSX.Element {
-    return (
-        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <ProfilePicture name={user.first_name} email={user.email} />
-            <div className="details">
-                <span>{user.first_name}</span>
-                <span>{user.organization?.name}</span>
-            </div>
-        </div>
-    )
 }
 
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
@@ -47,27 +34,17 @@ interface ErrorMessage {
 
 function HelperLinks(): JSX.Element {
     return (
-        <span className="text-light font-bold">
-            <a className="plain-link" href="/">
-                App Home
-            </a>
+        <div className="font-bold text-center">
+            <Link to="/">App Home</Link>
             <span className="mx-2">|</span>
-            <a
-                className="plain-link"
-                href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}
-                rel="noopener"
-            >
+            <Link href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
                 PostHog Website
-            </a>
+            </Link>
             <span className="mx-2">|</span>
-            <a
-                className="plain-link"
-                href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}
-                rel="noopener"
-            >
+            <Link href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
                 Contact Us
-            </a>
-        </span>
+            </Link>
+        </div>
     )
 }
 
@@ -95,7 +72,7 @@ function ErrorView(): JSX.Element | null {
             actions: user ? <BackToPostHog /> : <HelperLinks />,
         },
         [ErrorCodes.InvalidRecipient]: {
-            title: 'Oops! You cannot use this invite link',
+            title: "Oops! This invite link can't be used",
             detail: (
                 <>
                     <div>{error?.detail}</div>
@@ -123,7 +100,9 @@ function ErrorView(): JSX.Element | null {
         },
         [ErrorCodes.Unknown]: {
             title: 'Oops! We could not validate this invite link',
-            detail: `${error?.detail} There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
+            detail: `${
+                error?.detail || ''
+            } There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
             actions: user ? <BackToPostHog /> : <HelperLinks />,
         },
     }
@@ -133,15 +112,12 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <StarryBackground>
-            <div className="error-view-container">
-                <div className="inner">
-                    <h1 className="page-title">{ErrorMessages[error.code].title}</h1>
-                    <div className="error-message">{ErrorMessages[error.code].detail}</div>
-                    <div className="actions">{ErrorMessages[error.code].actions}</div>
-                </div>
-            </div>
-        </StarryBackground>
+        <BridgePage view="signup-error" message="Oops!">
+            <h2>{ErrorMessages[error.code].title}</h2>
+            <div className="error-message">{ErrorMessages[error.code].detail}</div>
+            <LemonDivider dashed className="my-4" />
+            <div>{ErrorMessages[error.code].actions}</div>
+        </BridgePage>
     )
 }
 
@@ -151,16 +127,21 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     const { acceptedInviteLoading, acceptedInvite } = useValues(inviteSignupLogic)
 
     return (
-        <div className="authenticated-invite">
-            <div className="inner flex flex-col text-center space-y-2">
-                <h1 className="page-title">You have been invited to join {invite.organization_name}</h1>
+        <BridgePage view={'accept-invite'} message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}>
+            <div className="space-y-2">
+                <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
                     You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
                 </div>
                 {user && (
-                    <div className="whoami-mock">
-                        <div className="whoami-inner-container">
-                            <WhoAmI user={user} />
+                    <div
+                        className="border rounded-lg border-dashed flex items-center gap-2 px-2 py-1"
+                        data-attr="top-navigation-whoami"
+                    >
+                        <ProfilePicture name={user.first_name} email={user.email} />
+                        <div className="">
+                            <div className="font-bold">{user.first_name}</div>
+                            <div>{user.organization?.name}</div>
                         </div>
                     </div>
                 )}
@@ -173,6 +154,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         <>
                             <LemonButton
                                 type="primary"
+                                status="primary-alt"
                                 center
                                 fullWidth
                                 onClick={() => acceptInvite()}
@@ -199,137 +181,117 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                     )}
                 </div>
             </div>
-        </div>
+        </BridgePage>
     )
 }
 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
     const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
-    const { socialAuthAvailable } = useValues(preflightLogic)
+    const { preflight } = useValues(preflightLogic)
 
-    const parentContainerRef = useRef<HTMLDivElement | null>(null) // Used for scrolling on mobile
-    const mainContainerRef = useRef<HTMLDivElement | null>(null) // Used for scrolling on mobile
-
-    const goToMainContent = (): void => {
-        const yPos = mainContainerRef.current ? mainContainerRef.current.getBoundingClientRect().top : null
-        if (yPos) {
-            parentContainerRef.current?.scrollTo(0, yPos)
-        }
-    }
     return (
-        <div className="UnauthenticatedInvite" ref={parentContainerRef}>
-            <div className="UnauthenticatedInvite__showcase">
-                <div className="UnauthenticatedInvite__showcase__mountains" />
-                <div className="UnauthenticatedInvite__showcase__mainlogo">
-                    <img src={smLogo} alt="" />
-                </div>
-                <div className="UnauthenticatedInvite__showcase__content">
-                    <div className="text-3xl font-semibold flex flex-col gap-2">
-                        <span>
-                            Hello{invite?.first_name ? ` ${invite.first_name}` : ''}! You've been invited to join
-                        </span>
-                        <span className="text-4xl font-bold text-white">{invite?.organization_name || 'us'}</span>
-                        <span>on PostHog</span>
-                    </div>
-
-                    <div className="UnauthenticatedInvite__showcase__continue mt-4">
-                        <LemonButton sideIcon={<IconArrowDropDown />} type="secondary" onClick={goToMainContent}>
-                            Continue
-                        </LemonButton>
-                    </div>
+        <BridgePage
+            view={'invites-signup'}
+            message={
+                <>
+                    Welcome to
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!!!!
+                </>
+            }
+        >
+            <div className="InviteSignupSummary">
+                <div className="font-semibold flex flex-col gap-2 text-center">
+                    <span>You've been invited to join</span>
+                    <span className="text-4xl font-bold">{invite?.organization_name || 'us'}</span>
+                    <span>on PostHog</span>
                 </div>
             </div>
-            <div className="UnauthenticatedInvite__content" ref={mainContainerRef}>
-                <div className="UnauthenticatedInvite__content__inner">
-                    <SocialLoginButtons
-                        className="mb-4"
-                        title="Continue with a provider"
-                        caption={`Remember to log in with ${invite?.target_email}`}
-                        queryString={invite ? `?invite_id=${invite.id}` : ''}
+
+            <h2 className="text-center">Create your PostHog account</h2>
+            <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
+                <PureField label="Email">
+                    <LemonInput type="email" disabled id="email" value={invite?.target_email} />
+                </PureField>
+                <Field
+                    name="password"
+                    label={
+                        <div className="flex flex-1 items-center justify-between">
+                            <span>Password</span>
+                            <span className="w-20">
+                                <PasswordStrength password={signup.password} />
+                            </span>
+                        </div>
+                    }
+                >
+                    <LemonInput
+                        type="password"
+                        className="ph-ignore-input"
+                        data-attr="password"
+                        placeholder="••••••••••"
+                        autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
+                        id="password"
+                        disabled={isSignupSubmitting}
                     />
-                    <h3 className="text-center">
-                        {socialAuthAvailable ? 'Or create your own password' : 'Create your PostHog account'}
-                    </h3>
-                    <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
-                        <PureField label="Email">
-                            <LemonInput type="email" disabled id="email" value={invite?.target_email} />
-                        </PureField>
-                        <Field
-                            name="password"
-                            label={
-                                <div className="flex flex-1 items-center justify-between">
-                                    <span>Password</span>
-                                    <span className="w-20">
-                                        <PasswordStrength password={signup.password} />
-                                    </span>
-                                </div>
-                            }
-                        >
-                            <LemonInput
-                                type="password"
-                                className="ph-ignore-input"
-                                data-attr="password"
-                                placeholder="••••••••••"
-                                autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
-                                id="password"
+                </Field>
+
+                <Field
+                    name="first_name"
+                    label="First Name"
+                    help={
+                        invite?.first_name ? 'Your name was provided in the invite, feel free to change it.' : undefined
+                    }
+                >
+                    <LemonInput placeholder="Jane" id="first_name" />
+                </Field>
+
+                <Field name="email_opt_in">
+                    {({ value, onChange }) => {
+                        console.log({ value })
+                        return (
+                            <LemonCheckbox
+                                checked={value}
+                                onChange={(e) => onChange(e.target.checked)}
                                 disabled={isSignupSubmitting}
+                                label="Send me product and security updates"
                             />
-                        </Field>
+                        )
+                    }}
+                </Field>
 
-                        <Field
-                            name="first_name"
-                            label="First Name"
-                            help={
-                                invite?.first_name
-                                    ? 'Your name was provided in the invite, feel free to change it.'
-                                    : undefined
-                            }
-                        >
-                            <LemonInput placeholder="Jane" id="first_name" />
-                        </Field>
-
-                        <Field name="email_opt_in">
-                            {({ value, onChange }) => {
-                                console.log({ value })
-                                return (
-                                    <LemonCheckbox
-                                        checked={value}
-                                        onChange={(e) => onChange(e.target.checked)}
-                                        disabled={isSignupSubmitting}
-                                        label="Send me product and security updates"
-                                    />
-                                )
-                            }}
-                        </Field>
-
-                        <LemonButton
-                            type="primary"
-                            htmlType="submit"
-                            data-attr="password-signup"
-                            loading={isSignupSubmitting}
-                            center
-                            fullWidth
-                        >
-                            Continue
-                        </LemonButton>
-                    </Form>
-                    <div className="mt-4 text-center text-muted">
-                        By clicking continue you agree to our{' '}
-                        <a href="https://posthog.com/terms" target="_blank" rel="noopener">
-                            Terms of Service
-                        </a>{' '}
-                        and{' '}
-                        <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
-                            Privacy Policy
-                        </a>
-                        .
-                    </div>
-                    <div className="mt-4 text-center text-muted mb-20">
-                        Already have an account? <Link to="/login">Log in</Link>
-                    </div>
-                </div>
+                <LemonButton
+                    type="primary"
+                    status="primary-alt"
+                    htmlType="submit"
+                    data-attr="password-signup"
+                    loading={isSignupSubmitting}
+                    center
+                    fullWidth
+                >
+                    Continue
+                </LemonButton>
+            </Form>
+            <div className="mt-4 text-center text-muted">
+                Already have an account? <Link to="/login">Log in</Link>
             </div>
-        </div>
+            <div className="mt-4 text-center text-muted">
+                By clicking continue you agree to our{' '}
+                <a href="https://posthog.com/terms" target="_blank" rel="noopener">
+                    Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
+                    Privacy Policy
+                </a>
+                .
+            </div>
+            <SocialLoginButtons
+                className="mb-4"
+                title="Or sign in with"
+                caption={`Remember to log in with ${invite?.target_email}`}
+                topDivier
+                queryString={invite ? `?invite_id=${invite.id}` : ''}
+            />
+        </BridgePage>
     )
 }
 

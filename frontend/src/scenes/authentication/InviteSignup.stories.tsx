@@ -111,3 +111,37 @@ export const LoggedIn = (): JSX.Element => {
     }, [])
     return <InviteSignup />
 }
+
+export const LoggedInWrongUser = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/_preflight': {
+                ...preflightJson,
+                cloud: true,
+                realm: 'cloud',
+                can_create_org: true,
+                available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+            },
+            '/api/users/@me': () => [
+                200,
+                {
+                    email: 'ben@posthog.com',
+                    first_name: 'Ben White',
+                    organization: {
+                        name: 'Other org',
+                    },
+                },
+            ],
+            '/api/signup/1234/': () => [
+                400,
+                {
+                    code: 'invalid_recipient',
+                },
+            ],
+        },
+    })
+    useEffect(() => {
+        inviteSignupLogic.actions.prevalidateInvite('1234')
+    }, [])
+    return <InviteSignup />
+}
