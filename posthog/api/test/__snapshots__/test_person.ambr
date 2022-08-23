@@ -13,7 +13,7 @@
 ---
 # name: TestPerson.test_filter_person_email_materialized
   '
-  /* user_id:1 request:_api_person_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT id
   FROM person
   WHERE team_id = 2
@@ -63,7 +63,7 @@
 ---
 # name: TestPerson.test_person_property_values_materialized
   '
-  /* user_id:1 request:_api_person_values_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
   FROM
@@ -82,7 +82,7 @@
 ---
 # name: TestPerson.test_person_property_values_materialized.1
   '
-  /* user_id:1 request:_api_person_values_ */
+  /* user_id:0 request:_snapshot_ */
   SELECT value,
          count(value)
   FROM

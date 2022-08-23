@@ -299,6 +299,8 @@ class QueryMatchingTest:
             query,
         )
 
+        query = re.sub(fr"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run

@@ -68,7 +68,7 @@ function ModalContent({ origResult }: { origResult: Query[] }): JSX.Element {
             {paths.map(([path, count]) => (
                 <LemonButton
                     key={path}
-                    type={pathFilter === path ? 'primary' : 'default'}
+                    type={pathFilter === path ? 'primary' : 'tertiary'}
                     size="small"
                     onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
                 >
