@@ -18,7 +18,7 @@ export function RenderMetricValueEdit({
         return (
             <LemonCheckbox
                 defaultChecked={!!value}
-                onChange={(e) => onValueChanged(key, e.target.checked)}
+                onChange={(val) => onValueChanged(key, val)}
                 label={<LemonTag type={value ? 'success' : 'danger'}>{value ? 'Yes' : 'No'}</LemonTag>}
             />
         )
