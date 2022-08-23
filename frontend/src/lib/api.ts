@@ -44,7 +44,7 @@ export interface PaginatedResponse<T> {
     previous?: string
 }
 
-export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
+export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     total_count: number
 }
 
@@ -419,7 +419,7 @@ const api = {
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = getCurrentTeamId()
-        ): Promise<CountedPaginatedResponse> {
+        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity(props.id || null, teamId)

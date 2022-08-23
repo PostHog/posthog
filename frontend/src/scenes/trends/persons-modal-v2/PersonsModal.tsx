@@ -1,41 +1,26 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined } from '@ant-design/icons'
-import { Skeleton } from 'antd'
-import { ActorType, ChartDisplayType, ExporterFormat, FilterType, InsightType } from '~/types'
+import { ActorType, ExporterFormat } from '~/types'
 import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { capitalizeFirstLetter, isGroupType, Loading, midEllipsis, pluralize } from 'lib/utils'
+import { isGroupType, Loading, midEllipsis } from 'lib/utils'
 import './PersonsModal.scss'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { DateDisplay } from 'lib/components/DateDisplay'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled, IconSave } from 'lib/components/icons'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { getSeriesColor } from 'lib/colors'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { IconPersonFilled } from 'lib/components/icons'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
-import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import api from 'lib/api'
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
+import { Skeleton } from 'antd'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
     url: string
     title: React.ReactNode
-
-    // view: InsightType
-    // filters: Partial<FilterType>
-    // onSaveCohort: () => void
-    // showModalActions?: boolean
-    // aggregationTargetLabel: { singular: string; plural: string }
 }
 
 export function PersonsModalV2({
@@ -49,11 +34,11 @@ export function PersonsModalV2({
     title,
     onAfterClose,
 }: PersonsModalProps): JSX.Element {
-    const [searchTerm, setSearchTerm] = useState('')
     const [isOpen, setIsOpen] = useState(true)
     const logic = personsModalLogic({ url })
 
-    const { allPeople, peopleLoading, people: peopleRes } = useValues(logic)
+    const { allPeople, peopleLoading, people: peopleRes, searchTerm } = useValues(logic)
+    const { loadPeople, setSearchTerm } = useActions(logic)
 
     // const {
     //     people,
@@ -145,6 +130,30 @@ export function PersonsModalV2({
                 isOpen={isOpen}
                 onClose={() => setIsOpen(false)}
                 onAfterClose={onAfterClose}
+                description={
+                    <>
+                        <LemonInput
+                            type="search"
+                            placeholder="Search for persons by email, name, or ID"
+                            fullWidth
+                            value={searchTerm}
+                            onChange={setSearchTerm}
+                            // disabled={isInitialLoad}
+                            className="my-2"
+                        />
+
+                        {peopleLoading ? (
+                            <Skeleton active paragraph={false} />
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <IconPersonFilled className="text-xl" />
+                                <span>
+                                    This list contains <b>{peopleRes?.total_count} unique results</b>.
+                                </span>
+                            </div>
+                        )}
+                    </>
+                }
                 footer={
                     <>
                         <LemonButton
@@ -166,29 +175,8 @@ export function PersonsModalV2({
                 }
                 width={600}
             >
-                <LemonInput
-                    type="search"
-                    placeholder="Search for persons by email, name, or ID"
-                    fullWidth
-                    onChange={(value) => {
-                        setSearchTerm(value)
-                    }}
-                    // onBlur={() => filterSearchResults()}
-                    // onPressEnter={() => filterSearchResults()}
-                    value={searchTerm}
-                    // disabled={isInitialLoad}
-                    className="mb-2"
-                />
-
                 <div>
                     {peopleLoading ? <Loading /> : null}
-
-                    <div className="flex items-center gap-2">
-                        <IconPersonFilled className="text-xl" />
-                        <span>
-                            This list contains <b>{allPeople?.length} unique results</b>.
-                        </span>
-                    </div>
 
                     {allPeople && allPeople.length > 0 ? (
                         <LemonTable
@@ -214,6 +202,7 @@ export function PersonsModalV2({
                                                     <MultiRecordingButton
                                                         sessionRecordings={actor.matched_recordings}
                                                         onOpenRecording={(sessionRecording) => {
+                                                            console.log(sessionRecording)
                                                             // openRecordingModal(sessionRecording.session_id)
                                                         }}
                                                     />
@@ -245,6 +234,18 @@ export function PersonsModalV2({
                         </div>
                     )}
                 </div>
+
+                {peopleRes?.next && (
+                    <div className="m-4 flex justify-center">
+                        <LemonButton
+                            type="primary"
+                            onClick={() => peopleRes?.next && loadPeople({ url: peopleRes?.next })}
+                            loading={peopleLoading}
+                        >
+                            Load more
+                        </LemonButton>
+                    </div>
+                )}
 
                 {/* {isInitialLoad ? (
                     <div className="p-4">
@@ -380,6 +381,13 @@ export function PersonsModalV2({
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
+    // const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
+
+    // if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
+    //     // Currrently this will display 2 modals, as we want to test this comparison in production
+    //     return
+    // }
+
     const div = document.createElement('div')
     function destroy(): void {
         const unmountResult = ReactDOM.unmountComponentAtNode(div)

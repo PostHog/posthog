@@ -1,70 +1,84 @@
-import { kea, path, key, props, selectors, afterMount } from 'kea'
-import { router } from 'kea-router'
-import api, { PaginatedResponse } from 'lib/api'
-import { convertPropertiesToPropertyGroup, fromParamsGivenUrl, isGroupType, toParams } from 'lib/utils'
-import {
-    ActionFilter,
-    FilterType,
-    InsightType,
-    FunnelVizType,
-    FunnelCorrelationResultsType,
-    ActorType,
-    GraphDataset,
-    ChartDisplayType,
-    FilterLogicalOperator,
-} from '~/types'
+import { kea, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { ActorType } from '~/types'
 import type { personsModalLogicType } from './personsModalLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { TrendActors } from 'scenes/trends/types'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { cohortsModel } from '~/models/cohortsModel'
-import { dayjs } from 'lib/dayjs'
-import { groupsModel } from '~/models/groupsModel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { lemonToast } from 'lib/components/lemonToast'
-import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
 
 export interface PersonModalLogicProps {
-    url?: string
+    url: string
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
     path(['scenes', 'trends', 'personsModalLogicV2']),
     props({} as PersonModalLogicProps),
-    key((props) => props.url || ''),
+    key((props) => `${props.url}` || ''),
+    actions({
+        setSearchTerm: (search: string) => ({ search }),
+    }),
 
-    loaders({
+    loaders(({ values }) => ({
         people: [
-            null as PaginatedResponse<ActorType> | null,
+            null as CountedPaginatedResponse<ActorType> | null,
             {
-                loadPeople: async (url: string) => {
+                loadPeople: async ({
+                    url,
+                    search,
+                    clear = false,
+                }: {
+                    url: string
+                    search?: string
+                    clear?: boolean
+                }) => {
                     // if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
                     //     // A bit hacky (doesn't account for hash params),
                     //     // but it works and only needed while we have this feature flag
                     //     url += '&include_recordings=true'
                     // }
 
+                    if (search) {
+                        url += `&search=${search}`
+                    }
+
                     const res = await api.get(url)
-                    return {
-                        results: res?.results[0]?.people,
-                        count: res?.results[0]?.count || 0,
+
+                    const peopleList = clear
+                        ? res?.results[0]?.people
+                        : [...(values.people?.results || []), ...res?.results[0]?.people]
+
+                    const payload: CountedPaginatedResponse<ActorType> = {
+                        total_count: res?.results[0]?.count || 0,
+                        results: peopleList,
                         next: res?.next,
                     }
+
+                    return payload
                 },
             },
         ],
-    }),
+    })),
+
+    reducers(() => ({
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { search }) => search,
+            },
+        ],
+    })),
+
+    listeners(({ actions, props }) => ({
+        setSearchTerm: async (search, breakpoint) => {
+            await breakpoint(500)
+
+            actions.loadPeople({ url: props.url, search, clear: true })
+        },
+    })),
 
     selectors({
         allPeople: [(s) => [s.people], (res) => res?.results],
     }),
 
     afterMount(({ actions, props }) => {
-        if (props.url) {
-            actions.loadPeople(props.url)
-        }
+        actions.loadPeople({ url: props.url, clear: true })
     }),
 ])

@@ -76,7 +76,13 @@ export function LemonModal({
                         {title ? (
                             <LemonModalHeader>
                                 <h3>{title}</h3>
-                                {description ? <p>{description}</p> : null}
+                                {description ? (
+                                    typeof description === 'string' ? (
+                                        <p>{description}</p>
+                                    ) : (
+                                        description
+                                    )
+                                ) : null}
                             </LemonModalHeader>
                         ) : null}
 
