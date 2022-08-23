@@ -35,105 +35,140 @@ const localPropertyDefinitions: PropertyDefinition[] = [
 ]
 
 export type FormatPropertyValueForDisplayFunction = (
-    propertyName?: string,
+    propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue
 ) => string | string[] | null
+
+/** Update cached property definition metadata */
+export const updatePropertyDefinitions = (
+    propertyDefinitions: PropertyDefinition[] | PropertyDefinitionStorage
+): void => {
+    propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions(propertyDefinitions)
+}
+
+/** Update cached property definition metadata */
+export const updatePropertyDefinition = (propertyDefinitions: PropertyDefinition): void => {
+    propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinition(propertyDefinitions)
+}
+
+/** Schedules a background task with a 10ms debounce to fetch property definitions */
+const checkOrLoadPropertyDefinition = (
+    propertyName: BreakdownKeyType,
+    propertyDefinitionStorage: PropertyDefinitionStorage
+): void => {
+    // first time we see this, schedule a fetch
+    if (typeof propertyName === 'string' && !(propertyName in propertyDefinitionStorage)) {
+        window.setTimeout(
+            () => propertyDefinitionsModel.findMounted()?.actions.loadPropertyDefinitions([propertyName]),
+            0
+        )
+    }
+}
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
     actions({
-        loadPropertyDefinitions: (properties: string[]) => ({ properties }),
+        // public
+        loadPropertyDefinitions: (propertyKeys: string[]) => ({ propertyKeys }),
         updatePropertyDefinition: (propertyDefinition: PropertyDefinition) => ({ propertyDefinition }),
-        updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[]) => ({ propertyDefinitions }),
-        setPropertyDefinitionStorage: (propertyDefinitions: PropertyDefinitionStorage) => ({ propertyDefinitions }),
+        updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[] | PropertyDefinitionStorage) => ({
+            propertyDefinitions,
+        }),
+        // internal
         fetchAllPendingDefinitions: true,
     }),
     reducers({
         propertyDefinitionStorage: [
             {} as PropertyDefinitionStorage,
             {
-                setPropertyDefinitionStorage: (_, { propertyDefinitions }) => propertyDefinitions,
                 updatePropertyDefinition: (state, { propertyDefinition }) => ({
                     ...state,
                     [propertyDefinition.name]: propertyDefinition,
                 }),
                 updatePropertyDefinitions: (state, { propertyDefinitions }) => ({
                     ...state,
-                    ...Object.fromEntries(propertyDefinitions.map((p) => [p.name, p])),
+                    ...(Array.isArray(propertyDefinitions)
+                        ? Object.fromEntries(propertyDefinitions.map((p) => [p.name, p]))
+                        : propertyDefinitions),
                 }),
             },
         ],
     }),
     listeners(({ actions, values }) => ({
-        loadPropertyDefinitions: async ({ properties }) => {
-            // check if we need to fetch any of these properties
-            let hasUnknownProperties = false
-            const propertyDefinitionStorageUpdate: PropertyDefinitionStorage = {}
-            for (const property of properties) {
+        loadPropertyDefinitions: async ({ propertyKeys }) => {
+            const { propertyDefinitionStorage } = values
+
+            let mustLoad = false
+            const pendingStateUpdate: PropertyDefinitionStorage = {}
+            for (const key of propertyKeys) {
                 if (
-                    !(property in values.propertyDefinitionStorage) ||
-                    values.propertyDefinitionStorage[property] === PropertyDefinitionState.Error
+                    !(key in propertyDefinitionStorage) ||
+                    propertyDefinitionStorage[key] === PropertyDefinitionState.Error
                 ) {
-                    hasUnknownProperties = true
-                    propertyDefinitionStorageUpdate[property] = PropertyDefinitionState.Pending
+                    mustLoad = true
+                    pendingStateUpdate[key] = PropertyDefinitionState.Pending
                 }
             }
 
-            // nothing more to do
-            if (!hasUnknownProperties) {
+            // nothing new to do
+            if (!mustLoad) {
                 return
             }
 
-            // set all properties as `PropertyDefinitionState.Pending`
-            actions.setPropertyDefinitionStorage({
-                ...values.propertyDefinitionStorage,
-                ...propertyDefinitionStorageUpdate,
-            })
-            // delegate to the next buffered part of the chain
+            // set all requested properties as `PropertyDefinitionState.Pending`
+            actions.updatePropertyDefinitions(pendingStateUpdate)
+            // run the next part of this chain
             actions.fetchAllPendingDefinitions()
         },
         fetchAllPendingDefinitions: async (_, breakpoint) => {
+            // take 10ms to debounce property definition requests, preventing a lot of small queries
             await breakpoint(10)
-            const properties = values.pendingProperties
-            if (properties.length === 0) {
+            const { pendingProperties } = values
+            if (pendingProperties.length === 0) {
                 return
             }
+            // take the first 100 pending properties
+            const pending = pendingProperties.slice(0, 100)
             try {
-                const url = 'api/projects/@current/property_definitions/'
-                const propertyDefinitions = await api.get(
-                    combineUrl(url, { properties: properties.slice(0, 100).join(',') }).url
+                // set them all as PropertyDefinitionState.Loading
+                actions.updatePropertyDefinitions(
+                    Object.fromEntries(pending.map((key) => [key, PropertyDefinitionState.Loading]))
                 )
-                const newProperties: PropertyDefinitionStorage = { ...values.propertyDefinitionStorage }
+                // and fetch them
+                const url = 'api/projects/@current/property_definitions/'
+                const propertyDefinitions = await api.get(combineUrl(url, { properties: pending.join(',') }).url)
+                // since this is a unique query, there is no breakpoint here to prevent out of order replies
+                // so save them and don't worry about overriding anything
+                const newProperties: PropertyDefinitionStorage = {}
                 for (const propertyDefinition of propertyDefinitions.results) {
                     newProperties[propertyDefinition.name] = propertyDefinition
                 }
-                for (const property of properties) {
+                // mark those that were not returned as PropertyDefinitionState.Missing
+                for (const property of pending) {
                     if (newProperties[property] === PropertyDefinitionState.Loading) {
                         newProperties[property] = PropertyDefinitionState.Missing
                     }
                 }
-                actions.setPropertyDefinitionStorage(newProperties)
+                actions.updatePropertyDefinitions(newProperties)
             } catch (e) {
-                const newProperties: PropertyDefinitionStorage = { ...values.propertyDefinitionStorage }
-                for (const property of properties) {
+                const newProperties: PropertyDefinitionStorage = {}
+                for (const property of pending) {
                     if (newProperties[property] === PropertyDefinitionState.Loading) {
                         newProperties[property] = PropertyDefinitionState.Error
                     }
                 }
-                actions.setPropertyDefinitionStorage(newProperties)
+                actions.updatePropertyDefinitions(newProperties)
             }
+
+            // break if something is already happening
             breakpoint()
+            // otherwise rerun if any properties remain pending
             if (values.pendingProperties.length > 0) {
                 actions.fetchAllPendingDefinitions()
             }
         },
     })),
-    selectors(({ actions }) => ({
-        propertyStorageLoading: [
-            (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): boolean =>
-                Object.values(propertyDefinitionStorage).some((p) => p === PropertyDefinitionState.Loading),
-        ],
+    selectors({
         pendingProperties: [
             (s) => [s.propertyDefinitionStorage],
             (propertyDefinitionStorage): string[] =>
@@ -150,41 +185,20 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 ...localPropertyDefinitions,
             ],
         ],
-        transformedPropertyDefinitions: [
-            // Transformed propertyDefinitions to use in `Select` components
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions): PropertySelectOption[] =>
-                propertyDefinitions.map((property) => ({
-                    value: property.name,
-                    label: property.name,
-                    is_numerical: property.is_numerical,
-                })),
-        ],
-        propertyNames: [
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions): string[] => propertyDefinitions.map((definition) => definition.name),
-        ],
-        numericalPropertyNames: [
-            (s) => [s.transformedPropertyDefinitions],
-            (transformedPropertyDefinitions): PropertySelectOption[] =>
-                transformedPropertyDefinitions.filter((definition) => definition.is_numerical),
-        ],
         getPropertyDefinition: [
             (s) => [s.propertyDefinitionStorage],
             (propertyDefinitionStorage): ((s: TaxonomicFilterValue) => PropertyDefinition | null) =>
-                (propertyName: TaxonomicFilterValue) =>
-                    typeof propertyDefinitionStorage[propertyName] === 'object'
+                (propertyName: TaxonomicFilterValue): PropertyDefinition | null => {
+                    return typeof propertyDefinitionStorage[propertyName] === 'object'
                         ? (propertyDefinitionStorage[propertyName] as PropertyDefinition)
-                        : null,
+                        : null
+                },
         ],
         describeProperty: [
             (s) => [s.propertyDefinitionStorage],
             (propertyDefinitionStorage): ((s: TaxonomicFilterValue) => string | null) =>
                 (propertyName: TaxonomicFilterValue) => {
-                    // first time we see this, schedule a fetch
-                    if (typeof propertyName === 'string' && !(propertyName in propertyDefinitionStorage)) {
-                        window.setTimeout(() => actions.loadPropertyDefinitions([propertyName]), 0)
-                    }
+                    checkOrLoadPropertyDefinition(propertyName, propertyDefinitionStorage)
                     // if the model hasn't already cached this definition, will fall back to original display type
                     return typeof propertyDefinitionStorage[propertyName] === 'object'
                         ? (propertyDefinitionStorage[propertyName] as PropertyDefinition).property_type ?? null
@@ -199,10 +213,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         return null
                     }
 
-                    // first time we see this, schedule a fetch
-                    if (typeof propertyName === 'string' && !(propertyName in propertyDefinitionStorage)) {
-                        window.setTimeout(() => actions.loadPropertyDefinitions([propertyName]), 0)
-                    }
+                    checkOrLoadPropertyDefinition(propertyName, propertyDefinitionStorage)
 
                     const propertyDefinition: PropertyDefinition | undefined =
                         typeof propertyName === 'string' && typeof propertyDefinitionStorage[propertyName] === 'object'
@@ -241,5 +252,5 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 }
             },
         ],
-    })),
+    }),
 ])

@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { updatePropertyDefinition } from '~/models/propertyDefinitionsModel'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import {
     definitionLogic,
@@ -75,9 +75,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                                 propertyDefinitionId: _eventProperty.id,
                                 propertyDefinitionData: _eventProperty,
                             })
-                            propertyDefinitionsModel
-                                .findMounted()
-                                ?.actions.updatePropertyDefinition(definition as PropertyDefinition)
+                            updatePropertyDefinition(definition as PropertyDefinition)
                         }
                         breakpoint()
                     } catch (response: any) {

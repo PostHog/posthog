@@ -45,7 +45,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -611,9 +611,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 (groupType === TaxonomicFilterGroupType.EventProperties ||
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
-                propertyDefinitionsModel
-                    .findMounted()
-                    ?.actions.updatePropertyDefinitions(results.results as PropertyDefinition[])
+                updatePropertyDefinitions(results.results as PropertyDefinition[])
             }
         },
     }),

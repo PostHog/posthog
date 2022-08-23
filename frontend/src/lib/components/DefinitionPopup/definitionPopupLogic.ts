@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import api from 'lib/api'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { actionsModel } from '~/models/actionsModel'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { updatePropertyDefinition } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
@@ -107,9 +107,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                                 `api/projects/@current/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
                             )
-                            propertyDefinitionsModel
-                                .findMounted()
-                                ?.actions.updatePropertyDefinition(definition as PropertyDefinition)
+                            updatePropertyDefinition(definition as PropertyDefinition)
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
