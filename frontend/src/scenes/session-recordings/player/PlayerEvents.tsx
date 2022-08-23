@@ -25,12 +25,13 @@ import {
 } from 'scenes/session-recordings/player/eventsListLogic'
 import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
+import { capitalizeFirstLetter, eventToDescription, isEllipsisActive } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 function overscanIndicesGetter({
     cellCount,
@@ -210,7 +211,7 @@ export function PlayerEvents(): JSX.Element {
             />
             <Col className="event-list">
                 {sessionEventsDataLoading ? (
-                    <Loading />
+                    <SpinnerOverlay />
                 ) : (
                     <>
                         <div className={clsx('current-events-position-finder', { visible: showPositionFinder })}>

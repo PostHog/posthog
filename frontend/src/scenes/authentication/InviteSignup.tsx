@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import React, { lazy, Suspense, useRef, useState } from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import { Loading } from 'lib/utils'
 import './InviteSignup.scss'
 import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
@@ -17,6 +16,7 @@ import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ProfilePicture } from '../../lib/components/ProfilePicture'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -379,7 +379,7 @@ export function InviteSignup(): JSX.Element {
     const { user } = useValues(userLogic)
 
     if (inviteLoading) {
-        return <Loading />
+        return <SpinnerOverlay />
     }
 
     return (

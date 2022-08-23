@@ -196,7 +196,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             <h3 className="l3">Persons in this cohort</h3>
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
-                                    <Spinner size="sm" style={{ marginRight: 4 }} />
+                                    <Spinner size="sm" className="mr-4" />
                                     We're recalculating who belongs to this cohort. This could take up to a couple of
                                     minutes.
                                 </div>
