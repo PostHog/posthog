@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined } from '@ant-design/icons'
 import { ActorType, ExporterFormat } from '~/types'
@@ -24,17 +24,7 @@ export interface PersonsModalProps {
     title: React.ReactNode
 }
 
-export function PersonsModalV2({
-    // isOpen,
-    // view,
-    // filters,
-    // onSaveCohort,
-    // showModalActions = true,
-    // aggregationTargetLabel,
-    url,
-    title,
-    onAfterClose,
-}: PersonsModalProps): JSX.Element {
+export function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
     const logic = personsModalLogic({ url })
 

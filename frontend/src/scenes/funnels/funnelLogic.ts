@@ -1284,7 +1284,7 @@ export const funnelLogic = kea<funnelLogicType>({
             // Version of openPersonsModalForStep that accurately handles breakdown series
             const breakdownValues = getBreakdownStepValues(series, series.order)
             openPersonsModal({
-                url: converted ? step.converted_people_url : step.dropped_people_url,
+                url: converted ? series.converted_people_url : series.dropped_people_url,
                 title: funnelTitle({
                     step: converted ? step.order + 1 : -(step.order + 1),
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
