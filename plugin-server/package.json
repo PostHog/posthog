@@ -66,7 +66,7 @@
         "node-fetch": "^2.6.1",
         "node-schedule": "^2.1.0",
         "pg": "^8.6.0",
-        "posthog-node": "2.0.1",
+        "posthog-node": "2.0.2",
         "pretty-bytes": "^5.6.0",
         "re2": "^1.16.0",
         "redlock": "^4.2.0",
