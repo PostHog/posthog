@@ -137,7 +137,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v3
               with:
-                  images: ${{ steps.login-ecr.outputs.registry }}/posthog
+                  images: ${{ steps.login-ecr.outputs.registry }}/posthog-cloud
                   tags: |
                       type=ref,event=pr
                       type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
@@ -150,7 +150,7 @@ jobs:
               id: meta-for-cache
               uses: docker/metadata-action@v3
               with:
-                  images: ${{ steps.login-ecr.outputs.registry }}/posthog
+                  images: ${{ steps.login-ecr.outputs.registry }}/posthog-cloud
                   tags: |
                       type=raw,value=master
                       type=ref,event=pr
