@@ -250,7 +250,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                         return (
                             <LemonCheckbox
                                 checked={value}
-                                onChange={(e) => onChange(e.target.checked)}
+                                onChange={onChange}
                                 disabled={isSignupSubmitting}
                                 label="Send me product and security updates"
                             />
