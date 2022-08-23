@@ -71,7 +71,7 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 use_entreprise_taxonomy = False
 
-        properties_to_filter = self.request.GET.get("properties", None)
+        properties_to_filter = self.request.GET.get("properties", self.request.POST.get("properties", None))
         if properties_to_filter:
             names = tuple(properties_to_filter.split(","))
             name_filter = "AND name IN %(names)s"

@@ -2,12 +2,12 @@ import React from 'react'
 import { BuiltLogic, kea } from 'kea'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 import {
+    ListStorage,
     SimpleOption,
-    TaxonomicFilterGroupType,
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
-    ListStorage,
 } from 'lib/components/TaxonomicFilter/types'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
@@ -45,6 +45,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -602,6 +603,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             // Open the next tab if no results on an active tab.
             if (groupType === values.activeTab && !results.count && !results.expandedCount) {
                 actions.tabRight()
+            }
+
+            // Update app-wide cached property metadata
+            if (
+                results.count > 0 &&
+                (groupType === TaxonomicFilterGroupType.EventProperties ||
+                    groupType === TaxonomicFilterGroupType.NumericalEventProperties)
+            ) {
+                propertyDefinitionsModel
+                    .findMounted()
+                    ?.actions.updatePropertyDefinitions(results.results as PropertyDefinition[])
             }
         },
     }),

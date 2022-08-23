@@ -1558,6 +1558,13 @@ export interface PropertyDefinition {
     is_action?: boolean
 }
 
+export enum PropertyDefinitionState {
+    Pending = 'pending',
+    Loading = 'loading',
+    Missing = 'missing',
+    Error = 'error',
+}
+
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {

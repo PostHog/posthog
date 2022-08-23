@@ -1,6 +1,13 @@
-import { kea } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { BreakdownKeyType, PropertyDefinition, PropertyFilterValue, PropertyType, SelectOption } from '~/types'
+import {
+    BreakdownKeyType,
+    PropertyDefinition,
+    PropertyDefinitionState,
+    PropertyFilterValue,
+    PropertyType,
+    SelectOption,
+} from '~/types'
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -10,11 +17,8 @@ export interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
 }
 
-export interface PropertyDefinitionStorage {
-    count: number
-    next: null | string
-    results: PropertyDefinition[]
-}
+// Null means loading
+export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
 // List of property definitions that are calculated on the backend. These
 // are valid properties that do not exist on events.
@@ -43,72 +47,96 @@ const normaliseToArray = (
 }
 
 export type FormatPropertyValueForDisplayFunction = (
-    propertyName?: BreakdownKeyType,
+    propertyName?: string,
     valueToFormat?: PropertyFilterValue
 ) => string | string[] | null
 
-export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
-    path: ['models', 'propertyDefinitionsModel'],
-    actions: () => ({
-        loadPropertyDefinitions: (initial = false) => ({ initial }),
-        updatePropertyDefinition: (property: PropertyDefinition) => ({ property }),
+export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
+    path(['models', 'propertyDefinitionsModel']),
+    actions({
+        loadPropertyDefinitions: (properties: string[]) => ({ properties }),
+        fetchNewProperties: (properties: string[]) => ({ properties }),
+        updatePropertyDefinition: (propertyDefinition: PropertyDefinition) => ({ propertyDefinition }),
+        updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[]) => ({ propertyDefinitions }),
+        setPropertyDefinitionStorage: (propertyDefinitions: PropertyDefinitionStorage) => ({ propertyDefinitions }),
     }),
-    loaders: ({ values }) => ({
-        propertyStorage: [
-            { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
+    reducers({
+        propertyDefinitionStorage: [
+            {} as PropertyDefinitionStorage,
             {
-                loadPropertyDefinitions: async ({ initial }, breakpoint) => {
-                    const url = initial
-                        ? 'api/projects/@current/property_definitions/?limit=5000'
-                        : values.propertyStorage.next
-                    if (!url) {
-                        throw new Error('Incorrect call to propertyDefinitionsLogic.loadPropertyDefinitions')
-                    }
-                    const propertyStorage = await api.get(url)
-                    breakpoint()
-                    return {
-                        count: propertyStorage.count,
-                        results: [...values.propertyStorage.results, ...propertyStorage.results],
-                        next: propertyStorage.next,
-                    }
-                },
-            },
-        ],
-    }),
-    reducers: () => ({
-        propertyStorage: [
-            { results: [], next: null, count: 0 } as PropertyDefinitionStorage,
-            {
-                updatePropertyDefinition: (state, { property }) => ({
-                    count: state.count,
-                    results: state.results.map((p) => (property.id === p.id ? property : p)),
-                    next: state.next,
+                setPropertyDefinitionStorage: (_, { propertyDefinitions }) => propertyDefinitions,
+                updatePropertyDefinition: (state, { propertyDefinition }) => ({
+                    ...state,
+                    [propertyDefinition.name]: propertyDefinition,
+                }),
+                updatePropertyDefinitions: (state, { propertyDefinitions }) => ({
+                    ...state,
+                    ...Object.fromEntries(propertyDefinitions.map((p) => [p.name, p])),
                 }),
             },
         ],
     }),
-    listeners: ({ actions }) => ({
-        loadPropertyDefinitionsSuccess: ({ propertyStorage }) => {
-            if (propertyStorage.next) {
-                actions.loadPropertyDefinitions()
+    listeners(({ actions, values }) => ({
+        loadPropertyDefinitions: async ({ properties }) => {
+            const { propertyDefinitionStorage } = values
+
+            let fetchNewProperties = false
+            const propertiesToFetch: PropertyDefinitionStorage = {}
+            for (const property of properties) {
+                if (
+                    !(property in propertyDefinitionStorage) ||
+                    propertyDefinitionStorage[property] === PropertyDefinitionState.Error
+                ) {
+                    fetchNewProperties = true
+                    propertiesToFetch[property] = PropertyDefinitionState.Pending
+                }
+            }
+
+            // nothing more to do
+            if (!fetchNewProperties) {
+                return
+            }
+
+            actions.setPropertyDefinitionStorage({ ...propertyDefinitionStorage, ...propertiesToFetch })
+
+            try {
+                const url = 'api/projects/@current/property_definitions/?limit=5000'
+                const propertyDefinitions = await api.create(url, { properties })
+                const newProperties: PropertyDefinitionStorage = { ...values.propertyDefinitionStorage }
+                for (const propertyDefinition of propertyDefinitions.results) {
+                    newProperties[propertyDefinition.name] = propertyDefinition
+                }
+                for (const property of properties) {
+                    if (newProperties[property] === PropertyDefinitionState.Loading) {
+                        newProperties[property] = PropertyDefinitionState.Missing
+                    }
+                }
+                actions.setPropertyDefinitionStorage(newProperties)
+            } catch (e) {
+                const newProperties: PropertyDefinitionStorage = { ...values.propertyDefinitionStorage }
+                for (const property of properties) {
+                    if (newProperties[property] === PropertyDefinitionState.Loading) {
+                        newProperties[property] = PropertyDefinitionState.Error
+                    }
+                }
+                actions.setPropertyDefinitionStorage(newProperties)
             }
         },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadPropertyDefinitions(true)
-        },
-    }),
-    selectors: {
-        loaded: [
-            // Whether *all* the property definitions are fully loaded
-            (s) => [s.propertyStorage, s.propertyStorageLoading],
-            (propertyStorage, propertyStorageLoading): boolean => !propertyStorageLoading && !propertyStorage.next,
+    })),
+    selectors(({ actions }) => ({
+        propertyStorageLoading: [
+            (s) => [s.propertyDefinitionStorage],
+            (propertyDefinitionStorage): boolean =>
+                Object.values(propertyDefinitionStorage).some((p) => p === PropertyDefinitionState.Loading),
         ],
         propertyDefinitions: [
-            (s) => [s.propertyStorage],
-            (propertyStorage): PropertyDefinition[] =>
-                propertyStorage.results ? [...localPropertyDefinitions, ...propertyStorage.results] : [],
+            (s) => [s.propertyDefinitionStorage],
+            (propertyDefinitionStorage): PropertyDefinition[] => [
+                ...(Object.values(propertyDefinitionStorage).filter(
+                    (value) => typeof value === 'object'
+                ) as PropertyDefinition[]),
+                ...localPropertyDefinitions,
+            ],
         ],
         transformedPropertyDefinitions: [
             // Transformed propertyDefinitions to use in `Select` components
@@ -131,7 +159,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
         ],
         describeProperty: [
             (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): ((s: TaxonomicFilterValue) => string | null) =>
+            (propertyDefinitions): ((s: TaxonomicFilterValue) => string | null) =>
                 (propertyName: TaxonomicFilterValue) => {
                     // if the model hasn't already cached this definition, will fall back to original display type
                     const match = propertyDefinitions.find((pd) => pd.name === propertyName)
@@ -139,23 +167,30 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
                 },
         ],
         getPropertyDefinition: [
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): ((s: TaxonomicFilterValue) => PropertyDefinition | null) =>
-                (propertyName: TaxonomicFilterValue) => {
-                    return propertyDefinitions.find((pd) => pd.name === propertyName) ?? null
-                },
+            (s) => [s.propertyDefinitionStorage],
+            (propertyDefinitionStorage): ((s: TaxonomicFilterValue) => PropertyDefinition | null) =>
+                (propertyName: TaxonomicFilterValue) =>
+                    typeof propertyDefinitionStorage[propertyName] === 'object'
+                        ? (propertyDefinitionStorage[propertyName] as PropertyDefinition)
+                        : null,
         ],
         formatPropertyValueForDisplay: [
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinition[]): FormatPropertyValueForDisplayFunction => {
+            (s) => [s.propertyDefinitionStorage],
+            (propertyDefinitionStorage): FormatPropertyValueForDisplayFunction => {
                 return (propertyName?: BreakdownKeyType, valueToFormat?: PropertyFilterValue | undefined) => {
                     if (valueToFormat === null || valueToFormat === undefined) {
                         return null
                     }
 
-                    const propertyDefinition = propertyName
-                        ? propertyDefinitions.find((pd) => pd.name === propertyName)
-                        : undefined
+                    // first time we see this, schedule a fetch
+                    if (typeof propertyName === 'string' && !(propertyName in propertyDefinitionStorage)) {
+                        window.setTimeout(() => actions.loadPropertyDefinitions([propertyName]), 0)
+                    }
+
+                    const propertyDefinition: PropertyDefinition | undefined =
+                        typeof propertyName === 'string' && typeof propertyDefinitionStorage[propertyName] === 'object'
+                            ? (propertyDefinitionStorage[propertyName] as PropertyDefinition)
+                            : undefined
 
                     const { arrayOfPropertyValues, valueWasReceivedAsArray } = normaliseToArray(valueToFormat)
 
@@ -193,5 +228,5 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>({
                 }
             },
         ],
-    },
-})
+    })),
+])
