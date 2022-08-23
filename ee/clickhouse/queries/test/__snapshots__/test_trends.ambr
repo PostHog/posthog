@@ -899,8 +899,8 @@
         FROM
           (SELECT e.timestamp as timestamp,
                   e.person_id as person_id,
-                  e."group2_properties" as "group2_properties",
-                  e."group0_properties" as "group0_properties"
+                  e."group0_properties" as "group0_properties",
+                  e."group2_properties" as "group2_properties"
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -922,8 +922,8 @@
             e.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
-            e."group2_properties" as "group2_properties",
-            e."group0_properties" as "group0_properties"
+            e."group0_properties" as "group0_properties",
+            e."group2_properties" as "group2_properties"
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
