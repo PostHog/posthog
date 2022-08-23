@@ -145,7 +145,7 @@ export function Login(): JSX.Element {
                         Forgot your password?
                     </Link>
                 </div>
-                <SocialLoginButtons caption="Or log in with" topDivier />
+                <SocialLoginButtons caption="Or log in with" topDivider />
             </div>
         </BridgePage>
     )

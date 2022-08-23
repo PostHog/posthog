@@ -21,7 +21,7 @@ interface SocialLoginButtonsProps extends SharedProps {
     title?: string
     caption?: string
     className?: string
-    topDivier?: boolean
+    topDivider?: boolean
 }
 
 export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
@@ -49,7 +49,7 @@ export function SocialLoginButtons({
     title,
     caption,
     className,
-    topDivier,
+    topDivider,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -63,7 +63,7 @@ export function SocialLoginButtons({
 
     return (
         <>
-            {topDivier ? <LemonDivider dashed className="my-4" /> : null}
+            {topDivider ? <LemonDivider dashed className="my-4" /> : null}
 
             <div className={clsx(className, 'text-center space-y-2')}>
                 {title && <h3>{title}</h3>}

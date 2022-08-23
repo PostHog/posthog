@@ -47,7 +47,7 @@ export function Signup(): JSX.Element | null {
             message={
                 <>
                     Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!!!!
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
             }
             footer={
@@ -162,7 +162,7 @@ export function Signup(): JSX.Element | null {
                 </Form>
                 {!preflight?.demo && (
                     <div>
-                        <SocialLoginButtons caption="Or sign up with" topDivier />
+                        <SocialLoginButtons caption="Or sign up with" topDivider />
                     </div>
                 )}
             </div>

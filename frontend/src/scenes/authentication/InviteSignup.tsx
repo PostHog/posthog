@@ -162,7 +162,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                             >
                                 Accept invite
                             </LemonButton>
-                            <div className="mt-4">
+                            <div className="mt-2">
                                 <LemonButton type="secondary" center fullWidth icon={<IconChevronLeft />} to="/">
                                     Go back to PostHog
                                 </LemonButton>
@@ -195,7 +195,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             message={
                 <>
                     Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!!!!
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
             }
         >
@@ -288,7 +288,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 className="mb-4"
                 title="Or sign in with"
                 caption={`Remember to log in with ${invite?.target_email}`}
-                topDivier
+                topDivider
                 queryString={invite ? `?invite_id=${invite.id}` : ''}
             />
         </BridgePage>
