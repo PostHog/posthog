@@ -137,8 +137,9 @@ jobs:
 
             - name: Fetch posthog-cloud
               run: |
+                  mkdir cloud/
+                  cd cloud/
                   curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
-                  mkdir deploy/
 
             - name: Docker image metadata
               id: meta
