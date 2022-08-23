@@ -342,7 +342,18 @@ def graphile_queue_size():
         )
 
         queue_size = cursor.fetchone()[0]
-        gauge(f"graphile_queue_size", queue_size)
+        gauge("graphile_queue_size", queue_size)
+
+        cursor.execute(
+            """
+        SELECT task_identifier, count(*) as c FROM graphile_worker.jobs
+        WHERE attempts < max_attempts
+        GROUP BY task_identifier
+        """
+        )
+
+        for (task_identifier, count) in cursor.fetchall():
+            gauge("graphile_waiting_jobs", count, tags={"task_identifier": task_identifier})
 
 
 @app.task(ignore_result=True)
