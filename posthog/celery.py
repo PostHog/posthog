@@ -72,18 +72,25 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     if not getattr(settings, "MULTI_TENANCY", False):
         sender.add_periodic_task(crontab(day_of_week="mon", hour=0, minute=0), status_report.s())
 
-    # Cloud (posthog-cloud) cron jobs
+    # PostHog Cloud cron jobs
     if getattr(settings, "MULTI_TENANCY", False):
-        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())  # every day midnight UTC
+        # Calculate billing usage for the day every day at midnight UTC
+        sender.add_periodic_task(crontab(hour=0, minute=0), calculate_billing_daily_usage.s())
+        # Verify that persons data is in sync every day at 4 AM UTC
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
+
+    # PostHog Demo cron jobs
+    if settings.DEMO:
+        # Reset master project data every day at 5 AM UTC
+        sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    # Send the emails at 3PM UTC every day
+    # Send the emails at 3 PM UTC every day
     sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
     sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
 
-    # sync all Organization.available_features every hour
+    # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sender.add_periodic_task(
@@ -103,6 +110,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
+    sender.add_periodic_task(120, graphile_queue_size.s(), name="Graphile queue size")
 
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
@@ -316,6 +324,28 @@ def ingestion_lag():
 
 
 @app.task(ignore_result=True)
+def graphile_queue_size():
+    from django.db import connections
+
+    from posthog.internal_metrics import gauge
+
+    connection = connections["graphile"] if "graphile" in connections else connections["default"]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+        SELECT count(*)
+        FROM graphile_worker.jobs
+        WHERE (jobs.locked_at is null or jobs.locked_at < (now() - INTERVAL '4 hours'))
+        AND run_at <= now()
+        AND attempts < max_attempts
+        """
+        )
+
+        queue_size = cursor.fetchone()[0]
+        gauge(f"graphile_queue_size", queue_size)
+
+
+@app.task(ignore_result=True)
 def clickhouse_row_count():
     from posthog.client import sync_execute
     from posthog.internal_metrics import gauge
@@ -482,6 +512,13 @@ def send_second_ingestion_reminder_emails():
     from posthog.tasks.email import send_second_ingestion_reminder_emails
 
     send_second_ingestion_reminder_emails()
+
+
+@app.task(ignore_result=True)
+def demo_reset_master_team():
+    from posthog.tasks.demo_reset_master_team import demo_reset_master_team
+
+    demo_reset_master_team()
 
 
 @app.task(ignore_result=True)

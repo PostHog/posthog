@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, dateFilterToText, Loading } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
@@ -54,6 +54,7 @@ import { AlertMessage } from '../AlertMessage'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { SpinnerOverlay } from '../Spinner/Spinner'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -500,7 +501,7 @@ export function InsightViz({
                     : undefined
             }
         >
-            {loading && !timedOut && <Loading />}
+            {loading && !timedOut && <SpinnerOverlay />}
             {tooFewFunnelSteps ? (
                 <FunnelSingleStepState actionable={false} />
             ) : invalidFunnelExclusion ? (

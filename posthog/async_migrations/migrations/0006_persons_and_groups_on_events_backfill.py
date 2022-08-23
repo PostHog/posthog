@@ -55,6 +55,9 @@ TEMPORARY_PERSONS_TABLE_NAME = "tmp_person_0006"
 TEMPORARY_PDI2_TABLE_NAME = "tmp_person_distinct_id2_0006"
 TEMPORARY_GROUPS_TABLE_NAME = "tmp_groups_0006"
 
+# :KLUDGE: On cloud, groups and person tables now have storage_policy sometimes attached
+STORAGE_POLICY_SETTING = lambda: ", storage_policy = 'hot_to_cold'" if settings.CLICKHOUSE_ENABLE_STORAGE_POLICY else ""
+
 
 class Migration(AsyncMigrationDefinition):
     description = "Backfill persons and groups data on the sharded_events table"
@@ -78,18 +81,15 @@ class Migration(AsyncMigrationDefinition):
         return analyze_enough_disk_space_free_for_table(EVENTS_DATA_TABLE(), required_ratio=2.0)
 
     def is_required(self) -> bool:
-        compression_codec = sync_execute(
+        zero_person_id_count = sync_execute(
             """
-            SELECT compression_codec
-            FROM system.columns
-            WHERE database = %(database)s
-              AND table = %(events_data_table)s
-              AND name = 'person_properties'
-        """,
-            {"database": settings.CLICKHOUSE_DATABASE, "events_data_table": EVENTS_DATA_TABLE()},
+            SELECT count()
+            FROM events
+            WHERE person_id = toUUIDOrZero('')
+            """,
         )[0][0]
 
-        return compression_codec != "CODEC(ZSTD(3))"
+        return zero_person_id_count > 0
 
     @cached_property
     def operations(self):
@@ -104,7 +104,7 @@ class Migration(AsyncMigrationDefinition):
                     CREATE TABLE {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.person
                     ENGINE = ReplacingMergeTree(version)
                     ORDER BY (team_id, id)
-                    SETTINGS index_granularity = 128
+                    SETTINGS index_granularity = 128 {STORAGE_POLICY_SETTING()}
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,
@@ -124,7 +124,7 @@ class Migration(AsyncMigrationDefinition):
                     CREATE TABLE {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}} AS {settings.CLICKHOUSE_DATABASE}.groups
                     ENGINE = ReplacingMergeTree(_timestamp)
                     ORDER BY (team_id, group_type_index, group_key)
-                    SETTINGS index_granularity = 128
+                    SETTINGS index_granularity = 128 {STORAGE_POLICY_SETTING()}
                 """,
                 rollback=f"DROP TABLE IF EXISTS {TEMPORARY_GROUPS_TABLE_NAME} {{on_cluster_clause}}",
                 per_shard=True,

@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import { Loading } from 'lib/utils'
 import './InviteSignup.scss'
 import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite } from '~/types'
@@ -10,6 +9,7 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ProfilePicture } from '../../lib/components/ProfilePicture'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
@@ -300,7 +300,7 @@ export function InviteSignup(): JSX.Element {
     const { user } = useValues(userLogic)
 
     if (inviteLoading) {
-        return <Loading />
+        return <SpinnerOverlay />
     }
 
     return (

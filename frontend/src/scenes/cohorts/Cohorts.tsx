@@ -81,8 +81,8 @@ export function Cohorts(): JSX.Element {
                     return <>N/A</>
                 }
                 return cohort.is_calculating ? (
-                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-                        in progress <Spinner size="sm" style={{ marginLeft: 6 }} />
+                    <span className="flex items-center">
+                        in progress <Spinner size="sm" className="ml-2" />
                     </span>
                 ) : (
                     dayjs(cohort.last_calculation).fromNow()
