@@ -12,6 +12,7 @@ import type { propertyDefinitionsModelType } from './propertyDefinitionsModelTyp
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
+import { combineUrl } from 'kea-router'
 
 export interface PropertySelectOption extends SelectOption {
     is_numerical?: boolean
@@ -33,19 +34,6 @@ const localPropertyDefinitions: PropertyDefinition[] = [
     },
 ]
 
-const normaliseToArray = (
-    valueToFormat: Exclude<PropertyFilterValue, null>
-): {
-    valueWasReceivedAsArray: boolean
-    arrayOfPropertyValues: (string | number)[]
-} => {
-    if (Array.isArray(valueToFormat)) {
-        return { arrayOfPropertyValues: valueToFormat, valueWasReceivedAsArray: true }
-    } else {
-        return { arrayOfPropertyValues: [valueToFormat], valueWasReceivedAsArray: false }
-    }
-}
-
 export type FormatPropertyValueForDisplayFunction = (
     propertyName?: string,
     valueToFormat?: PropertyFilterValue
@@ -55,7 +43,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
     actions({
         loadPropertyDefinitions: (properties: string[]) => ({ properties }),
-        fetchNewProperties: (properties: string[]) => ({ properties }),
         updatePropertyDefinition: (propertyDefinition: PropertyDefinition) => ({ propertyDefinition }),
         updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[]) => ({ propertyDefinitions }),
         setPropertyDefinitionStorage: (propertyDefinitions: PropertyDefinitionStorage) => ({ propertyDefinitions }),
@@ -101,7 +88,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
 
             try {
                 const url = 'api/projects/@current/property_definitions/?limit=5000'
-                const propertyDefinitions = await api.create(url, { properties })
+                const propertyDefinitions = await api.get(combineUrl(url, { properties: properties.join(',') }).url)
                 const newProperties: PropertyDefinitionStorage = { ...values.propertyDefinitionStorage }
                 for (const propertyDefinition of propertyDefinitions.results) {
                     newProperties[propertyDefinition.name] = propertyDefinition
@@ -192,7 +179,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                             ? (propertyDefinitionStorage[propertyName] as PropertyDefinition)
                             : undefined
 
-                    const { arrayOfPropertyValues, valueWasReceivedAsArray } = normaliseToArray(valueToFormat)
+                    const arrayOfPropertyValues = Array.isArray(valueToFormat) ? valueToFormat : [valueToFormat]
 
                     const formattedValues = arrayOfPropertyValues.map((_propertyValue) => {
                         const propertyValue: string | null = String(_propertyValue)
@@ -220,11 +207,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
 
                     // formattedValues is always an array after normalising above
                     // but if the caller sent a single value we should return one
-                    if (valueWasReceivedAsArray) {
-                        return formattedValues
-                    } else {
-                        return formattedValues[0]
-                    }
+                    return Array.isArray(valueToFormat) ? formattedValues : formattedValues[0]
                 }
             },
         ],
