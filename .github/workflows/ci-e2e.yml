@@ -79,7 +79,7 @@ jobs:
 
             - name: Push (if PostHog/posthog)
               # Only push to GHCR if running on PostHog/posthog, as there's no read-write token on forks
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ github.event.push != null || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               run: |
                   docker load < /tmp/posthog-image.tar
                   docker image push --all-tags ghcr.io/posthog/posthog/posthog
@@ -102,6 +102,9 @@ jobs:
 
     posthog_cloud:
         name: PostHog Cloud image build
+        runs-on: ubuntu-latest
+        needs: [build]
+
         steps:
             - uses: actions/download-artifact@v3
               with:
@@ -163,7 +166,7 @@ jobs:
                   # removing any layers, soooo, maybe it's fine.
                   cache-to: type=inline
                   build-args: |
-                      BASE_IMAGE=ghcr.io/posthog/posthog/posthog:master
+                      BASE_IMAGE=${{ needs.build.outputs.docker_image_id }}
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
