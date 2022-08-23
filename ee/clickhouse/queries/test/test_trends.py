@@ -420,3 +420,58 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
         with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
             response = Trends().run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
+
+    @test_with_materialized_columns(group_properties=[(0, "industry"), (2, "name")])
+    @snapshot_clickhouse_queries
+    def test_filtering_by_multiple_groups_person_on_events(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=2)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:5", properties={"industry": "finance"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:6", properties={"industry": "technology"})
+        create_group(team_id=self.team.pk, group_type_index=2, group_key="company:5", properties={"name": "five"})
+        create_group(team_id=self.team.pk, group_type_index=2, group_key="company:6", properties={"name": "six"})
+
+        journey = {
+            "person1": [
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 12),
+                    "properties": {"$group_0": "org:5", "$group_2": "company:6"},
+                },
+                {
+                    "event": "sign up",
+                    "timestamp": datetime(2020, 1, 2, 12, 30),
+                    "properties": {"$group_2": "company:6"},
+                },
+                {"event": "sign up", "timestamp": datetime(2020, 1, 2, 13), "properties": {"$group_0": "org:6"},},
+                {"event": "sign up", "timestamp": datetime(2020, 1, 3, 15), "properties": {"$group_2": "company:5"},},
+            ],
+        }
+
+        journeys_for(events_by_person=journey, team=self.team)
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12",
+                "events": [{"id": "sign up", "name": "sign up", "type": "events", "order": 0,}],
+                "properties": [
+                    {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0},
+                    {"key": "name", "value": "six", "type": "group", "group_type_index": 2},
+                ],
+            }
+        )
+
+        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+            response = Trends().run(filter, self.team,)
+
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["count"], 1)
+            self.assertEqual(response[0]["data"], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+
+            filter = filter.with_data({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
+            entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0,})
+            res = self._get_trend_people(filter, entity)
+
+            self.assertEqual(res[0]["distinct_ids"], ["person1"])

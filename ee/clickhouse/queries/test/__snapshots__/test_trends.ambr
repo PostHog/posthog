@@ -880,6 +880,118 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-12 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id,
+                  e."group2_properties" as "group2_properties",
+                  e."group0_properties" as "group0_properties"
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
+                  AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', ''))) )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events.1
+  '
+  
+  SELECT person_id AS actor_id
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id,
+            e."group2_properties" as "group2_properties",
+            e."group0_properties" as "group0_properties"
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
+       AND timestamp <= toDateTime('2020-01-02 23:59:59')
+       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', ''))
+            AND has(['six'], replaceRegexpAll(JSONExtractRaw(group2_properties, 'name'), '^"|"$', ''))) )
+  GROUP BY actor_id
+  LIMIT 200
+  OFFSET 0
+  '
+---
+# name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events_materialized
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-12 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 23:59:59'), 'UTC'))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+        FROM
+          (SELECT e.timestamp as timestamp,
+                  e.person_id as person_id,
+                  e."mat_gp2_name" as "mat_gp2_name",
+                  e."mat_gp0_industry" as "mat_gp0_industry"
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
+             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND (has(['finance'], "mat_gp0_industry")
+                  AND has(['six'], "mat_gp2_name")) )
+        GROUP BY date)
+     group by day_start
+     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestClickhouseTrends.test_filtering_by_multiple_groups_person_on_events_materialized.1
+  '
+  
+  SELECT person_id AS actor_id
+  FROM
+    (SELECT e.timestamp as timestamp,
+            e.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id,
+            e."mat_gp2_name" as "mat_gp2_name",
+            e."mat_gp0_industry" as "mat_gp0_industry"
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND timestamp >= toDateTime('2020-01-02 00:00:00')
+       AND timestamp <= toDateTime('2020-01-02 23:59:59')
+       AND (has(['finance'], "mat_gp0_industry")
+            AND has(['six'], "mat_gp2_name")) )
+  GROUP BY actor_id
+  LIMIT 200
+  OFFSET 0
+  '
+---
 # name: TestClickhouseTrends.test_filtering_with_group_props
   '
   

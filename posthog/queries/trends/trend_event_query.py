@@ -65,7 +65,6 @@ class TrendsEventQuery(EventQuery):
             for column_name in self._column_optimizer.person_on_event_columns_to_query:
                 _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
 
-            # TODO: needs tests
             for column_name in self._column_optimizer.group_on_event_columns_to_query:
                 _fields += f', {self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
 

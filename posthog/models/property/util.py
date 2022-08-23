@@ -606,13 +606,10 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-    # TODO: test 'column' is valid for materialised_columns. What if it's aliased?
-    # Maybe use an 'original_column' parameter to specify the original column name?
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
     table_string = f"{table_alias}." if table_alias is not None else ""
 
-    # TODO: Support group & person on events here!
     if allow_denormalized_props and (property_name, materialised_table_column) in materialized_columns:
         return f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"', True
 

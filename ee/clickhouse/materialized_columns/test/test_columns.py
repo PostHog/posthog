@@ -23,11 +23,6 @@ EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_
 
 
 class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
-    # TODO: Add moaaar tests for all the new stuff added to the materialized columns code.
-    # TODO: Add tests for the backfill code.
-    # Specifically, for different kinds of columns, not just properties, and their interaction with each other.
-    # ~~ALSO MAJOR TODO~~ DONE, replaced with TODOs elsewhere: Find other places that use `get_materialised_columns` and `materialize()` and see if I need to fix things
-    # TODO: Test _materialized_column_name
     def setUp(self):
         self.recreate_database()
         return super().setUp()
@@ -47,8 +42,6 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
             EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
         )
         self.assertCountEqual(get_materialized_columns("person"), [])
-        # TODO: Check where this is used and how severely its affected. Since we don't materialise anything else in recordings,
-        # weird to have this here.
         self.assertEqual(
             get_materialized_columns("session_recording_events"),
             {("has_full_snapshot", "properties"): "has_full_snapshot"},

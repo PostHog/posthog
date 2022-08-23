@@ -199,9 +199,7 @@ def _to_value_expression(
         )
     elif breakdown_type == "group":
         value_expression, _ = get_property_string_expr(
-            table="events"
-            if direct_on_events
-            else "groups",  # TODO: bug from old times! Scary that it wasn't tested, test now!
+            table="events" if direct_on_events else "groups",
             property_name=cast(str, breakdown),
             var="%(key)s",
             column=f"group{breakdown_group_type_index}_properties"

@@ -131,22 +131,6 @@ class FunnelCorrelation:
         )
         filter = Filter(data=filter_data)
 
-        self.query_person_properties = False
-        self.query_group_properties = False
-        if (
-            self._team.actor_on_events_querying_enabled
-            and self._filter.correlation_type == FunnelCorrelationType.PROPERTIES
-        ):
-
-            if filter.aggregation_group_type_index is not None:
-                self.query_group_properties = True
-            else:
-                self.query_person_properties = True
-
-        self.include_funnel_group_properties: list = [
-            filter.aggregation_group_type_index
-        ] if self.query_group_properties else []
-
         funnel_order_actor_class = get_funnel_order_actor_class(filter)
 
         self._funnel_actors_generator = funnel_order_actor_class(
@@ -162,7 +146,6 @@ class FunnelCorrelation:
             include_properties=self.properties_to_include,
         )
 
-    # TODO: write test for this!
     @property
     def properties_to_include(self) -> List[str]:
         props_to_include = []
