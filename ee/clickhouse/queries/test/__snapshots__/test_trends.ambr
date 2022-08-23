@@ -955,8 +955,8 @@
         FROM
           (SELECT e.timestamp as timestamp,
                   e.person_id as person_id,
-                  e."mat_gp0_industry" as "mat_gp0_industry",
-                  e."mat_gp2_name" as "mat_gp2_name"
+                  e."mat_gp2_name" as "mat_gp2_name",
+                  e."mat_gp0_industry" as "mat_gp0_industry"
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -978,8 +978,8 @@
             e.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
-            e."mat_gp0_industry" as "mat_gp0_industry",
-            e."mat_gp2_name" as "mat_gp2_name"
+            e."mat_gp2_name" as "mat_gp2_name",
+            e."mat_gp0_industry" as "mat_gp0_industry"
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
