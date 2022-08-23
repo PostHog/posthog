@@ -15,7 +15,6 @@ interface ObjectTagsPropsBase {
     id?: string
     className?: string
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 type ObjectTagsProps =
@@ -52,7 +51,6 @@ export function ObjectTags({
     id, // For pages that allow multiple object tags
     className,
     'data-attr': dataAttr,
-    'data-tooltip': dataTooltip,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useMemo(() => uniqueMemoizedIndex++, [])
     const logic = objectTagsLogic({ id: objectTagId, onChange, tags })
@@ -118,7 +116,6 @@ export function ObjectTags({
                             })
                         }
                         data-attr="button-add-tag"
-                        data-tooltip={dataTooltip}
                         style={{
                             cursor: 'pointer',
                             borderStyle: 'dashed',
