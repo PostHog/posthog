@@ -17,7 +17,6 @@ export function ToolbarSettings(): JSX.Element {
             }}
             checked={user?.toolbar_mode !== 'disabled'}
             disabled={userLoading}
-            loading={userLoading}
             label="Enable PostHog Toolbar"
             bordered
         />

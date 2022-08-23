@@ -35,7 +35,6 @@ export const Overview = (): JSX.Element => {
             <LemonSwitch label="Bordered Unchecked" bordered />
             <LemonSwitch label="Bordered Checked" checked bordered />
 
-            <LemonSwitch label="Bordered loading" bordered loading />
             <LemonSwitch label="Bordered FullWidth" fullWidth bordered />
             <LemonSwitch label="Bordered FullWidth icon" fullWidth bordered icon={<IconGlobeLock />} />
             <LemonSwitch label="Bordered disabled" bordered disabled />
@@ -52,6 +51,3 @@ Bordered.args = { bordered: true }
 
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
-
-export const Loading = Template.bind({})
-Loading.args = { loading: true }

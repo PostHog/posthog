@@ -110,6 +110,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
+    sender.add_periodic_task(120, graphile_queue_size.s(), name="Graphile queue size")
 
     sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
@@ -320,6 +321,28 @@ def ingestion_lag():
             gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
         except:
             pass
+
+
+@app.task(ignore_result=True)
+def graphile_queue_size():
+    from django.db import connections
+
+    from posthog.internal_metrics import gauge
+
+    connection = connections["graphile"] if "graphile" in connections else connections["default"]
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+        SELECT count(*)
+        FROM graphile_worker.jobs
+        WHERE (jobs.locked_at is null or jobs.locked_at < (now() - INTERVAL '4 hours'))
+        AND run_at <= now()
+        AND attempts < max_attempts
+        """
+        )
+
+        queue_size = cursor.fetchone()[0]
+        gauge(f"graphile_queue_size", queue_size)
 
 
 @app.task(ignore_result=True)

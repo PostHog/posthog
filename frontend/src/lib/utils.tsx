@@ -31,7 +31,6 @@ import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
-import { Spinner } from './components/Spinner/Spinner'
 import { getAppContext } from './utils/getAppContext'
 import { isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
@@ -168,14 +167,6 @@ export function percentage(
         maximumFractionDigits,
         minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
     })
-}
-
-export function Loading(props: Record<string, any>): JSX.Element {
-    return (
-        <div className="loading-overlay" style={props.style}>
-            <Spinner size="lg" />
-        </div>
-    )
 }
 
 export function deleteWithUndo({

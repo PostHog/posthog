@@ -83,7 +83,6 @@ export function SharingModal({
                             id="sharing-switch"
                             label={`Share ${resource} publicly`}
                             checked={sharingConfiguration.enabled}
-                            loading={sharingConfigurationLoading}
                             data-attr="sharing-switch"
                             onChange={(active) => setIsEnabled(active)}
                             icon={<IconGlobeLock />}

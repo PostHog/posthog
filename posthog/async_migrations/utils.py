@@ -65,6 +65,7 @@ def execute_op_clickhouse(
 
     try:
         if per_shard:
+            sql = f"/* async_migration:{query_id} */ {sql}"
             execute_on_each_shard(sql, args, settings=settings)
         else:
             client.sync_execute(sql, args, settings=settings)
