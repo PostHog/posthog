@@ -299,7 +299,7 @@ class Cohort(models.Model):
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1,
+                        'FROM "posthog_person"', f', {self.pk}, {self.version or 1} FROM "posthog_person"', 1,
                     ),
                 )
                 cursor.execute(query, params)
@@ -328,7 +328,7 @@ class Cohort(models.Model):
                 query = UPDATE_QUERY.format(
                     cohort_id=self.pk,
                     values_query=sql.replace(
-                        'FROM "posthog_person"', f', {self.pk}, {self.version or "NULL"} FROM "posthog_person"', 1,
+                        'FROM "posthog_person"', f', {self.pk}, {self.version or 1} FROM "posthog_person"', 1,
                     ),
                 )
                 cursor.execute(query, params)

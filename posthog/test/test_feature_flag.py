@@ -1,6 +1,7 @@
 from typing import cast
 
 from django.db import connection
+from django.utils import timezone
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import (
@@ -437,6 +438,24 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag), FeatureFlagMatch())
         self.assertIsNone(FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag))
+
+    def test_user_in_static_cohort(self):
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["example_id_1"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["example_id_2"])
+        Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
+
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[], is_static=True, last_calculation=timezone.now(), version=1
+        )
+        cohort.insert_users_by_list(["example_id_1", "example_id_2"])
+
+        feature_flag: FeatureFlag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],}]}
+        )
+
+        feature_flag.update_cohorts()
+        self.assertEqual(FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag), FeatureFlagMatch())
+        self.assertIsNone(FeatureFlagMatcher([feature_flag], "3").get_match(feature_flag))
 
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
