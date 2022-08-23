@@ -17,6 +17,8 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { openSaveCohortModal } from './SaveCohortModal'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -234,12 +236,12 @@ export function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps):
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
-    // const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
+    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
 
-    // if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
-    //     // Currrently this will display 2 modals, as we want to test this comparison in production
-    //     return
-    // }
+    if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
+        // Currrently this will display 2 modals, as we want to test this comparison in production
+        return
+    }
 
     const div = document.createElement('div')
     function destroy(): void {
