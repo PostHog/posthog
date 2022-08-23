@@ -109,9 +109,6 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
-            cohort.version = 1
-            cohort.pending_version = 1
-            cohort.save()
             self._handle_static(cohort, request)
         else:
             pending_version = get_and_update_pending_version(cohort)
