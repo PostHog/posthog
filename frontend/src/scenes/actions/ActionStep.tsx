@@ -158,6 +158,7 @@ function Option(props: {
                     data-attr="edit-action-url-input"
                     allowClear
                     onChange={onOptionChange}
+                    autoFocus
                     value={props.step[props.item] || ''}
                     placeholder={props.placeholder}
                 />

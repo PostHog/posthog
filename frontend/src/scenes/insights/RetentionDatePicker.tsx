@@ -1,7 +1,6 @@
 import React from 'react'
 import { useActions, useValues } from 'kea'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
-import { CalendarOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
@@ -17,8 +16,7 @@ export function RetentionDatePicker({ disabled }: { disabled?: boolean }): JSX.E
     return (
         <>
             <Tooltip title="Cohorts up to this end date">
-                <span style={{ maxWidth: 100, display: 'inline-flex', alignItems: 'center' }}>
-                    <CalendarOutlined />
+                <span style={{ maxWidth: 100 }} className="flex inline-flex items-center pl-2">
                     <DatePicker
                         showTime={filters.period === 'Hour'}
                         use12Hours
@@ -28,7 +26,6 @@ export function RetentionDatePicker({ disabled }: { disabled?: boolean }): JSX.E
                         allowClear
                         placeholder="Today"
                         className="retention-date-picker"
-                        suffixIcon={null}
                         disabled={disabled}
                     />
                 </span>

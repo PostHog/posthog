@@ -1119,6 +1119,10 @@ export interface RecordingEventsFilters {
     query: string
 }
 
+export enum RecordingWindowFilter {
+    All = 'all',
+}
+
 export type InsightEditorFilterGroup = {
     title?: string
     editorFilters: InsightEditorFilter[]

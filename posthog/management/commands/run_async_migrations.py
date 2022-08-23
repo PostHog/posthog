@@ -27,8 +27,6 @@ def get_necessary_migrations() -> Sequence[AsyncMigration]:
             continue
 
         sm = setup_model(migration_name, definition)
-        if sm is None:
-            continue
 
         is_migration_required = ALL_ASYNC_MIGRATIONS[migration_name].is_required()
 

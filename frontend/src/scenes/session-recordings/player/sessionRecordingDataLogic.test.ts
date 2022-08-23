@@ -11,7 +11,6 @@ import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { combineUrl, router } from 'kea-router'
-import { RecordingEventType } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 
@@ -218,41 +217,13 @@ describe('sessionRecordingLogic', () => {
     })
 
     describe('loading session events', () => {
-        const events = recordingEventsJson
-
-        const expected_events: RecordingEventType[] = []
-        expected_events.push({
-            ...events[1],
-            playerTime: 0,
-            playerPosition: {
-                time: 0,
-                windowId: events[1].properties.$window_id as string,
-            },
-            percentageOfRecordingDuration: 0,
-            isOutOfBandEvent: false,
-        })
-
-        expected_events.push({
-            ...events[2],
-            playerTime: 38998,
-            playerPosition: {
-                time: 39000,
-                windowId: events[2].properties.$window_id as string,
-            },
-            percentageOfRecordingDuration: 1.4308651234056042,
-            isOutOfBandEvent: false,
-        })
-
-        expected_events.push({
-            ...events[4],
-            playerTime: 39998,
-            playerPosition: {
-                time: 40000,
-                windowId: events[2].properties.$window_id as string,
-            },
-            percentageOfRecordingDuration: 1.46755585429964,
-            isOutOfBandEvent: true,
-        })
+        const expectedEvents = [
+            expect.objectContaining(recordingEventsJson[1]),
+            expect.objectContaining(recordingEventsJson[2]),
+            expect.objectContaining(recordingEventsJson[4]),
+            expect.objectContaining(recordingEventsJson[5]),
+            expect.objectContaining(recordingEventsJson[6]),
+        ]
 
         it('load events after metadata with 1min buffer', async () => {
             await expectLogic(logic, () => {
@@ -296,7 +267,7 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionEventsData: {
                         next: firstNext,
-                        events: expected_events,
+                        events: expectedEvents,
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsSuccess'])
@@ -304,12 +275,16 @@ describe('sessionRecordingLogic', () => {
                     sessionEventsData: {
                         next: undefined,
                         events: [
-                            expected_events[0],
-                            expected_events[0],
-                            expected_events[1],
-                            expected_events[1],
-                            expected_events[2],
-                            expected_events[2],
+                            expect.objectContaining(recordingEventsJson[1]),
+                            expect.objectContaining(recordingEventsJson[1]),
+                            expect.objectContaining(recordingEventsJson[2]),
+                            expect.objectContaining(recordingEventsJson[2]),
+                            expect.objectContaining(recordingEventsJson[4]),
+                            expect.objectContaining(recordingEventsJson[4]),
+                            expect.objectContaining(recordingEventsJson[5]),
+                            expect.objectContaining(recordingEventsJson[5]),
+                            expect.objectContaining(recordingEventsJson[6]),
+                            expect.objectContaining(recordingEventsJson[6]),
                         ],
                     },
                 })
@@ -341,7 +316,7 @@ describe('sessionRecordingLogic', () => {
                 .toMatchValues({
                     sessionEventsData: {
                         next: firstNext,
-                        events: expected_events,
+                        events: expectedEvents,
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsFailure'])
@@ -367,22 +342,26 @@ describe('sessionRecordingLogic', () => {
             })
                 .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadEvents', 'loadEventsSuccess'])
                 .toMatchValues({
-                    eventsToShow: expected_events,
+                    eventsToShow: expectedEvents,
                 })
 
             expectLogic(logic, () => {
                 logic.actions.setFilters({ query: 'blah' })
             }).toMatchValues({
                 filters: { query: 'blah' },
-                eventsToShow: [{ ...expected_events[1], queryValue: 'blah blah' }],
+                eventsToShow: expect.arrayContaining([expect.objectContaining({ queryValue: 'blah blah' })]),
             })
         })
     })
 
     describe('loading session snapshots', () => {
-        const snaps =
+        const snapsWindow1 =
             recordingSnapshotsJson.snapshot_data_by_window_id[
                 '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f'
+            ]
+        const snapsWindow2 =
+            recordingSnapshotsJson.snapshot_data_by_window_id[
+                '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
             ]
 
         it('no next url', async () => {
@@ -430,7 +409,10 @@ describe('sessionRecordingLogic', () => {
                     sessionPlayerData: {
                         bufferedTo: null,
                         metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
-                        snapshotsByWindowId: { '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snaps },
+                        snapshotsByWindowId: {
+                            '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
+                            '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
+                        },
                         next: firstNext,
                         person: null,
                     },
@@ -444,7 +426,14 @@ describe('sessionRecordingLogic', () => {
                         bufferedTo: null,
                         metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
                         snapshotsByWindowId: {
-                            '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': [...snaps, ...snaps],
+                            '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': [
+                                ...snapsWindow1,
+                                ...snapsWindow1,
+                            ],
+                            '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': [
+                                ...snapsWindow2,
+                                ...snapsWindow2,
+                            ],
                         },
                         next: undefined,
                         person: null,
@@ -479,7 +468,10 @@ describe('sessionRecordingLogic', () => {
                     sessionPlayerData: {
                         bufferedTo: null,
                         metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
-                        snapshotsByWindowId: { '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snaps },
+                        snapshotsByWindowId: {
+                            '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
+                            '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
+                        },
                         next: firstNext,
                         person: null,
                     },

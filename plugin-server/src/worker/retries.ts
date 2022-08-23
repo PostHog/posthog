@@ -1,5 +1,6 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
+import { runInTransaction } from '../sentry'
 import { Hub, PluginConfig } from '../types'
 import { processError } from '../utils/db/error'
 
@@ -23,7 +24,7 @@ export interface RetryParams {
     retryMultiplier: number
 }
 
-async function iterateRetryLoop(
+function iterateRetryLoop(
     tag: string,
     hub: Hub,
     pluginConfig: PluginConfig,
@@ -38,58 +39,72 @@ async function iterateRetryLoop(
     }: RetriableFunctionDefinition & RetryParams,
     attempt = 1
 ): Promise<void> {
-    let nextIterationPromise: Promise<void> | undefined
-    try {
-        await tryFn()
-    } catch (error) {
-        if (error instanceof RetryError) {
-            error._attempt = attempt
-            error._maxAttempts = maxAttempts
-        }
-        if (error instanceof RetryError && attempt < maxAttempts) {
-            const nextRetryMs = getNextRetryMs(retryBaseMs, retryMultiplier, attempt)
-            hub.statsd?.increment(`plugin.${tag}.RETRY`, {
-                plugin: pluginConfig.plugin?.name ?? '?',
-                teamId: event.team_id.toString(),
-                attempt: attempt.toString(),
-            })
-            nextIterationPromise = new Promise((resolve, reject) =>
-                setTimeout(() => {
-                    // This is not awaited directly so that attempts beyond the first one don't stall the event queue
-                    iterateRetryLoop(
-                        tag,
-                        hub,
-                        pluginConfig,
-                        {
-                            event,
-                            tryFn,
-                            catchFn,
-                            finallyFn,
-                            maxAttempts,
-                            retryBaseMs,
-                            retryMultiplier,
-                        },
-                        attempt + 1
+    return runInTransaction(
+        {
+            name: 'retryLoop',
+            op: tag,
+            description: pluginConfig.plugin?.name || '?',
+            data: {
+                tag,
+                event,
+                attempt,
+            },
+        },
+        async () => {
+            let nextIterationPromise: Promise<void> | undefined
+            try {
+                await tryFn()
+            } catch (error) {
+                if (error instanceof RetryError) {
+                    error._attempt = attempt
+                    error._maxAttempts = maxAttempts
+                }
+                if (error instanceof RetryError && attempt < maxAttempts) {
+                    const nextRetryMs = getNextRetryMs(retryBaseMs, retryMultiplier, attempt)
+                    hub.statsd?.increment(`plugin.${tag}.RETRY`, {
+                        plugin: pluginConfig.plugin?.name ?? '?',
+                        teamId: event.team_id.toString(),
+                        attempt: attempt.toString(),
+                    })
+                    nextIterationPromise = new Promise((resolve, reject) =>
+                        setTimeout(() => {
+                            // This is not awaited directly so that attempts beyond the first one don't stall the event queue
+                            iterateRetryLoop(
+                                tag,
+                                hub,
+                                pluginConfig,
+                                {
+                                    event,
+                                    tryFn,
+                                    catchFn,
+                                    finallyFn,
+                                    maxAttempts,
+                                    retryBaseMs,
+                                    retryMultiplier,
+                                },
+                                attempt + 1
+                            )
+                                .then(resolve)
+                                .catch(reject)
+                        }, nextRetryMs)
                     )
-                        .then(resolve)
-                        .catch(reject)
-                }, nextRetryMs)
-            )
-            hub.promiseManager.trackPromise(nextIterationPromise)
-            await hub.promiseManager.awaitPromisesIfNeeded()
-        } else {
-            await catchFn?.(error)
-            await processError(hub, pluginConfig, error, event)
-            hub.statsd?.increment(`plugin.${tag}.ERROR`, {
-                plugin: pluginConfig.plugin?.name ?? '?',
-                teamId: event.team_id.toString(),
-                attempt: attempt.toString(),
-            })
+                    hub.promiseManager.trackPromise(nextIterationPromise)
+                    await hub.promiseManager.awaitPromisesIfNeeded()
+                } else {
+                    await catchFn?.(error)
+                    await processError(hub, pluginConfig, error, event)
+                    hub.statsd?.increment(`plugin.${tag}.ERROR`, {
+                        plugin: pluginConfig.plugin?.name ?? '?',
+                        teamId: event.team_id.toString(),
+                        attempt: attempt.toString(),
+                    })
+                }
+            }
+            if (!nextIterationPromise) {
+                await finallyFn?.(attempt)
+            }
         }
-    }
-    if (!nextIterationPromise) {
-        await finallyFn?.(attempt)
-    }
+    )
 }
 
 /** Run function with `RetryError` handling. */

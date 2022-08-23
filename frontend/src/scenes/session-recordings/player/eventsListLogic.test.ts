@@ -8,11 +8,23 @@ import {
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
+import { useMocks } from '~/mocks/jest'
+import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
+import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
+import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 
 describe('eventsListLogic', () => {
     let logic: ReturnType<typeof eventsListLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
+                '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
+                '/api/projects/:team/events': { results: recordingEventsJson },
+            },
+        })
         initKeaTests()
         logic = eventsListLogic()
         logic.mount()
@@ -20,7 +32,12 @@ describe('eventsListLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionRecordingDataLogic, sessionRecordingPlayerLogic, eventUsageLogic])
+            await expectLogic(logic).toMount([
+                sessionRecordingDataLogic,
+                sessionRecordingPlayerLogic,
+                eventUsageLogic,
+                sharedListLogic,
+            ])
         })
     })
 
@@ -115,6 +132,97 @@ describe('eventsListLogic', () => {
             expect(mockedList.getOffsetForRow.mock.calls[0][0]).toEqual({ alignment: 'center', index: 10 })
             expect(mockedList.scrollToPosition.mock.calls.length).toBe(1)
             expect(mockedList.scrollToPosition.mock.calls[0][0]).toEqual(40)
+        })
+    })
+
+    describe('eventsList', () => {
+        it('should load and parse events', async () => {
+            await expectLogic(logic, () => {
+                sessionRecordingDataLogic.actions.loadRecordingSnapshots('1')
+                sessionRecordingDataLogic.actions.loadRecordingMeta('1')
+            })
+                .toDispatchActionsInAnyOrder([
+                    sessionRecordingDataLogic.actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic.actionTypes.loadRecordingMetaSuccess,
+                    sessionRecordingDataLogic.actionTypes.loadEventsSuccess,
+                ])
+                .toMatchValues({
+                    listEvents: [
+                        expect.objectContaining({
+                            playerPosition: {
+                                time: 0,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                            timestamp: '2021-12-09T19:36:59.223000Z',
+                            type: 'events',
+                        }),
+                        expect.objectContaining({
+                            playerPosition: {
+                                time: 39000,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                            timestamp: '2021-12-09T19:37:39.223000Z',
+                            type: 'events',
+                        }),
+                        expect.objectContaining({
+                            playerPosition: {
+                                time: 40000,
+                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            },
+                            timestamp: '2021-12-09T19:37:40.223000Z',
+                            type: 'events',
+                        }),
+                        expect.objectContaining({
+                            playerPosition: {
+                                time: 99000,
+                                windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
+                            },
+                            timestamp: '2021-12-09T19:38:39.223000Z',
+                            type: 'events',
+                        }),
+                        expect.objectContaining({
+                            playerPosition: {
+                                time: 159000,
+                                windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
+                            },
+                            timestamp: '2021-12-09T19:39:39.223000Z',
+                            type: 'events',
+                        }),
+                    ],
+                })
+        })
+        it('should filter events by specified window id', async () => {
+            await expectLogic(logic, () => {
+                sessionRecordingDataLogic.actions.loadRecordingSnapshots('1')
+                sessionRecordingDataLogic.actions.loadRecordingMeta('1')
+                sharedListLogic.actions.setWindowIdFilter(
+                    '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
+                )
+            })
+                .toDispatchActionsInAnyOrder([
+                    sessionRecordingDataLogic.actionTypes.loadEventsSuccess,
+                    sharedListLogic.actionTypes.setWindowIdFilter,
+                ])
+                .toMatchValues({
+                    listEvents: [
+                        expect.objectContaining({
+                            playerPosition: {
+                                time: 99000,
+                                windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
+                            },
+                            timestamp: '2021-12-09T19:38:39.223000Z',
+                            type: 'events',
+                        }),
+                        expect.objectContaining({
+                            playerPosition: {
+                                time: 159000,
+                                windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
+                            },
+                            timestamp: '2021-12-09T19:39:39.223000Z',
+                            type: 'events',
+                        }),
+                    ],
+                })
         })
     })
 })

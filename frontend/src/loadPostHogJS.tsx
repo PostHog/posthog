@@ -33,15 +33,12 @@ export function loadPostHogJS(): void {
         // Make sure we have access to the object in window for debugging
         window.posthog = posthog
     } else {
-        posthog.init(
-            'fake token',
-            configWithSentry({
-                autocapture: false,
-                loaded: function (ph) {
-                    ph.opt_out_capturing()
-                },
-            })
-        )
+        posthog.init('fake token', {
+            autocapture: false,
+            loaded: function (ph) {
+                ph.opt_out_capturing()
+            },
+        })
     }
 
     if ((window as any).SENTRY_DSN) {

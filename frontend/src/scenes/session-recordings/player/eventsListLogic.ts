@@ -1,11 +1,18 @@
 import { kea } from 'kea'
-import { PlayerPosition, RecordingEventsFilters, RecordingEventType, SessionRecordingPlayerProps } from '~/types'
+import {
+    PlayerPosition,
+    RecordingEventsFilters,
+    RecordingEventType,
+    RecordingWindowFilter,
+    SessionRecordingPlayerProps,
+} from '~/types'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
 
 export const DEFAULT_ROW_HEIGHT = 65 // Two lines
 export const OVERSCANNED_ROW_COUNT = 50
@@ -28,6 +35,8 @@ export const eventsListLogic = kea<eventsListLogicType>({
             ['eventsToShow', 'sessionEventsDataLoading'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerTime'],
+            sharedListLogic,
+            ['windowIdFilter'],
         ],
     }),
     actions: {
@@ -96,12 +105,18 @@ export const eventsListLogic = kea<eventsListLogicType>({
     }),
     selectors: () => ({
         listEvents: [
-            (selectors) => [selectors.eventsToShow],
-            (events: RecordingEventType[]): RecordingEventType[] => {
-                return events.map((e) => ({
-                    ...e,
-                    colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
-                }))
+            (selectors) => [selectors.eventsToShow, selectors.windowIdFilter],
+            (events: RecordingEventType[], windowIdFilter): RecordingEventType[] => {
+                return events
+                    .filter(
+                        (e) =>
+                            windowIdFilter === RecordingWindowFilter.All ||
+                            e.playerPosition?.windowId === windowIdFilter
+                    )
+                    .map((e) => ({
+                        ...e,
+                        colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
+                    }))
             },
         ],
         currentStartIndex: [

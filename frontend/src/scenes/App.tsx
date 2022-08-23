@@ -5,7 +5,6 @@ import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Loading } from 'lib/utils'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { appLogicType } from './AppType'
@@ -20,6 +19,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { ToastCloseButton } from 'lib/components/lemonToast'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -79,7 +79,7 @@ export function App(): JSX.Element | null {
         )
     }
 
-    return showingDelayedSpinner ? <Loading /> : null
+    return showingDelayedSpinner ? <SpinnerOverlay /> : null
 }
 
 function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
@@ -117,7 +117,7 @@ function AppScene(): JSX.Element | null {
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
-        (() => (showingDelayedSpinner ? <Loading /> : null))
+        (() => (showingDelayedSpinner ? <SpinnerOverlay /> : null))
 
     const toastContainer = (
         <ToastContainer

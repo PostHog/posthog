@@ -9,6 +9,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerInspectorV2, PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
 import { PlayerMetaV3 } from './PlayerMeta'
 import { SessionRecordingPlayerProps } from '~/types'
+import { PlayerFilter } from 'scenes/session-recordings/player/PlayerFilter'
 
 export function useFrameRef({
     sessionRecordingId,
@@ -61,6 +62,10 @@ export function SessionRecordingPlayerV3({ sessionRecordingId, playerKey }: Sess
             <div className="player-controller items-center flex">
                 <PlayerControllerV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>
+            <LemonDivider className="my-0" />
+            <Row className="player-filter" align="middle">
+                <PlayerFilter />
+            </Row>
             <LemonDivider className="my-0" />
             <PlayerInspectorV3 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
         </Col>

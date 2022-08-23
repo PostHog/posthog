@@ -75,10 +75,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
-def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> Optional[AsyncMigration]:
-    if migration.is_hidden():
-        return None
-
+def setup_model(migration_name: str, migration: AsyncMigrationDefinition) -> AsyncMigration:
     sm = AsyncMigration.objects.get_or_create(name=migration_name)[0]
 
     sm.description = migration.description
@@ -111,7 +108,10 @@ def get_async_migration_definition(migration_name: str) -> AsyncMigrationDefinit
         if migration_name in test_migrations:
             return test_migrations[migration_name].Migration(migration_name)
 
-    return ALL_ASYNC_MIGRATIONS[migration_name]
+    try:
+        return ALL_ASYNC_MIGRATIONS[migration_name]
+    except:
+        raise LookupError(f"Async migration definition for {migration_name} not available")
 
 
 def get_async_migration_dependency(migration_name: str) -> Optional[str]:

@@ -1,8 +1,8 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { runInSpan } from '../../sentry'
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
+import { instrument } from '../../utils/metrics'
 import { IllegalOperationError } from '../../utils/utils'
 import { runRetriableFunction } from '../retries'
 
@@ -13,10 +13,12 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
         pluginMethodsToRun
             .filter(([, method]) => !!method)
             .map(([pluginConfig, onEvent]) =>
-                runInSpan(
+                instrument(
+                    hub.statsd,
                     {
-                        op: 'plugin.runOnEvent',
-                        description: pluginConfig.plugin?.name || '?',
+                        metricName: 'plugin.runOnEvent',
+                        key: 'plugin',
+                        tag: pluginConfig.plugin?.name || '?',
                     },
                     () =>
                         runRetriableFunction('on_event', hub, pluginConfig, {
@@ -35,10 +37,12 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
         pluginMethodsToRun
             .filter(([, method]) => !!method)
             .map(([pluginConfig, onSnapshot]) =>
-                runInSpan(
+                instrument(
+                    hub.statsd,
                     {
-                        op: 'plugin.runOnSnapshot',
-                        description: pluginConfig.plugin?.name || '?',
+                        metricName: 'plugin.runOnSnapshot',
+                        key: 'plugin',
+                        tag: pluginConfig.plugin?.name || '?',
                     },
                     () =>
                         runRetriableFunction('on_snapshot', hub, pluginConfig, {
@@ -64,10 +68,12 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
 
             try {
                 returnedEvent =
-                    (await runInSpan(
+                    (await instrument(
+                        hub.statsd,
                         {
-                            op: 'plugin.processEvent',
-                            description: pluginConfig.plugin?.name || '?',
+                            metricName: 'plugin.processEvent',
+                            key: 'plugin',
+                            tag: pluginConfig.plugin?.name || '?',
                         },
                         () => processEvent(returnedEvent!)
                     )) || null
@@ -131,10 +137,12 @@ export async function runPluginTask(
                 `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfig}`
             )
         }
-        response = await runInSpan(
+        response = await instrument(
+            hub.statsd,
             {
-                op: 'plugin.runTask',
-                description: pluginConfig?.plugin?.name || '?',
+                metricName: 'plugin.runTask',
+                key: 'plugin',
+                tag: pluginConfig?.plugin?.name || '?',
                 data: {
                     taskName,
                     taskType,

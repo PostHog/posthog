@@ -1,6 +1,6 @@
 # name: ClickhouseTestGroupsApi.test_related_groups
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_groups_related_?$ (ClickhouseGroupsView) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT pdi.person_id
   FROM events e
   JOIN
@@ -18,7 +18,7 @@
 ---
 # name: ClickhouseTestGroupsApi.test_related_groups.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_groups_related_?$ (ClickhouseGroupsView) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT $group_1 AS group_key
   FROM events e
   JOIN
@@ -37,7 +37,7 @@
 ---
 # name: ClickhouseTestGroupsApi.test_related_groups_person
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_groups_related_?$ (ClickhouseGroupsView) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT $group_0 AS group_key
   FROM events e
   JOIN
@@ -63,7 +63,7 @@
 ---
 # name: ClickhouseTestGroupsApi.test_related_groups_person.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_groups_related_?$ (ClickhouseGroupsView) */
+  /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT $group_1 AS group_key
   FROM events e
   JOIN

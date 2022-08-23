@@ -1,6 +1,6 @@
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
     (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
@@ -18,7 +18,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -99,7 +99,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
     (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
@@ -117,7 +117,7 @@
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
@@ -198,7 +198,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
@@ -217,7 +217,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -264,7 +264,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
@@ -284,7 +284,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results.3
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -349,7 +349,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
@@ -368,7 +368,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.1
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) as data,
          breakdown_value
@@ -415,7 +415,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.2
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
@@ -435,7 +435,7 @@
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants.3
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_experiments_(?P<pk>[^_.]+)_results_?$ (ClickhouseExperimentsViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT [now()] AS date,
          [0] AS data,
          '' AS breakdown_value

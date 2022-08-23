@@ -119,7 +119,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                 />
                             </div>
                         </div>
-                        {correlationDetailedFeedbackVisible || true ? (
+                        {correlationDetailedFeedbackVisible ? (
                             <>
                                 <form onSubmit={sendCorrelationAnalysisFeedback} className="space-y-2">
                                     <LemonTextArea
