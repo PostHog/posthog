@@ -51,6 +51,8 @@ export function VerificationPanel(): JSX.Element {
                         </div>
                     </>
                 ) : (
+                    // We want a forced width for this view only
+                    // eslint-disable-next-line react/forbid-dom-props
                     <div style={{ maxWidth: 400 }}>
                         <IconCheckCircleOutline className="text-success text-4xl" />
                         <h1 className="ingestion-title">Successfully sent events!</h1>

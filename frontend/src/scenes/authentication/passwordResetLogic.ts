@@ -88,7 +88,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     : undefined,
             }),
             submit: async ({ password }, breakpoint) => {
-                await breakpoint()
+                await breakpoint(150)
 
                 if (!values.validatedResetToken?.token || !values.validatedResetToken.uuid) {
                     return

@@ -31,7 +31,7 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                     : undefined,
             }),
             submit: async ({ password, current_password }, breakpoint) => {
-                await breakpoint()
+                await breakpoint(150)
 
                 try {
                     await api.update('api/users/@me/', {

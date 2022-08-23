@@ -82,11 +82,6 @@ function ResetForm(): JSX.Element {
             <div className="text-center">
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>
-            {/* {!isRequestPasswordResetSubmitting && resetResponse?.errorCode && (
-                <AlertMessage type="error">
-                    {resetResponse.errorDetail || 'Could not complete your password reset request. Please try again.'}
-                </AlertMessage>
-            )} */}
             <Field name="email" label="Email">
                 <LemonInput
                     className="ph-ignore-input"

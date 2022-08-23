@@ -69,7 +69,7 @@ export const loginLogic = kea<loginLogicType>([
 
     forms(({ actions }) => ({
         login: {
-            defaults: {} as unknown as LoginForm,
+            defaults: { email: '', password: '' } as LoginForm,
             errors: ({ email, password }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
                 password: !password

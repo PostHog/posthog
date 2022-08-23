@@ -27,7 +27,7 @@ export const signupLogic = kea<signupLogicType>([
     }),
     forms(({ actions }) => ({
         signup: {
-            defaults: {} as unknown as SignupForm,
+            defaults: { email: '', password: '', first_name: '', organization_name: '' } as SignupForm,
             errors: ({ email, password, first_name, organization_name }) => ({
                 email: !email ? 'Please enter your email to continue' : undefined,
                 password: !password
