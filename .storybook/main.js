@@ -1,8 +1,15 @@
 const { createEntry } = require('../webpack.config')
-const babelConfig = require('../babel.config')
 
 module.exports = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
+    core: {
+        builder: {
+            name: 'webpack5',
+            options: {
+                fsCache: true,
+            },
+        },
+    },
     addons: [
         {
             name: '@storybook/addon-docs',
@@ -15,23 +22,9 @@ module.exports = {
         '@storybook/addon-links',
         '@storybook/addon-essentials',
         '@storybook/addon-storysource',
-        {
-            name: 'storybook-addon-turbo-build',
-            options: {
-                optimizationLevel: 3,
-            },
-        },
         '@storybook/addon-a11y',
     ],
     staticDirs: ['public'],
-    babel: async () => {
-        // compile babel to "defaults" target (ES5)
-        const envPreset = babelConfig.presets.find(
-            (preset) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
-        )
-        envPreset[1].targets = 'defaults'
-        return babelConfig
-    },
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')
         return {
@@ -62,5 +55,7 @@ module.exports = {
     },
     features: {
         postcss: false,
+        storyStoreV7: true, // https://github.com/storybookjs/storybook/blob/next/MIGRATION.md#story-store-v7
+        babelModeV7: true,
     },
 }
