@@ -377,16 +377,10 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
             const valid = []
             for (const sequence of values.sequences) {
                 // for now the only valid rule is related to the pathname, can be extended
-                const isMatchingPath = sequence.rule.path.must_match.some((value) => {
-                    const isWildcardMatch = wcmatch(value)
-                    return isWildcardMatch(pathname)
-                })
+                const isMatchingPath = sequence.rule.path.must_match.some((value) => wcmatch(value)(pathname))
                 if (isMatchingPath) {
                     if (sequence.rule.path.exclude) {
-                        const isMatchingExclusion = sequence.rule.path.exclude.some((value) => {
-                            const isWildcardMatch = wcmatch(value)
-                            return isWildcardMatch(pathname)
-                        })
+                        const isMatchingExclusion = sequence.rule.path.exclude.some((value) => wcmatch(value)(pathname))
                         if (isMatchingExclusion) {
                             continue
                         }
