@@ -166,7 +166,7 @@ export const personsLogic = kea<personsLogicType>({
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 
-            if (person) {
+            if (person && person.id) {
                 let parsedValue = newValue
 
                 // Instrumentation stuff
@@ -198,7 +198,7 @@ export const personsLogic = kea<personsLogicType>({
                 actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
                 // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
                 //      the 'updated' properties yet.
-                await api.update(`api/person/${person.id}`, person)
+                await api.persons.update(person.id, person)
                 lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
@@ -236,7 +236,7 @@ export const personsLogic = kea<personsLogicType>({
                         if (props.cohort) {
                             url = `api/cohort/${props.cohort}/persons/?${toParams(values.listFilters)}`
                         } else {
-                            url = `api/person/?${toParams(values.listFilters)}`
+                            return api.persons.list(values.listFilters)
                         }
                     }
                     return await api.get(url)

@@ -174,7 +174,7 @@ describe('funnelLogic', () => {
                 '/api/projects/:team/groups_types/': [],
                 '/some/people/url': { results: [{ people: [] }] },
                 '/api/person/funnel': { results: [], next: null },
-                '/api/person/properties': [
+                '/api/projects/@current/persons/properties': [
                     { name: 'some property', count: 20 },
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },
