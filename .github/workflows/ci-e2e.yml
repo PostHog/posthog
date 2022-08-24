@@ -79,7 +79,7 @@ jobs:
 
             - name: Push (if PostHog/posthog)
               # Only push to GHCR if running on PostHog/posthog, as there's no read-write token on forks
-              if: ${{ github.event.push != null || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               run: |
                   docker load < /tmp/posthog-image.tar
                   docker image push --all-tags ghcr.io/posthog/posthog/posthog
@@ -103,19 +103,21 @@ jobs:
     posthog_cloud:
         name: PostHog Cloud image build
         runs-on: ubuntu-latest
-        # needs: [build]
+        needs: [build]
 
         steps:
             - name: Checkout PR branch
               uses: actions/checkout@v2
 
-            # - uses: actions/download-artifact@v3
-            #   with:
-            #       name: docker-image
-            #       path: /tmp/
+            - uses: actions/download-artifact@v3
+              with:
+                  name: docker-image
+                  path: /tmp/
 
-            # - name: Load the non-cloud image
-            #   run: docker load < /tmp/posthog-image.tar
+            - name: Load the non-cloud image
+              id: load
+              run: docker load < /tmp/posthog-image.tar
+                  echo "::set-output name=docker_image_digest::$(docker image inspect 3df374609d74  -f '{{ index .RepoDigests 0 }}')"
 
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
@@ -170,6 +172,7 @@ jobs:
                   cache-from: ${{ steps.meta-for-cache.outputs.tags }}
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  push: true
                   # load: true # NOTE: this option is not compatible with `push: true`
                   # NOTE: we use inline as suggested here:
                   # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
@@ -179,7 +182,7 @@ jobs:
                   file: Dockerfile.cloud
                   context: cloud
                   build-args: |
-                      BASE_IMAGE=${{ needs.build.outputs.docker_image_id }}
+                      BASE_IMAGE=${{ steps.load.docker_image_digest }}
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
