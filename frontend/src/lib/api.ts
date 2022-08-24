@@ -3,6 +3,7 @@ import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLo
 import {
     ActionType,
     ActorType,
+    AnnotationType,
     CohortType,
     CombinedEventType,
     DashboardCollaboratorType,
@@ -241,6 +242,15 @@ class ApiRequest {
             return this.person(id).addPathComponent('activity')
         }
         return this.persons().addPathComponent('activity')
+    }
+
+    // # Annotations
+    public annotations(): ApiRequest {
+        return this.addPathComponent('annotations')
+    }
+
+    public annotation(id: AnnotationType['id']): ApiRequest {
+        return this.annotations().addPathComponent(id)
     }
 
     // # Feature flags
@@ -726,6 +736,23 @@ const api = {
                 .get()
 
             return response.results
+        },
+    },
+
+    annotations: {
+        async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).get()
+        },
+        async list(): Promise<PaginatedResponse<AnnotationType>> {
+            return await new ApiRequest().annotations().get()
+        },
+        async create(
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotations().create({ data })
+        },
+        async delete(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).delete()
         },
     },
 
