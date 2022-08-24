@@ -112,21 +112,26 @@ export function LemonTable<T extends Record<string, any>>({
     const { push } = useActions(router)
 
     // used when not using URL to store sorting
-    const [stateSorting, setStateSorting] = useState<Sorting | null>(sorting || null)
+    const [internalSorting, setInternalSorting] = useState<Sorting | null>(sorting || null)
 
-    /** Replace the current browsing history item to change sorting */
+    /** update sorting and conditionally replace the current browsing history item */
     const setLocalSorting = useCallback(
-        (newSorting: Sorting | null) =>
-            push(
-                location.pathname,
-                {
-                    ...searchParams,
-                    [currentSortingParam]: newSorting
-                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                        : undefined,
-                },
-                hashParams
-            ),
+        (newSorting: Sorting | null) => {
+            setInternalSorting(newSorting)
+            onSort?.(newSorting)
+            if (useURLForSorting) {
+                return push(
+                    location.pathname,
+                    {
+                        ...searchParams,
+                        [currentSortingParam]: newSorting
+                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                            : undefined,
+                    },
+                    hashParams
+                )
+            }
+        },
         [location, searchParams, hashParams, push]
     )
 
@@ -146,7 +151,7 @@ export function LemonTable<T extends Record<string, any>>({
     /** Sorting. */
     const currentSorting =
         sorting ||
-        stateSorting ||
+        internalSorting ||
         (searchParams[currentSortingParam]
             ? searchParams[currentSortingParam].startsWith('-')
                 ? {
@@ -255,12 +260,8 @@ export function LemonTable<T extends Record<string, any>>({
                                                                   determineColumnKey(column, 'sorting'),
                                                                   disableSortingCancellation
                                                               )
-                                                              if (useURLForSorting) {
-                                                                  setLocalSorting(nextSorting)
-                                                              } else {
-                                                                  setStateSorting(nextSorting)
-                                                              }
-                                                              onSort?.(nextSorting)
+
+                                                              setLocalSorting(nextSorting)
                                                           }
                                                         : undefined
                                                 }
