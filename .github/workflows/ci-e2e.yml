@@ -138,6 +138,7 @@ jobs:
             - name: Load the non-cloud image
               id: load
               run: |
+                  set -x
                   docker load < /tmp/posthog-image.tar
                   echo "::set-output name=docker_image_digest::$(docker image inspect ${{ needs.build.outputs.docker_image_id }}  -f '{{ index .RepoDigests 0 }}')"
 
