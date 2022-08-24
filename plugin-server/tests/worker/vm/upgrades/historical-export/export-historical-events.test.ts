@@ -1,8 +1,10 @@
 import { PluginMeta } from '@posthog/plugin-scaffold'
+import deepmerge from 'deepmerge'
 
 import { Hub, PluginConfigVMInternalResponse } from '../../../../../src/types'
 import { createHub } from '../../../../../src/utils/db/hub'
 import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
+import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
 import { addHistoricalEventsExportCapability } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events'
 import { ExportHistoricalEventsUpgrade } from '../../../../../src/worker/vm/upgrades/utils/utils'
 import { pluginConfig39 } from '../../../../helpers/plugins'
@@ -21,8 +23,8 @@ describe('addHistoricalEventsExportCapability()', () => {
         await closeHub()
     })
 
-    function addCapabilities() {
-        const mockVM = {
+    function addCapabilities(overrides?: any) {
+        const mockVM = deepmerge(overrides, {
             methods: {
                 exportEvents: jest.fn(),
             },
@@ -32,12 +34,13 @@ describe('addHistoricalEventsExportCapability()', () => {
             },
             meta: {
                 storage: createStorage(hub, pluginConfig39),
+                utils: createUtils(hub, pluginConfig39.id),
                 jobs: {
                     exportHistoricalEvents: jest.fn().mockReturnValue(jest.fn()),
                 },
                 global: {},
             },
-        } as unknown as PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgrade>>
+        }) as unknown as PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgrade>>
 
         addHistoricalEventsExportCapability(hub, pluginConfig39, mockVM)
 
@@ -56,5 +59,16 @@ describe('addHistoricalEventsExportCapability()', () => {
             'setTimestampBoundaries',
             'updateProgressBar',
         ])
+    })
+
+    describe('setupPlugin()', () => {
+        it('calls original setupPlugin()', async () => {
+            const setupPlugin = jest.fn()
+            const vm = addCapabilities({ methods: { setupPlugin } })
+
+            await vm.methods.setupPlugin!()
+
+            expect(setupPlugin).toHaveBeenCalled()
+        })
     })
 })
