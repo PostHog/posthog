@@ -204,13 +204,12 @@ export function addHistoricalEventsExportCapability(
             createLog(`Failed fetching events. Stopping export - please try again later.`)
             return
         } else {
-            if (events.length === 0) {
-                return
-            }
-            try {
-                await methods.exportEvents!(events)
-            } catch (error) {
-                exportEventsError = error
+            if (events.length > 0) {
+                try {
+                    await methods.exportEvents!(events)
+                } catch (error) {
+                    exportEventsError = error
+                }
             }
         }
 
@@ -247,13 +246,15 @@ export function addHistoricalEventsExportCapability(
                 .runIn(1, 'seconds')
         }
 
-        createLog(
-            `Successfully processed events ${intraIntervalOffset}-${
-                intraIntervalOffset + events.length
-            } from ${new Date(timestampCursor).toISOString()} to ${new Date(
-                timestampCursor + EVENTS_TIME_INTERVAL
-            ).toISOString()}.`
-        )
+        if (events.length > 0) {
+            createLog(
+                `Successfully processed events ${intraIntervalOffset}-${
+                    intraIntervalOffset + events.length
+                } from ${new Date(timestampCursor).toISOString()} to ${new Date(
+                    timestampCursor + EVENTS_TIME_INTERVAL
+                ).toISOString()}.`
+            )
+        }
     }
 
     // initTimestampsAndCursor decides what timestamp boundaries to use before
