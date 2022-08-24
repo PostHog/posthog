@@ -13,7 +13,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    installed the app: <b>{logItem.detail.name}</b>
+                    <strong>{logItem.user.first_name}</strong> installed the app: <b>{logItem.detail.name}</b>
                 </>
             ),
         }
@@ -23,7 +23,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    uninstalled the app: <b>{logItem.detail.name}</b>
+                    <strong>{logItem.user.first_name}</strong> uninstalled the app: <b>{logItem.detail.name}</b>
                 </>
             ),
         }
@@ -45,7 +45,8 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
                     listParts={changes}
                     prefix={
                         <>
-                            enabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}
+                            <strong>{logItem.user.first_name}</strong> enabled the app: <b>{logItem.detail.name}</b>{' '}
+                            with config ID {logItem.item_id}
                             {changes.length > 0 ? ', with' : '.'}
                         </>
                     }
@@ -58,7 +59,8 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <>
-                    disabled the app: <b>{logItem.detail.name}</b> with config ID {logItem.item_id}.
+                    <strong>{logItem.user.first_name}</strong> disabled the app: <b>{logItem.detail.name}</b> with
+                    config ID {logItem.item_id}.
                 </>
             ),
         }
@@ -95,6 +97,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         return {
             description: (
                 <SentenceList
+                    prefix={<strong>{logItem.user.first_name}</strong>}
                     listParts={changes}
                     suffix={
                         <>
