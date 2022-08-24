@@ -1,5 +1,5 @@
+import concurrent.futures
 import copy
-import threading
 from datetime import datetime, timedelta
 from itertools import accumulate
 from typing import (
@@ -148,22 +148,17 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
         parse_functions: List[Union[None, Callable]] = [None] * len(filter.entities)
         cached_result = None
-        jobs = []
 
-        for entity in filter.entities:
-            adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-            sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
-            parse_functions[entity.index] = parse_function
-            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
-            jobs.append(thread)
-
-        # Start the threads (i.e. calculate the random number lists)
-        for j in jobs:
-            j.start()
-
-        # Ensure all of the threads have finished
-        for j in jobs:
-            j.join()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            jobs = []
+            for entity in filter.entities:
+                adjusted_filter, cached_result = self.adjusted_filter(filter, team)
+                sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
+                parse_functions[entity.index] = parse_function
+                jobs.append(executor.submit(self._run_query_for_threading, result, entity.index, sql, params))
+            for future in concurrent.futures.as_completed(jobs):
+                if future.exception():
+                    raise future.exception()
 
         # Parse results for each thread
         for entity in filter.entities:
