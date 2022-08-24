@@ -279,6 +279,7 @@ class QueryMatchingTest:
             query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
+            query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
@@ -413,9 +414,10 @@ def _create_person(*args, **kwargs):
     Pass immediate=True to create immediately and get a pk back
     """
     global persons_ordering_int
-    kwargs["uuid"] = uuid.UUID(
-        int=persons_ordering_int, version=4
-    )  # make sure the ordering of uuids is always consistent
+    if not (kwargs.get("uuid")):
+        kwargs["uuid"] = uuid.UUID(
+            int=persons_ordering_int, version=4
+        )  # make sure the ordering of uuids is always consistent
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
     if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
@@ -565,6 +567,23 @@ def snapshot_clickhouse_alter_queries(fn):
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
         with self.capture_queries("ALTER") as queries:
+            fn(self, *args, **kwargs)
+
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query)
+
+    return wrapped
+
+
+def snapshot_clickhouse_insert_cohortpeople_queries(fn):
+    """
+    Captures and snapshots INSERT queries from test using `syrupy` library.
+    """
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.capture_queries("INSERT INTO cohortpeople") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:
