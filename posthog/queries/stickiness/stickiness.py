@@ -68,7 +68,7 @@ class Stickiness:
             "data": data,
             "count": sum(data),
             "filter": filter_params,
-            "persons_urls": self._get_persons_url(filter, entity),
+            "persons_urls": self._get_persons_urls(filter, entity),
         }
 
     def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team: Team) -> List[Dict[str, Any]]:
@@ -86,7 +86,7 @@ class Stickiness:
         response.append(new_dict)
         return response
 
-    def _get_persons_url(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
+    def _get_persons_urls(self, filter: StickinessFilter, entity: Entity) -> List[Dict[str, Any]]:
         persons_url = []
         for interval_idx in range(1, filter.total_intervals):
             filter_params = filter.to_params()

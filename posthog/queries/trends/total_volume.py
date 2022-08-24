@@ -19,7 +19,7 @@ from posthog.queries.trends.sql import (
     VOLUME_TOTAL_AGGREGATE_SQL,
 )
 from posthog.queries.trends.trend_event_query import TrendsEventQuery
-from posthog.queries.trends.util import enumerate_time_range, parse_response, process_math
+from posthog.queries.trends.util import build_persons_urls, enumerate_time_range, parse_response, process_math
 from posthog.queries.util import get_interval_func_ch, get_time_diff, get_trunc_func_ch, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
@@ -121,7 +121,7 @@ class TrendsTotalVolume:
             parsed_results = []
             for _, stats in enumerate(result):
                 parsed_result = parse_response(stats, filter)
-                parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
+                parsed_result.update({"persons_urls": self._get_persons_urls(filter, entity, team.pk, stats[0])})
                 parsed_results.append(parsed_result)
 
                 parsed_result.update({"filter": filter.to_dict()})
@@ -158,35 +158,7 @@ class TrendsTotalVolume:
 
         return _parse
 
-    def _get_persons_url(
+    def _get_persons_urls(
         self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime]
     ) -> List[Dict[str, Any]]:
-        persons_url = []
-        for date in dates:
-            date_in_utc = datetime(
-                date.year,
-                date.month,
-                date.day,
-                getattr(date, "hour", 0),
-                getattr(date, "minute", 0),
-                getattr(date, "second", 0),
-                tzinfo=getattr(date, "tzinfo", pytz.UTC),
-            ).astimezone(pytz.UTC)
-            filter_params = filter.to_params()
-            extra_params = {
-                "entity_id": entity.id,
-                "entity_type": entity.type,
-                "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
-                "date_to": date_in_utc,
-                "entity_order": entity.order,
-            }
-
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
-            persons_url.append(
-                {
-                    "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
-                }
-            )
-        return persons_url
+        return build_persons_urls(filter, entity, team_id, dates)

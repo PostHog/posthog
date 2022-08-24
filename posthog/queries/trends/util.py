@@ -1,9 +1,12 @@
-from datetime import timedelta
+import urllib.parse
+import pytz
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
+from dateutil.relativedelta import relativedelta
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import WEEKLY_ACTIVE
+from posthog.constants import TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter, PathFilter
@@ -11,6 +14,7 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
 from posthog.queries.util import format_ch_timestamp, get_earliest_timestamp
+from posthog.utils import encode_get_request_params
 
 MATH_FUNCTIONS = {
     "sum": "sum",
@@ -105,3 +109,59 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
         time_range.append(date_from.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")))
         date_from += delta
     return time_range
+
+
+def normalize_filter_dates(filter: Filter) -> Filter:
+    # adhoc date handling. parsed differently with django orm
+    date_from = filter.date_from or timezone.now()
+    data: Dict = {}
+    if filter.interval == "month":
+        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
+    elif filter.interval == "week":
+        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
+    elif filter.interval == "day":
+        data.update({"date_to": (date_from) + relativedelta(days=1) - timedelta(seconds=1)})
+    elif filter.interval == "hour":
+        data.update({"date_to": date_from + timedelta(hours=1)})
+    return filter.with_data(data)
+
+
+def build_persons_urls(
+    filter: Filter,
+    entity: Entity,
+    team_id: int,
+    dates: List[datetime],
+    additional_params: Optional[Dict[str, Any]] = {},
+) -> List[Dict[str, Any]]:
+    persons_urls = []
+    for date in dates:
+        date_in_utc = datetime(
+            date.year,
+            date.month,
+            date.day,
+            getattr(date, "hour", 0),
+            getattr(date, "minute", 0),
+            getattr(date, "second", 0),
+            tzinfo=getattr(date, "tzinfo", pytz.UTC),
+        ).astimezone(pytz.UTC)
+        filter_params = filter.to_params()
+        interval_filter = normalize_filter_dates(filter.with_data({"date_from": date_in_utc}))
+
+        extra_params = {
+            "entity_id": entity.id,
+            "entity_type": entity.type,
+            "entity_math": entity.math,
+            "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else interval_filter.date_from,
+            "date_to": interval_filter.date_to,
+            "entity_order": entity.order,
+            **additional_params,
+        }
+
+        parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+        persons_urls.append(
+            {
+                "filter": extra_params,
+                "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+            }
+        )
+    return persons_urls

@@ -1,9 +1,6 @@
 import json
-from datetime import timedelta
 from typing import Dict, List, Optional, Tuple
 
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, PropertyOperatorType
 from posthog.models.cohort import Cohort
@@ -15,21 +12,7 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trend_event_query import TrendsEventQuery
-
-
-def _handle_date_interval(filter: Filter) -> Filter:
-    # adhoc date handling. parsed differently with django orm
-    date_from = filter.date_from or timezone.now()
-    data: Dict = {}
-    if filter.interval == "month":
-        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
-    elif filter.interval == "week":
-        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
-    elif filter.interval == "day":
-        data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
-    elif filter.interval == "hour":
-        data.update({"date_to": date_from + timedelta(hours=1)})
-    return filter.with_data(data)
+from posthog.queries.trends.util import normalize_filter_dates
 
 
 class TrendsActors(ActorBaseQuery):
@@ -41,7 +24,7 @@ class TrendsActors(ActorBaseQuery):
             raise ValueError("Entity is required")
 
         if filter.display != TRENDS_CUMULATIVE and filter.display not in NON_TIME_SERIES_DISPLAY_TYPES:
-            filter = _handle_date_interval(filter)
+            filter = normalize_filter_dates(filter)
 
         super().__init__(team, filter, entity, **kwargs)
 

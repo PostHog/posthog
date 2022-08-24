@@ -47,7 +47,13 @@ from posthog.queries.trends.sql import (
     SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL,
     SESSION_MATH_BREAKDOWN_INNER_SQL,
 )
-from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
+from posthog.queries.trends.util import (
+    build_persons_urls,
+    enumerate_time_range,
+    get_active_user_params,
+    parse_response,
+    process_math,
+)
 from posthog.queries.util import date_from_clause, get_time_diff, get_trunc_func_ch, parse_timestamps, start_of_week_fix
 from posthog.utils import encode_get_request_params
 
@@ -420,7 +426,7 @@ class TrendsBreakdown:
                 parsed_result = parse_response(stats, filter, additional_values=result_descriptors)
                 parsed_result.update(
                     {
-                        "persons_urls": self._get_persons_url(
+                        "persons_urls": self._get_persons_urls(
                             filter, entity, self.team_id, stats[0], result_descriptors["breakdown_value"]
                         )
                     }
@@ -431,38 +437,16 @@ class TrendsBreakdown:
 
         return _parse
 
-    def _get_persons_url(
+    def _get_persons_urls(
         self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime], breakdown_value: Union[str, int]
     ) -> List[Dict[str, Any]]:
-        persons_url = []
-        for date in dates:
-            date_in_utc = datetime(
-                date.year,
-                date.month,
-                date.day,
-                getattr(date, "hour", 0),
-                getattr(date, "minute", 0),
-                getattr(date, "second", 0),
-                tzinfo=getattr(date, "tzinfo", pytz.UTC),
-            ).astimezone(pytz.UTC)
-            filter_params = filter.to_params()
-            extra_params = {
-                "entity_id": entity.id,
-                "entity_type": entity.type,
-                "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
-                "date_to": date_in_utc,
-                "breakdown_value": breakdown_value,
-                "breakdown_type": filter.breakdown_type or "event",
-            }
-            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
-            persons_url.append(
-                {
-                    "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
-                }
-            )
-        return persons_url
+        return build_persons_urls(
+            filter,
+            entity,
+            team_id,
+            dates,
+            additional_params={"breakdown_value": breakdown_value, "breakdown_type": filter.breakdown_type or "event",},
+        )
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
         extra_label = self._determine_breakdown_label(
