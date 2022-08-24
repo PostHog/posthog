@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.client import sync_execute
 from posthog.settings import MULTI_TENANCY
 from posthog.settings.base_variables import DEBUG
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 
 class DebugCHQueries(viewsets.ViewSet):
@@ -31,7 +32,7 @@ class DebugCHQueries(viewsets.ViewSet):
             """
             select
                 query, query_start_time, exception, toInt8(type), query_duration_ms
-            from cluster_query_log
+            from clusterAllReplicas(%(cluster)s, system, query_log)
             where
                 query LIKE %(query)s and
                 query_start_time > %(start_time)s and
@@ -43,6 +44,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 "query": f"/* user_id:{request.user.pk} %",
                 "start_time": (now() - relativedelta(minutes=10)).timestamp(),
                 "not_query": "%request:_api_debug_ch_queries_%",
+                "cluster": CLICKHOUSE_CLUSTER,
             },
         )
         return Response(
