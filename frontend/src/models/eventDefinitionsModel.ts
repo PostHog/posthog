@@ -77,9 +77,6 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType>({
             (eventStorage, eventStorageLoading): boolean => !eventStorageLoading && !eventStorage.next,
         ],
         eventDefinitions: [(s) => [s.eventStorage], (eventStorage): EventDefinition[] => eventStorage.results],
-        eventNames: [
-            (s) => [s.eventDefinitions],
-            (eventDefinitions): string[] => eventDefinitions.map((definition) => definition.name),
-        ],
+        eventNames: [(s) => [s.eventDefinitions], (def): string[] => def.map(({ name }) => name)],
     },
 })
