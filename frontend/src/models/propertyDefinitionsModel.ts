@@ -40,11 +40,6 @@ export const updatePropertyDefinitions = (
     propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions(propertyDefinitions)
 }
 
-/** Update cached property definition metadata */
-export const updatePropertyDefinition = (propertyDefinitions: PropertyDefinition): void => {
-    propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinition(propertyDefinitions)
-}
-
 /** Schedules a background task with a 10ms debounce to fetch property definitions */
 const checkOrLoadPropertyDefinition = (
     propertyName: BreakdownKeyType | undefined,
@@ -64,7 +59,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     actions({
         // public
         loadPropertyDefinitions: (propertyKeys: string[]) => ({ propertyKeys }),
-        updatePropertyDefinition: (propertyDefinition: PropertyDefinition) => ({ propertyDefinition }),
         updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[] | PropertyDefinitionStorage) => ({
             propertyDefinitions,
         }),
@@ -75,10 +69,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         propertyDefinitionStorage: [
             { ...localProperties } as PropertyDefinitionStorage,
             {
-                updatePropertyDefinition: (state, { propertyDefinition }) => ({
-                    ...state,
-                    [propertyDefinition.name]: propertyDefinition,
-                }),
                 updatePropertyDefinitions: (state, { propertyDefinitions }) => ({
                     ...state,
                     ...(Array.isArray(propertyDefinitions)

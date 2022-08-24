@@ -3,7 +3,7 @@ import { AvailableFeature, Breadcrumb, Definition, EventDefinition, PropertyDefi
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
-import { updatePropertyDefinition } from '~/models/propertyDefinitionsModel'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import type { definitionLogicType } from './definitionLogicType'
@@ -72,7 +72,7 @@ export const definitionLogic = kea<definitionLogicType>([
                             definition = await api.propertyDefinitions.get({
                                 propertyDefinitionId: id,
                             })
-                            updatePropertyDefinition(definition as PropertyDefinition)
+                            updatePropertyDefinitions([definition as PropertyDefinition])
                         }
                         breakpoint()
                     } catch (response: any) {
