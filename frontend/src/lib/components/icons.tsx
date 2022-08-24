@@ -38,6 +38,40 @@ const SvgIcon: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }
     />
 )
 
+export function IconSpinner({ monocolor = false, ...props }: SvgIconProps & { monocolor?: boolean }): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            {/* top-right */}
+            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : '#1D4AFF'} fillOpacity={1} />
+            {/* top-left */}
+            <circle
+                cx="7"
+                cy="7.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#F9BD2B'}
+                fillOpacity={monocolor ? 0.75 : 1}
+            />
+
+            {/* bottom-left */}
+            <circle
+                cx="7"
+                cy="17.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#F54E00'}
+                fillOpacity={monocolor ? 0.5 : 1}
+            />
+            {/* bottom-right */}
+            <circle
+                cx="17"
+                cy="17.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#000000'}
+                fillOpacity={monocolor ? 0.25 : 1}
+            />
+        </SvgIcon>
+    )
+}
+
 export function IconJavascript(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 32 32" fill="currentColor" {...props}>

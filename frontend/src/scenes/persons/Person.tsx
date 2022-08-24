@@ -1,5 +1,5 @@
 import React from 'react'
-import { Dropdown, Menu, Popconfirm, Tabs, Tag } from 'antd'
+import { Dropdown, Menu, Tabs, Tag } from 'antd'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
 import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
@@ -18,7 +18,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { Loading } from 'lib/utils'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
@@ -26,6 +25,8 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 const { TabPane } = Tabs
 
@@ -86,14 +87,14 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 export function Person(): JSX.Element | null {
     const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
         useValues(personsLogic)
-    const { deletePerson, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown } =
+    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, showPersonDeleteModal } =
         useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
 
     if (!person) {
         return personLoading ? (
-            <Loading />
+            <SpinnerOverlay />
         ) : (
             <PageHeader
                 title="Person not found"
@@ -109,22 +110,17 @@ export function Person(): JSX.Element | null {
                 caption={<PersonCaption person={person} />}
                 buttons={
                     <div className="flex gap-2">
-                        <Popconfirm
-                            title="Are you sure you want to delete this person?"
-                            onConfirm={deletePerson}
-                            okText={`Yes, delete ${asDisplay(person)}`}
-                            cancelText="No, cancel"
+                        <LemonButton
+                            onClick={() => showPersonDeleteModal(person)}
+                            disabled={deletedPersonLoading}
+                            loading={deletedPersonLoading}
+                            type="secondary"
+                            status="danger"
+                            data-attr="delete-person"
                         >
-                            <LemonButton
-                                disabled={deletedPersonLoading}
-                                loading={deletedPersonLoading}
-                                type="secondary"
-                                status="danger"
-                                data-attr="delete-person"
-                            >
-                                Delete person
-                            </LemonButton>
-                        </Popconfirm>
+                            Delete person
+                        </LemonButton>
+
                         <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
@@ -136,6 +132,8 @@ export function Person(): JSX.Element | null {
                     </div>
                 }
             />
+
+            <PersonDeleteModal />
 
             <Tabs
                 activeKey={currentTab}

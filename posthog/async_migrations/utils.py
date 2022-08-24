@@ -65,6 +65,7 @@ def execute_op_clickhouse(
 
     try:
         if per_shard:
+            sql = f"/* async_migration:{query_id} */ {sql}"
             execute_on_each_shard(sql, args, settings=settings)
         else:
             client.sync_execute(sql, args, settings=settings)
@@ -90,9 +91,9 @@ def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
     async def run_on_all_shards():
         tasks = []
         for _, _, connection_pool in _get_all_shard_connections():
-            tasks.append(asyncio.create_task(run_on_connection(connection_pool)))
+            tasks.append(run_on_connection(connection_pool))
 
-        await asyncio.wait(tasks)
+        await asyncio.gather(*tasks)
 
     async def run_on_connection(connection_pool):
         await asyncio.sleep(0)  # returning control to event loop to make parallelism possible

@@ -116,7 +116,7 @@ export const Disabled = (): JSX.Element => {
 }
 
 export const Loading = (): JSX.Element => {
-    return <StatusesTemplate disabled />
+    return <TypesAndStatusesTemplate loading />
 }
 
 export const Active = (): JSX.Element => {

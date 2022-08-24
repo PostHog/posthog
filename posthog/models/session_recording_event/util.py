@@ -4,6 +4,7 @@ import uuid
 from typing import Union
 
 import structlog
+from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.client import sync_execute
@@ -49,3 +50,18 @@ def create_session_recording_event(
         capture_exception(Exception(f"Session recording event data too large - {len(snapshot_data_json)}"))
 
     return str(uuid)
+
+
+def get_recording_count_for_team_and_period(
+    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
+) -> int:
+    result = sync_execute(
+        """
+        SELECT count(distinct session_id) as count
+        FROM session_recording_events
+        WHERE team_id = %(team_id)s
+        AND timestamp between %(begin)s AND %(end)s
+    """,
+        {"team_id": str(team_id), "begin": begin, "end": end},
+    )[0][0]
+    return result

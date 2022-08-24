@@ -152,6 +152,11 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     migration_definition = get_async_migration_definition(migration_name)
     if migration_instance.current_operation_index > len(migration_definition.operations) - 1:
+        logger.info(
+            "Marking async migration as complete",
+            migration=migration_name,
+            current_operation_index=migration_instance.current_operation_index,
+        )
         complete_migration(migration_instance)
         return (False, True)
 
@@ -159,6 +164,11 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
     current_query_id = str(UUIDT())
 
     try:
+        logger.info(
+            "Running async migration operation",
+            migration=migration_name,
+            current_operation_index=migration_instance.current_operation_index,
+        )
         op = migration_definition.operations[migration_instance.current_operation_index]
 
         execute_op(op, current_query_id)
@@ -170,6 +180,12 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
 
     except Exception as e:
         error = f"Exception was thrown while running operation {migration_instance.current_operation_index} : {str(e)}"
+        logger.error(
+            "Error running async migration operation",
+            migration=migration_name,
+            current_operation_index=migration_instance.current_operation_index,
+            error=e,
+        )
         process_error(migration_instance, error, alert=True)
 
     if error:

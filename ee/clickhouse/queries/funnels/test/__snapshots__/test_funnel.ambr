@@ -672,7 +672,7 @@
                         timestamp,
                         if(event = 'user signed up'
                            AND (person_id IN
-                                  (SELECT person_id
+                                  (SELECT person_id as id
                                    FROM person_static_cohort
                                    WHERE cohort_id = 2
                                      AND team_id = 2)), 1, 0) as step_0,

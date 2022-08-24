@@ -42,16 +42,13 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
         ? allowedLevels.concat([member.explicit_team_level])
         : allowedLevels
 
-    const changeForbiddenReason = getReasonForAccessLevelChangeProhibition(
-        myMembershipLevel,
-        user,
-        member,
-        allowedLevels
-    )
+    const disallowedReason = isImplicit
+        ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
+        : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
-    const levelButton = changeForbiddenReason ? (
+    const levelButton = disallowedReason ? (
         <div className="border rounded px-3 py-2 flex inline-flex items-center">
-            {isImplicit && <CrownFilled className={'mr-2'} />}
+            {member.level === OrganizationMembershipLevel.Owner && <CrownFilled className={'mr-2'} />}
             {levelName}
         </div>
     ) : (
@@ -76,10 +73,6 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
             value={member.explicit_team_level}
         />
     )
-
-    const disallowedReason = isImplicit
-        ? `This user is a member of the project implicitly due to being an organization ${levelName}.`
-        : getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
     return disallowedReason ? <Tooltip title={disallowedReason}>{levelButton}</Tooltip> : levelButton
 }

@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import api from 'lib/api'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import type { signupLogicType } from './signupLogicType'
 
 export interface AccountResponse {
@@ -11,6 +12,9 @@ export interface AccountResponse {
 }
 
 export const signupLogic = kea<signupLogicType>({
+    connect: {
+        values: [preflightLogic, ['preflight']],
+    },
     path: ['scenes', 'authentication', 'signupLogic'],
     actions: {
         setInitialEmail: (email: string) => ({ email }),
@@ -53,10 +57,17 @@ export const signupLogic = kea<signupLogicType>({
             }
         },
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/signup': ({}, { email }) => {
             if (email) {
-                actions.setInitialEmail(email)
+                if (values.preflight?.demo) {
+                    // In demo mode no password is needed, so we can log in right away
+                    // This allows us to give a quick login link in the `generate_demo_data` command
+                    // X and Y are placeholders, irrelevant because the account should already exists
+                    actions.signup({ email, first_name: 'X', organization_name: 'Y' })
+                } else {
+                    actions.setInitialEmail(email)
+                }
             }
         },
     }),
