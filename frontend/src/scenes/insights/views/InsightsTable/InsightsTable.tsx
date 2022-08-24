@@ -308,7 +308,6 @@ export function InsightsTable({
         })
     }
 
-    // don't use URL for sorting when creating an insight
     const useURLForSorting = insightMode !== ItemMode.Edit
 
     return (
