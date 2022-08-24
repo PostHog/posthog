@@ -1,7 +1,6 @@
 import json
 from typing import Dict, List, Optional, Tuple
 
-
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity

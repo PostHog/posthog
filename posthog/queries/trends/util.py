@@ -1,9 +1,10 @@
 import urllib.parse
-import pytz
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
-from dateutil.relativedelta import relativedelta
 
+import pytz
+from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import TRENDS_CUMULATIVE, WEEKLY_ACTIVE
@@ -127,11 +128,7 @@ def normalize_filter_dates(filter: Filter) -> Filter:
 
 
 def build_persons_urls(
-    filter: Filter,
-    entity: Entity,
-    team_id: int,
-    dates: List[datetime],
-    additional_params: Optional[Dict[str, Any]] = {},
+    filter: Filter, entity: Entity, team_id: int, dates: List[datetime], additional_params: Dict[str, Any] = {},
 ) -> List[Dict[str, Any]]:
     persons_urls = []
     for date in dates:
@@ -154,8 +151,10 @@ def build_persons_urls(
             "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else interval_filter.date_from,
             "date_to": interval_filter.date_to,
             "entity_order": entity.order,
-            **additional_params,
         }
+
+        if additional_params:
+            extra_params.update(additional_params)
 
         parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
         persons_urls.append(
