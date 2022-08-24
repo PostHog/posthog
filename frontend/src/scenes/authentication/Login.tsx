@@ -83,8 +83,8 @@ export function Login(): JSX.Element {
                 <h2>Get started</h2>
                 {loginManualErrors.generic && (
                     <AlertMessage type="error">
-                        {loginManualErrors.generic.errorDetail ||
-                            ERROR_MESSAGES[loginManualErrors.generic.errorCode] ||
+                        {loginManualErrors.generic.detail ||
+                            ERROR_MESSAGES[loginManualErrors.generic.code] ||
                             'Could not complete your login. Please try again.'}
                     </AlertMessage>
                 )}

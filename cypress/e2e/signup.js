@@ -13,25 +13,25 @@ describe('Signup', () => {
         cy.get('[data-attr=signup-organization-name]').type('Hogflix Movies').should('have.value', 'Hogflix Movies')
         cy.get('[data-attr=signup-submit]').click()
 
-        cy.get('.ant-form-item-explain-error').should('contain', 'There is already an account with this email address.')
+        cy.get('.AlertMessage').should('contain', 'There is already an account with this email address.')
     })
 
     it('Cannot signup without required attributes', () => {
         cy.get('[data-attr=signup-submit]').click()
-        cy.get('.ant-form-item-explain-error').should('contain', 'Please enter your email to continue')
-        cy.get('.ant-form-item-explain-error').should('contain', 'Please enter your name')
+        cy.get('.text-danger').should('contain', 'Please enter your email to continue')
+        cy.get('.text-danger').should('contain', 'Please enter your name')
     })
 
     it('Cannot signup with invalid attributes', () => {
         cy.get('[data-attr=signup-email]').type('not an email')
         cy.get('[data-attr=password]').type('123').should('have.value', '123')
-        cy.get('.ant-form-item-explain-error').should('not.exist') // Validation errors not shown until first submission
+        cy.get('.text-danger').should('not.exist') // Validation errors not shown until first submission
         cy.get('[data-attr=signup-submit]').click()
-        cy.get('.ant-form-item-explain-error').should('contain', 'Please enter a valid email')
-        cy.get('.ant-form-item-explain-error').should('contain', 'Passwords must be at least 8 characters')
+        cy.get('.text-danger').should('contain', 'Please enter a valid email')
+        cy.get('.text-danger').should('contain', 'Passwords must be at least 8 characters')
 
         cy.get('[data-attr=password]').type('45678901')
-        cy.get('.ant-form-item-explain-error').should('not.contain', 'Passwords must be at least 8 characters') // Validation error removed on keystroke
+        cy.get('.text-danger').should('not.contain', 'Passwords must be at least 8 characters') // Validation error removed on keystroke
     })
 
     it('Can create user account', () => {

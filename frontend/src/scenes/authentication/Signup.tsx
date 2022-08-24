@@ -85,8 +85,8 @@ export function Signup(): JSX.Element | null {
                             data-attr="signup-email"
                             placeholder="email@yourcompany.com"
                             type="email"
-                            autoComplete="email"
                             ref={emailInputRef}
+                            autoComplete="off"
                             disabled={isSignupSubmitting}
                         />
                     </Field>

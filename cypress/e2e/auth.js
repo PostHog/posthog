@@ -96,7 +96,7 @@ describe('Password Reset', () => {
         cy.get('.ant-progress-bg').should('be.visible')
         cy.get('[data-attr="password-confirm"]').type('1234567A')
         cy.get('button[type=submit]').click()
-        cy.get('.AlertMessage').should('contain', 'Password confirmation does not match.')
+        cy.get('.text-danger').should('contain', 'Passwords do not match')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 
@@ -105,8 +105,8 @@ describe('Password Reset', () => {
         cy.get('[data-attr="password"]').type('123')
         cy.get('[data-attr="password-confirm"]').type('123')
         cy.get('button[type=submit]').click()
-        cy.get('.ant-form-item-explain-error').should('be.visible')
-        cy.get('.ant-form-item-explain-error').should('contain', 'must be at least 8 characters')
+        cy.get('.text-danger').should('be.visible')
+        cy.get('.text-danger').should('contain', 'must be at least 8 characters')
         cy.location('pathname').should('eq', '/reset/e2e_test_user/e2e_test_token') // not going anywhere
     })
 
