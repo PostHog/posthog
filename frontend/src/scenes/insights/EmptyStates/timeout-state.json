@@ -1342,30 +1342,6 @@
             "lastDashboardId": 3,
             "diveSourceId": null
         },
-        "eventDefinitionsModel": {
-            "eventStorage": {
-                "count": 29,
-                "results": [
-                    {
-                        "id": "017d15d8-126d-0001-508f-78eb18a4c6d5",
-                        "name": "$autocapture",
-                        "owner": {
-                            "distinct_id": "",
-                            "first_name": "",
-                            "email": ""
-                        },
-                        "description": null,
-                        "tags": null,
-                        "volume_30_day": null,
-                        "query_usage_30_day": null,
-                        "updated_at": null,
-                        "updated_by": null
-                    }
-                ],
-                "next": null
-            },
-            "eventStorageLoading": false
-        },
         "personPropertiesModel": {
             "personProperties": [
                 {
