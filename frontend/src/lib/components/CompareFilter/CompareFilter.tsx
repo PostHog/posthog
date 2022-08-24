@@ -16,7 +16,7 @@ export function CompareFilter(): JSX.Element | null {
 
     return (
         <LemonCheckbox
-            onChange={(e) => setCompare(e.target.checked)}
+            onChange={setCompare}
             checked={compare}
             disabled={disabled}
             label={<span className="font-normal">Compare to previous time period</span>}

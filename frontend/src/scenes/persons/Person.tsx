@@ -18,7 +18,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { Loading } from 'lib/utils'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
@@ -27,6 +26,7 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 const { TabPane } = Tabs
 
@@ -94,7 +94,7 @@ export function Person(): JSX.Element | null {
 
     if (!person) {
         return personLoading ? (
-            <Loading />
+            <SpinnerOverlay />
         ) : (
             <PageHeader
                 title="Person not found"

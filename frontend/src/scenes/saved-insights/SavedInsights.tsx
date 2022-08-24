@@ -2,7 +2,7 @@ import { Radio, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { deleteWithUndo, Loading } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils'
 import React from 'react'
 import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -42,6 +42,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { CalendarOutlined } from '@ant-design/icons'
 import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 const { TabPane } = Tabs
 
@@ -188,7 +189,12 @@ function SavedInsightsGrid(): JSX.Element {
                         }
                     />
                 ))}
-                {insightsLoading && <Loading />}
+                {insightsLoading && (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div style={{ minHeight: '30rem' }}>
+                        <SpinnerOverlay />
+                    </div>
+                )}
             </div>
             <PaginationControl {...paginationState} nouns={['insight', 'insights']} />
         </>

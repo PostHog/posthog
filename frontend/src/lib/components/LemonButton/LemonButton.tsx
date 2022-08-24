@@ -73,7 +73,7 @@ function LemonButtonInternal(
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
     if (loading) {
-        icon = <Spinner size="sm" />
+        icon = <Spinner size="sm" monocolor />
     }
 
     const ButtonComponent = to || href ? Link : 'button'
