@@ -232,11 +232,11 @@ class ApiRequest {
         return this.addPathComponent('person')
     }
 
-    public person(id: number): ApiRequest {
+    public person(id: string): ApiRequest {
         return this.persons().addPathComponent(id)
     }
 
-    public personActivity(id: str | undefined): ApiRequest {
+    public personActivity(id: string | undefined): ApiRequest {
         if (id) {
             return this.person(id).addPathComponent('activity')
         }
