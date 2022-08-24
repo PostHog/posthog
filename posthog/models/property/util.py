@@ -171,6 +171,17 @@ def parse_prop_clauses(
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
+        elif prop.type == "event" or person_properties_mode == PersonPropertiesMode.DIRECT_ON_PERSONS:
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var="{}properties".format(table_name),
+                allow_denormalized_props=allow_denormalized_props,
+                property_operator=property_operator,
+            )
+            final.append(f" {filter_query}")
+            params.update(filter_params)
         elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
@@ -232,17 +243,6 @@ def parse_prop_clauses(
             if query:
                 final.append(f"{property_operator} {query}")
                 params.update(filter_params)
-        elif prop.type == "event":
-            filter_query, filter_params = prop_filter_json_extract(
-                prop,
-                idx,
-                prepend,
-                prop_var="{}properties".format(table_name),
-                allow_denormalized_props=allow_denormalized_props,
-                property_operator=property_operator,
-            )
-            final.append(f" {filter_query}")
-            params.update(filter_params)
         elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
