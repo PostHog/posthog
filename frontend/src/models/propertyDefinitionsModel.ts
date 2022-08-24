@@ -17,8 +17,8 @@ export type PropertyDefinitionStorage = Record<string, PropertyDefinition | Prop
 
 // List of property definitions that are calculated on the backend. These
 // are valid properties that do not exist on events.
-const localPropertyDefinitions: PropertyDefinition[] = [
-    {
+const localProperties: PropertyDefinitionStorage = {
+    $session_duration: {
         id: '$session_duration',
         name: '$session_duration',
         description: 'Duration of the session',
@@ -26,7 +26,7 @@ const localPropertyDefinitions: PropertyDefinition[] = [
         is_event_property: false,
         property_type: PropertyType.Duration,
     },
-]
+}
 
 export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
@@ -73,7 +73,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     }),
     reducers({
         propertyDefinitionStorage: [
-            {} as PropertyDefinitionStorage,
+            { ...localProperties } as PropertyDefinitionStorage,
             {
                 updatePropertyDefinition: (state, { propertyDefinition }) => ({
                     ...state,
@@ -117,20 +117,21 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         fetchAllPendingDefinitions: async (_, breakpoint) => {
             // take 10ms to debounce property definition requests, preventing a lot of small queries
             await breakpoint(10)
-            const { pendingProperties } = values
-            if (pendingProperties.length === 0) {
+            if (values.pendingProperties.length === 0) {
                 return
             }
-            // take the first 100 pending properties
-            const pending = pendingProperties.slice(0, 100)
+            // take the first 50 pending properties to avoid the 4k query param length limit
+            const pending = values.pendingProperties.slice(0, 50)
             try {
                 // set them all as PropertyDefinitionState.Loading
                 actions.updatePropertyDefinitions(
                     Object.fromEntries(pending.map((key) => [key, PropertyDefinitionState.Loading]))
                 )
                 // and fetch them
-                const url = 'api/projects/@current/property_definitions/'
-                const propertyDefinitions = await api.get(combineUrl(url, { properties: pending.join(',') }).url)
+                const { url } = combineUrl('api/projects/@current/property_definitions/', {
+                    properties: pending.join(','),
+                })
+                const propertyDefinitions = await api.get(url)
                 // since this is a unique query, there is no breakpoint here to prevent out of order replies
                 // so save them and don't worry about overriding anything
                 const newProperties: PropertyDefinitionStorage = {}
@@ -139,7 +140,10 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 }
                 // mark those that were not returned as PropertyDefinitionState.Missing
                 for (const property of pending) {
-                    if (newProperties[property] === PropertyDefinitionState.Loading) {
+                    if (
+                        !(property in newProperties) &&
+                        values.propertyDefinitionStorage[property] === PropertyDefinitionState.Loading
+                    ) {
                         newProperties[property] = PropertyDefinitionState.Missing
                     }
                 }
@@ -147,7 +151,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             } catch (e) {
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const property of pending) {
-                    if (newProperties[property] === PropertyDefinitionState.Loading) {
+                    if (values.propertyDefinitionStorage[property] === PropertyDefinitionState.Loading) {
                         newProperties[property] = PropertyDefinitionState.Error
                     }
                 }
@@ -172,17 +176,16 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         ],
         propertyDefinitions: [
             (s) => [s.propertyDefinitionStorage],
-            (propertyDefinitionStorage): PropertyDefinition[] => [
-                ...(Object.values(propertyDefinitionStorage).filter(
+            (propertyDefinitionStorage): PropertyDefinition[] =>
+                Object.values(propertyDefinitionStorage).filter(
                     (value) => typeof value === 'object'
-                ) as PropertyDefinition[]),
-                ...localPropertyDefinitions,
-            ],
+                ) as PropertyDefinition[],
         ],
         getPropertyDefinition: [
             (s) => [s.propertyDefinitionStorage],
             (propertyDefinitionStorage): ((s: TaxonomicFilterValue) => PropertyDefinition | null) =>
                 (propertyName: TaxonomicFilterValue): PropertyDefinition | null => {
+                    checkOrLoadPropertyDefinition(propertyName, propertyDefinitionStorage)
                     return typeof propertyDefinitionStorage[propertyName] === 'object'
                         ? (propertyDefinitionStorage[propertyName] as PropertyDefinition)
                         : null
