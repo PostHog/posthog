@@ -81,20 +81,18 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         loadPropertyDefinitions: async ({ propertyKeys }) => {
             const { propertyDefinitionStorage } = values
 
-            let mustLoad = false
             const pendingStateUpdate: PropertyDefinitionStorage = {}
             for (const key of propertyKeys) {
                 if (
                     !(key in propertyDefinitionStorage) ||
                     propertyDefinitionStorage[key] === PropertyDefinitionState.Error
                 ) {
-                    mustLoad = true
                     pendingStateUpdate[key] = PropertyDefinitionState.Pending
                 }
             }
 
             // nothing new to do
-            if (!mustLoad) {
+            if (Object.keys(pendingStateUpdate).length === 0) {
                 return
             }
 
