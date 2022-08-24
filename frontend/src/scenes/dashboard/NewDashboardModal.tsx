@@ -81,7 +81,6 @@ export function NewDashboardModal(): JSX.Element {
                             },
                         ]}
                         fullWidth
-                        disabled={isNewDashboardSubmitting}
                         data-attr="copy-from-template"
                     />
                 </Field>
