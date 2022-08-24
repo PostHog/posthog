@@ -5,7 +5,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ChartDisplayType, IntervalType, TrendResult } from '~/types'
+import { ChartDisplayType, IntervalType, ItemMode, TrendResult } from '~/types'
 import { average, median, capitalizeFirstLetter } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -28,6 +28,7 @@ import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -72,6 +73,7 @@ export function InsightsTable({
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element | null {
     const { insightProps, isViewedOnDashboard, insight } = useValues(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
@@ -307,7 +309,7 @@ export function InsightsTable({
     }
 
     // don't use URL for sorting when creating an insight
-    const useURLForSorting = !!insightProps.dashboardItemId && !insightProps.dashboardItemId.startsWith('new')
+    const useURLForSorting = insightMode !== ItemMode.Edit
 
     return (
         <LemonTable
