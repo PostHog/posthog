@@ -41,7 +41,7 @@ export function addHistoricalEventsExportCapability(
     // we can void this as the job appearing on the interface is not time-sensitive
 
     if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
-        void hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {})
+        hub.promiseManager.trackPromise(hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {}))
     }
 
     const oldSetupPlugin = methods.setupPlugin
@@ -337,12 +337,14 @@ export function addHistoricalEventsExportCapability(
     }
 
     function createLog(message: string, type: PluginLogEntryType = PluginLogEntryType.Log) {
-        void hub.db.queuePluginLogEntry({
-            pluginConfig,
-            message: `(${hub.instanceId}) ${message}`,
-            source: PluginLogEntrySource.System,
-            type: type,
-            instanceId: hub.instanceId,
-        })
+        hub.promiseManager.trackPromise(
+            hub.db.queuePluginLogEntry({
+                pluginConfig,
+                message: `(${hub.instanceId}) ${message}`,
+                source: PluginLogEntrySource.System,
+                type: type,
+                instanceId: hub.instanceId,
+            })
+        )
     }
 }
