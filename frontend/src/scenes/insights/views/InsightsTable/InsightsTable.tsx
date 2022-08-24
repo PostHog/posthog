@@ -306,6 +306,9 @@ export function InsightsTable({
         })
     }
 
+    // don't use URL for sorting when creating an insight
+    const useURLForSorting = !!insightProps.dashboardItemId && !insightProps.dashboardItemId.startsWith('new')
+
     return (
         <LemonTable
             id={isViewedOnDashboard ? insight.short_id : undefined}
@@ -318,6 +321,7 @@ export function InsightsTable({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             className="insights-table"
+            useURLForSorting={useURLForSorting}
         />
     )
 }

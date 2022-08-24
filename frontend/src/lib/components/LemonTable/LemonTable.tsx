@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { HTMLProps, useCallback, useEffect, useMemo } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
 import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
@@ -62,6 +62,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** Defaults to true. Used if you don't want to use the URL to store sort order **/
+    useURLForSorting?: boolean
     /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
     loadingSkeletonRows?: number
     /** What to show when there's no data. */
@@ -94,6 +96,7 @@ export function LemonTable<T extends Record<string, any>>({
     defaultSorting = null,
     sorting,
     onSort,
+    useURLForSorting = true,
     loadingSkeletonRows = 1,
     emptyState,
     nouns = ['entry', 'entries'],
@@ -107,6 +110,9 @@ export function LemonTable<T extends Record<string, any>>({
 
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
+
+    // used when not using URL to store sorting
+    const [stateSorting, setStateSorting] = useState<Sorting | null>(sorting || null)
 
     /** Replace the current browsing history item to change sorting */
     const setLocalSorting = useCallback(
@@ -140,6 +146,7 @@ export function LemonTable<T extends Record<string, any>>({
     /** Sorting. */
     const currentSorting =
         sorting ||
+        stateSorting ||
         (searchParams[currentSortingParam]
             ? searchParams[currentSortingParam].startsWith('-')
                 ? {
@@ -248,7 +255,11 @@ export function LemonTable<T extends Record<string, any>>({
                                                                   determineColumnKey(column, 'sorting'),
                                                                   disableSortingCancellation
                                                               )
-                                                              setLocalSorting(nextSorting)
+                                                              if (useURLForSorting) {
+                                                                  setLocalSorting(nextSorting)
+                                                              } else {
+                                                                  setStateSorting(nextSorting)
+                                                              }
                                                               onSort?.(nextSorting)
                                                           }
                                                         : undefined
