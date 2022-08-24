@@ -39,6 +39,7 @@ from posthog.settings import (
     TEST,
 )
 from posthog.timer import get_timer_thread
+from posthog.utils import generate_short_id
 
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
@@ -130,7 +131,19 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
         return result
 
 
-def sync_execute(query, args=None, settings=None, with_column_types=False, flush=True):
+def validate_client_query_id(client_query_id: Optional[str], args: Dict[any, any]) -> Optional[str]:
+    if client_query_id and (not args or "team_id" not in args):
+        raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
+    if not client_query_id:
+        return None
+    # the client_query_id is per request, but we might run multiple queries in parallel, hence we add a random id at the end
+    random_id = generate_short_id()
+    return f"{args['team_id']}_{client_query_id}_{random_id}"
+
+
+def sync_execute(
+    query, args=None, settings=None, with_column_types=False, flush=True, client_query_id: Optional[str] = None
+):
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -150,7 +163,11 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
 
         try:
             result = client.execute(
-                prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
+                prepared_sql,
+                params=prepared_args,
+                settings=settings,
+                with_column_types=with_column_types,
+                query_id=validate_client_query_id(client_query_id, args),
             )
         except Exception as err:
             err = wrap_query_error(err)

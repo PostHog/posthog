@@ -86,7 +86,7 @@ class Paths:
 
     def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
-        return sync_execute(query, self.params)
+        return sync_execute(query, self.params, client_query_id=self._filter.client_query_id)
 
     def get_query(self) -> str:
 
@@ -194,7 +194,8 @@ class Paths:
             SELECT last_path_key as source_event,
                 path_key as target_event,
                 COUNT(*) AS event_count,
-                avg(conversion_time) AS average_conversion_time
+                avg(conversion_time) AS average_conversion_time,
+                sleep(3)
             FROM ({paths_per_person_query})
             WHERE source_event IS NOT NULL
             GROUP BY source_event,

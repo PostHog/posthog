@@ -841,7 +841,7 @@ const api = {
         return await getJSONOrThrow(response)
     },
 
-    async create(url: string, data?: any): Promise<any> {
+    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -853,6 +853,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+            signal,
         })
 
         if (!response.ok) {

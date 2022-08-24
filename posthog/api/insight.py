@@ -32,6 +32,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
+from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
     INSIGHT,
@@ -737,6 +738,16 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
 
         activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
+
+    @action(methods=["POST"], detail=False)
+    def cancel(self, request: request.Request, **kwargs):
+        if "client_query_id" not in request.data:
+            raise serializers.ValidationError({"client_query_id": "Field is required."})
+        sync_execute(
+            "KILL QUERY WHERE query_id LIKE %(client_query_id)s",
+            {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
+        )
+        return Response(status=status.HTTP_201_CREATED)
 
 
 class LegacyInsightViewSet(InsightViewSet):

@@ -128,7 +128,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
 
-        result = sync_execute(sql, params)
+        result = sync_execute(sql, params, client_query_id=filter.client_query_id)
         result = parse_function(result)
         serialized_data = self._format_serialized(entity, result)
         merged_results, cached_result = self.merge_results(
@@ -141,8 +141,8 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(self, result: List, index: int, sql, params):
-        result[index] = sync_execute(sql, params)
+    def _run_query_for_threading(self, result: List, index: int, sql, params, client_query_id: str):
+        result[index] = sync_execute(sql, params, client_query_id=client_query_id)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Union[None, List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -154,7 +154,9 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
-            thread = threading.Thread(target=self._run_query_for_threading, args=(result, entity.index, sql, params),)
+            thread = threading.Thread(
+                target=self._run_query_for_threading, args=(result, entity.index, sql, params, filter.client_query_id),
+            )
             jobs.append(thread)
 
         # Start the threads (i.e. calculate the random number lists)
