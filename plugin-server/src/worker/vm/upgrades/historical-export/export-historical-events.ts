@@ -324,6 +324,7 @@ export function addHistoricalEventsExportCapability(
         const progressDenominator = meta.global.maxTimestamp! - meta.global.minTimestamp!
 
         const progress = progressDenominator === 0 ? 20 : Math.round(progressNumerator / progressDenominator) * 20
+        const percentage = Math.round((1000 * progressNumerator) / progressDenominator) / 10
 
         const progressBarCompleted = Array.from({ length: progress })
             .map(() => '■')
@@ -331,7 +332,7 @@ export function addHistoricalEventsExportCapability(
         const progressBarRemaining = Array.from({ length: 20 - progress })
             .map(() => '□')
             .join('')
-        createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining}`)
+        createLog(`Export progress: ${progressBarCompleted}${progressBarRemaining} (${percentage}%)`)
     }
 
     function createLog(message: string, type: PluginLogEntryType = PluginLogEntryType.Log) {
