@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { annotationsTableLogic } from './logic'
+import { annotationScopeToLevel, annotationScopeToName, annotationsPageLogic } from './logic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -15,29 +15,19 @@ import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { AnnotationModal } from './AnnotationModal'
 
 export const scene: SceneExport = {
     component: Annotations,
-    logic: annotationsTableLogic,
-}
-
-const annotationScopeToName: Record<AnnotationScope, string> = {
-    [AnnotationScope.Insight]: 'Insight',
-    [AnnotationScope.Project]: 'Project',
-    [AnnotationScope.Organization]: 'Organization',
-}
-
-const annotationScopeToLevel: Record<AnnotationScope, number> = {
-    [AnnotationScope.Insight]: 0,
-    [AnnotationScope.Project]: 1,
-    [AnnotationScope.Organization]: 2,
+    logic: annotationsPageLogic,
 }
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsTableLogic)
-    const { loadAnnotationsNext } = useActions(annotationsTableLogic)
+    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsPageLogic)
+    const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
+        useActions(annotationsPageLogic)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -94,8 +84,16 @@ export function Annotations(): JSX.Element {
         {
             key: 'actions',
             width: 0,
-            render: function RenderActions(): JSX.Element {
-                return <LemonButton icon={<IconEdit />} size="small" type="tertiary" status="stealth" />
+            render: function RenderActions(_, annotation): JSX.Element {
+                return (
+                    <LemonButton
+                        icon={<IconEdit />}
+                        size="small"
+                        type="tertiary"
+                        status="stealth"
+                        onClick={() => openModalToEditAnnotation(annotation)}
+                    />
+                )
             },
         },
     ]
@@ -106,7 +104,12 @@ export function Annotations(): JSX.Element {
                 title="Annotations"
                 caption="Here you can add organization- and project-wide annotations. Dashboard-specific ones can be added directly in the dashboard."
                 buttons={
-                    <LemonButton type="primary" data-attr="create-annotation" data-tooltip="annotations-new-button">
+                    <LemonButton
+                        type="primary"
+                        data-attr="create-annotation"
+                        data-tooltip="annotations-new-button"
+                        onClick={openModalToCreateAnnotation}
+                    >
                         New annotation
                     </LemonButton>
                 }
@@ -138,6 +141,7 @@ export function Annotations(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
+            <AnnotationModal />
         </>
     )
 }

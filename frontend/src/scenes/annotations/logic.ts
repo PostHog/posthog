@@ -1,14 +1,35 @@
-import { kea } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
-import type { annotationsTableLogicType } from './logicType'
-import { AnnotationType } from '~/types'
+import type { annotationsPageLogicType } from './logicType'
+import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from '../teamLogic'
+import { loaders } from 'kea-loaders'
+import { forms } from 'kea-forms'
 
-export const annotationsTableLogic = kea<annotationsTableLogicType>({
-    path: ['scenes', 'annotations', 'logic'],
-    loaders: ({ actions }) => ({
+export type AnnotationModalForm = Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
+
+const defaultFormValues: AnnotationModalForm = {
+    date_marker: new Date().toISOString(),
+    content: '',
+    scope: AnnotationScope.Project,
+}
+
+export const annotationsPageLogic = kea<annotationsPageLogicType>([
+    path(['scenes', 'annotations', 'logic']),
+    actions(() => ({
+        updateAnnotation: (id, content) => ({ id, content }),
+        deleteAnnotation: (id) => ({ id }),
+        restoreAnnotation: (id) => ({ id }),
+        loadAnnotationsNext: () => true,
+        setNext: (next) => ({ next }),
+        appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
+        openModalToCreateAnnotation: () => true,
+        openModalToEditAnnotation: (annotation: AnnotationType) => ({ annotation }),
+        closeModal: true,
+    })),
+    loaders(({ actions }) => ({
         annotations: {
             __default: [],
             loadAnnotations: async () => {
@@ -19,8 +40,8 @@ export const annotationsTableLogic = kea<annotationsTableLogicType>({
                 return response.results
             },
         },
-    }),
-    reducers: () => ({
+    })),
+    reducers(() => ({
         annotations: [
             [] as AnnotationType[],
             {
@@ -40,16 +61,23 @@ export const annotationsTableLogic = kea<annotationsTableLogicType>({
                 appendAnnotations: () => false,
             },
         ],
-    }),
-    actions: () => ({
-        updateAnnotation: (id, content) => ({ id, content }),
-        deleteAnnotation: (id) => ({ id }),
-        restoreAnnotation: (id) => ({ id }),
-        loadAnnotationsNext: () => true,
-        setNext: (next) => ({ next }),
-        appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
-    }),
-    listeners: ({ actions, values }) => ({
+        isModalOpen: [
+            false,
+            {
+                openModalToCreateAnnotation: () => true,
+                openModalToEditAnnotation: () => true,
+                closeModal: () => false,
+            },
+        ],
+        modalAnnotation: [
+            null as AnnotationType | null,
+            {
+                openModalToCreateAnnotation: () => null,
+                openModalToEditAnnotation: (_, { annotation }) => annotation,
+            },
+        ],
+    })),
+    listeners(({ actions, values }) => ({
         updateAnnotation: async ({ id, content }) => {
             await api.update(`api/projects/${teamLogic.values.currentTeamId}/annotations/${id}`, { content })
             actions.loadAnnotations()
@@ -77,8 +105,18 @@ export const annotationsTableLogic = kea<annotationsTableLogicType>({
         [annotationsModel.actionTypes.createGlobalAnnotationSuccess]: () => {
             actions.loadAnnotations()
         },
-    }),
-    events: ({ actions }) => ({
-        afterMount: () => actions.loadAnnotations(),
-    }),
-})
+    })),
+    afterMount(({ actions }) => actions.loadAnnotations()),
+    forms(({ actions }) => ({
+        annotationModal: {
+            defaults: defaultFormValues,
+            errors: ({ content }) => ({
+                content: !content ? 'An annotation must have text content.' : null,
+            }),
+            submit: async (data) => {
+                await api.annotations.create(data)
+                actions.closeModal()
+            },
+        },
+    })),
+])
