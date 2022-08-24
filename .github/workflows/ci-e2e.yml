@@ -181,6 +181,8 @@ jobs:
                   cache-to: type=inline
                   file: Dockerfile.cloud
                   context: cloud
+                  # Here we use the non-Cloud image and extend from it with the
+                  # Cloud additions
                   build-args: |
                       BASE_IMAGE=${{ steps.load.docker_image_digest }}
 
