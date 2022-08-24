@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconCancel, IconLock, IconLockOpen } from 'lib/components/icons'
+import { IconDelete, IconLock, IconLockOpen } from 'lib/components/icons'
 import { AvailableFeature, DashboardType, FusedDashboardCollaboratorType, UserType } from '~/types'
 import { DashboardRestrictionLevel, privilegeLevelToName, DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonSelect, LemonSelectOptions } from 'lib/components/LemonSelect'
@@ -66,7 +66,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                             <h4>Collaborators</h4>
                             {canEditDashboard && (
                                 <div className="flex gap-2">
-                                    <div style={{ flex: 1 }}>
+                                    <div className="flex-1">
                                         <LemonSelectMultiple
                                             placeholder="Search for team members to add…"
                                             value={explicitCollaboratorsToBeAdded}
@@ -88,16 +88,11 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                     </LemonButton>
                                 </div>
                             )}
-                            <h5 style={{ marginTop: '1rem' }}>Project members with access</h5>
+                            <h5 className="mt-4">Project members with access</h5>
                             <div
-                                className="mt-2"
+                                className="mt-2 pb-2 pr-2 rounded overflow-y-auto"
                                 style={{
                                     maxHeight: 300,
-                                    overflowY: 'auto',
-                                    background: 'var(--bg-side)',
-                                    paddingBottom: '0.5rem',
-                                    paddingRight: '0.5rem',
-                                    borderRadius: 4,
                                 }}
                             >
                                 {allCollaborators.map((collaborator) => (
@@ -129,7 +124,7 @@ function CollaboratorRow({
     const privilegeLevelName = privilegeLevelToName[level]
 
     return (
-        <div className="CollaboratorRow">
+        <div className="flex items-center justify-between mt-2 pl-2 h-8">
             <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
             <Tooltip
                 title={
@@ -143,15 +138,17 @@ function CollaboratorRow({
                 }
                 placement="left"
             >
-                <div className="CollaboratorRow__details">
-                    <span>{!wasInvited ? <b>{privilegeLevelName}</b> : privilegeLevelName}</span>
-                    {deleteCollaborator && (
+                <div className="flex items-center gap-2">
+                    <span className="rounded bg-primary-alt-highlight p-1">
+                        {!wasInvited ? <b>{privilegeLevelName}</b> : privilegeLevelName}
+                    </span>
+                    {deleteCollaborator && wasInvited && (
                         <LemonButton
-                            icon={<IconCancel />}
+                            icon={<IconDelete />}
                             onClick={() => deleteCollaborator(user.uuid)}
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
-                            disabled={!wasInvited}
-                            status="danger"
+                            status="primary-alt"
+                            type="tertiary"
                             size="small"
                         />
                     )}
