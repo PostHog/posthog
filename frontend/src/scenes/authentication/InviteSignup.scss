@@ -3,10 +3,11 @@
 .InviteSignupSummary {
     margin-bottom: 2rem;
     @include screen($md) {
+        opacity: 0.8;
         position: absolute;
+        top: 0px;
         left: -380px;
         width: 240px;
         padding: 1rem 0;
-        background-color: var(--bg-bridge);
     }
 }

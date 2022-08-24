@@ -199,9 +199,11 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             }
         >
             <div className="InviteSignupSummary">
-                <div className="font-semibold flex flex-col gap-2 text-center">
+                <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
                     <span>You've been invited to join</span>
-                    <span className="text-4xl font-bold">{invite?.organization_name || 'us'}</span>
+                    <span className="text-4xl font-bold border-b border-dashed pb-2">
+                        {invite?.organization_name || 'us'}
+                    </span>
                     <span>on PostHog</span>
                 </div>
             </div>
