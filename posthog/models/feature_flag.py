@@ -171,6 +171,7 @@ class FeatureFlagMatcher:
         cache: Optional[FlagsMatcherCache] = None,
         hash_key_overrides: Dict[str, str] = {},
         property_value_overrides: Dict[str, str] = {},
+        group_property_value_overrides: Dict[str, Dict[str, str]] = {},
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -178,6 +179,7 @@ class FeatureFlagMatcher:
         self.cache = cache or FlagsMatcherCache(self.feature_flags[0].team_id)
         self.hash_key_overrides = hash_key_overrides
         self.property_value_overrides = property_value_overrides
+        self.group_property_value_overrides = group_property_value_overrides
 
     def get_match(self, feature_flag: FeatureFlag) -> Optional[FeatureFlagMatch]:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
@@ -217,6 +219,8 @@ class FeatureFlagMatcher:
         rollout_percentage = condition.get("rollout_percentage")
         if len(condition.get("properties", [])) > 0:
             properties = Filter(data=condition).property_groups.flat
+            if feature_flag.aggregation_group_type_index is not None:
+                pass
             if self.can_compute_locally(properties):
                 # :TRICKY: If overrides are enough to determine if a condition is a match,
                 # we can skip checking the query.
@@ -352,7 +356,9 @@ class FeatureFlagMatcher:
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
-    def can_compute_locally(self, properties: List[Property]) -> bool:
+    def can_compute_locally(self, properties: List[Property], group_type_index: Optional[GroupTypeIndex] = None) -> bool:
+        person_property_overrides = self.property_value_overrides
+        group_property_overrides = self.group_property_value_overrides[self.cache.group_type_index_to_name.get(group_type_index)] if group_type_index is not None else {}
         for property in properties:
             if property.key not in self.property_value_overrides:
                 return False
@@ -379,6 +385,7 @@ def _get_active_feature_flags(
     person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, str] = {},
+    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
 ) -> Dict[str, Union[bool, str]]:
     cache = FlagsMatcherCache(team_id)
 
@@ -389,7 +396,7 @@ def _get_active_feature_flags(
 
     if feature_flags:
         return FeatureFlagMatcher(
-            feature_flags, distinct_id, groups, cache, overrides, property_value_overrides
+            feature_flags, distinct_id, groups, cache, overrides, property_value_overrides, group_property_value_overrides
         ).get_matches()
 
     return {}
@@ -402,6 +409,7 @@ def get_active_feature_flags(
     groups: Dict[GroupTypeName, str] = {},
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, str] = {},
+    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
 ) -> Dict[str, Union[bool, str]]:
 
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
@@ -419,6 +427,7 @@ def get_active_feature_flags(
             distinct_id,
             groups=groups,
             property_value_overrides=property_value_overrides,
+            group_property_value_overrides=group_property_value_overrides,
         )
 
     person_id = (
@@ -460,6 +469,7 @@ def get_active_feature_flags(
         person_id,
         groups=groups,
         property_value_overrides=property_value_overrides,
+        group_property_value_overrides=group_property_value_overrides,
     )
 
 
