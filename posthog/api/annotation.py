@@ -27,6 +27,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "date_marker",
             "creation_type",
             "dashboard_item",
+            "insight_short_id",
+            "insight_name",
             "created_by",
             "created_at",
             "updated_at",
@@ -36,6 +38,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "creation_type",
+            "insight_short_id",
+            "insight_name",
             "created_by",
             "created_at",
             "updated_at",
@@ -55,7 +59,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
     """
 
-    queryset = Annotation.objects.all()
+    queryset = Annotation.objects.filter(deleted=False).select_related("dashboard_item")
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
@@ -64,10 +68,8 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = self._filter_request(self.request, queryset)
-            order = self.request.GET.get("order", None)
-            if order:
-                queryset = queryset.order_by(order)
+            order = self.request.GET.get("order", "-date_marker")
+            queryset = self._filter_request(self.request, queryset).order_by(order)
 
         return queryset
 

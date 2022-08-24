@@ -974,6 +974,8 @@ export interface AnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number
+    insight_short_id?: InsightModel['short_id']
+    insight_name?: InsightModel['name']
     deleted?: boolean
     creation_type?: string
 }
