@@ -2043,6 +2043,15 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "peterdemin",
+      "name": "Peter Demin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1448666?v=4",
+      "profile": "https://github.com/peterdemin",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,
