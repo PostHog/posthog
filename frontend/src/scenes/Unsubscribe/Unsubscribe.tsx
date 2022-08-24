@@ -4,7 +4,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { unsubscribeLogic } from './unsubscribeLogic'
 import { useValues } from 'kea'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Unsubscribe,
@@ -20,9 +20,7 @@ export function Unsubscribe(): JSX.Element {
             </div>
 
             {unsubscriptionLoading ? (
-                <div className="p-4">
-                    <Spinner />
-                </div>
+                <SpinnerOverlay />
             ) : unsubscription ? (
                 <div>
                     <h2>You have been unsubscribed!</h2>

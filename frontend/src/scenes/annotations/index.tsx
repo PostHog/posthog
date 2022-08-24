@@ -155,7 +155,7 @@ export function Annotations(): JSX.Element {
                     {next && (
                         <LemonButton
                             type="primary"
-                            icon={loadingNext ? <Spinner size="sm" /> : null}
+                            icon={loadingNext ? <Spinner /> : null}
                             onClick={(): void => {
                                 loadAnnotationsNext()
                             }}
