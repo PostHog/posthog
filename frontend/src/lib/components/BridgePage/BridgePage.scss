@@ -47,7 +47,6 @@
 
     .BridgePage__art {
         position: relative;
-        width: 390px;
         margin-right: 60px;
         margin-top: 260px;
         visibility: none;
@@ -55,7 +54,7 @@
         align-self: flex-start;
 
         img {
-            width: 100%;
+            width: 390px;
         }
 
         .BridgePage__art__message {
