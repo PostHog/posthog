@@ -17,7 +17,7 @@ RUN yarn config set network-timeout 300000 && \
 
 COPY frontend/ frontend/
 COPY ./bin/ ./bin/
-COPY babel.config.js tsconfig.json webpack.config.js ./
+COPY .babelrc tsconfig.json webpack.config.js ./
 RUN yarn build
 
 #

@@ -7,7 +7,7 @@
 !staticfiles
 !manage.py
 !gunicorn.config.py
-!babel.config.js
+!.babelrc
 !posthog.json
 !package.json
 !yarn.lock
