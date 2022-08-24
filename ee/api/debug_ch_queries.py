@@ -31,7 +31,7 @@ class DebugCHQueries(viewsets.ViewSet):
             """
             select
                 query, query_start_time, exception, toInt8(type), query_duration_ms
-            from system.query_log
+            from cluster_query_log
             where
                 query LIKE %(query)s and
                 query_start_time > %(start_time)s and
