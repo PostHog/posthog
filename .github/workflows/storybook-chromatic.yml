@@ -11,12 +11,11 @@ jobs:
               with:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
-            - name: Install dependencies and chromatic
-              run: yarn add --dev chromatic
-
             - name: Publish to Chromatic
               uses: chromaui/action@v1
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=6144' # GH Actions runners have 7 GB of RAM
