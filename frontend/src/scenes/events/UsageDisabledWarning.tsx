@@ -4,8 +4,7 @@ import React from 'react'
 export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
     return (
         <Alert
-            type="info"
-            showIcon
+            style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}
             message={`${tab} are not enabled for your instance.`}
             description={
                 <>
@@ -16,6 +15,9 @@ export function UsageDisabledWarning({ tab }: { tab: string }): JSX.Element {
                     you have a large volume of events.
                 </>
             }
+            type="info"
+            showIcon
+            closable
         />
     )
 }

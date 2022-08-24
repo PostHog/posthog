@@ -220,11 +220,10 @@ export function EventDefinitionsTable(): JSX.Element {
                     closable
                 />
             )}
-            <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
             {preflight && !preflight?.is_event_property_usage_enabled && (
                 <UsageDisabledWarning tab="Event Definitions" />
             )}
-
+            <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
             <div className="flex justify-between items-center gap-2 mb-4">
                 <LemonInput
                     type="search"
