@@ -43,8 +43,7 @@ class ClickhouseFunnelBase(ABC):
     _include_preceding_timestamp: Optional[bool]
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
-    _include_person_properties: Optional[bool]
-    _include_group_properties: List[int]
+    _include_properties: List[str]
 
     def __init__(
         self,
@@ -53,8 +52,7 @@ class ClickhouseFunnelBase(ABC):
         include_timestamp: Optional[bool] = None,
         include_preceding_timestamp: Optional[bool] = None,
         base_uri: str = "/",
-        include_person_properties: Optional[bool] = None,
-        include_group_properties: Optional[List[int]] = None,  # group_type_index for respective group type to get
+        include_properties: Optional[List[str]] = None,
     ) -> None:
         self._filter = filter
         self._team = team
@@ -66,8 +64,7 @@ class ClickhouseFunnelBase(ABC):
         }
         self._include_timestamp = include_timestamp
         self._include_preceding_timestamp = include_preceding_timestamp
-        self._include_person_properties = include_person_properties
-        self._include_group_properties = include_group_properties or []
+        self._include_properties = include_properties or []
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -389,12 +386,9 @@ class ClickhouseFunnelBase(ABC):
         entities_to_use = entities or self._filter.entities
 
         extra_fields = []
-        if self._team.actor_on_events_querying_enabled:
-            if self._include_person_properties:
-                extra_fields.append("person_properties")
 
-            for group_index in self._include_group_properties:
-                extra_fields.append(f"group{group_index}_properties")
+        for prop in self._include_properties:
+            extra_fields.append(prop)
 
         parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
 
@@ -698,7 +692,8 @@ class ClickhouseFunnelBase(ABC):
                     table="events",
                     query_alias="prop_basic",
                     column="person_properties",
-                    allow_denormalized_props=False,
+                    allow_denormalized_props=True,
+                    materialised_table_column="person_properties",
                 )
             else:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
@@ -721,7 +716,8 @@ class ClickhouseFunnelBase(ABC):
                     property_name=self._filter.breakdown,
                     var="%(breakdown)s",
                     column=properties_field,
-                    allow_denormalized_props=False,
+                    allow_denormalized_props=True,
+                    materialised_table_column=properties_field,
                 )
             else:
                 properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
@@ -812,6 +808,9 @@ class ClickhouseFunnelBase(ABC):
                 self._team,
                 extra_params={"offset": 0},
                 use_all_funnel_entities=use_all_funnel_entities,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._team.actor_on_events_querying_enabled
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             )
 
         return None
@@ -829,13 +828,9 @@ class ClickhouseFunnelBase(ABC):
 
     def _get_person_and_group_properties(self, aggregate: bool = False) -> str:
         fields = []
-        if self._team.actor_on_events_querying_enabled:
-            if self._include_person_properties:
-                fields.append("any(person_properties) as person_properties" if aggregate else "person_properties")
 
-            for group_index in self._include_group_properties:
-                group_label = f"group{group_index}_properties"
-                fields.append(f"any({group_label}) as {group_label}" if aggregate else group_label)
+        for prop in self._include_properties:
+            fields.append(f"any({prop}) as {prop}" if aggregate else prop)
 
         parsed_fields = f", {', '.join(fields)}" if fields else ""
         return parsed_fields
