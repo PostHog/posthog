@@ -122,13 +122,12 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                 Suggestion
                                             </LemonTag>
                                         )}
-                                        <div className="flex-1">
-                                            <LemonButton tooltip="Launch toolbar" href={launchUrl(keyedAppURL.url)}>
-                                                <Typography.Text ellipsis={{ tooltip: keyedAppURL.url }}>
-                                                    {keyedAppURL.url}
-                                                </Typography.Text>
-                                            </LemonButton>
-                                        </div>
+                                        <Typography.Text
+                                            ellipsis={{ tooltip: keyedAppURL.url }}
+                                            className="text-muted-alt flex-1"
+                                        >
+                                            {keyedAppURL.url}
+                                        </Typography.Text>
                                         <div className="Actions flex space-x-2 shrink-0">
                                             {keyedAppURL.type === 'suggestion' ? (
                                                 <LemonButton
@@ -147,7 +146,9 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         center
                                                         className="ActionButton"
                                                         data-attr="toolbar-open"
-                                                    />
+                                                    >
+                                                        Launch
+                                                    </LemonButton>
 
                                                     <LemonButton
                                                         icon={<IconEdit />}
