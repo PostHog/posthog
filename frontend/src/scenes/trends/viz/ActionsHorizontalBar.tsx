@@ -9,7 +9,7 @@ import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { openPersonsModal } from '../persons-modal-v2/PersonsModal'
+import { openPersonsModal } from '../persons-modal/PersonsModalV2'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 type DataSet = any

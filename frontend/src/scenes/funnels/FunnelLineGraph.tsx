@@ -8,8 +8,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { openPersonsModal } from 'scenes/trends/persons-modal-v2/PersonsModal'
-import { buildFunnelPeopleUrl } from 'scenes/trends/persons-modal-v2/persons-modal-utils'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { buildFunnelPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 export function FunnelLineGraph({
     inSharedMode,

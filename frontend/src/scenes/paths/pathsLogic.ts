@@ -8,8 +8,8 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { openPersonsModal } from 'scenes/trends/persons-modal-v2/PersonsModal'
-import { buildFunnelPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal-v2/persons-modal-utils'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { buildFunnelPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 export const DEFAULT_STEP_LIMIT = 5
 

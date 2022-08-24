@@ -7,7 +7,7 @@ import { ChartDisplayType, ChartParams, GraphType, InsightType } from '~/types'
 import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
-import { openPersonsModal } from '../persons-modal-v2/PersonsModal'
+import { openPersonsModal } from '../persons-modal/PersonsModalV2'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)

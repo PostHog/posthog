@@ -64,8 +64,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { LemonSelectOptions } from 'lib/components/LemonSelect'
-import { openPersonsModal } from 'scenes/trends/persons-modal-v2/PersonsModal'
-import { funnelTitle } from 'scenes/trends/persons-modal-v2/persons-modal-utils'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
+import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 /* Chosen via heuristics by eyeballing some values
  * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean

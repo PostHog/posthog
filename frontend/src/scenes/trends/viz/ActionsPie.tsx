@@ -8,7 +8,7 @@ import { ChartParams, GraphType, GraphDataset, ActionFilter } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { personsModalLogic } from '../persons-modal/personsModalLogic'
-import { openPersonsModal } from '../persons-modal-v2/PersonsModal'
+import { openPersonsModal } from '../persons-modal/PersonsModalV2'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)

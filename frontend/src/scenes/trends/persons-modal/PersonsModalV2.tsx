@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { DownloadOutlined } from '@ant-design/icons'
 import { ActorType, ExporterFormat } from '~/types'
-import { personsModalLogic } from './personsModalLogic'
+import { personsModalLogic } from './personsModalV2Logic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { isGroupType, midEllipsis } from 'lib/utils'
 import './PersonsModal.scss'
@@ -16,7 +16,7 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { openSaveCohortModal } from './SaveCohortModal'
+import { openSaveCohortModal } from './SaveCohortModalV2'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -26,7 +26,7 @@ export interface PersonsModalProps {
     title: React.ReactNode
 }
 
-export function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.Element {
+function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
     const logic = personsModalLogic({ url, closeModal: () => setIsOpen(false) })
 

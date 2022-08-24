@@ -1,7 +1,6 @@
 import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ActorType } from '~/types'
-import type { personsModalLogicType } from './personsModalLogicType'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,6 +8,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
 import { router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
+
+import type { personsModalLogicType } from './personsModalV2LogicType'
 
 export interface PersonModalLogicProps {
     url: string

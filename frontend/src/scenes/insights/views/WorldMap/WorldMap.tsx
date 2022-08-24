@@ -14,7 +14,7 @@ import { countryVectors } from './countryVectors'
 import { groupsModel } from '~/models/groupsModel'
 import { toLocalFilters } from '../../filters/ActionFilter/entityFilterLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { openPersonsModal } from 'scenes/trends/persons-modal-v2/PersonsModal'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
 
 /** The saturation of a country is proportional to its value BUT the saturation has a floor to improve visibility. */
 const SATURATION_FLOOR = 0.2

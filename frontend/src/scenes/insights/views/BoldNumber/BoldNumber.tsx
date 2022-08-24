@@ -19,7 +19,7 @@ import { percentage } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import './BoldNumber.scss'
-import { openPersonsModal } from 'scenes/trends/persons-modal-v2/PersonsModal'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
