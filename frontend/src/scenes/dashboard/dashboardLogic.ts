@@ -461,7 +461,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
 
                                 return {
-                                    i: item.short_id as string,
+                                    i: `insight-tile-${item.id}`,
                                     x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                                     y: Number.isInteger(y) ? y : Infinity,
                                     w: width,
@@ -475,7 +475,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                                 const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])
 
                                 return {
-                                    i: item.id as string,
+                                    i: `text-tile-${item.id}`,
                                     x: Number.isInteger(x) && x + width - 1 < BREAKPOINT_COLUMN_COUNTS[col] ? x : 0,
                                     y: Number.isInteger(y) ? y : Infinity,
                                     w: width,

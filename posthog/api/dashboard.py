@@ -199,9 +199,14 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         tile_layouts = initial_data.pop("tile_layouts", [])
         for tile_layout in tile_layouts:
-            DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(tile_layout["id"])).update(
-                layouts=tile_layout["layouts"]
-            )
+            number_updated = DashboardTile.objects.filter(
+                dashboard__id=instance.id, insight__id=(tile_layout["id"])
+            ).update(layouts=tile_layout["layouts"])
+            # TODO need a test here
+            if number_updated == 0:
+                DashboardTextTile.objects.filter(dashboard__id=instance.id, id=tile_layout["id"]).update(
+                    layouts=tile_layout["layouts"]
+                )
 
         colors = initial_data.pop("colors", [])
         for color in colors:

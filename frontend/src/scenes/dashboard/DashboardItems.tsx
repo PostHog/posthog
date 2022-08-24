@@ -54,20 +54,17 @@ export function DashboardItems(): JSX.Element {
                     }
                 }}
                 onWidthChange={(containerWidth, _, newCols) => {
-                    console.log('onWidthChange', containerWidth, newCols)
                     updateContainerWidth(containerWidth, newCols)
                 }}
                 breakpoints={BREAKPOINTS}
                 resizeHandles={canResizeWidth ? ['s', 'e', 'se'] : ['s']}
                 cols={BREAKPOINT_COLUMN_COUNTS}
                 onResize={(_layout: any, _oldItem: any, newItem: any) => {
-                    console.log('onResize', newItem)
                     if (!resizingItem || resizingItem.w !== newItem.w || resizingItem.h !== newItem.h) {
                         setResizingItem(newItem)
                     }
                 }}
                 onResizeStop={() => {
-                    console.log('onResizeStop')
                     setResizingItem(null)
                 }}
                 onDrag={() => {
@@ -88,7 +85,7 @@ export function DashboardItems(): JSX.Element {
             >
                 {items?.map((item: InsightModel) => (
                     <InsightCard
-                        key={item.short_id}
+                        key={`insight-tile-${item.short_id}`}
                         insight={item}
                         dashboardId={dashboard?.id}
                         loading={isRefreshing(item.short_id)}
@@ -117,24 +114,10 @@ export function DashboardItems(): JSX.Element {
                 {showTextCards &&
                     dashboard?.text_tiles?.map((textTile: DashboardTextTile) => (
                         <TextCard
-                            key={textTile.id.toString()}
+                            key={`text-tile-${textTile.id}`}
                             body={textTile.body}
-                            // dashboardId={dashboard?.id}
                             showResizeHandles={dashboardMode === DashboardMode.Edit}
                             canResizeWidth={canResizeWidth}
-                            // updateColor={(color) => updateTextTileColor(textTile.id, color)}
-                            // removeFromDashboard={() => removeTextTile(textTile)}
-                            // duplicate={() => duplicateInsight(item)}
-                            // moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
-                            //     if (!dashboard) {
-                            //         throw new Error('must be on a dashboard to move an insight')
-                            //     }
-                            //     moveToDashboard(item, dashboard.id, id, name)
-                            // }}
-                            // showEditingControls={[
-                            //     DashboardPlacement.Dashboard,
-                            //     DashboardPlacement.ProjectHomepage,
-                            // ].includes(placement)}
                         />
                     ))}
             </ReactGridLayout>
