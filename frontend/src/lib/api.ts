@@ -232,11 +232,11 @@ class ApiRequest {
         return this.addPathComponent('person')
     }
 
-    public person(id: string): ApiRequest {
+    public person(id: string | number): ApiRequest {
         return this.persons().addPathComponent(id)
     }
 
-    public personActivity(id: string | undefined): ApiRequest {
+    public personActivity(id: string | number | undefined): ApiRequest {
         if (id) {
             return this.person(id).addPathComponent('activity')
         }
@@ -420,7 +420,7 @@ const api = {
         ): Promise<CountedPaginatedResponse> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
-                    return new ApiRequest().featureFlagsActivity(props.id || null, teamId)
+                    return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
                 [ActivityScope.PERSON]: (props) => {
                     return new ApiRequest().personActivity(props.id)
