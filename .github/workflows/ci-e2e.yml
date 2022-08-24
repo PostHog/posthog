@@ -79,7 +79,7 @@ jobs:
 
             - name: Push (if PostHog/posthog)
               # Only push to GHCR if running on PostHog/posthog, as there's no read-write token on forks
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+              if: ${{ github.event.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               run: |
                   docker load < /tmp/posthog-image.tar
                   docker image push --all-tags ghcr.io/posthog/posthog/posthog
