@@ -146,7 +146,9 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         center
                                                         className="ActionButton"
                                                         data-attr="toolbar-open"
-                                                    />
+                                                    >
+                                                        Launch
+                                                    </LemonButton>
 
                                                     <LemonButton
                                                         icon={<IconEdit />}
