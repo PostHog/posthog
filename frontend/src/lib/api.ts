@@ -236,8 +236,8 @@ class ApiRequest {
         return this.persons().addPathComponent(id)
     }
 
-    public personActivity(id: number | undefined): ApiRequest {
-        if (typeof id === 'number') {
+    public personActivity(id: str | undefined): ApiRequest {
+        if (id) {
             return this.person(id).addPathComponent('activity')
         }
         return this.persons().addPathComponent('activity')
