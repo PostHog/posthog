@@ -151,7 +151,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
-        name: 'Toolbar',
+        name: 'Launch Toolbar',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
