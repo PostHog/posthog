@@ -132,7 +132,7 @@ jobs:
               id: load
               run: |
                   docker load < /tmp/posthog-image.tar
-                  echo "::set-output name=docker_image_digest::$(docker image inspect 3df374609d74  -f '{{ index .RepoDigests 0 }}')"
+                  echo "::set-output name=docker_image_digest::$(docker image inspect ${{ needs.build.outputs.docker_image_id }}  -f '{{ index .RepoDigests 0 }}')"
 
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
