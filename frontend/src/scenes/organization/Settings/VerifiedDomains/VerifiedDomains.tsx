@@ -1,12 +1,5 @@
 import { useActions, useValues } from 'kea'
-import {
-    IconCheckmark,
-    IconDelete,
-    IconExclamation,
-    IconWarningAmber,
-    IconLock,
-    IconOffline,
-} from 'lib/components/icons'
+import { IconCheckmark, IconDelete, IconExclamation, IconWarning, IconLock, IconOffline } from 'lib/components/icons'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -103,7 +96,7 @@ function VerifiedDomainsTable(): JSX.Element {
                               </div>
                           ) : (
                               <div className="flex items-center text-warning">
-                                  <IconWarningAmber style={iconStyle} /> Pending verification
+                                  <IconWarning style={iconStyle} /> Pending verification
                               </div>
                           )
                       },
@@ -203,7 +196,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
                             <div className="flex items-center text-warning">
-                                <IconWarningAmber style={iconStyle} /> SAML partially configured
+                                <IconWarning style={iconStyle} /> SAML partially configured
                             </div>
                         ) : (
                             <div className="flex items-center">

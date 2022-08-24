@@ -1,16 +1,14 @@
-from posthog.clickhouse.kafka_engine import (
-    COPY_ROWS_BETWEEN_TEAMS_BASE_SQL,
-    KAFKA_COLUMNS,
-    STORAGE_POLICY,
-    kafka_engine,
-)
+from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
+from posthog.models.person.sql import GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 GROUPS_TABLE = "groups"
 
 DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 GROUPS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -74,7 +72,7 @@ WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {f
 """
 
 #
-# Copying demo data
+# Demo data
 #
 
 COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
@@ -84,4 +82,8 @@ COPY_GROUPS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
 
 SELECT_GROUPS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
     table_name=GROUPS_TABLE,
+)
+
+GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES = GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
+    table_name=GROUPS_TABLE, properties_column="group_properties",
 )

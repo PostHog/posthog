@@ -25,12 +25,13 @@ import {
 } from 'scenes/session-recordings/player/eventsListLogic'
 import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
-import { capitalizeFirstLetter, eventToDescription, isEllipsisActive, Loading } from 'lib/utils'
+import { capitalizeFirstLetter, eventToDescription, isEllipsisActive } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType } from '~/types'
 import { sessionRecordingLogic } from '../sessionRecordingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 function overscanIndicesGetter({
     cellCount,
@@ -86,12 +87,12 @@ function EventDescription({ description }: { description: string }): JSX.Element
 export function PlayerEvents(): JSX.Element {
     const listRef = useRef<List>(null)
     const {
-        localFilters,
         listEvents,
-        currentEventsBoxSizeAndPosition,
+        localFilters,
+        currentBoxSizeAndPosition,
         showPositionFinder,
         isRowIndexRendered,
-        isEventCurrent,
+        isCurrent,
         isDirectionUp,
         renderedRows,
     } = useValues(eventsListLogic)
@@ -111,16 +112,16 @@ export function PlayerEvents(): JSX.Element {
         function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
             const event = listEvents[index]
             const hasDescription = getKeyMapping(event.event, 'event')
-            const isCurrent = isEventCurrent(index)
+            const isEventCurrent = isCurrent(index)
 
             return (
                 <Row
                     key={key}
-                    className={clsx('event-list-item', { 'current-event': isCurrent })}
+                    className={clsx('event-list-item', { 'current-event': isEventCurrent })}
                     align="top"
                     style={{ ...style, zIndex: listEvents.length - index }}
                     onClick={() => {
-                        handleEventClick(event.playerPosition)
+                        event.playerPosition && handleEventClick(event.playerPosition)
                     }}
                     data-tooltip="recording-event-list"
                 >
@@ -175,8 +176,8 @@ export function PlayerEvents(): JSX.Element {
             listEvents.length,
             renderedRows.startIndex,
             renderedRows.stopIndex,
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
+            currentBoxSizeAndPosition.top,
+            currentBoxSizeAndPosition.height,
         ]
     )
 
@@ -189,20 +190,15 @@ export function PlayerEvents(): JSX.Element {
                         key="highlight-box"
                         className="current-events-highlight-box"
                         style={{
-                            height: currentEventsBoxSizeAndPosition.height,
-                            transform: `translateY(${currentEventsBoxSizeAndPosition.top}px)`,
+                            height: currentBoxSizeAndPosition.height,
+                            transform: `translateY(${currentBoxSizeAndPosition.top}px)`,
                         }}
                     />
                 )
             }
             return children
         },
-        [
-            currentEventsBoxSizeAndPosition.top,
-            currentEventsBoxSizeAndPosition.height,
-            sessionEventsDataLoading,
-            listEvents.length,
-        ]
+        [currentBoxSizeAndPosition.top, currentBoxSizeAndPosition.height, sessionEventsDataLoading, listEvents.length]
     )
 
     return (
@@ -215,7 +211,7 @@ export function PlayerEvents(): JSX.Element {
             />
             <Col className="event-list">
                 {sessionEventsDataLoading ? (
-                    <Loading />
+                    <SpinnerOverlay />
                 ) : (
                     <>
                         <div className={clsx('current-events-position-finder', { visible: showPositionFinder })}>

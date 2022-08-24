@@ -68,10 +68,6 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.clear_tables()
         super().tearDown()
 
-    @classmethod
-    def tearDownClass(cls):
-        sync_execute("ALTER TABLE sharded_events MODIFY COLUMN person_properties VARCHAR CODEC(ZSTD(3))")
-
     def clear_tables(self):
         run_clickhouse_statement_in_parallel(
             [
@@ -82,11 +78,14 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "DROP DICTIONARY IF EXISTS person_dict",
                 "DROP DICTIONARY IF EXISTS person_distinct_id2_dict",
                 "DROP DICTIONARY IF EXISTS groups_dict",
-                "ALTER TABLE sharded_events MODIFY COLUMN person_properties VARCHAR CODEC(LZ4)",
             ]
         )
 
     def test_is_required(self):
+        create_event(
+            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
+        )
+
         definition = get_async_migration_definition(MIGRATION_NAME)
         self.assertTrue(definition.is_required())
 
@@ -94,6 +93,10 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.assertFalse(definition.is_required())
 
     def test_completes_successfully(self):
+        create_event(
+            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
+        )
+
         self.assertTrue(run_migration())
 
     def test_data_copy_persons(self):
@@ -276,6 +279,9 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_no_extra_tables(self):
+        create_event(
+            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
+        )
         initial_table_count = sync_execute("SELECT count() FROM system.tables")[0][0]
         initial_dictionary_count = sync_execute("SELECT count() FROM system.dictionaries")[0][0]
 
@@ -287,6 +293,10 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         self.assertEqual(initial_dictionary_count, new_dictionary_count)
 
     def test_rollback(self):
+        create_event(
+            event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview",
+        )
+
         migration = get_async_migration_definition(MIGRATION_NAME)
 
         migration.operations[-1].fn = lambda _: 0 / 0  # type: ignore

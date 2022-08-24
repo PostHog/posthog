@@ -22,7 +22,7 @@ const MAX_INVITES_AT_ONCE = 20
 
 export function EmailUnavailableMessage(): JSX.Element {
     return (
-        <AlertMessage type="info" style={{ marginTop: 16 }}>
+        <AlertMessage type="info" className="my-2">
             <>
                 This PostHog instance isn't{' '}
                 <a href="https://posthog.com/docs/self-host/configure/email" target="_blank" rel="noopener">

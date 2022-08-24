@@ -43,7 +43,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                         />
                     </Field>
                     {!samlReady && (
-                        <AlertMessage type="info" style={{ marginBottom: 16 }}>
+                        <AlertMessage type="info">
                             SAML will not be enabled unless you enter all attributes above. However you can still
                             settings as draft.
                         </AlertMessage>

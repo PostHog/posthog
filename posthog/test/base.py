@@ -17,13 +17,22 @@ from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
 from posthog.models import Organization, Team, User
+from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
+from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
-from posthog.models.person.sql import DROP_PERSON_TABLE_SQL, PERSONS_TABLE_SQL, TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL
+from posthog.models.person.sql import (
+    DROP_PERSON_TABLE_SQL,
+    PERSONS_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+    TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+)
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -270,6 +279,7 @@ class QueryMatchingTest:
             query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
+            query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
@@ -289,6 +299,8 @@ class QueryMatchingTest:
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
             query,
         )
+
+        query = re.sub(fr"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -402,9 +414,10 @@ def _create_person(*args, **kwargs):
     Pass immediate=True to create immediately and get a pk back
     """
     global persons_ordering_int
-    kwargs["uuid"] = uuid.UUID(
-        int=persons_ordering_int, version=4
-    )  # make sure the ordering of uuids is always consistent
+    if not (kwargs.get("uuid")):
+        kwargs["uuid"] = uuid.UUID(
+            int=persons_ordering_int, version=4
+        )  # make sure the ordering of uuids is always consistent
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
     if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
@@ -488,7 +501,12 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DROP_EVENTS_TABLE_SQL(),
                 DROP_PERSON_TABLE_SQL,
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+                TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+                TRUNCATE_GROUPS_TABLE_SQL,
+                TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+                TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+                TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -549,6 +567,23 @@ def snapshot_clickhouse_alter_queries(fn):
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
         with self.capture_queries("ALTER") as queries:
+            fn(self, *args, **kwargs)
+
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query)
+
+    return wrapped
+
+
+def snapshot_clickhouse_insert_cohortpeople_queries(fn):
+    """
+    Captures and snapshots INSERT queries from test using `syrupy` library.
+    """
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.capture_queries("INSERT INTO cohortpeople") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:

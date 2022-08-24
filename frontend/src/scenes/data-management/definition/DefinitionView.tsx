@@ -18,11 +18,12 @@ import {
 import { LemonButton } from 'lib/components/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
-import { humanFriendlyNumber, Loading } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { EventsTable } from 'scenes/events'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -42,7 +43,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     return (
         <div className={clsx('definition-page', `definition-${mode}-page`)}>
             {definitionLoading ? (
-                <Loading />
+                <SpinnerOverlay />
             ) : mode === DefinitionPageMode.Edit ? (
                 <DefinitionEdit {...props} definition={definition} />
             ) : (

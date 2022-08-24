@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Form, Group } from 'kea-forms'
 import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, Loading } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DeleteOutlined, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -29,6 +29,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { urls } from 'scenes/urls'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -561,7 +562,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 </Form>
             ) : (
                 // TODO: This should be skeleton loaders
-                <Loading />
+                <SpinnerOverlay />
             )}
         </div>
     )

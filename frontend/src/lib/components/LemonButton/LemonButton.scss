@@ -117,8 +117,7 @@
             }
         }
 
-        .LemonIcon,
-        .spinner {
+        .LemonIcon {
             color: var(--muted-alt);
         }
 
@@ -140,7 +139,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted-alt') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -150,14 +149,12 @@
             }
             &:not(:disabled):active {
                 color: var(--#{$status}-dark, var(--primary-dark));
-                .LemonIcon,
-                .spinner {
+                .LemonIcon {
                     color: var(--#{$status}-dark, var(--primary-dark));
                 }
             }
 
-            .LemonIcon,
-            .spinner {
+            .LemonIcon {
                 color: var(--#{$status});
             }
 
@@ -166,8 +163,7 @@
                 color: var(--white);
                 background: var(--#{$status});
 
-                .LemonIcon,
-                .spinner {
+                .LemonIcon {
                     color: var(--white);
                 }
                 &:not(:disabled):hover,
@@ -175,8 +171,7 @@
                     color: var(--white);
                     background: var(--#{$status}-light, var(--#{$status}));
 
-                    .LemonIcon,
-                    .spinner {
+                    .LemonIcon {
                         color: var(--white);
                     }
                 }

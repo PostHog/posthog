@@ -10,7 +10,6 @@ type LemonInputPropsBase = Pick<
     | 'className'
     | 'onFocus'
     | 'onBlur'
-    | 'width'
     | 'autoFocus'
     | 'maxLength'
     | 'onKeyDown'
@@ -72,7 +71,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         suffix,
         type,
         value,
-        width,
         ...textProps
     },
     ref
@@ -93,7 +91,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     allowClear = allowClear ?? (type === 'search' ? true : false)
     fullWidth = fullWidth ?? (type === 'search' ? false : true)
     prefix = prefix ?? (type === 'search' ? <IconMagnifier /> : undefined)
-    width = width ?? (type === 'search' && !fullWidth ? 240 : undefined)
 
     // Type=password has some special overrides
     suffix =
@@ -103,7 +100,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={passwordVisible ? <IconEyeHidden /> : <IconEyeVisible />}
-                status="muted-alt"
+                status="primary-alt"
                 tooltip={passwordVisible ? 'Hide password' : 'Show password'}
                 onClick={(e) => {
                     e.stopPropagation()
@@ -120,7 +117,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={<IconClose />}
-                status="muted-alt"
+                status="primary-alt"
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()
@@ -141,8 +138,9 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
             className={clsx(
                 'LemonInput',
                 !textProps.disabled && focused && 'LemonInput--focused',
-                value && 'LemonInput--hasContent',
-                fullWidth && 'LemonInput--full-width',
+                value && 'LemonInput--hascontent',
+                fullWidth && 'LemonInput--fullwidth',
+                type && `LemonInput--type-${type}`,
                 className
             )}
             onKeyDown={(event) => {

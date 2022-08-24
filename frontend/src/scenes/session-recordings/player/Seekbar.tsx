@@ -19,7 +19,7 @@ function Tick({ event }: { event: RecordingEventType }): JSX.Element {
             }}
             onClick={(e) => {
                 e.stopPropagation()
-                handleTickClick(event.playerPosition)
+                event.playerPosition && handleTickClick(event.playerPosition)
             }}
             onMouseEnter={(e) => {
                 e.stopPropagation()

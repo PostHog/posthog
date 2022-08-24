@@ -59,7 +59,6 @@ function ToolbarLaunch(): JSX.Element {
                     }
                     checked={user?.toolbar_mode !== 'disabled'}
                     disabled={userLoading}
-                    loading={userLoading}
                     bordered
                 />
             </div>

@@ -1,3 +1,4 @@
+import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -53,6 +54,8 @@ export const personsLogic = kea<personsLogicType>({
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
+        showPersonDeleteModal: (person: PersonType | null) => ({ person }),
+        deletePerson: (payload: { person: PersonType; deleteEvents: boolean }) => payload,
     },
     reducers: {
         listFilters: [
@@ -94,6 +97,12 @@ export const personsLogic = kea<personsLogicType>({
             loadPerson: () => null,
             setPerson: (_, { person }): PersonType | null => person,
         },
+        personDeleteModal: [
+            null as PersonType | null,
+            {
+                showPersonDeleteModal: (_, { person }) => person,
+            },
+        ],
     },
     selectors: () => ({
         apiDocsURL: [
@@ -104,19 +113,9 @@ export const personsLogic = kea<personsLogicType>({
                     : 'https://posthog.com/docs/api/persons',
         ],
         cohortId: [() => [(_, props) => props.cohort], (cohort: PersonLogicProps['cohort']) => cohort],
-        showSessionRecordings: [
-            (s) => [s.currentTeam],
-            (currentTeam): boolean => {
-                return !!currentTeam?.session_recording_opt_in
-            },
-        ],
         currentTab: [
-            (s) => [s.activeTab, s.showSessionRecordings],
-            (activeTab, showSessionRecordings) => {
-                // Ensure the activeTab reflects a valid tab given the available tabs
-                if (activeTab === PersonsTabType.SESSION_RECORDINGS && !showSessionRecordings) {
-                    return PersonsTabType.EVENTS
-                }
+            (s) => [s.activeTab],
+            (activeTab) => {
                 return activeTab || PersonsTabType.PROPERTIES
             },
         ],
@@ -156,10 +155,17 @@ export const personsLogic = kea<personsLogicType>({
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
     }),
     listeners: ({ actions, values }) => ({
-        deletePersonSuccess: () => {
+        deletePersonSuccess: ({ deletedPerson }) => {
             // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
             // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
-            lemonToast.success('Person deleted. Their ID(s) will be usable again in an hour or so')
+            lemonToast.success(
+                <>
+                    The person <strong>{asDisplay(deletedPerson.person)}</strong> was removed from the project.
+                    {deletedPerson.deleteEvents
+                        ? ' Corresponding events will be deleted on a set schedule during non-peak usage times.'
+                        : ' Their ID(s) will be usable again in an hour or so.'}
+                </>
+            )
             actions.loadPersons()
             router.actions.push(urls.persons())
         },
@@ -269,14 +275,12 @@ export const personsLogic = kea<personsLogicType>({
             },
         ],
         deletedPerson: [
-            false,
+            {} as { person?: PersonType; deleteEvents?: boolean },
             {
-                deletePerson: async () => {
-                    if (!values.person) {
-                        return false
-                    }
-                    await api.delete(`api/person/${values.person.id}`)
-                    return true
+                deletePerson: async ({ person, deleteEvents }) => {
+                    const params = deleteEvents ? { delete_events: true } : {}
+                    await api.delete(`api/person/${person.id}?${toParams(params)}`)
+                    return { person, deleteEvents }
                 },
             },
         ],
@@ -319,11 +323,7 @@ export const personsLogic = kea<personsLogicType>({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId) {
-                    if (values.showSessionRecordings) {
-                        actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                    } else {
-                        actions.navigateToTab(PersonsTabType.EVENTS)
-                    }
+                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
                 } else if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }

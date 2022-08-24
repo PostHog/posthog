@@ -737,7 +737,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     }
 
     # Get license information
-    bypass_license: bool = settings.MULTI_TENANCY
+    bypass_license: bool = settings.MULTI_TENANCY or settings.DEMO
     license = None
     try:
         from ee.models.license import License

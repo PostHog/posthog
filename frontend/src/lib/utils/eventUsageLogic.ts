@@ -24,6 +24,7 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
     InsightShortId,
+    YesOrNoResponse,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -236,7 +237,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
-        reportDemoWarningDismissed: (key: string) => ({ key }),
+        reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportOnboardingStepTriggered: (stepKey: string, extraArgs: Record<string, string | number | boolean>) => ({
             stepKey,
             extraArgs,
@@ -370,7 +371,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingConsoleFeedback: (logCount: number, response: string, question: string) => ({
+        reportRecordingConsoleFeedback: (logCount: number, response: YesOrNoResponse, question: string) => ({
             logCount,
             response,
             question,
@@ -682,7 +683,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 name_length: nameLength,
             })
         },
-        reportDemoWarningDismissed: async ({ key }) => {
+        reportProjectNoticeDismissed: async ({ key }) => {
+            // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
         },
         reportOnboardingStepTriggered: async ({ stepKey, extraArgs }) => {

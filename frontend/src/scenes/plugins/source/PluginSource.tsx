@@ -33,7 +33,8 @@ export function PluginSource({
     const { user } = useValues(userLogic)
 
     const logicProps = { pluginId, pluginConfigId, onClose: close }
-    const { submitPluginSource, closePluginSource } = useActions(pluginSourceLogic(logicProps))
+    const logic = pluginSourceLogic(logicProps)
+    const { submitPluginSource, closePluginSource } = useActions(logic)
     const { isPluginSourceSubmitting, pluginSourceLoading, currentFile, name } = useValues(
         pluginSourceLogic(logicProps)
     )
@@ -108,7 +109,7 @@ export function PluginSource({
                             <Skeleton />
                         ) : (
                             <>
-                                <PluginSourceTabs />
+                                <PluginSourceTabs logic={logic} />
                                 <Field name={[currentFile]}>
                                     {({ value, onChange }) => (
                                         <>

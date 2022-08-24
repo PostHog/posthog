@@ -23,7 +23,7 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 export interface PersonsModalProps {
     isOpen: boolean
@@ -202,33 +202,26 @@ export function PersonsModal({
                                     <LemonSelect
                                         fullWidth
                                         className="mb-2"
-                                        value={people.seriesId.toString()}
+                                        value={String(people.seriesId)}
                                         onChange={(_id) =>
                                             typeof _id === 'string' ? switchToDataPoint(parseInt(_id, 10)) : null
                                         }
-                                        options={
-                                            people.crossDataset.reduce(
-                                                (acc, dataPoint) => ({
-                                                    ...acc,
-                                                    [`${dataPoint.id}`]: {
-                                                        label: (
-                                                            <InsightLabel
-                                                                seriesColor={getSeriesColor(dataPoint.id)}
-                                                                action={dataPoint.action}
-                                                                breakdownValue={
-                                                                    dataPoint.breakdown_value === ''
-                                                                        ? 'None'
-                                                                        : dataPoint.breakdown_value?.toString()
-                                                                }
-                                                                showCountedByTag={showCountedByTag}
-                                                                hasMultipleSeries={hasMultipleSeries}
-                                                            />
-                                                        ),
-                                                    },
-                                                }),
-                                                {}
-                                            ) as LemonSelectOptions
-                                        }
+                                        options={people.crossDataset.map((dataPoint) => ({
+                                            value: `${dataPoint.id}`,
+                                            label: (
+                                                <InsightLabel
+                                                    seriesColor={getSeriesColor(dataPoint.id)}
+                                                    action={dataPoint.action}
+                                                    breakdownValue={
+                                                        dataPoint.breakdown_value === ''
+                                                            ? 'None'
+                                                            : dataPoint.breakdown_value?.toString()
+                                                    }
+                                                    showCountedByTag={showCountedByTag}
+                                                    hasMultipleSeries={hasMultipleSeries}
+                                                />
+                                            ),
+                                        }))}
                                     />
                                 )}
                                 <div className="user-count-subheader">

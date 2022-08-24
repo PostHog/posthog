@@ -90,124 +90,64 @@ export function InsightTooltip({
 
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
-        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${shortTimeZone(timezone)})`
+        `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
-    const renderTable = (): JSX.Element => {
-        if (itemizeEntitiesAsColumns) {
-            const dataSource = invertDataSource(seriesData)
-            const columns: LemonTableColumns<InvertedSeriesDatum> = [
-                {
-                    key: 'datum',
-                    className: 'datum-column',
-                    title,
-                    sticky: true,
-                    render: function renderDatum(_, datum) {
-                        return <div>{datum.datumTitle}</div>
-                    },
+
+    if (itemizeEntitiesAsColumns) {
+        const dataSource = invertDataSource(seriesData)
+        const columns: LemonTableColumns<InvertedSeriesDatum> = [
+            {
+                key: 'datum',
+                className: 'datum-column',
+                title,
+                sticky: true,
+                render: function renderDatum(_, datum) {
+                    return <div>{datum.datumTitle}</div>
                 },
-            ]
-            const numDataPoints = Math.max(...dataSource.map((ds) => ds?.seriesData?.length ?? 0))
-            const isTruncated = numDataPoints > colCutoff || dataSource.length > rowCutoff
+            },
+        ]
+        const numDataPoints = Math.max(...dataSource.map((ds) => ds?.seriesData?.length ?? 0))
+        const isTruncated = numDataPoints > colCutoff || dataSource.length > rowCutoff
 
-            if (numDataPoints > 0) {
-                const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
-                const truncatedCols = dataSource?.[
-                    indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0
-                ].seriesData.slice(0, colCutoff)
-                truncatedCols.forEach((seriesColumn, colIdx) => {
-                    columns.push({
-                        key: `series-column-data-${colIdx}`,
-                        className: 'datum-counts-column',
-                        align: 'right',
-                        title:
-                            (colIdx === 0 ? rightTitle : undefined) ||
-                            (!altTitle &&
-                                renderSeries(
-                                    <InsightLabel
-                                        className="series-column-header"
-                                        action={seriesColumn.action}
-                                        fallbackName={seriesColumn.label}
-                                        hideBreakdown
-                                        showSingleName
-                                        hideCompare
-                                        hideIcon
-                                        allowWrap
-                                    />,
-                                    seriesColumn,
-                                    colIdx
-                                )),
-                        render: function renderSeriesColumnData(_, datum) {
-                            return renderDatumToTableCell(
-                                datum.seriesData?.[colIdx]?.action?.math_property,
-                                datum.seriesData?.[colIdx]?.count,
-                                formatPropertyValueForDisplay,
-                                renderCount
-                            )
-                        },
-                    })
-                })
-            }
-
-            return (
-                <>
-                    <LemonTable
-                        dataSource={dataSource.slice(0, rowCutoff)}
-                        columns={columns}
-                        rowKey="id"
-                        size="small"
-                        uppercaseHeader={false}
-                        rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
-                        showHeader={showHeader}
-                    />
-                    {!hideInspectActorsSection && (
-                        <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
-                    )}
-                </>
+        if (numDataPoints > 0) {
+            const indexOfLongestSeries = dataSource.findIndex((ds) => ds?.seriesData?.length === numDataPoints)
+            const truncatedCols = dataSource?.[indexOfLongestSeries !== -1 ? indexOfLongestSeries : 0].seriesData.slice(
+                0,
+                colCutoff
             )
+            truncatedCols.forEach((seriesColumn, colIdx) => {
+                columns.push({
+                    key: `series-column-data-${colIdx}`,
+                    className: 'datum-counts-column',
+                    align: 'right',
+                    title:
+                        (colIdx === 0 ? rightTitle : undefined) ||
+                        (!altTitle &&
+                            renderSeries(
+                                <InsightLabel
+                                    className="series-column-header"
+                                    action={seriesColumn.action}
+                                    fallbackName={seriesColumn.label}
+                                    hideBreakdown
+                                    showSingleName
+                                    hideCompare
+                                    hideIcon
+                                    allowWrap
+                                />,
+                                seriesColumn,
+                                colIdx
+                            )),
+                    render: function renderSeriesColumnData(_, datum) {
+                        return renderDatumToTableCell(
+                            datum.seriesData?.[colIdx]?.action?.math_property,
+                            datum.seriesData?.[colIdx]?.count,
+                            formatPropertyValueForDisplay,
+                            renderCount
+                        )
+                    },
+                })
+            })
         }
-
-        // Itemize tooltip entities as rows
-        const dataSource = [...seriesData]
-        const columns: LemonTableColumn<SeriesDatum, keyof SeriesDatum | undefined>[] = []
-        const isTruncated = dataSource?.length > rowCutoff
-
-        columns.push({
-            key: 'datum',
-            width: 120,
-            title: <span className="whitespace-nowrap">{title}</span>,
-            sticky: true,
-            render: function renderDatum(_, datum, rowIdx) {
-                return renderSeries(
-                    <InsightLabel
-                        action={datum.action}
-                        fallbackName={datum.label}
-                        hideBreakdown
-                        showSingleName
-                        hideCompare
-                        hideIcon
-                        allowWrap
-                    />,
-                    datum,
-                    rowIdx
-                )
-            },
-        })
-
-        columns.push({
-            key: 'counts',
-            className: 'datum-counts-column',
-            width: 50,
-            title: <span className="whitespace-nowrap">{rightTitle ?? undefined}</span>,
-            align: 'right',
-            render: function renderDatum(_, datum) {
-                return renderDatumToTableCell(
-                    datum.action?.math_property,
-                    datum.count,
-                    formatPropertyValueForDisplay,
-                    renderCount
-                )
-            },
-        })
 
         return (
             <>
@@ -216,9 +156,8 @@ export function InsightTooltip({
                     columns={columns}
                     rowKey="id"
                     size="small"
-                    className="ph-no-capture"
                     uppercaseHeader={false}
-                    rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
+                    rowRibbonColor={hideColorCol ? undefined : (datum) => datum.color || null}
                     showHeader={showHeader}
                 />
                 {!hideInspectActorsSection && (
@@ -228,5 +167,64 @@ export function InsightTooltip({
         )
     }
 
-    return renderTable()
+    // Itemize tooltip entities as rows
+    const dataSource = [...seriesData]
+    const columns: LemonTableColumn<SeriesDatum, keyof SeriesDatum | undefined>[] = []
+    const isTruncated = dataSource?.length > rowCutoff
+
+    columns.push({
+        key: 'datum',
+        width: 120,
+        title: <span className="whitespace-nowrap">{title}</span>,
+        sticky: true,
+        render: function renderDatum(_, datum, rowIdx) {
+            return renderSeries(
+                <InsightLabel
+                    action={datum.action}
+                    fallbackName={datum.label}
+                    hideBreakdown
+                    showSingleName
+                    hideCompare
+                    hideIcon
+                    allowWrap
+                />,
+                datum,
+                rowIdx
+            )
+        },
+    })
+
+    columns.push({
+        key: 'counts',
+        className: 'datum-counts-column',
+        width: 50,
+        title: <span className="whitespace-nowrap">{rightTitle ?? undefined}</span>,
+        align: 'right',
+        render: function renderDatum(_, datum) {
+            return renderDatumToTableCell(
+                datum.action?.math_property,
+                datum.count,
+                formatPropertyValueForDisplay,
+                renderCount
+            )
+        },
+    })
+
+    return (
+        <>
+            <LemonTable
+                dataSource={dataSource.slice(0, rowCutoff)}
+                columns={columns}
+                rowKey="id"
+                size="small"
+                className="ph-no-capture"
+                uppercaseHeader={false}
+                rowRibbonColor={hideColorCol ? undefined : (datum: SeriesDatum) => datum.color || null}
+                showHeader={showHeader}
+            />
+            {!hideInspectActorsSection && (
+                <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+            )}
+        </>
+    )
 }
