@@ -123,6 +123,11 @@ jobs:
 
     posthog_cloud:
         name: PostHog Cloud image build
+        # Only run on non-external PRs. We could make this work on external PR's
+        # but that would be an improvement on what we currently do, so I'll
+        # leave that as a TODO.
+        # TODO: test Cloud build on external contributions as well.
+        if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
         needs: [build]
 
@@ -138,9 +143,7 @@ jobs:
             - name: Load the non-cloud image
               id: load
               run: |
-                  set -x
                   docker load < /tmp/posthog-image.tar
-                  docker image inspect ${{ needs.build.outputs.docker_image_id }}
                   echo "::set-output name=docker_image_digest::$(docker image inspect ${{ needs.build.outputs.docker_image_id }}  -f '{{ index .RepoTags 0 }}')"
 
             - name: Configure AWS credentials
