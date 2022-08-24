@@ -77,13 +77,6 @@ jobs:
                   outputs: |
                       type=docker,dest=/tmp/posthog-image.tar
 
-            - name: Push (if PostHog/posthog)
-              # Only push to GHCR if running on PostHog/posthog, as there's no read-write token on forks
-              if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
-              run: |
-                  docker load < /tmp/posthog-image.tar
-                  docker image push --all-tags ghcr.io/posthog/posthog/posthog
-
             - name: Upload docker image
               uses: actions/upload-artifact@v2
               with:
@@ -99,6 +92,126 @@ jobs:
                   echo "### Build info" >> $GITHUB_STEP_SUMMARY
                   echo "Image size: $(numfmt --to=iec --suffix=B --format="%.2f" $image_size_bytes)" >> $GITHUB_STEP_SUMMARY
                   echo "Image name: $image_name" >> $GITHUB_STEP_SUMMARY
+
+    push:
+        # We use artifacts to pass the docker image between steps, so we do
+        # the push separately such that we can do this in parallel with other
+        # jobs.
+        name: Docker image push
+        if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+        runs-on: ubuntu-latest
+        needs: build
+
+        steps:
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v1
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - uses: actions/download-artifact@v3
+              with:
+                  name: docker-image
+                  path: /tmp/
+
+            - name: Push (if PostHog/posthog)
+              # Only push to GHCR if running on PostHog/posthog, as there's no read-write token on forks
+              run: |
+                  docker load < /tmp/posthog-image.tar
+                  docker image push --all-tags ghcr.io/posthog/posthog/posthog
+
+    posthog_cloud:
+        name: PostHog Cloud image build
+        # Only run on non-external PRs. We could make this work on external PR's
+        # but that would be an improvement on what we currently do, so I'll
+        # leave that as a TODO.
+        # TODO: test Cloud build on external contributions as well.
+        if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+        runs-on: ubuntu-latest
+        needs: [build]
+
+        steps:
+            - name: Checkout PR branch
+              uses: actions/checkout@v2
+
+            - uses: actions/download-artifact@v3
+              with:
+                  name: docker-image
+                  path: /tmp/
+
+            - name: Load the non-cloud image
+              id: load
+              run: |
+                  docker load < /tmp/posthog-image.tar
+                  echo "::set-output name=docker_image_digest::$(docker image inspect ${{ needs.build.outputs.docker_image_id }}  -f '{{ index .RepoTags 0 }}')"
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v1
+              with:
+                  aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v1
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Fetch posthog-cloud
+              run: |
+                  mkdir cloud/
+                  cd cloud/
+                  curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
+
+            - name: Docker image metadata
+              id: meta
+              uses: docker/metadata-action@v3
+              with:
+                  images: ${{ steps.login-ecr.outputs.registry }}/posthog-cloud
+                  tags: |
+                      type=ref,event=pr
+                      type=sha,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+                      type=raw,value=master,enable=${{ github.ref == format('refs/heads/{0}', 'master') }}
+
+            # We also want to use cache-from when building, but we want to also
+            # include the master tag so we get the master branch image as well.
+            # This creates a scope similar to the github cache action scoping
+            - name: Docker cache-from/cache-to metadata
+              id: meta-for-cache
+              uses: docker/metadata-action@v3
+              with:
+                  images: ${{ steps.login-ecr.outputs.registry }}/posthog-cloud
+                  tags: |
+                      type=raw,value=master
+                      type=ref,event=pr
+
+            - name: Build
+              id: docker_build
+              uses: docker/build-push-action@v2
+              with:
+                  cache-from: ${{ steps.meta-for-cache.outputs.tags }}
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  push: true
+                  # load: true # NOTE: this option is not compatible with `push: true`
+                  # NOTE: we use inline as suggested here:
+                  # https://github.com/docker/build-push-action/blob/master/docs/advanced/cache.md#inline-cache
+                  # It notes that it doesn't support mode=max, but we're not
+                  # removing any layers, soooo, maybe it's fine.
+                  cache-to: type=inline
+                  file: Dockerfile.cloud
+                  context: cloud
+                  # Here we use the non-Cloud image and extend from it with the
+                  # Cloud additions
+                  build-args: |
+                      BASE_IMAGE=${{ steps.load.outputs.docker_image_digest }}
 
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
