@@ -78,6 +78,7 @@ describe('Events', () => {
     it('separates feature flag properties into their own tab', () => {
         cy.get('[data-attr=new-prop-filter-EventsTable]').click()
         cy.get('[data-attr="taxonomic-tab-event_feature_flags"]').should('contain.text', 'Feature flags: 2').click()
+        cy.wait(200)
         cy.get('.taxonomic-list-row').should('have.length', 2)
     })
 
