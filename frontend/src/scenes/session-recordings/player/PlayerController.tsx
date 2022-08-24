@@ -18,7 +18,7 @@ export function PlayerControllerV2(): JSX.Element {
     const { currentPlayerState, speed, isSmallScreen, skipInactivitySetting } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <div className="rrweb-controller" data-attr="rrweb-controller">
+        <div className="rrweb-controller" data-tooltip="recording-player">
             <span>
                 {currentPlayerState === SessionPlayerState.PLAY ? (
                     <IconPause
@@ -81,7 +81,7 @@ export function PlayerControllerV3(): JSX.Element {
 
     return (
         <div className="rrweb-controller">
-            <div className="rrweb-controller__top" data-attr="rrweb-controller">
+            <div className="rrweb-controller__top" data-tooltip="recording-player">
                 {!isSmallScreen && <Timestamp />}
                 <Seekbar />
             </div>

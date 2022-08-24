@@ -124,6 +124,7 @@ export function Person(): JSX.Element | null {
                         <LemonButton
                             onClick={() => setSplitMergeModalShown(true)}
                             data-attr="merge-person-button"
+                            data-tooltip="person-split-merge-button"
                             type="secondary"
                         >
                             Split or merge IDs
@@ -140,7 +141,7 @@ export function Person(): JSX.Element | null {
                     navigateToTab(tab as PersonsTabType)
                 }}
                 destroyInactiveTabPane={true}
-                data-attr="persons-tabs"
+                data-tooltip="persons-tabs"
             >
                 <TabPane
                     tab={<span data-attr="persons-properties-tab">Properties</span>}

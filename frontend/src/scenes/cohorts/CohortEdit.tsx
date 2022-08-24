@@ -79,7 +79,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 />
                 <Divider />
                 <div className="space-y-2" style={{ maxWidth: 640 }}>
-                    <div className="flex gap-4 flex-wrap">
+                    <div className="flex gap-4 flex-wrap" data-tooltip="cohorts-type">
                         <div className="flex-1">
                             <Field name="name" label="Name">
                                 <LemonInput data-attr="cohort-name" />
@@ -196,7 +196,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             <h3 className="l3">Persons in this cohort</h3>
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
-                                    <Spinner size="sm" className="mr-4" />
+                                    <Spinner className="mr-4" />
                                     We're recalculating who belongs to this cohort. This could take up to a couple of
                                     minutes.
                                 </div>

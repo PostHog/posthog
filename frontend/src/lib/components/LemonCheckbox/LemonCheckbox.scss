@@ -28,6 +28,7 @@
             background: var(--bg-light);
             border: 1.5px solid var(--border-dark);
             border-radius: 3px; // Intentionally a bit smaller than --radius
+            flex-shrink: 0;
 
             path {
                 transition: stroke-dashoffset 200ms ease;

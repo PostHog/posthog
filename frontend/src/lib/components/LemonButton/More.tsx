@@ -5,14 +5,15 @@ import { PopupProps } from '../Popup/Popup'
 
 export interface MoreProps extends Partial<Pick<PopupProps, 'overlay' | 'placement'>> {
     style?: React.CSSProperties
-    'data-attr'?: string
+    'data-tooltip'?: string
 }
 
-export function More({ overlay, placement = 'bottom-end', 'data-attr': dataTooltip }: MoreProps): JSX.Element {
+export function More({ overlay, placement = 'bottom-end', 'data-tooltip': dataTooltip }: MoreProps): JSX.Element {
     return (
         <LemonButtonWithPopup
             aria-label="more"
-            data-attr={dataTooltip ?? 'more-button'}
+            data-attr="more-button"
+            data-tooltip={dataTooltip}
             icon={<IconEllipsis />}
             status="stealth"
             popup={{
