@@ -204,6 +204,9 @@ export function addHistoricalEventsExportCapability(
             createLog(`Failed fetching events. Stopping export - please try again later.`)
             return
         } else {
+            if (events.length === 0) {
+                return
+            }
             try {
                 await methods.exportEvents!(events)
             } catch (error) {
