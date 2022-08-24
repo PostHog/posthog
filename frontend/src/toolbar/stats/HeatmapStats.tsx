@@ -33,7 +33,7 @@ export function HeatmapStats(): JSX.Element {
                             getPopupContainer={getShadowRootPopupContainer}
                         />
 
-                        {!heatmapLoading ? <Spinner size="sm" /> : null}
+                        {!heatmapLoading ? <Spinner /> : null}
                     </div>
                     <div>
                         Found: {countedElements.length} elements / {clickCount} clicks!
