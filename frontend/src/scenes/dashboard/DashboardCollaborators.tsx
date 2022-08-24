@@ -63,7 +63,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                     />
                     {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
                         <div className="mt-4">
-                            <h4>Collaborators</h4>
+                            <h5>Collaborators</h5>
                             {canEditDashboard && (
                                 <div className="flex gap-2">
                                     <div className="flex-1">
@@ -90,7 +90,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                             )}
                             <h5 className="mt-4">Project members with access</h5>
                             <div
-                                className="mt-2 pb-2 pr-2 rounded overflow-y-auto"
+                                className="mt-2 pb-2 rounded overflow-y-auto"
                                 style={{
                                     maxHeight: 300,
                                 }}
@@ -139,9 +139,7 @@ function CollaboratorRow({
                 placement="left"
             >
                 <div className="flex items-center gap-2">
-                    <span className="rounded bg-primary-alt-highlight p-1">
-                        {!wasInvited ? <b>{privilegeLevelName}</b> : privilegeLevelName}
-                    </span>
+                    <span className="rounded bg-primary-alt-highlight p-1">{privilegeLevelName}</span>
                     {deleteCollaborator && wasInvited && (
                         <LemonButton
                             icon={<IconDelete />}
