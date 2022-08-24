@@ -88,7 +88,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 tabbedPage
             />
             {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning tab="Event Property Definitions" />
+                <UsageDisabledWarning />
             ) : (
                 eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
                     <div className="mb-4">

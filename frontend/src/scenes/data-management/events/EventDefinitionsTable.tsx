@@ -215,9 +215,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     </p>
                 </AlertMessage>
             )}
-            {preflight && !preflight?.is_event_property_usage_enabled && (
-                <UsageDisabledWarning tab="Event Definitions" />
-            )}
+            {preflight && !preflight?.is_event_property_usage_enabled && <UsageDisabledWarning />}
             <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
             <div className="flex justify-between items-center gap-2 mb-4">
                 <LemonInput
