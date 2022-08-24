@@ -1,19 +1,18 @@
 import { actions, connect, kea, key, listeners, Logic, path, props, reducers, selectors } from 'kea'
-import { PlayerPosition, RecordingTimeMixinType, SessionRecordingTab } from '~/types'
+import { PlayerPosition, SessionRecordingTab } from '~/types'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { ceilMsToClosestSecond, clamp, findLastIndex, floorMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
-
 import type { listLogicType } from './listLogicType'
 
+export type RowStatus = 'warning' | 'error' | 'information' | 'match'
 export const TAB_TO_LOGIC: Record<SessionRecordingTab, Logic> = {
     [SessionRecordingTab.EVENTS]: eventsListLogic,
     [SessionRecordingTab.CONSOLE]: consoleLogsListLogic,
 }
-
 export const DEFAULT_ROW_HEIGHT = 40 + 4 // Default height + padding
 export const OVERSCANNED_ROW_COUNT = 50
 const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
@@ -87,7 +86,7 @@ export const listLogic = kea<listLogicType>([
     selectors(({ props }) => ({
         data: [
             () => [TAB_TO_LOGIC[props.tab]?.selectors.data],
-            (data: RecordingTimeMixinType[]): RecordingTimeMixinType[] => data ?? [],
+            (data: Record<string, any>[]): Record<string, any>[] => data ?? [],
         ],
         currentStartIndex: [
             (selectors) => [selectors.data, selectors.currentPlayerTime],
@@ -129,36 +128,6 @@ export const listLogic = kea<listLogicType>([
                     data.length - 1
                 ),
             }),
-        ],
-        currentBoxSizeAndPosition: [
-            (selectors) => [selectors.currentIndices, selectors.list],
-            (indices, list) => {
-                if (
-                    !list ||
-                    !list.Grid ||
-                    indices.startIndex >= list.Grid.props.rowCount ||
-                    indices.stopIndex > list.Grid.props.rowCount ||
-                    (indices.startIndex < 1 && indices.stopIndex < 1) ||
-                    indices.stopIndex < indices.startIndex
-                ) {
-                    return {
-                        top: 0,
-                        height: 0,
-                    }
-                }
-
-                const gridState = list.Grid.state as any
-                const top = gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(
-                    indices.startIndex
-                ).offset
-                const lastDatumSize = gridState.instanceProps.rowSizeAndPositionManager.getSizeAndPositionOfCell(
-                    indices.stopIndex
-                )
-                return {
-                    top,
-                    height: lastDatumSize.offset + lastDatumSize.size - top,
-                }
-            },
         ],
         isRowIndexRendered: [
             (selectors) => [selectors.renderedRows],

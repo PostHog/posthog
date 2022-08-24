@@ -11,6 +11,7 @@ import { PlayerConsole } from 'scenes/session-recordings/player/list/PlayerConso
 import React from 'react'
 import { SessionRecordingTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 const { TabPane } = Tabs
 
@@ -66,11 +67,31 @@ export function PlayerInspectorV3(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { tab } = useValues(sessionRecordingLogic)
     const sessionConsoleEnabled = !!featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
+    const currentTab = sessionConsoleEnabled ? tab : SessionRecordingTab.EVENTS
 
     return (
         <Col className="player-sidebar">
             <div className="player-list">
-                <PlayerList tab={sessionConsoleEnabled ? tab : SessionRecordingTab.EVENTS} />
+                <PlayerList
+                    tab={currentTab}
+                    row={{
+                        content: function renderContent(record) {
+                            if (currentTab === SessionRecordingTab.CONSOLE) {
+                                return <>"CONSOLE"</>
+                            }
+                            return (
+                                <PropertyKeyInfo
+                                    className="font-medium"
+                                    value={record.event}
+                                    disableIcon
+                                    disablePopover
+                                    ellipsis={true}
+                                    style={{ maxWidth: 150 }}
+                                />
+                            )
+                        },
+                    }}
+                />
             </div>
         </Col>
     )

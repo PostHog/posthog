@@ -1,32 +1,44 @@
 import './PlayerList.scss'
-import React, { ReactNode, useCallback, useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
 import { SessionRecordingTab } from '~/types'
-import { DEFAULT_ROW_HEIGHT, listLogic, OVERSCANNED_ROW_COUNT } from 'scenes/session-recordings/player/list/listLogic'
+import {
+    DEFAULT_ROW_HEIGHT,
+    listLogic,
+    OVERSCANNED_ROW_COUNT,
+    RowStatus,
+} from 'scenes/session-recordings/player/list/listLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
-import { List, ListRowProps } from 'react-virtualized/dist/es/List'
+import { List } from 'react-virtualized/dist/es/List'
 import { Empty } from 'antd'
 import clsx from 'clsx'
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined } from '@ant-design/icons'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { IconEllipsis, IconUnfoldMore } from 'lib/components/icons'
-import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { ExpandableConfig } from 'lib/components/LemonTable'
+import { PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
+
+interface RowConfig<T extends Record<string, any>> {
+    /** Class to append to each row. */
+    className?: string | ((record: T) => string | null)
+    /** Status of each row. Defaults no status */
+    status?: RowStatus | ((record: T) => RowStatus | null)
+    /** Callback to render main content on left side of row */
+    content?: JSX.Element | ((record: T) => JSX.Element | null)
+    /** Callback to render main content on right side of row */
+    sideContent?: JSX.Element | ((record: T) => JSX.Element | null)
+}
 
 export interface PlayerListProps<T> {
     tab: SessionRecordingTab
     expandable?: ExpandableConfig<T>
-    renderContent?: (record: T) => ReactNode
-    renderSideContent?: (record: T) => ReactNode
+    row?: RowConfig<T>
 }
 
-export function PlayerList<T extends Record<string, any>>({ tab }: PlayerListProps<T>): JSX.Element {
+export function PlayerList<T extends Record<string, any>>({ tab, expandable, row }: PlayerListProps<T>): JSX.Element {
     const listRef = useRef<List>(null)
     const logic = listLogic({ tab })
-    const { data, currentBoxSizeAndPosition, showPositionFinder, isCurrent, isDirectionUp, renderedRows } =
-        useValues(logic)
+    const { data, showPositionFinder, isCurrent, isDirectionUp } = useValues(logic)
     const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick } = useActions(logic)
     const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
 
@@ -37,63 +49,6 @@ export function PlayerList<T extends Record<string, any>>({ tab }: PlayerListPro
     }, [listRef.current])
 
     console.log('LISTDATA', data)
-
-    const rowRenderer = useCallback(
-        function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
-            const datum = data[index]
-            const _isCurrent = isCurrent(index)
-
-            return (
-                <div
-                    key={key}
-                    className={clsx('PlayerList__item', { 'PlayerList__item--current': _isCurrent }, 'bg-transparent')}
-                    style={{ ...style, zIndex: data.length - index }}
-                    onClick={() => {
-                        datum.playerPosition && handleRowClick(datum.playerPosition)
-                    }}
-                    data-tooltip="recording-player-list"
-                >
-                    <div className="h-full rounded flex flex-row items-center justify-between bg-light border border-border px-2">
-                        <div className="flex flex-row grow gap-1 items-center">
-                            <LemonButton icon={<IconUnfoldMore />} size="small" status="muted" />
-                            <div>
-                                <IconWindow value="1" className="text-muted" />
-                            </div>
-                            Content goes here
-                        </div>
-                        <div className="flex flex-row gap-3 items-center">
-                            Right aligned content goes here
-                            <div className="text-xs">{datum.colonTimestamp}</div>
-                            <LemonButtonWithPopup
-                                data-attr="player-list-item-menu"
-                                id="player-list-item-menu"
-                                icon={<IconEllipsis />}
-                                size="small"
-                                status="muted"
-                                popup={{
-                                    placement: 'bottom-end',
-                                    overlay: (
-                                        <>
-                                            <LemonButton fullWidth status="stealth">
-                                                Hello
-                                            </LemonButton>
-                                        </>
-                                    ),
-                                }}
-                            />
-                        </div>
-                    </div>
-                </div>
-            )
-        },
-        [
-            data.length,
-            renderedRows.startIndex,
-            renderedRows.stopIndex,
-            currentBoxSizeAndPosition.top,
-            currentBoxSizeAndPosition.height,
-        ]
-    )
 
     return (
         <div className="PlayerList">
@@ -152,7 +107,42 @@ export function PlayerList<T extends Record<string, any>>({ tab }: PlayerListPro
                                         }
                                     }}
                                     rowCount={data.length}
-                                    rowRenderer={rowRenderer}
+                                    rowRenderer={({ index, style, key }) => {
+                                        const record = data[index] as T
+                                        const rowKeyDetermined = key ?? index
+                                        const rowClassNameDetermined =
+                                            typeof row?.className === 'function'
+                                                ? row.className(record)
+                                                : row?.className
+                                        const rowStatusDetermined =
+                                            typeof row?.status === 'function' ? row.status(record) : row?.status
+                                        const rowCurrentDetermined = isCurrent(index)
+                                        const rowContentDetermined =
+                                            typeof row?.content === 'function' ? row.content(record) : row?.content
+                                        const rowSideContentDetermined =
+                                            typeof row?.sideContent === 'function'
+                                                ? row.sideContent(record)
+                                                : row?.sideContent
+
+                                        return (
+                                            <PlayerListRow
+                                                key={`PlayerList-Row-${rowKeyDetermined}`}
+                                                record={record}
+                                                recordIndex={index}
+                                                keyDetermined={rowKeyDetermined}
+                                                classNameDetermined={rowClassNameDetermined}
+                                                statusDetermined={rowStatusDetermined}
+                                                currentDetermined={rowCurrentDetermined}
+                                                style={{ ...style, zIndex: data.length - index }}
+                                                expandable={expandable}
+                                                contentDetermined={rowContentDetermined}
+                                                sideContentDetermined={rowSideContentDetermined}
+                                                onClick={(record) => {
+                                                    handleRowClick(record.playerPosition)
+                                                }}
+                                            />
+                                        )
+                                    }}
                                     rowHeight={DEFAULT_ROW_HEIGHT}
                                 />
                             )
