@@ -168,7 +168,6 @@ describe('the property definitions model', () => {
             expect(logic.values.describeProperty('$time')).toEqual(null)
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.describeProperty('$time')).toEqual('DateTime')
-            expectLogic(logic).printActions()
         })
 
         it('lazy loads a property with formatPropertyValueForDisplay()', async () => {
