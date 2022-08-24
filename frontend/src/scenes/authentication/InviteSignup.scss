@@ -4,8 +4,7 @@
     margin-bottom: 2rem;
     @include screen($md) {
         position: absolute;
-        top: -20px;
-        left: -310px;
+        left: -380px;
         width: 240px;
         padding: 1rem 0;
         background-color: var(--bg-bridge);
