@@ -266,6 +266,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -355,6 +356,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -444,6 +446,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -533,6 +536,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -720,6 +724,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Positive'], "pmat_$browser"))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
@@ -809,6 +814,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Positive'], "pmat_$browser"))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
@@ -898,6 +904,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Negative'], "pmat_$browser"))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
@@ -987,6 +994,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
+                            AND (has(['Negative'], "pmat_$browser"))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
