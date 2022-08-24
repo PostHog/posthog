@@ -94,12 +94,11 @@ jobs:
                   echo "Image name: $image_name" >> $GITHUB_STEP_SUMMARY
 
     push:
+        # We use artifacts to pass the docker image between steps, so we do
+        # the push separately such that we can do this in parallel with other
+        # jobs.
         name: Docker image push
         if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
-        description: >
-            We use artifacts to pass the docker image between steps, so we do
-            the push separately such that we can do this in parallel with other
-            jobs.
         runs-on: ubuntu-latest
         needs: build
 
