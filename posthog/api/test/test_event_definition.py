@@ -181,7 +181,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_custom")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 5)
-        self.assertEqual(response.json()["results"][0]["name"], "installed_app")
+        self.assertEqual(response.json()["results"][0]["name"], "entered_free_trial")
 
     def test_event_type_event_posthog(self):
         response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_posthog")
