@@ -16,9 +16,9 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { openSaveCohortModal } from './SaveCohortModalV2'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -28,25 +28,23 @@ export interface PersonsModalProps {
 
 function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
-    const logic = personsModalLogic({ url, closeModal: () => setIsOpen(false) })
+    const [cohortModalOpen, setCohortModalOpen] = useState(false)
+    const logic = personsModalLogic({
+        url,
+        closeModal: () => {
+            setIsOpen(false)
+            setCohortModalOpen(false)
+        },
+    })
 
     const { allPeople, peopleLoading, people: peopleRes, searchTerm } = useValues(logic)
     const { loadPeople, setSearchTerm, saveCohortWithUrl } = useActions(logic)
-
-    const onSaveCohort = (): void => {
-        openSaveCohortModal({
-            onSave: (title) => {
-                saveCohortWithUrl(title)
-            },
-        })
-    }
 
     // const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     // const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
 
     return (
         <>
-            {/* {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />} */}
             <LemonModal
                 title={title}
                 isOpen={isOpen}
@@ -84,7 +82,7 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
                     <>
                         {
                             <LemonButton
-                                onClick={onSaveCohort}
+                                onClick={() => setCohortModalOpen(true)}
                                 icon={<IconSave />}
                                 type="secondary"
                                 data-attr="person-modal-save-as-cohort"
@@ -220,6 +218,12 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
                     </>
                 )} */}
             </LemonModal>
+            <SaveCohortModal
+                onSave={(title) => saveCohortWithUrl(title)}
+                onCancel={() => setCohortModalOpen(false)}
+                isOpen={cohortModalOpen}
+            />
+            {/* {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />} */}{' '}
         </>
     )
 }
