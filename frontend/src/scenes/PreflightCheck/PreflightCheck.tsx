@@ -85,6 +85,7 @@ export function PreflightCheck(): JSX.Element {
                     .
                 </p>
             }
+            fixedWidth={false}
         >
             <div className="Preflight">
                 {!preflightMode ? (
