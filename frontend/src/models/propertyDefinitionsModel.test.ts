@@ -46,7 +46,7 @@ describe('the property definitions model', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/@current/property_definitions/': (req) => {
+                '/api/projects/:team_id/property_definitions/': (req) => {
                     const propertiesToFind = (req.url.searchParams.get('properties') || '').split(',')
                     if (propertiesToFind[0] === 'network error') {
                         return

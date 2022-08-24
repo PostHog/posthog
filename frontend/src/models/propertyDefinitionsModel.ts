@@ -11,7 +11,6 @@ import type { propertyDefinitionsModelType } from './propertyDefinitionsModelTyp
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
-import { combineUrl } from 'kea-router'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
@@ -117,11 +116,9 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 actions.updatePropertyDefinitions(
                     Object.fromEntries(pending.map((key) => [key, PropertyDefinitionState.Loading]))
                 )
-                // and fetch them
-                const { url } = combineUrl('api/projects/@current/property_definitions/', {
-                    properties: pending.join(','),
-                })
-                const propertyDefinitions = await api.get(url)
+                // and then fetch them
+                const propertyDefinitions = await api.propertyDefinitions.list({ properties: pending })
+
                 // since this is a unique query, there is no breakpoint here to prevent out of order replies
                 // so save them and don't worry about overriding anything
                 const newProperties: PropertyDefinitionStorage = {}
