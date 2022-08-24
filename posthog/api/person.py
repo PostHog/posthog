@@ -217,7 +217,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = self.get_object()
-            person_id = person.id
+            person_id = person.uuid
 
             delete_person(person=person)
             delete_ch_distinct_ids(
@@ -394,7 +394,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=request.user,  # type: ignore
-                item_id=p.id,
+                item_id=p.uuid,
                 scope="Person",
                 activity="was_merged_into_person",
                 detail=Detail(
@@ -406,7 +406,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=request.user,  # type: ignore
-            item_id=person.id,
+            item_id=person.uuid,
             scope="Person",
             activity="people_merged_into",
             detail=Detail(
@@ -431,7 +431,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=request.user,  # type: ignore
-            item_id=person.id,
+            item_id=person.uuid,
             scope="Person",
             activity="split_person",
             detail=Detail(changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})]),
@@ -462,7 +462,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=request.user,  # type: ignore
-            item_id=person.id,
+            item_id=person.uuid,
             scope="Person",
             activity="delete_property",
             detail=Detail(changes=[Change(type="Person", action="changed")]),
@@ -577,7 +577,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
         item_id = kwargs["pk"]
-        if not self.get_queryset().filter(id=item_id, team_id=self.team_id).exists():
+        if not self.get_queryset().filter(uuid=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
@@ -604,7 +604,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=request.user,
-            item_id=instance.pk,
+            item_id=instance.uuid,
             scope="Person",
             activity="updated",
             detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),

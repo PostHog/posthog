@@ -228,9 +228,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "user": {"first_name": "", "email": "user1@posthog.com"},
                     "activity": "deleted",
                     "scope": "Person",
-                    "item_id": str(person.pk),
+                    "item_id": str(person.uuid),
                     # don't store deleted person's name, so user primary key
-                    "detail": {"changes": None, "merge": None, "name": str(person.pk), "short_id": None},
+                    "detail": {"changes": None, "merge": None, "name": str(person.uuid), "short_id": None},
                     "created_at": "2021-08-25T22:09:14.252000Z",
                 }
             ],
@@ -320,7 +320,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             "user": {"first_name": "", "email": "user1@posthog.com"},
             "activity": "was_merged_into_person",
             "scope": "Person",
-            "item_id": str(person3.pk),
+            "item_id": str(person3.uuid),
             "detail": {
                 "changes": None,
                 "name": None,
@@ -334,7 +334,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             "activity": "people_merged_into",
             "scope": "Person",
             # don't store deleted person's name, so user primary key
-            "item_id": str(person1.pk),
+            "item_id": str(person1.uuid),
             "detail": {
                 "changes": None,
                 "name": None,
@@ -347,7 +347,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             "user": {"first_name": "", "email": "user1@posthog.com"},
             "activity": "was_merged_into_person",
             "scope": "Person",
-            "item_id": str(person2.pk),
+            "item_id": str(person2.uuid),
             "detail": {
                 "changes": None,
                 "name": None,
@@ -362,13 +362,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             expected=[person_three_log, person_one_log, person_two_log,],
         )
         self._assert_person_activity(
-            person_id=person1.pk, expected=[person_one_log,],
+            person_id=person1.uuid, expected=[person_one_log,],
         )
         self._assert_person_activity(
-            person_id=person2.pk, expected=[person_two_log,],
+            person_id=person2.uuid, expected=[person_two_log,],
         )
         self._assert_person_activity(
-            person_id=person3.pk, expected=[person_three_log,],
+            person_id=person3.uuid, expected=[person_three_log,],
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
@@ -390,13 +390,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(people[2].distinct_ids, ["3"])
 
         self._assert_person_activity(
-            person_id=person1.pk,
+            person_id=person1.uuid,
             expected=[
                 {
                     "user": {"first_name": "", "email": "user1@posthog.com"},
                     "activity": "split_person",
                     "scope": "Person",
-                    "item_id": str(person1.pk),
+                    "item_id": str(person1.uuid),
                     "detail": {
                         "changes": [
                             {
@@ -589,14 +589,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.client.get("/api/person/%s/" % person.uuid)
 
         self._assert_person_activity(
-            person_id=person.pk,
+            person_id=person.uuid,
             expected=[
                 {
                     "user": {"first_name": self.user.first_name, "email": self.user.email},
                     "activity": "updated",
                     "created_at": "2021-08-25T22:09:14.252000Z",
                     "scope": "Person",
-                    "item_id": str(person.pk),
+                    "item_id": str(person.uuid),
                     "detail": {
                         "changes": [
                             {

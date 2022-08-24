@@ -2,6 +2,7 @@ import dataclasses
 import json
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Union
+from uuid import UUID
 
 import structlog
 from django.core.paginator import Paginator
@@ -222,7 +223,7 @@ def log_activity(
     organization_id: UUIDT,
     team_id: int,
     user: User,
-    item_id: Optional[Union[int, str, UUIDT]],
+    item_id: Optional[Union[int, str, UUIDT, UUID]],
     scope: str,
     activity: str,
     detail: Detail,
