@@ -639,9 +639,9 @@ class QuerySuite:
 
     def setup(self):
         for table, property in MATERIALIZED_PROPERTIES:
-            if property not in get_materialized_columns(table):
+            if (property, "properties") not in get_materialized_columns(table):
                 materialize(table, property)
-                backfill_materialized_columns(table, [property], backfill_period=timedelta(days=1_000))
+                backfill_materialized_columns(table, [(property, "properties")], backfill_period=timedelta(days=1_000))
 
         # :TRICKY: Data in benchmark servers has ID=2
         team = Team.objects.filter(id=2).first()
