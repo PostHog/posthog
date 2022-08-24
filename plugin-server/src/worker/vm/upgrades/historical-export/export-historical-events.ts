@@ -7,6 +7,7 @@ import {
     PluginConfigVMInternalResponse,
     PluginLogEntrySource,
     PluginLogEntryType,
+    PluginTask,
     PluginTaskType,
 } from '../../../../types'
 import {
@@ -113,7 +114,7 @@ export function addHistoricalEventsExportCapability(
         name: INTERFACE_JOB_NAME,
         type: PluginTaskType.Job,
         // TODO: Accept timestamp as payload
-        exec: async (payload) => {
+        exec: async (payload: ExportEventsJobPayload) => {
             // only let one export run at a time
             const exportAlreadyRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
             if (exportAlreadyRunning) {
@@ -138,9 +139,9 @@ export function addHistoricalEventsExportCapability(
                 .exportHistoricalEvents({ retriesPerformedSoFar: 0, incrementTimestampCursor: true, batchId: batchId })
                 .runNow()
         },
-    }
+    } as unknown as PluginTask // :KLUDGE: Work around typing limitations
 
-    meta.global.exportHistoricalEvents = async (payload): Promise<void> => {
+    meta.global.exportHistoricalEvents = async (payload: ExportEventsJobPayload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
             return
@@ -260,7 +261,7 @@ export function addHistoricalEventsExportCapability(
     // initTimestampsAndCursor decides what timestamp boundaries to use before
     // the export starts. if a payload is passed with boundaries, we use that,
     // but if no payload is specified, we use the boundaries determined at setupPlugin
-    meta.global.initTimestampsAndCursor = async (payload) => {
+    meta.global.initTimestampsAndCursor = async (payload?: ExportEventsJobPayload) => {
         // initTimestampsAndCursor will only run on **one** thread, because of our guard against
         // multiple exports. as a result, we need to set the boundaries on postgres, and
         // only set them in global when the job runs, so all threads have global state in sync

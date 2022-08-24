@@ -43,7 +43,7 @@ export type ExportHistoricalEventsUpgrade = Plugin<{
         eventsToIgnore: Set<string>
         sanitizedTableName: string
         exportHistoricalEvents: (payload: ExportEventsJobPayload) => Promise<void>
-        initTimestampsAndCursor: (payload: Record<string, any> | undefined) => Promise<void>
+        initTimestampsAndCursor: (payload: ExportEventsJobPayload | undefined) => Promise<void>
         setTimestampBoundaries: () => Promise<void>
         updateProgressBar: (incrementedCursor: number) => void
         timestampBoundariesForTeam: TimestampBoundaries
