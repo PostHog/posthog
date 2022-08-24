@@ -23,11 +23,10 @@ describe('Signup', () => {
     })
 
     it('Cannot signup with invalid attributes', () => {
-        cy.get('[data-attr=signup-email]').type('not an email')
         cy.get('[data-attr=password]').type('123').should('have.value', '123')
         cy.get('.text-danger').should('not.exist') // Validation errors not shown until first submission
         cy.get('[data-attr=signup-submit]').click()
-        cy.get('.text-danger').should('contain', 'Please enter a valid email')
+        cy.get('.text-danger').should('contain', 'Please enter your email to continue')
         cy.get('.text-danger').should('contain', 'Passwords must be at least 8 characters')
 
         cy.get('[data-attr=password]').type('45678901')
