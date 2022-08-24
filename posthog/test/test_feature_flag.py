@@ -285,6 +285,83 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(),
             )
 
+    def test_multi_property_filters_with_override_group_properties(self):
+        self.create_groups()
+        feature_flag = self.create_feature_flag(
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "name", "value": ["foo.inc"], "type": "group", "group_type_index": 0},
+                            {"key": "not_ingested", "value": "example.com", "type": "group", "group_type_index": 0},
+                        ]
+                    },
+                ],
+            }
+        )
+        cache = FlagsMatcherCache(self.team.id)
+        # force the query to load group types
+        cache.group_type_index_to_name
+
+        with self.assertNumQueries(3):
+            self.assertIsNone(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "example1_id",
+                    cache=cache,
+                    groups={"organization": "foo"},
+                    group_property_value_overrides={},
+                ).get_match(feature_flag)
+            )
+            # can be computed using the db, with help from the overrides
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "example2_id",
+                    cache=cache,
+                    groups={"organization": "foo"},
+                    group_property_value_overrides={"organization": {"not_ingested": "example.com"}},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+            # name property is incorrect, since different group
+            self.assertIsNone(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "example3_id",
+                    cache=cache,
+                    groups={"organization": "bar"},
+                    group_property_value_overrides={"organization": {"not_ingested": "example.com"}},
+                ).get_match(feature_flag)
+            )
+
+        with self.assertNumQueries(0):
+            self.assertIsNone(FeatureFlagMatcher([feature_flag], "random_id", cache=cache).get_match(feature_flag))
+
+            # can be computed locally
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "random_id",
+                    cache=cache,
+                    groups={"organization": "foo"},
+                    group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+            # even if the group property stored in db is different
+            self.assertEqual(
+                FeatureFlagMatcher(
+                    [feature_flag],
+                    "random_id",
+                    cache=cache,
+                    groups={"organization": "bar"},
+                    group_property_value_overrides={"organization": {"not_ingested": "example.com", "name": "foo.inc"}},
+                ).get_match(feature_flag),
+                FeatureFlagMatch(),
+            )
+
     def test_override_properties_where_person_doesnt_exist_yet(self):
         feature_flag = self.create_feature_flag(
             filters={

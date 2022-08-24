@@ -219,15 +219,16 @@ class FeatureFlagMatcher:
         rollout_percentage = condition.get("rollout_percentage")
         if len(condition.get("properties", [])) > 0:
             properties = Filter(data=condition).property_groups.flat
-            if feature_flag.aggregation_group_type_index is not None:
-                pass
-            if self.can_compute_locally(properties):
+            if self.can_compute_locally(properties, feature_flag.aggregation_group_type_index):
                 # :TRICKY: If overrides are enough to determine if a condition is a match,
                 # we can skip checking the query.
                 # This ensures match even if the person hasn't been ingested yet.
-                condition_match = all(
-                    match_property(property, self.property_value_overrides) for property in properties
-                )
+                target_properties = self.property_value_overrides
+                if feature_flag.aggregation_group_type_index is not None:
+                    target_properties = self.group_property_value_overrides.get(
+                        self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
+                    )
+                condition_match = all(match_property(property, target_properties) for property in properties)
             else:
                 condition_match = self._condition_matches(feature_flag, condition_index)
 
@@ -285,11 +286,16 @@ class FeatureFlagMatcher:
                 expr: Any = None
                 if len(condition.get("properties", {})) > 0:
                     # Feature Flags don't support OR filtering yet
+                    target_properties = self.property_value_overrides
+                    if feature_flag.aggregation_group_type_index is not None:
+                        target_properties = self.group_property_value_overrides.get(
+                            self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
+                        )
                     expr = properties_to_Q(
                         Filter(data=condition).property_groups.flat,
                         team_id=team_id,
                         is_direct_query=True,
-                        override_property_values=self.property_value_overrides,
+                        override_property_values=target_properties,
                     )
 
                 if feature_flag.aggregation_group_type_index is None:
@@ -356,11 +362,16 @@ class FeatureFlagMatcher:
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
-    def can_compute_locally(self, properties: List[Property], group_type_index: Optional[GroupTypeIndex] = None) -> bool:
-        person_property_overrides = self.property_value_overrides
-        group_property_overrides = self.group_property_value_overrides[self.cache.group_type_index_to_name.get(group_type_index)] if group_type_index is not None else {}
+    def can_compute_locally(
+        self, properties: List[Property], group_type_index: Optional[GroupTypeIndex] = None
+    ) -> bool:
+        target_properties = self.property_value_overrides
+        if group_type_index is not None:
+            target_properties = self.group_property_value_overrides.get(
+                self.cache.group_type_index_to_name[group_type_index], {}
+            )
         for property in properties:
-            if property.key not in self.property_value_overrides:
+            if property.key not in target_properties:
                 return False
             if property.operator == "is_not_set":
                 return False
@@ -396,7 +407,13 @@ def _get_active_feature_flags(
 
     if feature_flags:
         return FeatureFlagMatcher(
-            feature_flags, distinct_id, groups, cache, overrides, property_value_overrides, group_property_value_overrides
+            feature_flags,
+            distinct_id,
+            groups,
+            cache,
+            overrides,
+            property_value_overrides,
+            group_property_value_overrides,
         ).get_matches()
 
     return {}
