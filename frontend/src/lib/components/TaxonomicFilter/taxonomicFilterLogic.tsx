@@ -28,7 +28,6 @@ import {
 } from '~/types'
 import { cohortsModel } from '~/models/cohortsModel'
 import { actionsModel } from '~/models/actionsModel'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
@@ -325,8 +324,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Custom Events',
                         searchPlaceholder: 'custom events',
                         type: TaxonomicFilterGroupType.CustomEvents,
-                        logic: eventDefinitionsModel,
-                        value: 'customEvents',
+                        endpoint: combineUrl(`api/projects/${teamId}/event_definitions`, {
+                            event_type: CombinedEventType.EventCustom,
+                        }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
                         ...eventTaxonomicGroupProps,
