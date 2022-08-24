@@ -1,7 +1,7 @@
 import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
-import { Spinner as Spinner } from './Spinner'
+import { Spinner as Spinner, SpinnerOverlay } from './Spinner'
 import { LemonButton } from '@posthog/lemon-ui'
 
 export default {
@@ -13,18 +13,39 @@ export function Default(): JSX.Element {
     return <Spinner />
 }
 
-export function Small(): JSX.Element {
-    return <Spinner size="sm" />
-}
+export function Sizes(): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <p>
+                Spinners will inherit their size based on fontSize making it easy to style with CSS or utility classes
+            </p>
 
-export function Large(): JSX.Element {
-    return <Spinner size="lg" />
+            <div className="flex items-center gap-2 text-xs">
+                <Spinner />
+                <span>text-sm</span>
+            </div>
+            <div className="flex items-center gap-2">
+                <Spinner />
+                <span>Default</span>
+            </div>
+
+            <div className="flex items-center gap-2 text-xl">
+                <Spinner />
+                <span>text-xl</span>
+            </div>
+
+            <div className="flex items-center gap-2 text-5xl">
+                <Spinner />
+                <span>text-5xl</span>
+            </div>
+        </div>
+    )
 }
 
 export function Monocolor(): JSX.Element {
     return (
-        <div className="bg-default p-4">
-            <Spinner size="lg" monocolor className="text-white" />
+        <div className="bg-default p-4 text-4xl">
+            <Spinner monocolor className="text-white" />
         </div>
     )
 }
@@ -42,6 +63,29 @@ export function InButtons(): JSX.Element {
             <LemonButton type="secondary" status="danger" loading>
                 Secondary Danger
             </LemonButton>
+        </div>
+    )
+}
+
+export function AsOverlay(): JSX.Element {
+    return (
+        <div>
+            <h1>Hey there</h1>
+            <p>
+                Illum impedit eligendi minima aperiam. Quo aut eaque debitis dolor corrupti fugit sit qui. Esse
+                quibusdam doloremque beatae animi fugit maiores. Nemo totam aliquid similique. Autem labore deleniti eum
+                qui fugiat nam fugiat inventore. Praesentium dolores neque nobis. Et blanditiis consequatur corporis
+                quis. Sint eligendi tempore nostrum ullam deserunt aspernatur. Enim quod laboriosam provident odio est
+                suscipit. Aspernatur voluptas dolor quia recusandae alias incidunt. Et neque officiis quas. Fugiat
+                quisquam harum ab porro. Sit in totam aut tempora dolor ut blanditiis facilis. Maiores sed expedita
+                ipsam ut. Cupiditate animi quisquam sequi corrupti hic ea mollitia vero. Aspernatur sed ut in non
+                perferendis. Ut natus quia illum dignissimos suscipit repudiandae iure debitis. Cupiditate deserunt
+                ratione odio vel. Ducimus et iure voluptatem ut ut aspernatur dolor. Iure voluptatem tempora ullam est
+                ex laudantium. Sunt tempore molestiae voluptas dolores et ducimus. Quia et provident qui et ut magni.
+                Tenetur sed quae culpa.
+            </p>
+
+            <SpinnerOverlay />
         </div>
     )
 }

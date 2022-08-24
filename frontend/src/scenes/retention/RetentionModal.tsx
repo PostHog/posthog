@@ -167,7 +167,7 @@ export function RetentionModal({
                     )}
                 </div>
             ) : (
-                <Spinner size="sm" />
+                <Spinner />
             )}
         </Modal>
     )

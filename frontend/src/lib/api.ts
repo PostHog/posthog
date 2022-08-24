@@ -566,6 +566,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            properties?: string[]
             is_event_property?: boolean
             limit?: number
             offset?: number
@@ -577,6 +578,7 @@ const api = {
                     toParams({
                         limit,
                         ...params,
+                        ...(params.properties ? { properties: params.properties.join(',') } : {}),
                     })
                 )
                 .get()
