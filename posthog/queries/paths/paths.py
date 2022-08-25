@@ -194,8 +194,7 @@ class Paths:
             SELECT last_path_key as source_event,
                 path_key as target_event,
                 COUNT(*) AS event_count,
-                avg(conversion_time) AS average_conversion_time,
-                sleep(3)
+                avg(conversion_time) AS average_conversion_time
             FROM ({paths_per_person_query})
             WHERE source_event IS NOT NULL
             GROUP BY source_event,

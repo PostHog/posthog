@@ -10,7 +10,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         return f"""
-        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause}, sleep(3) FROM (
+        SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
             {self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''} SETTINGS allow_experimental_window_functions = 1
         """
