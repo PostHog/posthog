@@ -37,7 +37,7 @@
                                   (SELECT id
                                    FROM person
                                    WHERE team_id = 2
-                                     AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'))
+                                     AND ((replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'))
                                    GROUP BY id
                                    HAVING max(is_deleted) = 0
                                    AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%')))), 1, 0) as step_0,
@@ -282,10 +282,10 @@
                             (SELECT id
                              FROM person
                              WHERE team_id = 2
-                               AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
-                                    OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))
+                               AND ((replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', '')))
+                                    OR (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', ''))))
                              GROUP BY id
                              HAVING max(is_deleted) = 0
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -394,10 +394,10 @@
                             (SELECT id
                              FROM person
                              WHERE team_id = 2
-                               AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
-                                    OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))
+                               AND ((replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', '')))
+                                    OR (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', ''))))
                              GROUP BY id
                              HAVING max(is_deleted) = 0
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -510,10 +510,10 @@
                             (SELECT id
                              FROM person
                              WHERE team_id = 2
-                               AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
-                                    OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))
+                               AND ((replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', '')))
+                                    OR (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', ''))))
                              GROUP BY id
                              HAVING max(is_deleted) = 0
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
@@ -626,10 +626,10 @@
                             (SELECT id
                              FROM person
                              WHERE team_id = 2
-                               AND ((replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.com%'
-                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', '')))
-                                    OR (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%.org%'
-                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(properties, 'age'), '^"|"$', ''))))
+                               AND ((replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.com%'
+                                     AND has(['20'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', '')))
+                                    OR (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%.org%'
+                                        OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'age'), '^"|"$', ''))))
                              GROUP BY id
                              HAVING max(is_deleted) = 0
                              AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
