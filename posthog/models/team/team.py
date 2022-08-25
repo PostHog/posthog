@@ -199,10 +199,6 @@ class Team(UUIDClassicModel):
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:
-        # If the async migration is not complete, never enable actor on events querying.
-        if not person_on_events_ready():
-            return False
-
         # on PostHog Cloud, use the feature flag
         if settings.MULTI_TENANCY:
             return posthoganalytics.feature_enabled(
@@ -212,6 +208,10 @@ class Team(UUIDClassicModel):
                 group_properties={"project": {"id": str(self.pk)}},
                 only_evaluate_locally=True,
             )
+
+        # If the async migration is not complete, don't enable actor on events querying.
+        if not person_on_events_ready():
+            return False
 
         # on self-hosted, use the instance setting
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
