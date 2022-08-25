@@ -29,7 +29,7 @@ import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { TableCellRepresentation } from 'lib/components/LemonTable/types'
 import { IconExport, IconSync } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,6 +65,31 @@ interface EventsTable {
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
     'data-tooltip'?: string
+}
+
+interface ExportWithConfirmationProps {
+    placement: 'topRight' | 'bottomRight'
+    onConfirm: (e?: React.MouseEvent<HTMLElement>) => void
+    children: React.ReactNode
+}
+
+function ExportWithConfirmation({ placement, onConfirm, children }: ExportWithConfirmationProps): JSX.Element {
+    return (
+        <Popconfirm
+            placement={placement}
+            title={
+                <>
+                    Exporting by csv is limited to 3,500 events.
+                    <br />
+                    To return more, please use <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
+                    export by CSV?
+                </>
+            }
+            onConfirm={onConfirm}
+        >
+            {children}
+        </Popconfirm>
+    )
 }
 
 export function EventsTable({
@@ -447,23 +472,37 @@ export function EventsTable({
                             />
                         )}
                         {showExport && (
-                            <Popconfirm
-                                placement="topRight"
-                                title={
-                                    <>
-                                        Exporting by csv is limited to 3,500 events.
-                                        <br />
-                                        To return more, please use{' '}
-                                        <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to export
-                                        by CSV?
-                                    </>
-                                }
-                                onConfirm={startDownload}
+                            <LemonButtonWithPopup
+                                popup={{
+                                    sameWidth: false,
+                                    closeOnClickInside: false,
+                                    overlay: [
+                                        <ExportWithConfirmation
+                                            key={0}
+                                            placement={'topRight'}
+                                            onConfirm={() => startDownload()}
+                                        >
+                                            <LemonButton status="stealth">Export all columns</LemonButton>
+                                        </ExportWithConfirmation>,
+                                        <ExportWithConfirmation
+                                            key={1}
+                                            placement={'bottomRight'}
+                                            onConfirm={() => {
+                                                debugger
+                                                const columns =
+                                                    selectedColumns === 'DEFAULT' ? undefined : selectedColumns
+                                                startDownload(columns)
+                                            }}
+                                        >
+                                            <LemonButton status="stealth">Export selected columns</LemonButton>
+                                        </ExportWithConfirmation>,
+                                    ],
+                                }}
+                                type="secondary"
+                                icon={<IconExport />}
                             >
-                                <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
-                                    Export
-                                </LemonButton>
-                            </Popconfirm>
+                                Export
+                            </LemonButtonWithPopup>
                         )}
                     </div>
                 </div>

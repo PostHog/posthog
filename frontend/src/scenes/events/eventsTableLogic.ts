@@ -119,7 +119,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
         setEventFilter: (event: string) => ({ event }),
         toggleAutomaticLoad: (automaticLoadEnabled: boolean) => ({ automaticLoadEnabled }),
         noop: (s) => s,
-        startDownload: true,
+        startDownload: (columns?: string[]) => ({ columns }),
     },
 
     reducers: ({ props }) => ({
@@ -290,13 +290,17 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     }),
 
     listeners: ({ actions, values, props }) => ({
-        startDownload: () => {
+        startDownload: ({ columns }) => {
+            const exportContext = {
+                path: values.eventsUrl(),
+                max_limit: 3500,
+            }
+            if (columns?.length > 0) {
+                exportContext['columns'] = columns
+            }
             triggerExport({
                 export_format: ExporterFormat.CSV,
-                export_context: {
-                    path: values.eventsUrl(),
-                    max_limit: 3500,
-                },
+                export_context: exportContext,
             })
         },
         setProperties: () => actions.fetchEvents(),
