@@ -8,8 +8,14 @@ import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled, IconPlay, IconSave, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
-import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
+import {
+    IconArrowDropDown,
+    IconPersonFilled,
+    IconPlay,
+    IconSave,
+    IconUnfoldLess,
+    IconUnfoldMore,
+} from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
@@ -20,7 +26,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tabs } from 'antd'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -31,6 +37,7 @@ export interface PersonsModalProps {
 function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
     const [cohortModalOpen, setCohortModalOpen] = useState(false)
+    const [sessionId, setSessionId] = useState<string | undefined>(undefined)
     const logic = personsModalLogic({
         url,
         closeModal: () => {
@@ -45,8 +52,15 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
     // const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     // const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
 
+    // TODO: Maybe move this to the logic...
     const onOpenRecording = (id: string): void => {
-        alert(id)
+        setSessionId(id)
+        window.location.hash = '#sessionRecordingId=' + id
+    }
+
+    const onCloseRecording = (): void => {
+        setSessionId(undefined)
+        window.location.hash = ''
     }
 
     return (
@@ -183,7 +197,7 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
                 onCancel={() => setCohortModalOpen(false)}
                 isOpen={cohortModalOpen}
             />
-            {/* {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />} */}{' '}
+            {sessionId && <SessionPlayerDrawer onClose={() => onCloseRecording()} />}
         </>
     )
 }
@@ -191,12 +205,12 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
-    // const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
+    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
 
-    // if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
-    //     // Currrently this will display 2 modals, as we want to test this comparison in production
-    //     return
-    // }
+    if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
+        // Currrently this will display 2 modals, as we want to test this comparison in production
+        return
+    }
 
     const div = document.createElement('div')
     function destroy(): void {
@@ -274,18 +288,12 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                     <div className="shrink-0">
                         <LemonButton
                             onClick={onOpenRecordingClick}
-                            sideIcon={matchedRecordings.length > 1 ? <IconSave /> : null}
+                            sideIcon={matchedRecordings.length > 1 ? <IconArrowDropDown /> : null}
                             type="secondary"
                             size="small"
                         >
                             View {pluralize(matchedRecordings.length, 'recording', undefined, false)}
                         </LemonButton>
-                        {/* <MultiRecordingButton
-                            sessionRecordings={actor.matched_recordings}
-                            onOpenRecording={(sessionRecording) => {
-                                onOpenRecording(sessionRecording.session_id)
-                            }}
-                        /> */}
                     </div>
                 ) : null}
             </div>

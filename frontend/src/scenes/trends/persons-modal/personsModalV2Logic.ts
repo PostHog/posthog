@@ -104,13 +104,15 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     urlToAction(({ props, cache }) => ({
-        '*': () => {
-            // If we click anything that navigates us away, close the modal
-            if (!cache['loaded']) {
-                cache['loaded'] = true
+        '*': (_a, _b, _c, { pathname }) => {
+            if (!cache['lastPathname']) {
+                cache['lastPathname'] = pathname
                 return
             }
-            props.closeModal?.()
+            // If we click anything that navigates us away, close the modal but allowing for changes in hash
+            if (cache['lastPathname'] !== pathname) {
+                props.closeModal?.()
+            }
         },
     })),
 ])
