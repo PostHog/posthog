@@ -59,6 +59,7 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
     try {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
+        /* plugin-server:fetchTimestampBoundariesForTeam */
         SELECT min(_timestamp) as min, max(_timestamp) as max
         FROM events
         WHERE team_id = ${teamId}`)
