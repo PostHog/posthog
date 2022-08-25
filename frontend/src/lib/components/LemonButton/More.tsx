@@ -8,7 +8,7 @@ export interface MoreProps extends Partial<Pick<PopupProps, 'overlay' | 'placeme
     'data-attr'?: string
 }
 
-export function More({ overlay, placement = 'bottom-end', 'data-attr': dataTooltip }: MoreProps): JSX.Element {
+export function More({ overlay, placement = 'bottom-end', 'data-attr': dataAttr }: MoreProps): JSX.Element {
     return (
         <LemonButtonWithPopup
             aria-label="more"
