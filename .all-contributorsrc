@@ -2043,6 +2043,24 @@
       "contributions": [
         "code"
       ]
+    },
+    {
+      "login": "peterdemin",
+      "name": "Peter Demin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/1448666?v=4",
+      "profile": "https://github.com/peterdemin",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "jacobwgillespie",
+      "name": "Jacob Gillespie",
+      "avatar_url": "https://avatars.githubusercontent.com/u/130874?v=4",
+      "profile": "https://jacobwgillespie.com",
+      "contributions": [
+        "code"
+      ]
     }
   ],
   "contributorsPerLine": 7,

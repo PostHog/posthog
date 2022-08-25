@@ -1,4 +1,5 @@
 import { PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
 
 import {
     Hub,
@@ -193,6 +194,7 @@ export function addHistoricalEventsExportCapability(
             )
         } catch (error) {
             fetchEventsError = error
+            Sentry.captureException(error)
         }
 
         let exportEventsError: Error | unknown | null = null

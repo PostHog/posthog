@@ -16,7 +16,6 @@ import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { Link } from 'lib/components/Link'
@@ -35,6 +34,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as featureFlagLibLogic } from 'lib/logic/featureFlagLogic'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -447,15 +447,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 {!hasAvailableFeature(
                                                                     AvailableFeature.MULTIVARIATE_FLAGS
                                                                 ) && (
-                                                                    <Link to={upgradeLink} target="_blank">
-                                                                        <LockOutlined
-                                                                            style={{
-                                                                                marginRight: 4,
-                                                                                color: 'var(--warning)',
-                                                                            }}
-                                                                        />
-                                                                    </Link>
-                                                                )}
+                                                                        <Link to={upgradeLink} target="_blank">
+                                                                            <LockOutlined
+                                                                                style={{
+                                                                                    marginRight: 4,
+                                                                                    color: 'var(--warning)',
+                                                                                }}
+                                                                            />
+                                                                        </Link>
+                                                                    )}
                                                                 String value (Multivariate test){' '}
                                                             </div>
                                                         </Tooltip>
@@ -711,9 +711,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <LemonDivider className="my-4" />
                                             <div className="ml-4">
                                                 <PropertyFilters
-                                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                                        featureFlag.filters.groups.length
-                                                    }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
+                                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                                     propertyFilters={group?.properties}
                                                     onChange={(properties) =>
                                                         updateConditionSet(index, undefined, properties)
@@ -1125,9 +1124,8 @@ function FeatureFlagReleaseConditions(): JSX.Element {
                             <LemonDivider className="my-4" />
                             <div className="ml-4">
                                 <PropertyFilters
-                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                        featureFlag.filters.groups.length
-                                    }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
+                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                     propertyFilters={group?.properties}
                                     onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                     taxonomicGroupTypes={taxonomicGroupTypes}

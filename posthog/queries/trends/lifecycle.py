@@ -118,6 +118,17 @@ class LifecycleEventQuery(EventQuery):
         )
         self.params.update(entity_params)
 
+        entity_prop_query, entity_prop_params = self._get_prop_groups(
+            self._filter.entities[0].property_groups,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+            if self._using_person_on_events
+            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+            prepend="entity_props",
+        )
+
+        self.params.update(entity_prop_params)
+
         created_at_clause = "person.created_at" if not self._using_person_on_events else "person_created_at"
 
         return (
@@ -134,6 +145,7 @@ class LifecycleEventQuery(EventQuery):
             {entity_format_params["entity_query"]}
             {date_query}
             {prop_query}
+            {entity_prop_query}
         """,
             self.params,
         )
