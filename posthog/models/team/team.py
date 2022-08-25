@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
 import pytz
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
@@ -11,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team.util import person_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -197,21 +199,22 @@ class Team(UUIDClassicModel):
 
     @property
     def actor_on_events_querying_enabled(self) -> bool:
-        # Two part gate to ensure we don't accidentally enable this for everyone prematurely.
-        # Nor should we start making excessive requests to the API to get results.
-        # Temporary, until we're convinced the library works well enough.
-        enabled_teams = get_list(get_instance_setting("ENABLE_ACTOR_ON_EVENTS_TEAMS"))
-        if len(enabled_teams) > 0:
-            return str(self.pk) in enabled_teams or "all" in enabled_teams
+        # on PostHog Cloud, use the feature flag
+        if settings.MULTI_TENANCY:
+            return posthoganalytics.feature_enabled(
+                "person-on-events-enabled",
+                str(self.uuid),
+                groups={"project": str(self.uuid)},
+                group_properties={"project": {"id": str(self.pk)}},
+                only_evaluate_locally=True,
+            )
 
-        # only when instance setting list is empty, use the feature flag
-        return posthoganalytics.feature_enabled(
-            "person-on-events-enabled",
-            str(self.uuid),
-            groups={"project": str(self.uuid)},
-            group_properties={"project": {"id": str(self.pk)}},
-            only_evaluate_locally=True,
-        )
+        # If the async migration is not complete, don't enable actor on events querying.
+        if not person_on_events_ready():
+            return False
+
+        # on self-hosted, use the instance setting
+        return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
 
     @property
     def strict_caching_enabled(self) -> bool:
