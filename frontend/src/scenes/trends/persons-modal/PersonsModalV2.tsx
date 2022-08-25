@@ -4,11 +4,11 @@ import { DownloadOutlined } from '@ant-design/icons'
 import { ActorType, ExporterFormat } from '~/types'
 import { personsModalLogic } from './personsModalV2Logic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { isGroupType, midEllipsis } from 'lib/utils'
+import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled, IconSave, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { IconPersonFilled, IconPlay, IconSave, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
@@ -19,6 +19,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { Tabs } from 'antd'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -215,7 +217,22 @@ interface ActorRowProps {
 
 export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
+    const [tab, setTab] = useState('properties')
     const name = isGroupType(actor) ? groupDisplayId(actor.group_key, actor.properties) : asDisplay(actor)
+
+    const onOpenRecordingClick = (): void => {
+        if (!actor.matched_recordings) {
+            return
+        }
+        if (actor.matched_recordings?.length > 1) {
+            setExpanded(true)
+            setTab('recordings')
+        } else {
+            onOpenRecording(actor.matched_recordings[0].session_id)
+        }
+    }
+
+    const matchedRecordings = actor.matched_recordings || []
 
     return (
         <div className="border rounded overflow-hidden">
@@ -231,7 +248,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
 
                 <ProfilePicture name={name} size="md" />
 
-                <div className="flex-1">
+                <div className="flex-1 overflow-hidden">
                     {isGroupType(actor) ? (
                         <strong>
                             <GroupActorHeader actor={actor} />
@@ -253,23 +270,55 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                     )}
                 </div>
 
-                {actor.matched_recordings?.length && actor.matched_recordings?.length > 0 ? (
-                    <MultiRecordingButton
-                        sessionRecordings={actor.matched_recordings}
-                        onOpenRecording={(sessionRecording) => {
-                            onOpenRecording(sessionRecording.session_id)
-                        }}
-                    />
+                {matchedRecordings.length && matchedRecordings.length > 0 ? (
+                    <div className="shrink-0">
+                        <LemonButton
+                            onClick={onOpenRecordingClick}
+                            sideIcon={matchedRecordings.length > 1 ? <IconSave /> : null}
+                            type="secondary"
+                            size="small"
+                        >
+                            View {pluralize(matchedRecordings.length, 'recording', undefined, false)}
+                        </LemonButton>
+                        {/* <MultiRecordingButton
+                            sessionRecordings={actor.matched_recordings}
+                            onOpenRecording={(sessionRecording) => {
+                                onOpenRecording(sessionRecording.session_id)
+                            }}
+                        /> */}
+                    </div>
                 ) : null}
             </div>
 
             {expanded ? (
                 <div className="bg-side border-t">
-                    {Object.keys(actor.properties).length ? (
-                        <PropertiesTable properties={actor.properties} />
-                    ) : (
-                        'There are no properties.'
-                    )}
+                    <Tabs defaultActiveKey={tab} onChange={setTab} tabBarStyle={{ paddingLeft: 20, marginBottom: 0 }}>
+                        <Tabs.TabPane tab="Properties" key="properties">
+                            {Object.keys(actor.properties).length ? (
+                                <PropertiesTable properties={actor.properties} />
+                            ) : (
+                                <p>There are no properties.</p>
+                            )}
+                        </Tabs.TabPane>
+                        <Tabs.TabPane tab="Recordings" key="recordings">
+                            <div className="p-2 space-y-2">
+                                {matchedRecordings?.length ? (
+                                    matchedRecordings.map((recording, i) => (
+                                        <LemonButton
+                                            key={recording.session_id}
+                                            onClick={() => onOpenRecording(recording.session_id)}
+                                            icon={<IconPlay />}
+                                            type="secondary"
+                                        >
+                                            View recording {i}
+                                        </LemonButton>
+                                    ))
+                                ) : (
+                                    <p>No recordings</p>
+                                )}
+                            </div>
+                        </Tabs.TabPane>
+                    </Tabs>
                 </div>
             ) : null}
         </div>

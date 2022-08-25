@@ -18,7 +18,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
-import { IconFilter } from 'lib/components/icons'
+import { IconFilter, IconPlayCircle } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -80,13 +80,14 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
             render: function RenderPlayButton(_: any, sessionRecording: SessionRecordingType) {
                 return (
                     <div className="play-button-container">
-                        <Button
+                        <LemonButton
                             className={sessionRecording.viewed ? 'play-button viewed' : 'play-button'}
                             data-attr="session-recordings-button"
-                            icon={<PlayCircleOutlined />}
+                            icon={<IconPlayCircle />}
+                            type="secondary"
                         >
                             Watch recording
-                        </Button>
+                        </LemonButton>
                     </div>
                 )
             },
