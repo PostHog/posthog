@@ -234,7 +234,7 @@
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-02 00:00:00')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59')
+       AND timestamp <= toDateTime('2020-01-03 23:59:59')
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
@@ -273,7 +273,7 @@
      WHERE team_id = 2
        AND event = 'sign up'
        AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-12 23:59:59')
+       AND timestamp <= toDateTime('2020-01-12 00:00:00')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -297,7 +297,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2020-01-12 00:00:00', 'UTC') - number * 86400) as day_start
               FROM numbers(12)
               UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -335,7 +335,7 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND timestamp <= toDateTime('2020-01-12 00:00:00')
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
            GROUP BY day_start,
                     breakdown_value))
@@ -456,8 +456,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2020-01-12 00:00:00') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 00:00:00'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(*) as data,
@@ -490,7 +490,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-12 23:59:59')
+             AND timestamp <= toDateTime('2020-01-12 00:00:00')
              AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))) )
         GROUP BY date)
      group by day_start
