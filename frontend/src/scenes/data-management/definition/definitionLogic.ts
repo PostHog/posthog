@@ -1,8 +1,7 @@
 import { actions, afterMount, kea, key, props, path, selectors, reducers, connect } from 'kea'
-import { AvailableFeature, Breadcrumb, Definition, EventDefinition, PropertyDefinition } from '~/types'
+import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -64,9 +63,6 @@ export const definitionLogic = kea<definitionLogicType>([
                             definition = await api.eventDefinitions.get({
                                 eventDefinitionId: id,
                             })
-                            eventDefinitionsModel
-                                .findMounted()
-                                ?.actions.updateEventDefinition(definition as EventDefinition)
                         } else {
                             // Event Property Definition
                             definition = await api.propertyDefinitions.get({
