@@ -132,7 +132,7 @@ def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
     prepend: str = "global",
-    table_name: str = "",
+    table_name: str = "person",
     allow_denormalized_props: bool = True,
     has_person_id_joined: bool = True,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
@@ -142,8 +142,10 @@ def parse_prop_clauses(
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
-    if table_name != "":
-        table_name += "."
+
+    table_formatted = table_name
+    if table_formatted != "":
+        table_formatted += "."
 
     for idx, prop in enumerate(filters):
         if prop.type == "cohort":
@@ -158,7 +160,7 @@ def parse_prop_clauses(
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
                     person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                     params = {**params, **cohort_filter_params}
-                    final.append(f"{property_operator} {table_name}distinct_id IN ({person_id_query})")
+                    final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
                         cohort, idx, custom_match_field=f"{person_id_joined_alias}"
@@ -176,9 +178,10 @@ def parse_prop_clauses(
                 prop,
                 idx,
                 prepend,
-                prop_var="{}properties".format(table_name),
+                prop_var="{}properties".format(table_formatted),
                 allow_denormalized_props=allow_denormalized_props,
                 property_operator=property_operator,
+                table_name=table_name,
             )
             final.append(f" {filter_query}")
             params.update(filter_params)
@@ -187,9 +190,10 @@ def parse_prop_clauses(
                 prop,
                 idx,
                 prepend,
-                prop_var="{}person_properties".format(table_name),
+                prop_var="{}person_properties".format(table_formatted),
                 allow_denormalized_props=False,  # TODO: No denormalized props will exist on person on events for now
                 property_operator=property_operator,
+                table_name=table_name,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -205,6 +209,7 @@ def parse_prop_clauses(
                 prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
                 property_operator=property_operator,
+                table_name=table_name,
             )
             if is_direct_query:
                 final.append(filter_query)
@@ -217,7 +222,7 @@ def parse_prop_clauses(
                         filter_query=GET_DISTINCT_IDS_BY_PROPERTY_SQL.format(
                             filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                         ),
-                        table_name=table_name,
+                        table_name=table_formatted,
                         property_operator=property_operator,
                     )
                 )
@@ -251,6 +256,7 @@ def parse_prop_clauses(
                 prop_var=f"group{prop.group_type_index}_properties",
                 allow_denormalized_props=False,
                 property_operator=property_operator,
+                table_name=table_name,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -263,19 +269,27 @@ def parse_prop_clauses(
                     prop_var=f"group_properties_{prop.group_type_index}",
                     allow_denormalized_props=False,
                     property_operator=property_operator,
+                    table_name=table_name,
                 )
                 final.append(filter_query)
                 params.update(filter_params)
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False
+                    prop,
+                    idx,
+                    prepend,
+                    prop_var=f"group_properties",
+                    allow_denormalized_props=False,
+                    table_name=table_name,
                 )
                 group_type_index_var = f"{prepend}_group_type_index_{idx}"
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
                     filters=filter_query, group_type_index_var=group_type_index_var
                 )
-                final.append(f"{property_operator} {table_name}$group_{prop.group_type_index} IN ({groups_subquery})")
+                final.append(
+                    f"{property_operator} {table_formatted}$group_{prop.group_type_index} IN ({groups_subquery})"
+                )
                 params.update(filter_params)
                 params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
@@ -292,7 +306,7 @@ def parse_prop_clauses(
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
                     filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
                 )
-                final.append(f"{property_operator} {table_name}distinct_id IN ({subquery})")
+                final.append(f"{property_operator} {table_formatted}distinct_id IN ({subquery})")
             params.update(filter_params)
         elif prop.type == "session":
             filter_query, filter_params = get_session_property_filter_statement(prop, idx, prepend)
@@ -336,13 +350,14 @@ def prop_filter_json_extract(
     allow_denormalized_props: bool = True,
     transform_expression: Optional[Callable[[str], str]] = None,
     property_operator: str = PropertyOperatorType.AND,
+    table_name: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     # TODO: Once all queries are migrated over we can get rid of allow_denormalized_props
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
     property_expr, is_denormalized = get_property_string_expr(
-        property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props
+        property_table(prop), prop.key, f"%(k{prepend}_{idx})s", prop_var, allow_denormalized_props, table_name
     )
 
     if is_denormalized and transform_expression:

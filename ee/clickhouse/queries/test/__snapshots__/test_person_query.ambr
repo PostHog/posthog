@@ -140,9 +140,10 @@
               FROM person
               
               WHERE team_id = %(team_id)s
+              AND (   person."pmat_email" ILIKE %(v_0)s)
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery__0)s)   
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s)   
               
               
           
@@ -155,9 +156,10 @@
               FROM person
               
               WHERE team_id = %(team_id)s
+              AND (   person."pmat_email" ILIKE %(v_0)s)
               GROUP BY id
               HAVING max(is_deleted) = 0
-              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery__0)s)   
+              AND (  argMax(person."pmat_email", _timestamp) ILIKE %(vpersonquery_grouped_filters__0)s)   
               
               
           

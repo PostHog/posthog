@@ -161,6 +161,7 @@ class PersonQuery:
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
             prepend=prepend,
+            table_name="person",
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:
