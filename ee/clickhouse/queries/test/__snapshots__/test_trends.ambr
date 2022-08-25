@@ -18,10 +18,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
@@ -105,10 +101,6 @@
                            argMax(properties, version) as person_props
                     FROM person
                     WHERE team_id = 2
-                      AND id IN
-                        (SELECT id
-                         FROM person
-                         WHERE team_id = 2 )
                     GROUP BY id
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
