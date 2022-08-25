@@ -82,6 +82,31 @@ class TestAnnotation(APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "Cross-project annotation!")
 
+    def test_cannot_fetch_annotations_of_org_user_does_not_belong_to(self):
+        separate_org, _, separate_team = Organization.objects.bootstrap(None, name="Second team")
+        Annotation.objects.create(
+            organization=separate_org,
+            team=separate_team,
+            content="Intra-project annotation!",
+            scope=Annotation.Scope.PROJECT,
+        )
+        Annotation.objects.create(
+            organization=separate_org,
+            team=separate_team,
+            content="Cross-project annotation!",
+            scope=Annotation.Scope.ORGANIZATION,
+        )
+
+        response_1 = self.client.get(f"/api/projects/{separate_team.id}/annotations/")
+
+        self.assertEqual(response_1.status_code, 403)
+        self.assertEqual(response_1.json(), self.permission_denied_response("You don't have access to the project."))
+
+        response_2 = self.client.get(f"/api/projects/{self.team.id}/annotations/")
+
+        self.assertEqual(response_2.status_code, 200)
+        self.assertEqual(response_2.json()["results"], [])
+
     @patch("posthog.api.annotation.report_user_action")
     def test_creating_annotation(self, mock_capture):
         team2 = Organization.objects.bootstrap(None)[2]
