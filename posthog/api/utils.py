@@ -374,9 +374,9 @@ def create_event_definitions_sql(
         )
 
         if event_type == CombinedEventType.EVENT_CUSTOM:
-            shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(starts_with_dollar)s"
+            shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
         if event_type == CombinedEventType.EVENT_POSTHOG:
-            shared_conditions += " AND posthog_eventdefinition.name LIKE %(starts_with_dollar)s"
+            shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
 
         return (
             f"""
