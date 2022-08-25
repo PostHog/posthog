@@ -157,7 +157,6 @@ function OverViewTab(): JSX.Element {
                 pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
-                data-tooltip="feature-flag-table"
             />
         </>
     )

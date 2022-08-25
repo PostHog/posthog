@@ -73,7 +73,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -103,7 +102,6 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
-    'data-tooltip': dataTooltip,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -203,7 +201,6 @@ export function LemonTable<T extends Record<string, any>>({
             )}
             style={style}
             data-attr={dataAttr}
-            data-tooltip={dataTooltip}
         >
             <div className="scrollable__inner" ref={scrollRef}>
                 <div className="LemonTable__content">

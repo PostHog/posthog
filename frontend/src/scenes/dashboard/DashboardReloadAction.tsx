@@ -33,7 +33,6 @@ export function DashboardReloadAction(): JSX.Element {
     return (
         <>
             <Dropdown.Button
-                data-tooltip="experiment-dashboard-product-tour-1"
                 overlay={
                     <Menu data-attr="auto-refresh-picker" id="auto-refresh-picker">
                         <div
