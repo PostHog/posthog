@@ -79,7 +79,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 />
                 <Divider />
                 <div className="space-y-2" style={{ maxWidth: 640 }}>
-                    <div className="flex gap-4 flex-wrap" data-tooltip="cohorts-type">
+                    <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <Field name="name" label="Name">
                                 <LemonInput data-attr="cohort-name" />
