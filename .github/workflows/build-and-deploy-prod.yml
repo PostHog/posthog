@@ -70,26 +70,6 @@ jobs:
                   docker push --all-tags $ECR_REGISTRY/$ECR_REPOSITORY
                   echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-            - name: Extract and push the static assets to AWS S3
-              run: |
-                  TMP_FOLDER="$(mktemp -d)"
-                  trap 'rm -rf -- "$TMP_FOLDER"' EXIT
-
-                  CONTAINER_NAME="posthog"
-                  IMAGE_NAME="${{ steps.build-image.outputs.image }}"
-                  S3_BUCKET="posthog-app-static"
-
-                  echo "## Extracting static assets from the container..."
-                  docker rm -f $CONTAINER_NAME
-                  docker create --name $CONTAINER_NAME $IMAGE_NAME
-                  docker cp "${CONTAINER_NAME}:/code/frontend/dist/" "${TMP_FOLDER}"
-                  docker rm -f $CONTAINER_NAME
-                  echo "Done!"
-
-                  echo "## Uploading the extracted static assets to the AWS S3 bucket..."
-                  aws s3 cp "${TMP_FOLDER}/dist/" "s3://${S3_BUCKET}/static" --recursive
-                  echo "Done!"
-
             - name: Fill in the new image ID in the Amazon ECS task definition
               id: task-def-web
               uses: aws-actions/amazon-ecs-render-task-definition@v1
