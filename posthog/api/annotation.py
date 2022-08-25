@@ -112,7 +112,3 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
     if instance.created_by:
         event_name: str = "annotation created" if created else "annotation updated"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
-
-
-class LegacyAnnotationsViewSet(AnnotationsViewSet):
-    legacy_team_compatibility = True
