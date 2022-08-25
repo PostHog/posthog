@@ -112,16 +112,16 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
     return time_range
 
 
-def get_next_interval_date_to(filter: Filter) -> Filter:
-    date_from = filter.date_from or timezone.now()
+def get_next_interval_date_to(date_from: datetime, filter: Filter) -> Filter:
+    date_from = date_from or timezone.now()
     if filter.interval == "month":
-        return date_from + relativedelta(months=1) - timedelta(seconds=1)
+        return date_from + relativedelta(months=1)
     elif filter.interval == "week":
-        return date_from + relativedelta(weeks=1) - timedelta(seconds=1)
+        return date_from + relativedelta(weeks=1)
     elif filter.interval == "day":
-        return (date_from) + relativedelta(days=1) - timedelta(seconds=1)
+        return (date_from) + relativedelta(days=1)
     elif filter.interval == "hour":
-        return date_from + relativedelta(hours=1) - timedelta(seconds=1)
+        return date_from + relativedelta(hours=1)
     return None
 
 
@@ -140,7 +140,7 @@ def build_persons_urls(
             tzinfo=getattr(date, "tzinfo", pytz.UTC),
         ).astimezone(pytz.UTC)
         filter_params = filter.to_params()
-        interval_date_to = get_next_interval_date_to(filter.with_data({"date_from": date_in_utc}))
+        interval_date_to = get_next_interval_date_to(date_in_utc, filter)
 
         extra_params = {
             "entity_id": entity.id,
