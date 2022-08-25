@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, dateFilterToText } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText, percentage } from 'lib/utils'
 import React, { useEffect, useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import {
@@ -19,6 +19,7 @@ import {
     DashboardType,
     ExporterFormat,
     FilterType,
+    FunnelTimeConversionMetrics,
     InsightColor,
     InsightLogicProps,
     InsightModel,
@@ -52,6 +53,8 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../AlertMessage'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
+import { Tooltip } from 'lib/components/Tooltip'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { SpinnerOverlay } from '../Spinner/Spinner'
@@ -177,6 +180,11 @@ interface InsightMetaProps
     setPrimaryHeight?: (primaryHeight: number | undefined) => void
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
+    conversionMetrics?: FunnelTimeConversionMetrics
+    aggregationTargetLabel?: {
+        singular: string
+        plural: string
+    }
 }
 
 function InsightMeta({
@@ -193,6 +201,8 @@ function InsightMeta({
     setAreDetailsShown,
     showEditingControls = true,
     showDetailsControls = true,
+    conversionMetrics,
+    aggregationTargetLabel,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboards } = insight
     const { exporterResourceParams, insightProps } = useValues(insightLogic)
@@ -438,6 +448,20 @@ function InsightMeta({
                             <div className="InsightMeta__description">{description || <i>No description</i>}</div>
                             {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
                             <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
+                            {aggregationTargetLabel && conversionMetrics && (
+                                <div style={{ display: 'flex' }}>
+                                    <span className="text-muted-alt">
+                                        <Tooltip
+                                            title={`Overall conversion rate for all ${aggregationTargetLabel?.plural} on the entire funnel.`}
+                                        >
+                                            <InfoCircleOutlined className="info-indicator left" />
+                                        </Tooltip>
+                                        Total conversion rate
+                                    </span>
+                                    <span className="text-muted-alt mr-025">:</span>
+                                    <span className="l4">{percentage(conversionMetrics?.totalRate, 1, true)}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <LemonDivider />
@@ -552,7 +576,8 @@ function InsightCardInternal(
     }
 
     const { showTimeoutMessage, showErrorMessage, insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, conversionMetrics, aggregationTargetLabel } =
+        useValues(funnelLogic(insightLogicProps))
 
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
@@ -602,6 +627,8 @@ function InsightCardInternal(
                     setAreDetailsShown={setAreDetailsShown}
                     showEditingControls={showEditingControls}
                     showDetailsControls={showDetailsControls}
+                    conversionMetrics={conversionMetrics}
+                    aggregationTargetLabel={aggregationTargetLabel}
                 />
                 <InsightViz
                     insight={insight}
