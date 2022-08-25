@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
+import structlog
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
@@ -11,6 +12,9 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
+
+logger = structlog.get_logger(__name__)
+
 
 # SUPPORTED CSV TYPES
 
@@ -147,10 +151,6 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
 
 
 def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500,) -> None:
-    import structlog
-
-    logger = structlog.get_logger(__name__)
-
     resource = exported_asset.export_context
 
     path: str = resource["path"]
@@ -201,8 +201,6 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     if columns:
         render_context["header"] = columns
 
-    logger.debug("export_csv_render_starting", render_context=render_context)
-
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
 
@@ -210,10 +208,6 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 def make_api_call(
     access_token: str, body: Any, limit: int, method: str, next_url: Optional[str], path: str
 ) -> requests.models.Response:
-    import structlog
-
-    logger = structlog.get_logger(__name__)
-
     request_url: str = absolute_uri(next_url or path)
     try:
         url = add_query_params(request_url, {"limit": str(limit)})
@@ -236,10 +230,6 @@ def make_api_call(
 
 @timed("csv_exporter")
 def export_csv(exported_asset: ExportedAsset, limit: Optional[int] = None, max_limit: int = 3_500,) -> None:
-    import structlog
-
-    logger = structlog.get_logger(__name__)
-
     if not limit:
         limit = 1000
 

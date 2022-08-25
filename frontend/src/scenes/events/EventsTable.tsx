@@ -176,6 +176,7 @@ export function EventsTable({
             },
         }
     }
+
     const personColumn: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> = {
         title: 'Person',
         key: 'person',
@@ -422,6 +423,22 @@ export function EventsTable({
     const showFirstRow = showEventFilter || showPropertyFilter
     const showSecondRow = showAutoload || showCustomizeColumns || showExport
 
+    const exportColumns = useMemo(() => {
+        const columnMapping = {
+            url: ['properties.$current_url', 'properties.$screen_name'],
+            time: 'timestamp',
+            event: 'event',
+            source: 'properties.$lib',
+            person: ['person.distinct_ids.0', 'person.properties.email'],
+        }
+
+        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns).flatMap(
+            (x) => {
+                return columnMapping[x] || `properties.${x}`
+            }
+        )
+    }, [defaultColumns, selectedColumns])
+
     return (
         <div className="events" data-attr="events-table">
             {showFirstRow && (
@@ -488,29 +505,10 @@ export function EventsTable({
                                             key={1}
                                             placement={'bottomRight'}
                                             onConfirm={() => {
-                                                const columns = (
-                                                    selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns
-                                                ).flatMap((x) => {
-                                                    console.log('x ', x)
-                                                    if (x === 'url') {
-                                                        return ['properties.$current_url', 'properties.$screen_name']
-                                                    } else if (x === 'time') {
-                                                        return 'timestamp'
-                                                    } else if (x === 'event') {
-                                                        return 'event'
-                                                    } else if (x === 'source') {
-                                                        return 'properties.$lib'
-                                                    } else if (x === 'person') {
-                                                        return 'person.distinct_ids'
-                                                    } else {
-                                                        return `properties.${x}`
-                                                    }
-                                                })
-                                                console.log('requesting ', columns)
-                                                startDownload(columns)
+                                                startDownload(exportColumns)
                                             }}
                                         >
-                                            <LemonButton status="stealth">Export selected columns</LemonButton>
+                                            <LemonButton status="stealth">Export current columns</LemonButton>
                                         </ExportWithConfirmation>,
                                     ],
                                 }}
