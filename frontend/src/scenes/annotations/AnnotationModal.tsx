@@ -18,6 +18,7 @@ export function AnnotationModal(): JSX.Element {
             isOpen={isModalOpen}
             onClose={closeModal}
             title={modalAnnotation ? 'Edit annotation' : 'New annotation'}
+            description="Use annotations to add context to insights and dashboards."
             footer={
                 <>
                     {editingExistingAnnotation && (
@@ -39,33 +40,36 @@ export function AnnotationModal(): JSX.Element {
                 formKey="annotationModal"
                 id="annotation-modal-form"
                 enableFormOnSubmit
-                className="space-y-2"
+                className="space-y-4"
             >
-                <Field name="date_marker" label="Date and time">
-                    <DatePicker />
-                </Field>
-                <Field name="scope" label="Scope">
-                    <LemonSelect
-                        options={[
-                            ...(modalAnnotation?.scope === AnnotationScope.Insight
-                                ? [
-                                      {
-                                          value: AnnotationScope.Insight,
-                                          label: annotationScopeToName[AnnotationScope.Insight],
-                                      },
-                                  ]
-                                : []),
-                            {
-                                value: AnnotationScope.Project,
-                                label: annotationScopeToName[AnnotationScope.Project],
-                            },
-                            {
-                                value: AnnotationScope.Organization,
-                                label: annotationScopeToName[AnnotationScope.Organization],
-                            },
-                        ]}
-                    />
-                </Field>
+                <div className="flex gap-2">
+                    <Field name="dateMarker" label="Date and time" className="flex-1">
+                        <DatePicker />
+                    </Field>
+                    <Field name="scope" label="Scope" className="flex-1">
+                        <LemonSelect
+                            options={[
+                                ...(modalAnnotation?.scope === AnnotationScope.Insight
+                                    ? [
+                                          {
+                                              value: AnnotationScope.Insight,
+                                              label: annotationScopeToName[AnnotationScope.Insight],
+                                          },
+                                      ]
+                                    : []),
+                                {
+                                    value: AnnotationScope.Project,
+                                    label: annotationScopeToName[AnnotationScope.Project],
+                                },
+                                {
+                                    value: AnnotationScope.Organization,
+                                    label: annotationScopeToName[AnnotationScope.Organization],
+                                },
+                            ]}
+                            fullWidth
+                        />
+                    </Field>
+                </div>
                 <Field name="content" label="Content">
                     <LemonTextArea placeholder="What's this annotation about?" />
                 </Field>

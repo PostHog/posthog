@@ -7,6 +7,7 @@ import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { dayjs, Dayjs } from 'lib/dayjs'
 
 export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Insight]: 'Insight',
@@ -20,12 +21,10 @@ export const annotationScopeToLevel: Record<AnnotationScope, number> = {
     [AnnotationScope.Organization]: 2,
 }
 
-export type AnnotationModalForm = Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
-
-const defaultFormValues: AnnotationModalForm = {
-    date_marker: new Date().toISOString(),
-    content: '',
-    scope: AnnotationScope.Project,
+export type AnnotationModalForm = {
+    dateMarker: Dayjs
+    scope: AnnotationType['scope']
+    content: AnnotationType['content']
 }
 
 export const annotationsPageLogic = kea<annotationsPageLogicType>([
@@ -121,12 +120,21 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
     afterMount(({ actions }) => actions.loadAnnotations()),
     forms(({ actions }) => ({
         annotationModal: {
-            defaults: defaultFormValues,
+            defaults: {
+                dateMarker: dayjs(),
+                content: '',
+                scope: AnnotationScope.Project,
+            },
             errors: ({ content }) => ({
                 content: !content ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
-                await api.annotations.create(data)
+                const { dateMarker, content, scope } = data
+                await api.annotations.create({
+                    date_marker: dateMarker.toISOString(),
+                    content,
+                    scope,
+                })
                 actions.closeModal()
             },
         },

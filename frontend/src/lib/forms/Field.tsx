@@ -2,6 +2,7 @@ import { IconErrorOutline } from 'lib/components/icons'
 import React from 'react'
 import { LemonLabel } from '../components/LemonLabel/LemonLabel'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
+import clsx from 'clsx'
 
 export type PureFieldProps = {
     /** The label name to be displayed */
@@ -14,13 +15,22 @@ export type PureFieldProps = {
     help?: React.ReactNode
     /** Error message to be displayed */
     error?: React.ReactNode
+    className?: string
     children?: React.ReactNode
 }
 
 /** A "Pure" field - used when you want the Field styles without the Kea form functionality */
-export const PureField = ({ label, info, error, help, showOptional, children }: PureFieldProps): JSX.Element => {
+export const PureField = ({
+    label,
+    info,
+    error,
+    help,
+    showOptional,
+    className,
+    children,
+}: PureFieldProps): JSX.Element => {
     return (
-        <div className="flex flex-col gap-2">
+        <div className={clsx('flex flex-col gap-2', className)}>
             {label ? (
                 <LemonLabel info={info} showOptional={showOptional}>
                     {label}
@@ -39,11 +49,11 @@ export const PureField = ({ label, info, error, help, showOptional, children }: 
 
 export type FieldProps = Omit<PureFieldProps, 'children' | 'error'> & Pick<KeaFieldProps, 'children' | 'name'>
 
-export const Field = ({ name, help, ...keaFieldProps }: FieldProps): JSX.Element => {
+export const Field = ({ name, help, className, ...keaFieldProps }: FieldProps): JSX.Element => {
     /** Drop-in replacement antd template for kea forms */
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
         return (
-            <PureField label={label} error={error} help={help}>
+            <PureField label={label} error={error} help={help} className={className}>
                 {kids}
             </PureField>
         )
