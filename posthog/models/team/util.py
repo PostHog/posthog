@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any, List
 
-from posthog.clickhouse.materialized_columns.util import cache_for
+from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.models.person import Person, PersonDistinctId
 
