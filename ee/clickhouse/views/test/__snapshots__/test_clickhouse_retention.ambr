@@ -226,7 +226,7 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
-             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
+             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -258,7 +258,7 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
-             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
+             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -319,7 +319,7 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
-             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
+             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -351,7 +351,7 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
-             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
+             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -408,7 +408,7 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
-             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
+             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -440,7 +440,7 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
-             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
+             AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%'))
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
