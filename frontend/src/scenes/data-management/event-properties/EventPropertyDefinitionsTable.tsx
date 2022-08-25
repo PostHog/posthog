@@ -87,9 +87,8 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
             />
-            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
             {preflight && !preflight?.is_event_property_usage_enabled ? (
-                <UsageDisabledWarning tab="Event Property Definitions" />
+                <UsageDisabledWarning />
             ) : (
                 eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
                     <div className="mb-4">
@@ -99,7 +98,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     </div>
                 )
             )}
-
+            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
             <div className="mb-4">
                 <LemonInput
                     type="search"
