@@ -1,7 +1,7 @@
 import json
 from typing import Dict, List, Optional, Tuple
 
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, PropertyOperatorType
+from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -11,7 +11,6 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trend_event_query import TrendsEventQuery
-from posthog.queries.trends.util import normalize_filter_dates
 
 
 class TrendsActors(ActorBaseQuery):
@@ -21,9 +20,6 @@ class TrendsActors(ActorBaseQuery):
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
-
-        if filter.display != TRENDS_CUMULATIVE and filter.display not in NON_TIME_SERIES_DISPLAY_TYPES:
-            filter = normalize_filter_dates(filter)
 
         super().__init__(team, filter, entity, **kwargs)
 

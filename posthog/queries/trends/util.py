@@ -112,19 +112,17 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
     return time_range
 
 
-def normalize_filter_dates(filter: Filter) -> Filter:
-    # adhoc date handling. parsed differently with django orm
+def get_next_interval_date_to(filter: Filter) -> Filter:
     date_from = filter.date_from or timezone.now()
-    data: Dict = {}
     if filter.interval == "month":
-        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
+        return date_from + relativedelta(months=1) - timedelta(seconds=1)
     elif filter.interval == "week":
-        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
+        return date_from + relativedelta(weeks=1) - timedelta(seconds=1)
     elif filter.interval == "day":
-        data.update({"date_to": (date_from) + relativedelta(days=1) - timedelta(seconds=1)})
+        return (date_from) + relativedelta(days=1) - timedelta(seconds=1)
     elif filter.interval == "hour":
-        data.update({"date_to": date_from + timedelta(hours=1)})
-    return filter.with_data(data)
+        return date_from + relativedelta(hours=1) - timedelta(seconds=1)
+    return None
 
 
 def build_persons_urls(
@@ -142,14 +140,14 @@ def build_persons_urls(
             tzinfo=getattr(date, "tzinfo", pytz.UTC),
         ).astimezone(pytz.UTC)
         filter_params = filter.to_params()
-        interval_filter = normalize_filter_dates(filter.with_data({"date_from": date_in_utc}))
+        interval_date_to = get_next_interval_date_to(filter.with_data({"date_from": date_in_utc}))
 
         extra_params = {
             "entity_id": entity.id,
             "entity_type": entity.type,
             "entity_math": entity.math,
-            "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else interval_filter.date_from,
-            "date_to": interval_filter.date_to,
+            "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date_in_utc,
+            "date_to": interval_date_to,
             "entity_order": entity.order,
         }
 

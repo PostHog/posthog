@@ -350,7 +350,7 @@ class DateMixin(BaseParamMixin):
             else:
                 return self._date_to
 
-        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
+        return date
 
     @include_dict
     def date_to_dict(self) -> Dict:
