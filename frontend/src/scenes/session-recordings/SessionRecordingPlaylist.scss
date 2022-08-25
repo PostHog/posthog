@@ -1,0 +1,22 @@
+.SessionRecordingPlaylist {
+    display: flex;
+    flex-direction: 'row';
+
+    .SessionRecordingPlaylist__left-column {
+        width: 300px;
+        flex-shrink: 0;
+
+        .SessionRecordingPlaylist__pagination-control {
+        }
+    }
+    .SessionRecordingPlaylist__right-column {
+        flex: 1;
+
+        .SessionRecordingPlaylist__loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 10rem;
+        }
+    }
+}
