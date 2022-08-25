@@ -6,7 +6,7 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND has(['another@gmail.com'], "pmat_email")
+  AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY max(created_at) DESC, id
   LIMIT 100
   '
@@ -30,7 +30,11 @@
   SELECT id
   FROM person
   WHERE team_id = 2
-    AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(properties, 'some_prop'), '^"|"$', '')))
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'some_prop'), '^"|"$', '')))
