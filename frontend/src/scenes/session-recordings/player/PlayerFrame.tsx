@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { IconPlay } from 'scenes/session-recordings/player/icons'
+import useSize from '@react-hook/size'
 
 export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
     { sessionRecordingId, playerKey }: SessionRecordingPlayerProps,
@@ -13,7 +14,10 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
     const { currentPlayerState, player } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { togglePlayPause, setScale } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const frameRef = ref as MutableRefObject<HTMLDivElement>
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const containerDimensions = useSize(containerRef)
 
+    // Recalculate the player size when the recording changes dimensions
     useEffect(() => {
         if (!player) {
             return
@@ -25,11 +29,15 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
         return () => window.removeEventListener('resize', windowResize)
     }, [player?.replayer])
 
+    // Recalculate the player size when the player changes dimensions
+    useEffect(() => {
+        windowResize()
+    }, [containerDimensions])
+
     const windowResize = (): void => {
         updatePlayerDimensions(replayDimensionRef.current)
     }
 
-    // :TRICKY: Scale down the iframe and try to position it vertically
     const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
         if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
             return
@@ -68,7 +76,7 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
     }
 
     return (
-        <div className="rrweb-player" onClick={togglePlayPause}>
+        <div ref={containerRef} className="rrweb-player" onClick={togglePlayPause}>
             <div className="player-frame" ref={ref} style={{ position: 'absolute' }} />
             <div className="rrweb-overlay-container">{renderPlayerState()}</div>
         </div>
