@@ -447,15 +447,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 {!hasAvailableFeature(
                                                                     AvailableFeature.MULTIVARIATE_FLAGS
                                                                 ) && (
-                                                                        <Link to={upgradeLink} target="_blank">
-                                                                            <LockOutlined
-                                                                                style={{
-                                                                                    marginRight: 4,
-                                                                                    color: 'var(--warning)',
-                                                                                }}
-                                                                            />
-                                                                        </Link>
-                                                                    )}
+                                                                    <Link to={upgradeLink} target="_blank">
+                                                                        <LockOutlined
+                                                                            style={{
+                                                                                marginRight: 4,
+                                                                                color: 'var(--warning)',
+                                                                            }}
+                                                                        />
+                                                                    </Link>
+                                                                )}
                                                                 String value (Multivariate test){' '}
                                                             </div>
                                                         </Tooltip>
@@ -711,8 +711,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <LemonDivider className="my-4" />
                                             <div className="ml-4">
                                                 <PropertyFilters
-                                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
-                                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                                        featureFlag.filters.groups.length
+                                                    }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                                     propertyFilters={group?.properties}
                                                     onChange={(properties) =>
                                                         updateConditionSet(index, undefined, properties)
@@ -1046,11 +1047,7 @@ function FeatureFlagReleaseConditions(): JSX.Element {
             <Row gutter={16}>
                 {featureFlag.filters.groups.map((group, index) => (
                     <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
-                        {index > 0 && (
-                            <div style={{ display: 'flex', marginLeft: 16 }}>
-                                <div className="stateful-badge or-light-grey mb-4">OR</div>
-                            </div>
-                        )}
+                        {index > 0 && <div className="condition-set-separator">OR</div>}
                         <Card style={{ marginBottom: 16 }}>
                             <Row align="middle" justify="space-between">
                                 <Row align="middle">
@@ -1122,14 +1119,15 @@ function FeatureFlagReleaseConditions(): JSX.Element {
                             </div> */}
 
                             <LemonDivider className="my-4" />
-                            <div className="ml-4">
+                            <div>
                                 <PropertyFilters
-                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
-                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                    orFiltering={true}
+                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                        featureFlag.filters.groups.length
+                                    }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                     propertyFilters={group?.properties}
                                     onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                     taxonomicGroupTypes={taxonomicGroupTypes}
-                                    showConditionBadge
                                 />
                             </div>
 

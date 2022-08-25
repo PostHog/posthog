@@ -16,4 +16,21 @@
         user-select: none;
         padding: 0px 5px;
     }
+
+    .logical-row-divider {
+        color: var(--primary-alt);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        align-items: flex-start;
+
+        &::before,
+        &::after {
+            border-top: 1px solid var(--border);
+        }
+
+        &::before {
+            width: 1.5%;
+        }
+    }
 }

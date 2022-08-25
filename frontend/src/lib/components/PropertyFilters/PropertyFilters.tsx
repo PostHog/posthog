@@ -7,6 +7,7 @@ import { AnyPropertyFilter, PropertyFilter, FilterLogicalOperator } from '~/type
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import './PropertyFilters.scss'
+import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -52,36 +53,41 @@ export function PropertyFilters({
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
                         return (
-                            <FilterRow
-                                key={index}
-                                item={item}
-                                index={index}
-                                totalCount={filtersWithNew.length - 1} // empty state
-                                filters={filtersWithNew}
-                                pageKey={pageKey}
-                                showConditionBadge={showConditionBadge}
-                                disablePopover={disablePopover || orFiltering}
-                                label={'Add filter'}
-                                onRemove={remove}
-                                orFiltering={orFiltering}
-                                filterComponent={(onComplete) => (
-                                    <TaxonomicPropertyFilter
-                                        key={index}
-                                        pageKey={pageKey}
-                                        index={index}
-                                        onComplete={onComplete}
-                                        orFiltering={orFiltering}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        eventNames={eventNames}
-                                        propertyGroupType={propertyGroupType}
-                                        disablePopover={disablePopover || orFiltering}
-                                        selectProps={{
-                                            delayBeforeAutoOpen: 150,
-                                            placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
-                                        }}
-                                    />
+                            <>
+                                {index > 0 && index !== filtersWithNew.length - 1 && (
+                                    <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                                 )}
-                            />
+                                <FilterRow
+                                    key={index}
+                                    item={item}
+                                    index={index}
+                                    totalCount={filtersWithNew.length - 1} // empty state
+                                    filters={filtersWithNew}
+                                    pageKey={pageKey}
+                                    showConditionBadge={showConditionBadge}
+                                    disablePopover={disablePopover || orFiltering}
+                                    label={'Add filter'}
+                                    onRemove={remove}
+                                    orFiltering={orFiltering}
+                                    filterComponent={(onComplete) => (
+                                        <TaxonomicPropertyFilter
+                                            key={index}
+                                            pageKey={pageKey}
+                                            index={index}
+                                            onComplete={onComplete}
+                                            orFiltering={orFiltering}
+                                            taxonomicGroupTypes={taxonomicGroupTypes}
+                                            eventNames={eventNames}
+                                            propertyGroupType={propertyGroupType}
+                                            disablePopover={disablePopover || orFiltering}
+                                            selectProps={{
+                                                delayBeforeAutoOpen: 150,
+                                                placement: pageKey === 'insight-filters' ? 'bottomLeft' : undefined,
+                                            }}
+                                        />
+                                    )}
+                                />
+                            </>
                         )
                     })}
                 </BindLogic>

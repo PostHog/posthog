@@ -21,6 +21,14 @@
     }
 }
 
+.condition-set-separator {
+    color: var(--primary-alt);
+    font-size: 12px;
+    font-weight: var(--font-semibold);
+    margin-left: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
 .feature-flag-form-row {
     display: flex;
     justify-content: space-between;
