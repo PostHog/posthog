@@ -173,7 +173,7 @@ def parse_prop_clauses(
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
-        elif prop.type == "event" or person_properties_mode == PersonPropertiesMode.DIRECT_ON_PERSONS:
+        elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_PERSONS:
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
                 idx,
@@ -193,7 +193,6 @@ def parse_prop_clauses(
                 prop_var="{}person_properties".format(table_formatted),
                 allow_denormalized_props=False,  # TODO: No denormalized props will exist on person on events for now
                 property_operator=property_operator,
-                table_name=table_name,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -209,7 +208,6 @@ def parse_prop_clauses(
                 prop_var="person_props" if is_direct_query else "properties",
                 allow_denormalized_props=allow_denormalized_props and is_direct_query,
                 property_operator=property_operator,
-                table_name=table_name,
             )
             if is_direct_query:
                 final.append(filter_query)
@@ -241,6 +239,17 @@ def parse_prop_clauses(
             )
             final.append(filter_query)
             params.update(filter_params)
+        elif prop.type == "event":
+            filter_query, filter_params = prop_filter_json_extract(
+                prop,
+                idx,
+                prepend,
+                prop_var="{}properties".format(table_formatted),
+                allow_denormalized_props=allow_denormalized_props,
+                property_operator=property_operator,
+            )
+            final.append(f" {filter_query}")
+            params.update(filter_params)
         elif prop.type == "element":
             query, filter_params = filter_element(
                 {prop.key: prop.value}, operator=prop.operator, prepend="{}_".format(prepend)
@@ -256,7 +265,6 @@ def parse_prop_clauses(
                 prop_var=f"group{prop.group_type_index}_properties",
                 allow_denormalized_props=False,
                 property_operator=property_operator,
-                table_name=table_name,
             )
             final.append(filter_query)
             params.update(filter_params)
@@ -269,19 +277,13 @@ def parse_prop_clauses(
                     prop_var=f"group_properties_{prop.group_type_index}",
                     allow_denormalized_props=False,
                     property_operator=property_operator,
-                    table_name=table_name,
                 )
                 final.append(filter_query)
                 params.update(filter_params)
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
-                    prop,
-                    idx,
-                    prepend,
-                    prop_var=f"group_properties",
-                    allow_denormalized_props=False,
-                    table_name=table_name,
+                    prop, idx, prepend, prop_var=f"group_properties", allow_denormalized_props=False,
                 )
                 group_type_index_var = f"{prepend}_group_type_index_{idx}"
                 groups_subquery = GET_GROUP_IDS_BY_PROPERTY_SQL.format(
