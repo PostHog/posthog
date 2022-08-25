@@ -1,6 +1,6 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { annotationScopeToLevel, annotationScopeToName, annotationsPageLogic } from './logic'
+import { annotationScopeToLevel, annotationScopeToName, annotationsPageLogic } from './annotationsPageLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'

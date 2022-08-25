@@ -4,35 +4,50 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { DatePicker } from 'lib/components/DatePicker'
 import React from 'react'
-import { annotationScopeToName, annotationsPageLogic } from './logic'
+import { annotationScopeToName, annotationsPageLogic } from './annotationsPageLogic'
 import { AnnotationScope } from '~/types'
 
 export function AnnotationModal(): JSX.Element {
-    const { isModalOpen, modalAnnotation } = useValues(annotationsPageLogic)
-    const { closeModal } = useActions(annotationsPageLogic)
-
-    const editingExistingAnnotation = !!modalAnnotation
+    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting } = useValues(annotationsPageLogic)
+    const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationsPageLogic)
 
     return (
         <LemonModal
             isOpen={isModalOpen}
             onClose={closeModal}
-            title={modalAnnotation ? 'Edit annotation' : 'New annotation'}
+            title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
             description="Use annotations to add context to insights and dashboards."
             footer={
-                <>
-                    {editingExistingAnnotation && (
-                        <LemonButton form="annotation-modal-form" type="secondary" status="danger">
-                            Delete
+                <div className="flex-1 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        {existingModalAnnotation && (
+                            <LemonButton
+                                form="annotation-modal-form"
+                                type="secondary"
+                                status="danger"
+                                onClick={() => {
+                                    deleteAnnotation(existingModalAnnotation.id)
+                                    closeModal()
+                                }}
+                            >
+                                Delete annotation
+                            </LemonButton>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <LemonButton form="annotation-modal-form" type="secondary" onClick={closeModal}>
+                            Cancel
                         </LemonButton>
-                    )}
-                    <LemonButton form="annotation-modal-form" type="secondary">
-                        Cancel
-                    </LemonButton>
-                    <LemonButton form="annotation-modal-form" htmlType="submit" type="primary">
-                        Create
-                    </LemonButton>
-                </>
+                        <LemonButton
+                            form="annotation-modal-form"
+                            htmlType="submit"
+                            type="primary"
+                            loading={isAnnotationModalSubmitting}
+                        >
+                            {existingModalAnnotation ? 'Edit' : 'Create'}
+                        </LemonButton>
+                    </div>
+                </div>
             }
         >
             <Form
@@ -44,12 +59,12 @@ export function AnnotationModal(): JSX.Element {
             >
                 <div className="flex gap-2">
                     <Field name="dateMarker" label="Date and time" className="flex-1">
-                        <DatePicker />
+                        <DatePicker allowClear={false} showTime showSecond={false} />
                     </Field>
                     <Field name="scope" label="Scope" className="flex-1">
                         <LemonSelect
                             options={[
-                                ...(modalAnnotation?.scope === AnnotationScope.Insight
+                                ...(existingModalAnnotation?.scope === AnnotationScope.Insight
                                     ? [
                                           {
                                               value: AnnotationScope.Insight,
@@ -71,7 +86,10 @@ export function AnnotationModal(): JSX.Element {
                     </Field>
                 </div>
                 <Field name="content" label="Content">
-                    <LemonTextArea placeholder="What's this annotation about?" />
+                    <LemonTextArea
+                        placeholder="What's this annotation about?"
+                        onPressCmdEnter={submitAnnotationModal}
+                    />
                 </Field>
             </Form>
         </LemonModal>

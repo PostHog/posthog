@@ -59,7 +59,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
     """
 
-    queryset = Annotation.objects.filter(deleted=False).select_related("dashboard_item")
+    queryset = Annotation.objects.select_related("dashboard_item")
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
@@ -70,6 +70,10 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if self.action == "list":
             order = self.request.GET.get("order", "-date_marker")
             queryset = self._filter_request(self.request, queryset).order_by(order)
+        if self.action != "partial_update":
+            # We never want deleted items to be included in the queryset… except when we want to restore an annotation
+            # Annotations are restored with a PATCH request setting `deleted` to `False`
+            queryset = queryset.filter(deleted=False)
 
         return queryset
 
@@ -88,8 +92,6 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             elif key == "apply_all":
                 queryset_method = queryset.exclude if str_to_bool(request.GET["apply_all"]) else queryset.filter
                 queryset = queryset_method(scope=Annotation.Scope.INSIGHT)
-            elif key == "deleted":
-                queryset = queryset.filter(deleted=str_to_bool(request.GET["deleted"]))
 
         return queryset
 

@@ -43,7 +43,6 @@ export const annotationsLogic = kea<annotationsLogicType>({
                 const params = {
                     ...(props.insightNumericId ? { dashboardItemId: props.insightNumericId } : {}),
                     scope: AnnotationScope.Insight,
-                    deleted: false,
                 }
                 const response = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams(params)}`

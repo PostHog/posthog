@@ -2,12 +2,12 @@ import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
 import { toParams, deleteWithUndo } from 'lib/utils'
 import { annotationsModel } from '~/models/annotationsModel'
-import type { annotationsPageLogicType } from './logicType'
+import type { annotationsPageLogicType } from './annotationsPageLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
-import { dayjs, Dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 
 export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Insight]: 'Insight',
@@ -22,7 +22,7 @@ export const annotationScopeToLevel: Record<AnnotationScope, number> = {
 }
 
 export type AnnotationModalForm = {
-    dateMarker: Dayjs
+    dateMarker: dayjs.Dayjs
     scope: AnnotationType['scope']
     content: AnnotationType['content']
 }
@@ -30,7 +30,6 @@ export type AnnotationModalForm = {
 export const annotationsPageLogic = kea<annotationsPageLogicType>([
     path(['scenes', 'annotations', 'logic']),
     actions(() => ({
-        updateAnnotation: (id, content) => ({ id, content }),
         deleteAnnotation: (id) => ({ id }),
         restoreAnnotation: (id) => ({ id }),
         loadAnnotationsNext: () => true,
@@ -80,7 +79,7 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
                 closeModal: () => false,
             },
         ],
-        modalAnnotation: [
+        existingModalAnnotation: [
             null as AnnotationType | null,
             {
                 openModalToCreateAnnotation: () => null,
@@ -89,17 +88,23 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        updateAnnotation: async ({ id, content }) => {
-            await api.update(`api/projects/${teamLogic.values.currentTeamId}/annotations/${id}`, { content })
-            actions.loadAnnotations()
+        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content } }) => {
+            actions.setAnnotationModalValues({
+                dateMarker: dayjs(date_marker),
+                scope,
+                content,
+            })
+        },
+        openModalToCreateAnnotation: () => {
+            actions.resetAnnotationModal()
         },
         restoreAnnotation: async ({ id }) => {
-            await api.update(`api/projects/${teamLogic.values.currentTeamId}/annotations/${id}`, { deleted: false })
+            await api.annotations.restore(id)
             actions.loadAnnotations()
         },
         deleteAnnotation: ({ id }) => {
             deleteWithUndo({
-                endpoint: `projects/${teamLogic.values.currentTeamId}/annotations`,
+                endpoint: api.annotations.determineDeleteEndpoint(),
                 object: { name: 'Annotation', id },
                 callback: () => actions.loadAnnotations(),
             })
@@ -118,23 +123,32 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
         },
     })),
     afterMount(({ actions }) => actions.loadAnnotations()),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         annotationModal: {
             defaults: {
                 dateMarker: dayjs(),
                 content: '',
                 scope: AnnotationScope.Project,
-            },
+            } as AnnotationModalForm,
             errors: ({ content }) => ({
                 content: !content ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
                 const { dateMarker, content, scope } = data
-                await api.annotations.create({
-                    date_marker: dateMarker.toISOString(),
-                    content,
-                    scope,
-                })
+                if (values.existingModalAnnotation) {
+                    await api.annotations.update(values.existingModalAnnotation.id, {
+                        date_marker: dateMarker.toISOString(),
+                        content,
+                        scope,
+                    })
+                } else {
+                    await api.annotations.create({
+                        date_marker: dateMarker.toISOString(),
+                        content,
+                        scope,
+                    })
+                }
+                actions.loadAnnotations()
                 actions.closeModal()
             },
         },

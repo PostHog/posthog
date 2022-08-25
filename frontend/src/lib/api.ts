@@ -245,12 +245,12 @@ class ApiRequest {
     }
 
     // # Annotations
-    public annotations(): ApiRequest {
-        return this.addPathComponent('annotations')
+    public annotations(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('annotations')
     }
 
-    public annotation(id: AnnotationType['id']): ApiRequest {
-        return this.annotations().addPathComponent(id)
+    public annotation(id: AnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.annotations(teamId).addPathComponent(id)
     }
 
     // # Feature flags
@@ -743,6 +743,15 @@ const api = {
         async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
             return await new ApiRequest().annotation(annotationId).get()
         },
+        async update(
+            annotationId: AnnotationType['id'],
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).update({ data })
+        },
+        async restore(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).update({ data: { deleted: false } })
+        },
         async list(): Promise<PaginatedResponse<AnnotationType>> {
             return await new ApiRequest().annotations().get()
         },
@@ -751,8 +760,8 @@ const api = {
         ): Promise<AnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
-        async delete(annotationId: AnnotationType['id']): Promise<AnnotationType> {
-            return await new ApiRequest().annotation(annotationId).delete()
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().annotations().assembleEndpointUrl()
         },
     },
 
