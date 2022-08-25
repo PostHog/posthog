@@ -1572,6 +1572,13 @@ export interface PropertyDefinition {
     is_action?: boolean
 }
 
+export enum PropertyDefinitionState {
+    Pending = 'pending',
+    Loading = 'loading',
+    Missing = 'missing',
+    Error = 'error',
+}
+
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
@@ -1964,8 +1971,10 @@ export type CombinedEvent = EventDefinition | ActionType
 
 export enum CombinedEventType {
     All = 'all',
-    Event = 'event',
     ActionEvent = 'action_event',
+    Event = 'event',
+    EventCustom = 'event_custom',
+    EventPostHog = 'event_posthog',
 }
 
 export interface IntegrationType {

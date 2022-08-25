@@ -74,7 +74,7 @@ export function BillingEnrollment(): JSX.Element | null {
                         {plans.map((plan: PlanInterface) => (
                             <Col sm={8} key={plan.key} className="text-center">
                                 {billingSubscriptionLoading ? (
-                                    <Spinner />
+                                    <Spinner className="text-2xl" />
                                 ) : (
                                     <Plan plan={plan} onSubscribe={handleBillingSubscribe} />
                                 )}

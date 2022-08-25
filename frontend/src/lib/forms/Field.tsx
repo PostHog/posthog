@@ -2,6 +2,7 @@ import { IconErrorOutline } from 'lib/components/icons'
 import React from 'react'
 import { LemonLabel } from '../components/LemonLabel/LemonLabel'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
+import clsx from 'clsx'
 
 export type PureFieldProps = {
     /** The label name to be displayed */
@@ -20,7 +21,7 @@ export type PureFieldProps = {
 /** A "Pure" field - used when you want the Field styles without the Kea form functionality */
 export const PureField = ({ label, info, error, help, showOptional, children }: PureFieldProps): JSX.Element => {
     return (
-        <div className="flex flex-col gap-2">
+        <div className={clsx('Field flex flex-col gap-2', error && 'Field--error')}>
             {label ? (
                 <LemonLabel info={info} showOptional={showOptional}>
                     {label}

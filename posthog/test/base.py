@@ -24,6 +24,7 @@ from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 from posthog.models.person.sql import (
@@ -142,10 +143,17 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
+
+        if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            from posthog.models.team import util
+
+            util.can_enable_person_on_events = True
+
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
+
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(

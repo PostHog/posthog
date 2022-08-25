@@ -1,18 +1,7 @@
 .Spinner {
-    animation: spinner 2s infinite linear;
     display: block;
-    width: 2rem;
-    height: 2rem;
+    animation: spinner 2s infinite linear;
     flex-shrink: 0;
-
-    &.Spinner--sm {
-        width: 1rem;
-        height: 1rem;
-    }
-    &.Spinner--lg {
-        width: 4rem;
-        height: 4rem;
-    }
 }
 
 @keyframes spinner {

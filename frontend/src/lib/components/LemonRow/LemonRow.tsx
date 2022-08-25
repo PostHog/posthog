@@ -72,7 +72,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
 ): JSX.Element {
     const symbolic = children === null || children === undefined || children === false
     if (loading) {
-        icon = <Spinner size="sm" />
+        icon = <Spinner />
     }
     const element = React.createElement(
         tag || 'div',

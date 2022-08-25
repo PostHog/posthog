@@ -234,12 +234,12 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('persons')
     }
 
-    public person(id: number, teamId?: TeamType['id']): ApiRequest {
+    public person(id: string | number, teamId?: TeamType['id']): ApiRequest {
         return this.persons(teamId).addPathComponent(id)
     }
 
-    public personActivity(id: number | undefined): ApiRequest {
-        if (typeof id === 'number') {
+    public personActivity(id: string | number | undefined): ApiRequest {
+        if (id) {
             return this.person(id).addPathComponent('activity')
         }
         return this.persons().addPathComponent('activity')
@@ -422,7 +422,7 @@ const api = {
         ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
             const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest> = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
-                    return new ApiRequest().featureFlagsActivity(props.id || null, teamId)
+                    return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
                 [ActivityScope.PERSON]: (props) => {
                     return new ApiRequest().personActivity(props.id)
@@ -568,6 +568,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            properties?: string[]
             is_event_property?: boolean
             limit?: number
             offset?: number
@@ -579,6 +580,7 @@ const api = {
                     toParams({
                         limit,
                         ...params,
+                        ...(params.properties ? { properties: params.properties.join(',') } : {}),
                     })
                 )
                 .get()

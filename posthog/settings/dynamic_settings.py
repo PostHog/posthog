@@ -31,6 +31,11 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
         str,
     ),
+    "PERSON_ON_EVENTS_ENABLED": (
+        get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
+        "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
+        bool,
+    ),
     "GEOIP_PROPERTY_OVERRIDES_TEAMS": (
         get_from_env("GEOIP_PROPERTY_OVERRIDES_TEAMS", ""),
         "Whether to use GeoIP to override person properties when calling the `/decide` endpoint for feature flags",
@@ -165,7 +170,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
-    "ENABLE_ACTOR_ON_EVENTS_TEAMS",
+    "PERSON_ON_EVENTS_ENABLED",
     "GEOIP_PROPERTY_OVERRIDES_TEAMS",
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",

@@ -24,7 +24,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
     const { hasAvailableFeature, userLoading } = useValues(userLogic)
 
     if (userLoading) {
-        return <Spinner />
+        return <Spinner className="text-2xl" />
     }
     return (
         <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
