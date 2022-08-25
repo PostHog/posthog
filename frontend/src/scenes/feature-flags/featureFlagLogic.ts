@@ -81,6 +81,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
+        duplicateVariant: (index: number) => ({ index }),
         removeVariant: (index: number) => ({ index }),
         distributeVariantsEqually: true,
     }),
@@ -187,6 +188,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             multivariate: {
                                 ...(state.filters.multivariate || {}),
                                 variants: [...variants, NEW_VARIANT],
+                            },
+                        },
+                    }
+                },
+                duplicateVariant: (state, { index }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const variants = [...(state.filters.multivariate?.variants || [])]
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            multivariate: {
+                                ...(state.filters.multivariate || {}),
+                                variants: [...variants, variants[index]],
                             },
                         },
                     }

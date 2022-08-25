@@ -1,7 +1,14 @@
 .variant-form-list {
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-top: 16px;
+
     .ant-form-item {
         min-height: 32px;
     }
+
     .label-row {
         font-weight: bold;
 
