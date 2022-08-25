@@ -161,6 +161,36 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ],
             )
 
+            #  entities filtering
+            result = trends().run(
+                Filter(
+                    data={
+                        "date_from": "2020-01-12T00:00:00Z",
+                        "date_to": "2020-01-19T00:00:00Z",
+                        "events": [
+                            {
+                                "properties": [{"key": "$number", "value": 1}],
+                                "id": "$pageview",
+                                "type": "events",
+                                "order": 0,
+                            }
+                        ],
+                        "shown_as": TRENDS_LIFECYCLE,
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertLifecycleResults(
+                result,
+                [
+                    {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+                    {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
+                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+                ],
+            )
+
         def test_lifecycle_trends_distinct_id_repeat(self):
             with freeze_time("2020-01-12T12:00:00Z"):
                 person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})

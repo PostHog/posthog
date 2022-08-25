@@ -2,8 +2,8 @@ import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { unsubscribeLogic } from './unsubscribeLogic'
 import { useValues } from 'kea'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Unsubscribe,
@@ -15,9 +15,7 @@ export function Unsubscribe(): JSX.Element {
     return (
         <BridgePage view="unsubscribe">
             {unsubscriptionLoading ? (
-                <div className="p-4 flex justify-center">
-                    <Spinner />
-                </div>
+                <SpinnerOverlay />
             ) : unsubscription ? (
                 <div>
                     <h2>You have been unsubscribed!</h2>

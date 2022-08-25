@@ -122,20 +122,3 @@
     padding: 5px 12px;
     cursor: pointer;
 }
-
-.CollaboratorRow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 2rem;
-    margin-top: 0.5rem;
-    padding-left: 0.5rem;
-}
-
-.CollaboratorRow__details {
-    display: flex;
-    align-items: center;
-    > span {
-        margin-right: 0.5rem;
-    }
-}

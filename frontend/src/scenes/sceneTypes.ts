@@ -99,8 +99,8 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /** Hides most navigation UI, like the sidebar and breadcrumbs. */
     plain?: boolean
-    /** Hides demo project warnings (DemoWarning.tsx) */
-    hideDemoWarnings?: boolean
+    /** Hides project notice (ProjectNotice.tsx). */
+    hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */
     personal?: boolean
     /** Instance management (used e.g. by breadcrumbs) */

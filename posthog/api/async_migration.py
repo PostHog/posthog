@@ -13,6 +13,7 @@ from posthog.models.async_migration import (
     MigrationStatus,
     get_all_running_async_migrations,
 )
+from posthog.models.instance_setting import get_instance_setting
 from posthog.permissions import IsStaffUser
 from posthog.version import VERSION
 
@@ -82,7 +83,9 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
         return {}
 
     def get_is_available(self, async_migration: AsyncMigration):
-        return Version(async_migration.posthog_min_version) <= Version(VERSION)
+        return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or Version(
+            async_migration.posthog_min_version
+        ) <= Version(VERSION)
 
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):

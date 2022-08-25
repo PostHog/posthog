@@ -96,7 +96,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
             </div>
             {suggestionsLoading ? (
                 <LemonRow outlined fullWidth size="large" key={-1}>
-                    <Spinner size="md" />
+                    <Spinner className="text-xl" />
                 </LemonRow>
             ) : (
                 <div className="space-y-2">
@@ -146,7 +146,9 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                                         center
                                                         className="ActionButton"
                                                         data-attr="toolbar-open"
-                                                    />
+                                                    >
+                                                        Launch
+                                                    </LemonButton>
 
                                                     <LemonButton
                                                         icon={<IconEdit />}

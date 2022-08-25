@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import { EventDefinition } from '~/types'
 import type { eventDefinitionsModelType } from './eventDefinitionsModelType'
-import { propertyDefinitionsModel } from './propertyDefinitionsModel'
+import { updatePropertyDefinitions } from './propertyDefinitionsModel'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface EventDefinitionStorage {
@@ -61,7 +61,7 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType>({
             if (type === 'event') {
                 actions.updateEventDefinition(response)
             } else {
-                propertyDefinitionsModel.actions.updatePropertyDefinition(response)
+                updatePropertyDefinitions([response])
             }
         },
     }),
@@ -80,11 +80,6 @@ export const eventDefinitionsModel = kea<eventDefinitionsModelType>({
         eventNames: [
             (s) => [s.eventDefinitions],
             (eventDefinitions): string[] => eventDefinitions.map((definition) => definition.name),
-        ],
-        customEvents: [
-            (s) => [s.eventDefinitions],
-            (eventDefinitions): EventDefinition[] =>
-                eventDefinitions.filter((definition) => !definition.name.startsWith('$')),
         ],
     },
 })

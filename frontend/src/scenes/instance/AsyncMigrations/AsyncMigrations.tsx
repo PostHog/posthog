@@ -290,7 +290,7 @@ export function AsyncMigrations(): JSX.Element {
                         <>
                             <div className="mb-4 float-right">
                                 <LemonButton
-                                    icon={asyncMigrationsLoading ? <Spinner size="sm" /> : <IconRefresh />}
+                                    icon={asyncMigrationsLoading ? <Spinner /> : <IconRefresh />}
                                     onClick={loadAsyncMigrations}
                                     type="secondary"
                                     size="small"

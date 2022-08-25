@@ -147,7 +147,7 @@ describe('definitionPopupLogic', () => {
                     type: TaxonomicFilterGroupType.EventProperties,
                     definition: mockEventPropertyDefinition as PropertyDefinition,
                     url: `api/projects/@current/property_definitions/${mockEventPropertyDefinition.id}`,
-                    dispatchActions: [propertyDefinitionsModel, ['updatePropertyDefinition']],
+                    dispatchActions: [propertyDefinitionsModel, ['updatePropertyDefinitions']],
                 },
                 {
                     type: TaxonomicFilterGroupType.NumericalEventProperties,
