@@ -177,6 +177,17 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["action_id"], action.id)
         self.assertEqual(response.json()["results"][0]["name"], action.name)
 
+    def test_event_type_event_custom(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_custom")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 5)
+
+    def test_event_type_event_posthog(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=event_posthog")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["name"], "$pageview")
+
 
 @dataclasses.dataclass
 class EventData:
