@@ -72,10 +72,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
@@ -108,10 +104,6 @@
                argMax(pmat_$browser, version) as pmat_$browser
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
@@ -211,10 +203,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      INNER JOIN
@@ -256,10 +244,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      INNER JOIN

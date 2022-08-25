@@ -192,10 +192,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -397,10 +393,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -438,10 +430,6 @@
                argMax(pmat_$sample_field, version) as pmat_$sample_field
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -595,10 +583,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0)) person
   WHERE 1 = 1
@@ -638,10 +622,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -682,10 +662,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
@@ -729,10 +705,6 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1

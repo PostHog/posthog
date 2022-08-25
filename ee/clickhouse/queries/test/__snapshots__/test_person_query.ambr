@@ -3,13 +3,8 @@
   
               SELECT id
               FROM person
+              
               WHERE team_id = %(team_id)s
-              AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  
-              )
               GROUP BY id
               HAVING max(is_deleted) = 0
                  
@@ -83,13 +78,8 @@
   
               SELECT id, argMax(pmat_email, version) as pmat_email
               FROM person
+              
               WHERE team_id = %(team_id)s
-              AND id IN (
-                  SELECT id FROM person
-                  
-                  WHERE team_id = %(team_id)s
-                  
-              )
               GROUP BY id
               HAVING max(is_deleted) = 0
                  
