@@ -129,6 +129,7 @@ class TrendsActors(ActorBaseQuery):
             else ""
         )
 
+        limit = self._filter.limit or 100
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
                 id_field=self._aggregation_actor_field,
@@ -137,7 +138,7 @@ class TrendsActors(ActorBaseQuery):
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",
             ),
-            {**params, "offset": self._filter.offset, "limit": 200},
+            {**params, "offset": self._filter.offset, "limit": limit},
         )
 
     @cached_property
