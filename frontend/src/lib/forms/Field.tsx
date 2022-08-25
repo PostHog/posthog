@@ -30,7 +30,7 @@ export const PureField = ({
     children,
 }: PureFieldProps): JSX.Element => {
     return (
-        <div className={clsx('flex flex-col gap-2', className)}>
+        <div className={clsx('Field flex flex-col gap-2', className, error && 'Field--error')}>
             {label ? (
                 <LemonLabel info={info} showOptional={showOptional}>
                     {label}

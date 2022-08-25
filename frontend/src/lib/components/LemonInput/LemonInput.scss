@@ -11,7 +11,6 @@
     cursor: text;
     color: var(--default);
     border: 1px solid var(--border);
-
     align-items: center;
     justify-content: center;
     gap: 0.25rem;
@@ -65,5 +64,9 @@
     &.LemonInput--fullwidth {
         width: 100%;
         max-width: 100%;
+    }
+
+    .Field--error & {
+        border: 1px solid var(--danger) !important;
     }
 }

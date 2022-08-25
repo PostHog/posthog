@@ -1,11 +1,6 @@
 .Preflight {
-    min-height: 100vh;
-    align-items: center;
-    justify-content: center;
-    display: flex;
-    flex-direction: row;
-    padding: 40px 16px;
-
+    max-width: 400px;
+    padding: 1rem;
     .Preflight__header {
         p {
             margin-bottom: 0.5rem;
@@ -24,52 +19,44 @@
         }
     }
 
-    .Preflight__container-box {
-        box-shadow: var(--shadow-elevation);
-        max-width: 480px;
-        background-color: var(--bg-light);
+    .Preflight__checks-container {
         border-radius: var(--radius);
-        padding: 40px;
+        border: 1px solid var(--border);
 
-        .Preflight__checks-container {
-            border-radius: var(--radius);
-            border: 1px solid var(--border);
+        svg {
+            font-size: 20px;
+        }
 
-            svg {
-                font-size: 20px;
+        .Preflight__check-summary {
+            display: flex;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            align-items: center;
+
+            .Preflight__summary-icon-container {
+                width: 40px;
+                height: 40px;
+                border-radius: 20px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
 
-            .Preflight__check-summary {
-                display: flex;
-                padding: 12px;
-                border-bottom: 1px solid var(--border);
-                align-items: center;
+            .Preflight__summary-text-container {
+                flex: 1;
+                margin: 0 14px;
 
-                .Preflight__summary-icon-container {
-                    width: 40px;
-                    height: 40px;
-                    border-radius: 20px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                p {
+                    margin-bottom: 0;
                 }
 
-                .Preflight__summary-text-container {
-                    flex: 1;
-                    margin: 0 14px;
+                .Preflight__summary-header {
+                    font-weight: 600;
+                    font-size: 14px;
+                }
 
-                    p {
-                        margin-bottom: 0;
-                    }
-
-                    .Preflight__summary-header {
-                        font-weight: 600;
-                        font-size: 14px;
-                    }
-
-                    .Preflight__summary-description {
-                        font-size: 13px;
-                    }
+                .Preflight__summary-description {
+                    font-size: 13px;
                 }
             }
         }
