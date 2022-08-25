@@ -107,7 +107,13 @@ export function Annotations(): JSX.Element {
         <>
             <PageHeader
                 title="Annotations"
-                caption="Here you can add organization- and project-wide annotations. Dashboard-specific ones can be added directly in the dashboard."
+                caption={
+                    <>
+                        Annotations add time-specific context to insights and dashboards.
+                        <br />
+                        Manage all of this project's annotations from this page.
+                    </>
+                }
                 buttons={
                     <LemonButton type="primary" data-attr="create-annotation" onClick={openModalToCreateAnnotation}>
                         New annotation
