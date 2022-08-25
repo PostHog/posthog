@@ -9,6 +9,8 @@ import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 
+export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
+
 export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Insight]: 'Insight',
     [AnnotationScope.Project]: 'Project',

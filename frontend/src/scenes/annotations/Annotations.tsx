@@ -1,6 +1,11 @@
 import React from 'react'
 import { useValues, useActions } from 'kea'
-import { annotationScopeToLevel, annotationScopeToName, annotationsPageLogic } from './annotationsPageLogic'
+import {
+    annotationScopeToLevel,
+    annotationScopeToName,
+    annotationsPageLogic,
+    ANNOTATION_DAYJS_FORMAT,
+} from './annotationsPageLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -43,7 +48,7 @@ export function Annotations(): JSX.Element {
             dataIndex: 'date_marker',
             render: function RenderDateMarker(_, annotation: AnnotationType): string {
                 // Format marker. Minute precision is used, because that's as detailed as our graphs can be
-                return dayjs(annotation.date_marker).format('MMMM DD, YYYY h:mm A')
+                return dayjs(annotation.date_marker).format(ANNOTATION_DAYJS_FORMAT)
             },
             sorter: (a, b) => dayjs(a.date_marker).diff(b.date_marker),
         },

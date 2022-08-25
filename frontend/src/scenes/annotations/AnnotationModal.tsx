@@ -4,7 +4,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { DatePicker } from 'lib/components/DatePicker'
 import React from 'react'
-import { annotationScopeToName, annotationsPageLogic } from './annotationsPageLogic'
+import { annotationScopeToName, annotationsPageLogic, ANNOTATION_DAYJS_FORMAT } from './annotationsPageLogic'
 import { AnnotationScope } from '~/types'
 
 export function AnnotationModal(): JSX.Element {
@@ -59,7 +59,13 @@ export function AnnotationModal(): JSX.Element {
             >
                 <div className="flex gap-2">
                     <Field name="dateMarker" label="Date and time" className="flex-1">
-                        <DatePicker allowClear={false} showTime showSecond={false} />
+                        <DatePicker
+                            className="h-10"
+                            allowClear={false}
+                            showTime
+                            showSecond={false}
+                            format={ANNOTATION_DAYJS_FORMAT}
+                        />
                     </Field>
                     <Field name="scope" label="Scope" className="flex-1">
                         <LemonSelect
