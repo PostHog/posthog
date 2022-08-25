@@ -32,7 +32,7 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '')))))
+          AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
@@ -104,7 +104,7 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', '')))))
+          AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
@@ -142,7 +142,7 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', ''))))))
+          AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))))) person ON person.person_id = behavior_query.person_id
@@ -338,7 +338,7 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', ''))))
+          AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
@@ -456,7 +456,7 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '')))))
+          AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
@@ -473,10 +473,10 @@
   SELECT id
   FROM person
   WHERE team_id = 2
-    AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '')))
-          OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', ''))))
-         OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', '')))
-             AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '')))))
+    AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))
+          OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))
+         OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))
+             AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '')))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '')))
@@ -536,8 +536,8 @@
   SELECT id
   FROM person
   WHERE team_id = 2
-    AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', '')))))
-         OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', ''))))
+    AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))
+         OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))))
