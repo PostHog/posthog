@@ -8,6 +8,9 @@ import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { openPersonsModal } from '../persons-modal/PersonsModalV2'
+import { dateTitle } from '../persons-modal/persons-modal-utils'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { getSeriesColor } from 'lib/colors'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -79,16 +82,38 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                               pointValue: dataset?.data?.[index] ?? undefined,
                           }
 
-                          const personsUrl = dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url
-                          if (personsUrl) {
+                          const showCountedByTag = !!crossDataset?.find(
+                              ({ action }) => action?.math && action.math !== 'total'
+                          )
+                          const hasMultipleSeries = !!crossDataset?.find(({ action }) => action?.order)
+
+                          const urls = crossDataset?.map((dataset) => ({
+                              value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',
+                              label: (
+                                  <InsightLabel
+                                      seriesColor={getSeriesColor(dataset.id)}
+                                      action={dataset.action}
+                                      breakdownValue={
+                                          dataset.breakdown_value === '' ? 'None' : dataset.breakdown_value?.toString()
+                                      }
+                                      showCountedByTag={showCountedByTag}
+                                      hasMultipleSeries={hasMultipleSeries}
+                                  />
+                              ),
+                          }))
+
+                          if (urls?.length) {
+                              const selectedUrl = urls[crossDataset?.findIndex((x) => x.id === dataset.id) || 0]?.value
                               loadPeopleFromUrl({
                                   ...params,
-                                  url: personsUrl,
+                                  url: selectedUrl,
                               })
-                              // TODO: This is different with breakdowns
+
                               openPersonsModal({
-                                  url: personsUrl,
-                                  title: label ?? '',
+                                  url: selectedUrl,
+                                  title: dateTitle(filters.interval, day),
+                                  urls,
+                                  actorType: 'person',
                               })
                           } else {
                               loadPeople(params)

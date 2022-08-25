@@ -1,10 +1,19 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
-import { convertPropertiesToPropertyGroup, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, toParams } from 'lib/utils'
 import React from 'react'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { ActionFilter, ChartDisplayType, FilterLogicalOperator, FilterType, FunnelVizType, InsightType } from '~/types'
+import {
+    ActionFilter,
+    ChartDisplayType,
+    FilterLogicalOperator,
+    FilterType,
+    FunnelVizType,
+    InsightType,
+    IntervalType,
+} from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
+import { DateDisplay } from 'lib/components/DateDisplay'
 
 export const funnelTitle = (props: {
     step: number
@@ -26,6 +35,16 @@ export const pathsTitle = (props: { isDropOff: boolean; label: string }): React.
         <>
             {props.isDropOff ? 'Dropped off after' : 'Completed'} step{' '}
             <PropertyKeyInfo value={props.label.replace(/(^[0-9]+_)/, '') || ''} disablePopover />
+        </>
+    )
+}
+
+export const dateTitle = (interval?: IntervalType, date?: string): React.ReactNode => {
+    // TODO: Make this work for orgs
+    return (
+        <>
+            {capitalizeFirstLetter('persons')} on{' '}
+            <DateDisplay interval={interval || 'day'} date={date?.toString() || ''} />
         </>
     )
 }

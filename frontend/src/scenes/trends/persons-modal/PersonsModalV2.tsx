@@ -17,7 +17,7 @@ import {
     IconUnfoldMore,
 } from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -31,15 +31,21 @@ import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDraw
 export interface PersonsModalProps {
     onAfterClose?: () => void
     url: string
+    urls: {
+        label: string | JSX.Element
+        value: string
+    }[]
     title: React.ReactNode
+    actorType: ActorType['type']
 }
 
-function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.Element {
+function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {
+    const [chosenUrl, setChosenUrl] = useState(url)
     const [isOpen, setIsOpen] = useState(true)
     const [cohortModalOpen, setCohortModalOpen] = useState(false)
     const [sessionId, setSessionId] = useState<string | undefined>(undefined)
     const logic = personsModalLogic({
-        url,
+        url: chosenUrl,
         closeModal: () => {
             setIsOpen(false)
             setCohortModalOpen(false)
@@ -80,10 +86,22 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
                             onChange={setSearchTerm}
                             className="my-2"
                         />
+
+                        <LemonSelect
+                            fullWidth
+                            className="mb-2"
+                            value={chosenUrl}
+                            onChange={(v) => v && setChosenUrl(v)}
+                            options={(urls || []).map((url) => ({
+                                value: url.value,
+                                label: url.label,
+                            }))}
+                        />
+
                         <div className="flex items-center gap-2 text-muted">
                             {peopleLoading ? (
                                 <>
-                                    <Spinner size="sm" />
+                                    <Spinner />
                                     <span>Loading...</span>
                                 </>
                             ) : (
@@ -202,28 +220,6 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
     )
 }
 
-export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
-
-export const openPersonsModal = (props: OpenPersonsModalProps): void => {
-    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
-
-    if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
-        // Currrently this will display 2 modals, as we want to test this comparison in production
-        return
-    }
-
-    const div = document.createElement('div')
-    function destroy(): void {
-        const unmountResult = ReactDOM.unmountComponentAtNode(div)
-        if (unmountResult && div.parentNode) {
-            div.parentNode.removeChild(div)
-        }
-    }
-
-    document.body.appendChild(div)
-    ReactDOM.render(<PersonsModalV2 {...props} onAfterClose={destroy} />, div)
-}
-
 interface ActorRowProps {
     actor: ActorType
     onOpenRecording: (id: string) => void
@@ -318,7 +314,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                             icon={<IconPlay />}
                                             type="secondary"
                                         >
-                                            View recording {i}
+                                            View recording {i + 1}
                                         </LemonButton>
                                     ))
                                 ) : (
@@ -331,4 +327,26 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
             ) : null}
         </div>
     )
+}
+
+export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
+
+export const openPersonsModal = (props: OpenPersonsModalProps): void => {
+    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
+
+    if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
+        // Currrently this will display 2 modals, as we want to test this comparison in production
+        return
+    }
+
+    const div = document.createElement('div')
+    function destroy(): void {
+        const unmountResult = ReactDOM.unmountComponentAtNode(div)
+        if (unmountResult && div.parentNode) {
+            div.parentNode.removeChild(div)
+        }
+    }
+
+    document.body.appendChild(div)
+    ReactDOM.render(<PersonsModalV2 {...props} onAfterClose={destroy} />, div)
 }
