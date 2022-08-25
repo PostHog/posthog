@@ -17,7 +17,7 @@ export function Billing(): JSX.Element {
     const { billing } = useValues(billingLogic)
 
     return (
-        <div className="billing-page">
+        <div className="BillingPage">
             <PageHeader title="Billing &amp; usage information" />
             <CurrentUsage />
             {billing?.plan ? <CurrentPlan plan={billing.plan} /> : <BillingEnrollment />}
