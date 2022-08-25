@@ -8,6 +8,18 @@ import { teamLogic } from '../teamLogic'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 
+export const annotationScopeToName: Record<AnnotationScope, string> = {
+    [AnnotationScope.Insight]: 'Insight',
+    [AnnotationScope.Project]: 'Project',
+    [AnnotationScope.Organization]: 'Organization',
+}
+
+export const annotationScopeToLevel: Record<AnnotationScope, number> = {
+    [AnnotationScope.Insight]: 0,
+    [AnnotationScope.Project]: 1,
+    [AnnotationScope.Organization]: 2,
+}
+
 export type AnnotationModalForm = Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
 
 const defaultFormValues: AnnotationModalForm = {
