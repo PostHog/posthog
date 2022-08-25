@@ -488,9 +488,25 @@ export function EventsTable({
                                             key={1}
                                             placement={'bottomRight'}
                                             onConfirm={() => {
-                                                debugger
-                                                const columns =
-                                                    selectedColumns === 'DEFAULT' ? undefined : selectedColumns
+                                                const columns = (
+                                                    selectedColumns === 'DEFAULT' ? defaultColumns : selectedColumns
+                                                ).flatMap((x) => {
+                                                    console.log('x ', x)
+                                                    if (x === 'url') {
+                                                        return ['properties.$current_url', 'properties.$screen_name']
+                                                    } else if (x === 'time') {
+                                                        return 'timestamp'
+                                                    } else if (x === 'event') {
+                                                        return 'event'
+                                                    } else if (x === 'source') {
+                                                        return 'properties.$lib'
+                                                    } else if (x === 'person') {
+                                                        return 'person.distinct_ids'
+                                                    } else {
+                                                        return `properties.${x}`
+                                                    }
+                                                })
+                                                console.log('requesting ', columns)
                                                 startDownload(columns)
                                             }}
                                         >
