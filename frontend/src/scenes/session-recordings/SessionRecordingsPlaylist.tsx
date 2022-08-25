@@ -20,7 +20,7 @@ interface SessionRecordingsTableProps {
 }
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
+    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
     const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId } =
         useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
@@ -63,6 +63,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                             onClick: (e) => {
                                 // Lets the link to the person open the person's page and not the session recording
                                 if (!(e.target as HTMLElement).closest('a')) {
+                                    console.log('clicked on row', sessionRecording)
                                     openSessionPlayer(sessionRecording.id, RecordingWatchedSource.RecordingsList)
                                 }
                             },

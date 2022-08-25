@@ -11,7 +11,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 export function PlayerFilter({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { windowIdFilter } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
     const { setWindowIdFilter } = useActions(sharedListLogic({ sessionRecordingId, playerKey }))
-    const { windowIds } = useValues(metaLogic)
+    const { windowIds } = useValues(metaLogic({ sessionRecordingId, playerKey }))
 
     return (
         <>

@@ -64,6 +64,8 @@ export enum RecordingWatchedSource {
     Unknown = 'unknown',
     RecordingsList = 'recordings_list',
     ProjectHomepage = 'project_homepage',
+    WebPerformance = 'web_performance',
+    PersonModal = 'person_modal',
 }
 
 export enum GraphSeriesAddedSource {

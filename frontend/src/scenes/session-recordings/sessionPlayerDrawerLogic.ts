@@ -1,11 +1,13 @@
-import { kea } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { EntityTypes, PropertyOperator, RecordingDurationFilter, SessionRecordingId } from '~/types'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 
 import type { sessionPlayerDrawerLogicType } from './sessionPlayerDrawerLogicType'
+import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
+import { subscriptions } from 'kea-subscriptions'
 
 interface HashParams {
     sessionRecordingId?: SessionRecordingId
@@ -35,19 +37,19 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
-export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>({
-    path: ['scenes', 'session-recordings', 'sessionPlayerDrawerLogic'],
-    connect: {
+export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
+    path(['scenes', 'session-recordings', 'sessionPlayerDrawerLogic']),
+    connect({
         actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
-    },
-    actions: {
+    }),
+    actions({
         openSessionPlayer: (sessionRecordingId: SessionRecordingId | null, source: RecordingWatchedSource) => ({
             sessionRecordingId,
             source,
         }),
         closeSessionPlayer: true,
-    },
-    reducers: {
+    }),
+    reducers({
         activeSessionRecordingId: [
             null as SessionRecordingId | null,
             {
@@ -55,8 +57,29 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>({
                 closeSessionPlayer: () => null,
             },
         ],
-    },
-    actionToUrl: ({ values }) => {
+    }),
+    listeners({
+        openSessionPlayer: ({ sessionRecordingId }) => {
+            console.log('openSessionPlayer', sessionRecordingId)
+        },
+    }),
+    subscriptions({
+        activeSessionRecordingId: (sessionRecordingId, oldSessionRecordingId) => {
+            if (sessionRecordingId !== oldSessionRecordingId) {
+                // if (sessionRecordingDataLogic({ sessionRecordingId: oldSessionRecordingId }).isMounted()) {
+                //     sessionRecordingDataLogic({ sessionRecordingId: oldSessionRecordingId }).unmount()
+                // }
+                console.log('drawer activeSessionRecordingId', sessionRecordingId)
+                if (sessionRecordingId) {
+                    if (!sessionRecordingDataLogic({ sessionRecordingId }).isMounted()) {
+                        sessionRecordingDataLogic({ sessionRecordingId }).mount()
+                    }
+                    sessionRecordingDataLogic({ sessionRecordingId }).actions.loadEntireRecording()
+                }
+            }
+        },
+    }),
+    actionToUrl(({ values }) => {
         const buildURL = (
             replace: boolean
         ): [
@@ -84,18 +107,16 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>({
             openSessionPlayer: ({}) => buildURL(false),
             closeSessionPlayer: () => buildURL(false),
         }
-    },
-
-    urlToAction: ({ actions, values, props }) => {
+    }),
+    urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, __: any, hashParams: HashParams): void => {
             const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
             if (nulledSessionRecordingId !== values.activeSessionRecordingId) {
                 actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
             }
         }
-        const urlPattern = props.personUUID ? '/person/*' : '/recordings'
         return {
-            [urlPattern]: urlToAction,
+            '*': urlToAction,
         }
-    },
-})
+    }),
+])

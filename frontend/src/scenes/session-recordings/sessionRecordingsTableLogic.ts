@@ -66,7 +66,7 @@ interface SessionRecordingTableLogicProps {
 export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>({
     path: (key) => ['scenes', 'session-recordings', 'sessionRecordingsTableLogic', key],
     props: {} as SessionRecordingTableLogicProps,
-    key: (props) => props.key || props.personUUID || 'global',
+    key: (props) => `${props.key || props.personUUID || 'global'}-${props.isPlaylist ? 'playlist' : 'table'}`,
     connect: {
         values: [teamLogic, ['currentTeamId']],
         actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
@@ -225,12 +225,22 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             }
         },
         openSessionPlayer: ({ sessionRecordingId }, _, __, prevState) => {
-            const prevActiveSessionRecordingId = selectors.activeSessionRecordingId(prevState)
-            if (sessionRecordingId && sessionRecordingId !== prevActiveSessionRecordingId) {
-                if (!sessionRecordingDataLogic({ sessionRecordingId }).isMounted()) {
-                    sessionRecordingDataLogic({ sessionRecordingId }).mount()
+            const oldSessionRecordingId = selectors.activeSessionRecordingId(prevState)
+            // Note outside of the playlist, the recording is played via the drawer, and the logic
+            // to mount and load the recording is handled in the drawer logic.
+            console.log('openSessionPlayer', sessionRecordingId, oldSessionRecordingId, props.isPlaylist)
+            if (props.isPlaylist && sessionRecordingId !== oldSessionRecordingId) {
+                console.log('playlist openSessionPlayer', sessionRecordingId, oldSessionRecordingId)
+                // if (sessionRecordingDataLogic({ sessionRecordingId: oldSessionRecordingId }).isMounted()) {
+                //     sessionRecordingDataLogic({ sessionRecordingId: oldSessionRecordingId }).unmount()
+                // }
+
+                if (sessionRecordingId) {
+                    if (!sessionRecordingDataLogic({ sessionRecordingId }).isMounted()) {
+                        sessionRecordingDataLogic({ sessionRecordingId }).mount()
+                    }
+                    sessionRecordingDataLogic({ sessionRecordingId }).actions.loadEntireRecording()
                 }
-                sessionRecordingDataLogic({ sessionRecordingId }).actions.loadEntireRecording()
             }
         },
     }),

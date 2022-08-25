@@ -15,6 +15,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { teamLogic } from 'scenes/teamLogic'
+import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
@@ -51,14 +52,12 @@ function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { sessionRecordingId, sessionRecordings, sessionRecordingsResponseLoading } = useValues(
-        sessionRecordingsTableLogicInstance
-    )
-    const { closeSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsTableLogicInstance)
+    const { closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     return (
         <>
-            {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeSessionPlayer} />}
+            <SessionPlayerDrawer onClose={closeSessionPlayer} />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.sessionRecordings()}

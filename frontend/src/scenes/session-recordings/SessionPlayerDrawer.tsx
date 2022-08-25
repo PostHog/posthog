@@ -22,6 +22,10 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
     const { activeSessionRecordingId } = useValues(sessionPlayerDrawerLogic)
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
+    if (!activeSessionRecordingId) {
+        return <></>
+    }
+
     if (isSessionRecordingsPlayerV3) {
         return (
             <Modal
