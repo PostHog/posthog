@@ -103,6 +103,18 @@ class PersonQuery:
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
+        """
+            if person_filters
+            else f"""
+            SELECT {fields}
+            FROM person
+            {cohort_query}
+            WHERE team_id = %(team_id)s
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
+            {"ORDER BY max(created_at) DESC, id" if paginate else ""}
+            {limit_offset}
         """,
             {
                 **person_params,

@@ -6,7 +6,7 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
+  AND has(['another@gmail.com'], "pmat_email")
   ORDER BY max(created_at) DESC, id
   LIMIT 100
   '
