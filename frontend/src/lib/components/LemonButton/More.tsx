@@ -12,7 +12,7 @@ export function More({ overlay, placement = 'bottom-end', 'data-attr': dataAttr 
     return (
         <LemonButtonWithPopup
             aria-label="more"
-            data-attr={dataTooltip ?? 'more-button'}
+            data-attr={dataAttr ?? 'more-button'}
             icon={<IconEllipsis />}
             status="stealth"
             popup={{
