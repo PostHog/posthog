@@ -7,18 +7,18 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { isGroupType, midEllipsis } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
-import { GroupActorHeader } from 'scenes/persons/GroupActorHeader'
-import { IconPersonFilled, IconSave } from 'lib/components/icons'
+import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
+import { IconPersonFilled, IconSave, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from './SaveCohortModal'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -42,6 +42,10 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
 
     // const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     // const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
+
+    const onOpenRecording = (id: string): void => {
+        alert(id)
+    }
 
     return (
         <>
@@ -109,61 +113,15 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
                 }
                 width={600}
             >
-                <div className="relative min-h-20" style={{ margin: '0 -1.5rem' }}>
+                <div className="relative min-h-20 space-y-2">
                     {allPeople && allPeople.length > 0 ? (
-                        <LemonTable
-                            columns={
-                                [
-                                    {
-                                        title: 'Person',
-                                        key: 'person',
-                                        render: function Render(_, actor: ActorType) {
-                                            return <ActorRow actor={actor} />
-                                        },
-                                    },
-                                    {
-                                        width: 0,
-                                        title: 'Recordings',
-                                        key: 'recordings',
-                                        render: function Render(_, actor: ActorType) {
-                                            if (
-                                                actor.matched_recordings?.length &&
-                                                actor.matched_recordings?.length > 0
-                                            ) {
-                                                return (
-                                                    <MultiRecordingButton
-                                                        sessionRecordings={actor.matched_recordings}
-                                                        onOpenRecording={(sessionRecording) => {
-                                                            console.log(sessionRecording)
-                                                            // openRecordingModal(sessionRecording.session_id)
-                                                        }}
-                                                    />
-                                                )
-                                            }
-                                        },
-                                    },
-                                ] as LemonTableColumns<ActorType>
-                            }
-                            className="persons-table"
-                            rowKey="id"
-                            expandable={{
-                                expandedRowRender: function RenderPropertiesTable({ properties }) {
-                                    return Object.keys(properties).length ? (
-                                        <PropertiesTable properties={properties} />
-                                    ) : (
-                                        'This person has no properties.'
-                                    )
-                                },
-                            }}
-                            embedded
-                            showHeader={false}
-                            dataSource={allPeople}
-                            nouns={['person', 'persons']}
-                        />
+                        <>
+                            {allPeople.map((x) => (
+                                <ActorRow key={x.id} actor={x} onOpenRecording={onOpenRecording} />
+                            ))}
+                        </>
                     ) : peopleRes ? (
-                        <div className="person-row-container person-row">
-                            We couldn't find any matching results for this data point.
-                        </div>
+                        <div className="text-center">We couldn't find any matching results for this data point.</div>
                     ) : null}
                 </div>
 
@@ -231,12 +189,12 @@ function PersonsModalV2({ url, title, onAfterClose }: PersonsModalProps): JSX.El
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
-    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
+    // const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
 
-    if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
-        // Currrently this will display 2 modals, as we want to test this comparison in production
-        return
-    }
+    // if (!featureFlags || !featureFlags[FEATURE_FLAGS.PERSONS_MODAL_V2]) {
+    //     // Currrently this will display 2 modals, as we want to test this comparison in production
+    //     return
+    // }
 
     const div = document.createElement('div')
     function destroy(): void {
@@ -252,34 +210,68 @@ export const openPersonsModal = (props: OpenPersonsModalProps): void => {
 
 interface ActorRowProps {
     actor: ActorType
+    onOpenRecording: (id: string) => void
 }
 
-export function ActorRow({ actor }: ActorRowProps): JSX.Element {
-    if (isGroupType(actor)) {
-        return (
-            <div key={actor.id} className="person-row">
-                <div className="person-ids">
-                    <strong>
-                        <GroupActorHeader actor={actor} />
-                    </strong>
+export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
+    const name = isGroupType(actor) ? groupDisplayId(actor.group_key, actor.properties) : asDisplay(actor)
+
+    return (
+        <div className="border rounded overflow-hidden">
+            <div className="flex items-center gap-2 p-2">
+                <LemonButton
+                    noPadding
+                    status="stealth"
+                    active={expanded}
+                    onClick={() => setExpanded(!expanded)}
+                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    title={expanded ? 'Show less' : 'Show more'}
+                />
+
+                <ProfilePicture name={name} size="md" />
+
+                <div className="flex-1">
+                    {isGroupType(actor) ? (
+                        <strong>
+                            <GroupActorHeader actor={actor} />
+                        </strong>
+                    ) : (
+                        <>
+                            <strong>
+                                <PersonHeader person={actor} withIcon={false} />
+                            </strong>
+                            <CopyToClipboardInline
+                                explicitValue={actor.distinct_ids[0]}
+                                iconStyle={{ color: 'var(--primary)' }}
+                                iconPosition="end"
+                                className="text-xs text-muted-alt"
+                            >
+                                {midEllipsis(actor.distinct_ids[0], 32)}
+                            </CopyToClipboardInline>
+                        </>
+                    )}
                 </div>
+
+                {actor.matched_recordings?.length && actor.matched_recordings?.length > 0 ? (
+                    <MultiRecordingButton
+                        sessionRecordings={actor.matched_recordings}
+                        onOpenRecording={(sessionRecording) => {
+                            onOpenRecording(sessionRecording.session_id)
+                        }}
+                    />
+                ) : null}
             </div>
-        )
-    } else {
-        return (
-            <div key={actor.id} className="person-ids">
-                <strong>
-                    <PersonHeader person={actor} withIcon={false} />
-                </strong>
-                <CopyToClipboardInline
-                    explicitValue={actor.distinct_ids[0]}
-                    iconStyle={{ color: 'var(--primary)' }}
-                    iconPosition="end"
-                    className="text-xs text-muted-alt"
-                >
-                    {midEllipsis(actor.distinct_ids[0], 32)}
-                </CopyToClipboardInline>
-            </div>
-        )
-    }
+
+            {expanded ? (
+                <div className="bg-side border-t">
+                    {Object.keys(actor.properties).length ? (
+                        <PropertiesTable properties={actor.properties} />
+                    ) : (
+                        'There are no properties.'
+                    )}
+                </div>
+            ) : null}
+        </div>
+    )
 }
