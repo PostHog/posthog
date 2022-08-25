@@ -6,10 +6,13 @@ import { DatePicker } from 'lib/components/DatePicker'
 import React from 'react'
 import { annotationScopeToName, annotationsPageLogic, ANNOTATION_DAYJS_FORMAT } from './annotationsPageLogic'
 import { AnnotationScope } from '~/types'
+import { IconWarning } from 'lib/components/icons'
 
 export function AnnotationModal(): JSX.Element {
     const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting } = useValues(annotationsPageLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationsPageLogic)
+
+    const isInsightScoped = existingModalAnnotation?.scope === AnnotationScope.Insight
 
     return (
         <LemonModal
@@ -81,10 +84,18 @@ export function AnnotationModal(): JSX.Element {
                                 {
                                     value: AnnotationScope.Project,
                                     label: annotationScopeToName[AnnotationScope.Project],
+                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
+                                    tooltip: isInsightScoped
+                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
+                                        : undefined,
                                 },
                                 {
                                     value: AnnotationScope.Organization,
                                     label: annotationScopeToName[AnnotationScope.Organization],
+                                    sideIcon: isInsightScoped ? <IconWarning /> : undefined,
+                                    tooltip: isInsightScoped
+                                        ? "After saving, it won't be possible to make the annotation insight-scoped again."
+                                        : undefined,
                                 },
                             ]}
                             fullWidth
