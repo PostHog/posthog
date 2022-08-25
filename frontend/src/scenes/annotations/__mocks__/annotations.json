@@ -670,24 +670,6 @@
             "scope": "organization"
         },
         {
-            "id": 181,
-            "content": "Posthog-js 1.8.0",
-            "date_marker": "2020-12-12T22:00:00Z",
-            "creation_type": "USR",
-            "dashboard_item": 63825,
-            "created_by": {
-                "id": 1051,
-                "uuid": "0178a3fc-a4b2-0000-61a6-2c78196506c4",
-                "distinct_id": "TP3PsufflK5upNiJHMye-YXbeO-Kn5ZNQVyAmjC7kPA",
-                "first_name": "Karl-Aksel",
-                "email": "karl@posthog.com"
-            },
-            "created_at": "2021-01-04T09:20:19.221650Z",
-            "updated_at": "2021-01-04T09:20:19.221991Z",
-            "deleted": false,
-            "scope": "dashboard_item"
-        },
-        {
             "id": 178,
             "content": "1.18.0",
             "date_marker": "2020-11-30T17:39:12Z",
@@ -1535,7 +1517,7 @@
         },
         {
             "id": 4,
-            "content": "New Posthog.com homepage design merged",
+            "content": "New PostHog.com homepage design merged",
             "date_marker": "2020-07-20T20:47:56.494000Z",
             "creation_type": "USR",
             "dashboard_item": null,
