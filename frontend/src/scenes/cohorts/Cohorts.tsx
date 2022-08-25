@@ -167,7 +167,7 @@ export function Cohorts(): JSX.Element {
                 pagination={{ pageSize: 100 }}
                 dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
                 nouns={['cohort', 'cohorts']}
-                data-tooltip="cohorts-table"
+                data-attr="cohorts-table"
             />
         </div>
     )

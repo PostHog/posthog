@@ -35,7 +35,6 @@ type LemonInputPropsBase = Pick<
     fullWidth?: boolean
 
     'data-attr'?: string
-    'data-tooltip'?: string
     'aria-label'?: string
 }
 

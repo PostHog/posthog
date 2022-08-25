@@ -99,7 +99,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <Field name="active">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
-                                            data-tooltip="feature-flag-enabled-toggle"
+                                            data-attr="feature-flag-enabled-toggle"
                                             checked={value}
                                             onChange={onChange}
                                             label={
@@ -411,7 +411,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     </div>
 
                     <div className="feature-flag-form-row">
-                        <div data-tooltip="feature-flag-release-conditions">
+                        <div data-attr="feature-flag-release-conditions">
                             <h3 className="l3">Release conditions</h3>
                             <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that
