@@ -14,7 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { ActionHeader, EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
 import { humanFriendlyNumber } from 'lib/utils'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { Alert, Row } from 'antd'
+import { Row } from 'antd'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -26,6 +26,7 @@ import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const eventTypeOptions: LemonSelectOptions<CombinedEventType> = [
     { value: CombinedEventType.All, label: 'All types', 'data-attr': 'event-type-option-all' },
@@ -205,26 +206,17 @@ export function EventDefinitionsTable(): JSX.Element {
                 buttons={shouldSimplifyActions && <NewActionButton />}
             />
             {shouldSimplifyActions && (
-                <Alert
-                    style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}
-                    message="Actions have moved to the Events tab"
-                    description={
-                        <>
-                            Actions are now called calculated events and can be found in the events tab. You can create
-                            a new calculated event (formerly known as an Action) by clicking the "New calculated event"
-                            button.
-                        </>
-                    }
-                    type="info"
-                    showIcon
-                    closable
-                />
+                <AlertMessage className="flex items-center mb-4" type="info">
+                    <div className="text-base mb-1">Actions have moved to the Events tab</div>
+                    <p className="font-normal">
+                        Actions are now called calculated events and can be found in the events tab. You can create a
+                        new calculated event (formerly known as an Action) by clicking the "New calculated event"
+                        button.
+                    </p>
+                </AlertMessage>
             )}
+            {preflight && !preflight?.is_event_property_usage_enabled && <UsageDisabledWarning />}
             <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
-            {preflight && !preflight?.is_event_property_usage_enabled && (
-                <UsageDisabledWarning tab="Event Definitions" />
-            )}
-
             <div className="flex justify-between items-center gap-2 mb-4">
                 <LemonInput
                     type="search"
