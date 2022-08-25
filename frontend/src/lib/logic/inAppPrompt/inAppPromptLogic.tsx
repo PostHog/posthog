@@ -90,6 +90,9 @@ export type PromptUserState = {
 
 // we show a new sequence with 1 second delay, because users immediately dismiss prompts that are invasive
 const NEW_SEQUENCE_DELAY = 1000
+// make sure to change this prefix in case the schema of cached values is changed
+// otherwise the code will try to run with cached deprecated values
+const CACHE_PREFIX = 'v2'
 
 const iconMap = {
     home: <Lettermark name="PostHog" />,
@@ -221,7 +224,7 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
     reducers(() => ({
         sequences: [
             [] as PromptSequence[],
-            { persist: true },
+            { persist: true, prefix: CACHE_PREFIX },
             {
                 setSequences: (_, { sequences }) => sequences,
             },
@@ -242,14 +245,14 @@ export const inAppPromptLogic = kea<inAppPromptLogicType>([
         ],
         userState: [
             {} as PromptUserState,
-            { persist: true },
+            { persist: true, prefix: CACHE_PREFIX },
             {
                 setUserState: (_, { state }) => state,
             },
         ],
         hasSkippedTutorial: [
             false,
-            { persist: true },
+            { persist: true, prefix: CACHE_PREFIX },
             {
                 skipTutorial: () => true,
             },
