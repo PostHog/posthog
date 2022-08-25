@@ -50,14 +50,6 @@ export function addHistoricalEventsExportCapability(
     const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
 
     methods.setupPlugin = async () => {
-        // Fetch the max and min timestamps for a team's events
-        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
-
-        // make sure we set these boundaries at setupPlugin, because from here on out
-        // the new events will already be exported via exportEvents, and we don't want
-        // the historical export to duplicate them
-        meta.global.timestampBoundariesForTeam = timestampBoundaries
-
         await meta.utils.cursor.init(BATCH_ID_CURSOR_KEY)
 
         const storedTimestampCursor = await meta.storage.get(TIMESTAMP_CURSOR_KEY, null)
@@ -266,6 +258,9 @@ export function addHistoricalEventsExportCapability(
         // multiple exports. as a result, we need to set the boundaries on postgres, and
         // only set them in global when the job runs, so all threads have global state in sync
 
+        // Fetch the max and min timestamps for a team's events
+        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
+
         if (payload && payload.dateFrom) {
             try {
                 const dateFrom = new Date(payload.dateFrom).getTime()
@@ -277,13 +272,13 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the first event ever ingested
-            if (!meta.global.timestampBoundariesForTeam.min) {
+            if (!timestampBoundaries.min) {
                 throw new Error(
                     `Unable to determine the lower timestamp bound for the export automatically. Please specify a 'dateFrom' value.`
                 )
             }
 
-            const dateFrom = meta.global.timestampBoundariesForTeam.min.getTime()
+            const dateFrom = timestampBoundaries.min.getTime()
             await meta.utils.cursor.init(TIMESTAMP_CURSOR_KEY, dateFrom - EVENTS_TIME_INTERVAL)
             await meta.storage.set(MIN_UNIX_TIMESTAMP_KEY, dateFrom)
         }
@@ -297,12 +292,12 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the last event before the plugin was enabled
-            if (!meta.global.timestampBoundariesForTeam.max) {
+            if (!timestampBoundaries.max) {
                 throw new Error(
                     `Unable to determine the upper timestamp bound for the export automatically. Please specify a 'dateTo' value.`
                 )
             }
-            await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, meta.global.timestampBoundariesForTeam.max.getTime())
+            await meta.storage.set(MAX_UNIX_TIMESTAMP_KEY, timestampBoundaries.max.getTime())
         }
     }
 
