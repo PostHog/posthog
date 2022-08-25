@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
@@ -11,7 +11,6 @@ import './SessionRecordingTable.scss'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
-import useSize from '@react-hook/size'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 interface SessionRecordingsTableProps {
@@ -24,9 +23,6 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
     const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId } =
         useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
-
-    const containerRef = useRef<HTMLDivElement | null>(null)
-    const containerSize = useSize(containerRef)
 
     const columns: LemonTableColumns<SessionRecordingType> = [
         {
@@ -75,9 +71,9 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                         emptyState="No matching recordings found"
                     />
                 </div>
-                <div ref={containerRef} style={{ flex: 1 }}>
+                <div style={{ flex: 1 }}>
                     {activeSessionRecordingId ? (
-                        <div className="border rounded-lg" style={{ width: containerSize[0] }}>
+                        <div className="border rounded-lg">
                             <SessionRecordingPlayerV3
                                 playerKey="playlist"
                                 sessionRecordingId={activeSessionRecordingId}

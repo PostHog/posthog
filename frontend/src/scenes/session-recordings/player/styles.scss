@@ -87,13 +87,15 @@
         overflow: hidden;
         border: 1px solid var(--border);
         background-color: var(--bg-depth);
+        display: flex;
+        justify-content: center;
+        align-items: center;
 
         position: relative;
 
-        .replayer-wrapper {
-            transform-origin: top left;
+        .player-frame {
+            position: absolute;
         }
-
         iframe {
             border: 0px;
             background-color: white;

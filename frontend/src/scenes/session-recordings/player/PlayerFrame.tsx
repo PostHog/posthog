@@ -5,13 +5,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { IconPlay } from 'scenes/session-recordings/player/icons'
 
-interface PlayerFrameProps extends SessionRecordingPlayerProps {
-    height?: number
-    width?: number
-}
-
 export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
-    { height, width, sessionRecordingId, playerKey }: PlayerFrameProps,
+    { sessionRecordingId, playerKey }: SessionRecordingPlayerProps,
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     const replayDimensionRef = useRef<viewportResizeDimension>()
@@ -34,10 +29,6 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
         updatePlayerDimensions(replayDimensionRef.current)
     }
 
-    useEffect(() => {
-        updatePlayerDimensions(replayDimensionRef.current)
-    }, [height, width])
-
     // :TRICKY: Scale down the iframe and try to position it vertically
     const updatePlayerDimensions = (replayDimensions: viewportResizeDimension | undefined): void => {
         if (!replayDimensions || !frameRef?.current?.parentElement || !player?.replayer) {
@@ -47,17 +38,15 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
         replayDimensionRef.current = replayDimensions
 
         const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
-        const widthToUse = width || parentDimensions.width
-        const heightToUse = height || parentDimensions.height
 
-        const scale = Math.min(widthToUse / replayDimensions.width, heightToUse / replayDimensions.height, 1)
+        const scale = Math.min(
+            parentDimensions.width / replayDimensions.width,
+            parentDimensions.height / replayDimensions.height,
+            1
+        )
 
         player.replayer.wrapper.style.transform = `scale(${scale})`
-        frameRef.current.style.paddingLeft = `${(widthToUse - replayDimensions.width * scale) / 2}px`
-        frameRef.current.style.paddingTop = `${(heightToUse - replayDimensions.height * scale) / 2}px`
-        frameRef.current.style.marginBottom = `-${heightToUse - replayDimensions.height * scale}px`
-        frameRef.current.style.height = `${heightToUse}px`
-        frameRef.current.style.width = `${widthToUse}px`
+
         setScale(scale)
     }
 
@@ -80,7 +69,7 @@ export const PlayerFrame = React.forwardRef(function PlayerFrameInner(
 
     return (
         <div className="rrweb-player" onClick={togglePlayPause}>
-            <div ref={ref} />
+            <div className="player-frame" ref={ref} style={{ position: 'absolute' }} />
             <div className="rrweb-overlay-container">{renderPlayerState()}</div>
         </div>
     )
