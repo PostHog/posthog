@@ -190,6 +190,10 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
@@ -266,7 +270,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -356,7 +364,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -446,7 +458,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -536,7 +552,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -648,6 +668,10 @@
                argMax(pmat_$browser, version) as pmat_$browser
         FROM person
         WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
@@ -724,7 +748,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Positive'], person."pmat_$browser"))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
@@ -814,7 +842,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Positive'], person."pmat_$browser"))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Positive'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
@@ -904,7 +936,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Negative'], person."pmat_$browser"))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id
@@ -994,7 +1030,11 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Negative'], person."pmat_$browser"))
+                            AND id IN
+                              (SELECT id
+                               FROM person
+                               WHERE team_id = 2
+                                 AND (has(['Negative'], person."pmat_$browser")) )
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], argMax(person."pmat_$browser", _timestamp)))) person ON person.id = pdi.person_id

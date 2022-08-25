@@ -64,6 +64,10 @@
                               argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
+                         AND id IN
+                           (SELECT id
+                            FROM person
+                            WHERE team_id = 2 )
                        GROUP BY id
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
@@ -147,6 +151,10 @@
                               argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
+                         AND id IN
+                           (SELECT id
+                            FROM person
+                            WHERE team_id = 2 )
                        GROUP BY id
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
@@ -230,6 +238,10 @@
                               argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
+                         AND id IN
+                           (SELECT id
+                            FROM person
+                            WHERE team_id = 2 )
                        GROUP BY id
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
@@ -313,6 +325,10 @@
                               argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
+                         AND id IN
+                           (SELECT id
+                            FROM person
+                            WHERE team_id = 2 )
                        GROUP BY id
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
@@ -396,6 +412,10 @@
                               argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
+                         AND id IN
+                           (SELECT id
+                            FROM person
+                            WHERE team_id = 2 )
                        GROUP BY id
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     INNER JOIN
@@ -487,6 +507,10 @@
                               argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
+                         AND id IN
+                           (SELECT id
+                            FROM person
+                            WHERE team_id = 2 )
                        GROUP BY id
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
@@ -570,6 +594,10 @@
                               argMax(created_at, version) as created_at
                        FROM person
                        WHERE team_id = 2
+                         AND id IN
+                           (SELECT id
+                            FROM person
+                            WHERE team_id = 2 )
                        GROUP BY id
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
