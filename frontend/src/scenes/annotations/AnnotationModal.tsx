@@ -58,7 +58,7 @@ export function AnnotationModal(): JSX.Element {
                 className="space-y-4"
             >
                 <div className="flex gap-2">
-                    <Field name="dateMarker" label="Date and time" className="flex-1">
+                    <Field name="dateMarker" label="Date and time" className="flex-1">
                         <DatePicker
                             className="h-10"
                             allowClear={false}

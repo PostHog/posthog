@@ -44,7 +44,7 @@ export function Annotations(): JSX.Element {
             },
         },
         {
-            title: 'Date and time',
+            title: 'Date and time',
             dataIndex: 'date_marker',
             render: function RenderDateMarker(_, annotation: AnnotationType): string {
                 // Format marker. Minute precision is used, because that's as detailed as our graphs can be
