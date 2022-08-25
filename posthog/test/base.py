@@ -155,9 +155,6 @@ class TestMixin:
 
     def tearDown(self):
 
-        if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
-            AsyncMigration.objects.all().delete()
-
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
