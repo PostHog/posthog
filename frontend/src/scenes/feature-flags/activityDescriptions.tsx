@@ -38,11 +38,7 @@ const featureFlagActionsMapping: Record<
         const describeChange: string = isActive ? 'enabled' : 'disabled'
 
         return {
-            description: [
-                <>
-                    <div className="mt-2">{describeChange}</div>
-                </>,
-            ],
+            description: [<>{describeChange}</>],
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
@@ -85,11 +81,7 @@ const featureFlagActionsMapping: Record<
                                                 <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                             </span>
                                         )}
-                                        <PropertyFilterButton
-                                            style={{ margin: '0.1rem' }}
-                                            key={property.key}
-                                            item={property}
-                                        />
+                                        <PropertyFilterButton key={property.key} item={property} />
                                     </>
                                 )
                             })
@@ -98,11 +90,7 @@ const featureFlagActionsMapping: Record<
                                     <span>
                                         <strong>{rollout_percentage ?? 100}%</strong> of{' '}
                                     </span>
-                                    <PropertyFilterButton
-                                        style={{ margin: '0.1rem' }}
-                                        key={properties[0].key}
-                                        item={properties[0]}
-                                    />
+                                    <PropertyFilterButton key={properties[0].key} item={properties[0]} />
                                 </>
                             )
                             groupAdditions.push(...newButtons)
@@ -208,12 +196,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem): HumanizedChange
 
     if (logItem.activity == 'created') {
         return {
-            description: (
-                <>
-                    {' '}
-                    <div className="mt-2">created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</div>
-                </>
-            ),
+            description: <> created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     }
     if (logItem.activity == 'deleted') {
