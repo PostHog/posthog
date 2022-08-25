@@ -256,7 +256,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 columns={columns}
                 className="events-definition-table"
                 data-attr="events-definition-table"
-                data-tooltip="data-management-table"
                 loading={eventDefinitionsLoading}
                 rowKey="id"
                 pagination={{

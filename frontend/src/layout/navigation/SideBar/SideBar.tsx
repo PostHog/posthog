@@ -66,7 +66,6 @@ function Pages(): JSX.Element {
         <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
-                data-tooltip="project-button"
                 title={currentTeam?.name ?? 'Choose project'}
                 icon={<Lettermark name={currentOrganization?.name} />}
                 identifier={Scene.ProjectHomepage}
