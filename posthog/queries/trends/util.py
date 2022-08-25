@@ -112,7 +112,7 @@ def enumerate_time_range(filter: Filter, seconds_in_interval: int) -> List[str]:
     return time_range
 
 
-def get_next_interval_date_to(date_from: datetime, filter: Filter) -> Filter:
+def get_next_interval_date_to(date_from: datetime, filter: Filter) -> datetime:
     date_from = date_from or timezone.now()
     if filter.interval == "month":
         return date_from + relativedelta(months=1)
@@ -122,7 +122,6 @@ def get_next_interval_date_to(date_from: datetime, filter: Filter) -> Filter:
         return (date_from) + relativedelta(days=1)
     elif filter.interval == "hour":
         return date_from + relativedelta(hours=1)
-    return None
 
 
 def build_persons_urls(
