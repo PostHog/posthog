@@ -22,6 +22,8 @@ jobs:
         steps:
             - name: Set up Depot CLI
               uses: depot/setup-action@v1
+            - name: Set up buildx
+              uses: docker/setup-buildx-action@v2
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@v1
               with:
@@ -56,6 +58,7 @@ jobs:
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:${{ github.sha }}
                       ${{ steps.login-ecr.outputs.registry }}/posthog-production:latest
                   project: 1stsk4xt19 # posthog-cloud project
+                  buildx-fallback: true # if Depot builder is unavailable, fall back to local buildx
 
             - name: Push image to Amazon ECR
               id: build-image
@@ -66,26 +69,6 @@ jobs:
               run: |
                   docker push --all-tags $ECR_REGISTRY/$ECR_REPOSITORY
                   echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-
-            - name: Extract and push the static assets to AWS S3
-              run: |
-                  TMP_FOLDER="$(mktemp -d)"
-                  trap 'rm -rf -- "$TMP_FOLDER"' EXIT
-
-                  CONTAINER_NAME="posthog"
-                  IMAGE_NAME="${{ steps.build-image.outputs.image }}"
-                  S3_BUCKET="posthog-app-static"
-
-                  echo "## Extracting static assets from the container..."
-                  docker rm -f $CONTAINER_NAME
-                  docker create --name $CONTAINER_NAME $IMAGE_NAME
-                  docker cp "${CONTAINER_NAME}:/code/frontend/dist/" "${TMP_FOLDER}"
-                  docker rm -f $CONTAINER_NAME
-                  echo "Done!"
-
-                  echo "## Uploading the extracted static assets to the AWS S3 bucket..."
-                  aws s3 cp "${TMP_FOLDER}/dist/" "s3://${S3_BUCKET}/static" --recursive
-                  echo "Done!"
 
             - name: Fill in the new image ID in the Amazon ECS task definition
               id: task-def-web

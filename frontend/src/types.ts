@@ -1966,8 +1966,10 @@ export type CombinedEvent = EventDefinition | ActionType
 
 export enum CombinedEventType {
     All = 'all',
-    Event = 'event',
     ActionEvent = 'action_event',
+    Event = 'event',
+    EventCustom = 'event_custom',
+    EventPostHog = 'event_posthog',
 }
 
 export interface IntegrationType {

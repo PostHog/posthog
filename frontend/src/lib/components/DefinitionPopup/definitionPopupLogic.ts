@@ -6,7 +6,6 @@ import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
-import { eventDefinitionsModel } from '~/models/eventDefinitionsModel'
 import { actionsModel } from '~/models/actionsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -94,9 +93,6 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                                 owner: _event.owner?.id ?? null,
                                 verified: !!_event.verified,
                             })
-                            eventDefinitionsModel
-                                .findMounted()
-                                ?.actions.updateEventDefinition(definition as EventDefinition)
                         } else if (
                             values.type === TaxonomicFilterGroupType.EventProperties ||
                             values.type === TaxonomicFilterGroupType.EventFeatureFlags
