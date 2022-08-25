@@ -295,7 +295,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 path: values.eventsUrl(),
                 max_limit: 3500,
             }
-            if (columns?.length > 0) {
+            if (columns && columns.length > 0) {
                 exportContext['columns'] = columns
             }
             triggerExport({

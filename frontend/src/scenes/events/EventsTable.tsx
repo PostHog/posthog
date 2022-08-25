@@ -39,6 +39,8 @@ import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -150,6 +152,9 @@ export function EventsTable({
     const showLinkToPerson = !fixedFilters?.person_id
 
     const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
 
     usePageVisibility((pageIsVisible) => {
         setPollingActive(pageIsVisible)
@@ -488,7 +493,7 @@ export function EventsTable({
                                 defaultColumns={defaultColumns.map((e) => e.key || '')}
                             />
                         )}
-                        {showExport && (
+                        {showExport && allowColumnChoice ? (
                             <LemonButtonWithPopup
                                 popup={{
                                     sameWidth: false,
@@ -517,6 +522,24 @@ export function EventsTable({
                             >
                                 Export
                             </LemonButtonWithPopup>
+                        ) : (
+                            <Popconfirm
+                                placement="topRight"
+                                title={
+                                    <>
+                                        Exporting by csv is limited to 3,500 events.
+                                        <br />
+                                        To return more, please use{' '}
+                                        <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to export
+                                        by CSV?
+                                    </>
+                                }
+                                onConfirm={() => startDownload()}
+                            >
+                                <LemonButton type="secondary" icon={<IconExport style={{ color: 'var(--primary)' }} />}>
+                                    Export
+                                </LemonButton>
+                            </Popconfirm>
                         )}
                     </div>
                 </div>
