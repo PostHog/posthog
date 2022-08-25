@@ -143,7 +143,7 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
+def relative_date_parse(input: str, end_of_period=False) -> datetime.datetime:
     try:
         return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
     except ValueError:
@@ -163,7 +163,10 @@ def relative_date_parse(input: str) -> datetime.datetime:
         return date
     if match.group("type") == "h":
         date -= relativedelta(hours=int(match.group("number")))
-        return date.replace(minute=0, second=0, microsecond=0)
+        if end_of_period:
+            return date.replace(minute=59, second=59, microsecond=99999)
+        else:
+            return date.replace(minute=0, second=0, microsecond=0)
     elif match.group("type") == "d":
         if match.group("number"):
             date -= relativedelta(days=int(match.group("number")))
@@ -187,7 +190,11 @@ def relative_date_parse(input: str) -> datetime.datetime:
             date -= relativedelta(month=1, day=1)
         if match.group("position") == "End":
             date -= relativedelta(month=12, day=31)
-    return date.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if end_of_period:
+        return date.replace(hour=23, minute=59, second=59, microsecond=99999)
+    else:
+        return date.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:

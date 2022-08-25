@@ -337,18 +337,19 @@ class DateMixin(BaseParamMixin):
         if not self._date_to:
             if self.interval == "hour":  # type: ignore
                 return timezone.now() + relativedelta(minutes=1)
-            date = timezone.now()
-        else:
-            if isinstance(self._date_to, str):
+            return timezone.now().replace(hour=23, minute=59, second=59, microsecond=99999)
+
+        if isinstance(self._date_to, str):
+            try:
+                date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                return date.replace(hour=23, minute=59, second=59, microsecond=99999)
+            except ValueError:
                 try:
-                    date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                    return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
                 except ValueError:
-                    try:
-                        return datetime.datetime.strptime(self._date_to, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
-                    except ValueError:
-                        date = relative_date_parse(self._date_to)
-            else:
-                return self._date_to
+                    date = relative_date_parse(self._date_to, end_of_period=True)
+        else:
+            return self._date_to
 
         return date
 
