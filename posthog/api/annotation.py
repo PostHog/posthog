@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import filters, request, serializers, viewsets
@@ -71,6 +71,15 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         return queryset
 
+    def filter_queryset_by_parents_lookups(self, queryset):
+        parents_query_dict = self.parents_query_dict.copy()
+        organization_id = self.team.organization_id
+
+        return queryset.filter(
+            Q(team_id=parents_query_dict["team_id"])
+            | Q(scope=Annotation.Scope.ORGANIZATION, organization_id=organization_id)
+        )
+
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
@@ -83,9 +92,6 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
                 queryset = queryset.filter(dashboard_item_id=request.GET["dashboardItemId"])
             elif key == "scope":
                 queryset = queryset.filter(scope=request.GET["scope"])
-            elif key == "apply_all":
-                queryset_method = queryset.exclude if str_to_bool(request.GET["apply_all"]) else queryset.filter
-                queryset = queryset_method(scope=Annotation.Scope.INSIGHT)
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request.GET["deleted"]))
 
