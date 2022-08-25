@@ -63,6 +63,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import SITE_URL
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, get_safe_cache, relative_date_parse, should_refresh, str_to_bool
 
@@ -744,7 +745,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
         sync_execute(
-            "KILL QUERY WHERE query_id LIKE %(client_query_id)s",
+            f"KILL QUERY ON CLUSTER {CLICKHOUSE_CLUSTER} WHERE query_id LIKE %(client_query_id)s",
             {"client_query_id": f"{self.team.pk}_{request.data['client_query_id']}%"},
         )
         return Response(status=status.HTTP_201_CREATED)
