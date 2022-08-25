@@ -32,6 +32,7 @@ export function AnnotationModal(): JSX.Element {
                                     deleteAnnotation(existingModalAnnotation.id)
                                     closeModal()
                                 }}
+                                data-attr="delete-annotation"
                             >
                                 Delete annotation
                             </LemonButton>
@@ -46,6 +47,7 @@ export function AnnotationModal(): JSX.Element {
                             htmlType="submit"
                             type="primary"
                             loading={isAnnotationModalSubmitting}
+                            data-attr="create-annotation-submit"
                         >
                             {existingModalAnnotation ? 'Edit' : 'Create'}
                         </LemonButton>
@@ -106,6 +108,7 @@ export function AnnotationModal(): JSX.Element {
                     <LemonTextArea
                         placeholder="What's this annotation about?"
                         onPressCmdEnter={submitAnnotationModal}
+                        data-attr="create-annotation-input"
                     />
                 </Field>
             </Form>
