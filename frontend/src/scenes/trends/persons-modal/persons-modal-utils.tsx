@@ -9,11 +9,14 @@ import {
     FilterLogicalOperator,
     FilterType,
     FunnelVizType,
+    GraphDataset,
     InsightType,
     IntervalType,
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { getSeriesColor } from 'lib/colors'
 
 export const funnelTitle = (props: {
     step: number
@@ -46,6 +49,29 @@ export const dateTitle = (interval?: IntervalType, date?: string): React.ReactNo
             {capitalizeFirstLetter('persons')} on{' '}
             <DateDisplay interval={interval || 'day'} date={date?.toString() || ''} />
         </>
+    )
+}
+
+export const urlsForDatasets = (
+    crossDataset: GraphDataset[] | undefined,
+    index: number
+): { value: string; label: JSX.Element }[] => {
+    const showCountedByTag = !!crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
+    const hasMultipleSeries = !!crossDataset?.find(({ action }) => action?.order)
+
+    return (
+        crossDataset?.map((dataset) => ({
+            value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',
+            label: (
+                <InsightLabel
+                    seriesColor={getSeriesColor(dataset.id)}
+                    action={dataset.action}
+                    breakdownValue={dataset.breakdown_value === '' ? 'None' : dataset.breakdown_value?.toString()}
+                    showCountedByTag={showCountedByTag}
+                    hasMultipleSeries={hasMultipleSeries}
+                />
+            ),
+        })) || []
     )
 }
 
