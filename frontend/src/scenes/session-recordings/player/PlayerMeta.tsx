@@ -90,7 +90,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
         <div className="player-meta-container-v3">
             <Row className="player-meta-user-section">
                 <Col className="player-meta-avatar">
-                    {loading ? (
+                    {!sessionPerson ? (
                         <Skeleton.Avatar active size={48} shape="circle" />
                     ) : (
                         <ProfilePicture
@@ -102,7 +102,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                 </Col>
                 <Col className="player-meta-details">
                     <Row className="player-meta-details-top">
-                        {loading ? (
+                        {!sessionPerson || !recordingStartTime ? (
                             <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
                         ) : (
                             <Space size={4}>

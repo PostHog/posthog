@@ -7,6 +7,7 @@ import { PersonType, RecordingEventType, SessionRecordingPlayerProps } from '~/t
 import { findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 import { eventsListLogic } from 'scenes/session-recordings/player/eventsListLogic'
+import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
     if (keys.some((k) => !person?.properties?.[k])) {
@@ -34,6 +35,8 @@ export const metaLogic = kea<metaLogicType>({
             ['currentPlayerPosition', 'scale'],
             eventsListLogic({ sessionRecordingId, playerKey }),
             ['currentStartIndex'],
+            sessionRecordingsTableLogic,
+            ['sessionRecordings'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],
     }),
@@ -45,11 +48,18 @@ export const metaLogic = kea<metaLogicType>({
             },
         ],
     },
-    selectors: ({ cache }) => ({
+    selectors: ({ cache, props }) => ({
         sessionPerson: [
-            (selectors) => [selectors.sessionPlayerData],
-            (playerData): PersonType | null => {
-                return playerData?.person ?? null
+            (selectors) => [selectors.sessionPlayerData, selectors.sessionRecordings],
+            (playerData, sessionRecordings): PersonType | null => {
+                if (playerData?.person) {
+                    return playerData?.person
+                }
+                // If the metadata hasn't loaded, then check if the recording is in the recording list
+                return (
+                    sessionRecordings.find((sessionRecording) => sessionRecording.id === props.sessionRecordingId)
+                        ?.person ?? null
+                )
             },
         ],
         description: [
@@ -92,9 +102,17 @@ export const metaLogic = kea<metaLogicType>({
             },
         ],
         recordingStartTime: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
-                return sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
+            (selectors) => [selectors.sessionPlayerData, selectors.sessionRecordings],
+            (sessionPlayerData, sessionRecordings) => {
+                const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
+                if (startTimeFromMeta) {
+                    return startTimeFromMeta
+                }
+                // If the metadata hasn't loaded, then check if the recording is in the recording list
+                return (
+                    sessionRecordings.find((sessionRecording) => sessionRecording.id === props.sessionRecordingId)
+                        ?.start_time ?? null
+                )
             },
         ],
         windowIds: [

@@ -31,7 +31,15 @@ interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
-const LIMIT = 50
+const TABLE_LIMIT = 50
+const PLAYLIST_LIMIT = 20
+
+const getLimit = (props: SessionRecordingTableLogicProps): number => {
+    if (props.isPlaylist) {
+        return PLAYLIST_LIMIT
+    }
+    return TABLE_LIMIT
+}
 
 export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
     type: 'recording',
@@ -103,7 +111,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                     const paramsDict = {
                         ...values.filterQueryParams,
                         person_uuid: props.personUUID ?? '',
-                        limit: LIMIT,
+                        limit: getLimit(props),
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
@@ -125,7 +133,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             actions.getSessionRecordings()
         },
     }),
-    reducers: {
+    reducers: ({ props }) => ({
         filterEnabled: [
             false,
             {
@@ -182,8 +190,8 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         offset: [
             0,
             {
-                loadNext: (previousOffset) => previousOffset + LIMIT,
-                loadPrev: (previousOffset) => Math.max(previousOffset - LIMIT),
+                loadNext: (previousOffset) => previousOffset + getLimit(props),
+                loadPrev: (previousOffset) => Math.max(previousOffset - getLimit(props)),
                 setOffset: (_, { offset }) => offset,
             },
         ],
@@ -199,7 +207,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                 setDateRange: (_, { incomingToDate }) => incomingToDate ?? null,
             },
         ],
-    },
+    }),
     listeners: ({ actions, selectors, values, props }) => ({
         setEntityFilters: () => {
             actions.getSessionRecordings()
