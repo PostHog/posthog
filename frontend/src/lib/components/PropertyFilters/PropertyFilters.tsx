@@ -20,6 +20,7 @@ interface PropertyFiltersProps {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     showNestedArrow?: boolean
     eventNames?: string[]
+    logicalRowDivider?: boolean
     orFiltering?: boolean
     propertyGroupType?: FilterLogicalOperator | null
 }
@@ -35,6 +36,7 @@ export function PropertyFilters({
     showNestedArrow = false,
     eventNames = [],
     orFiltering = false,
+    logicalRowDivider = false,
     propertyGroupType = null,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey }
@@ -53,8 +55,8 @@ export function PropertyFilters({
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {filtersWithNew.map((item: AnyPropertyFilter, index: number) => {
                         return (
-                            <>
-                                {index > 0 && index !== filtersWithNew.length - 1 && (
+                            <React.Fragment key={index}>
+                                {logicalRowDivider && index > 0 && index !== filtersWithNew.length - 1 && (
                                     <LogicalRowDivider logicalOperator={FilterLogicalOperator.And} />
                                 )}
                                 <FilterRow
@@ -87,7 +89,7 @@ export function PropertyFilters({
                                         />
                                     )}
                                 />
-                            </>
+                            </React.Fragment>
                         )
                     })}
                 </BindLogic>

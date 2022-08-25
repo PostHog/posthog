@@ -226,6 +226,28 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             <FeatureFlagRollout />
                             <Divider />
                             <FeatureFlagReleaseConditions />
+                            <LemonDivider className="mt-8" />
+                            <div className="flex items-center gap-2 justify-end">
+                                <LemonButton
+                                    data-attr="cancel-feature-flag"
+                                    type="secondary"
+                                    onClick={() => {
+                                        router.actions.push(urls.featureFlags())
+                                    }}
+                                    disabled={featureFlagLoading}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-feature-flag"
+                                    htmlType="submit"
+                                    loading={featureFlagLoading}
+                                    disabled={featureFlagLoading}
+                                >
+                                    Save
+                                </LemonButton>
+                            </div>
                         </Form>
                     ) : (
                         <>
@@ -1083,41 +1105,6 @@ function FeatureFlagReleaseConditions(): JSX.Element {
                                     )}
                                 </Row>
                             </Row>
-                            {/* <div className="feature-flag-form-row" style={{ height: 24 }}>
-                                <div>
-                                    <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
-                                        Set {index + 1}
-                                    </span>
-                                    {group.properties?.length ? (
-                                        <>
-                                            Matching <b>{aggregationTargetName}</b> with filters
-                                        </>
-                                    ) : (
-                                        <>
-                                            Condition set will match <b>all {aggregationTargetName}</b>
-                                        </>
-                                    )}
-                                </div>
-                                <Row align="middle">
-                                    <Tooltip title="Duplicate this condition set" placement="bottomLeft">
-                                        <LemonButton
-                                            icon={<IconCopy />}
-                                            size="small"
-                                            onClick={() => duplicateConditionSet(index)}
-                                        />
-                                    </Tooltip>
-                                    {featureFlag.filters.groups.length > 1 && (
-                                        <Tooltip title="Delete this condition set" placement="bottomLeft">
-                                            <LemonButton
-                                                icon={<IconDelete />}
-                                                size="small"
-                                                onClick={() => removeConditionSet(index)}
-                                            />
-                                        </Tooltip>
-                                    )}
-                                </Row>
-                            </div> */}
-
                             <LemonDivider className="my-4" />
                             <div>
                                 <PropertyFilters
@@ -1126,6 +1113,7 @@ function FeatureFlagReleaseConditions(): JSX.Element {
                                         featureFlag.filters.groups.length
                                     }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                     propertyFilters={group?.properties}
+                                    logicalRowDivider
                                     onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                     taxonomicGroupTypes={taxonomicGroupTypes}
                                 />
@@ -1153,7 +1141,7 @@ function FeatureFlagReleaseConditions(): JSX.Element {
                     </Col>
                 ))}
             </Row>
-            <LemonButton type="secondary" onClick={addConditionSet} icon={<IconPlus />}>
+            <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
                 Add condition set
             </LemonButton>
         </>
