@@ -32,10 +32,10 @@ export type AnnotationModalForm = {
 export const annotationsPageLogic = kea<annotationsPageLogicType>([
     path(['scenes', 'annotations', 'logic']),
     actions(() => ({
-        deleteAnnotation: (id) => ({ id }),
-        restoreAnnotation: (id) => ({ id }),
+        deleteAnnotation: (id: AnnotationType['id']) => ({ id }),
+        restoreAnnotation: (id: AnnotationType['id']) => ({ id }),
         loadAnnotationsNext: () => true,
-        setNext: (next) => ({ next }),
+        setNext: (next: string) => ({ next }),
         appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
         openModalToCreateAnnotation: () => true,
         openModalToEditAnnotation: (annotation: AnnotationType) => ({ annotation }),

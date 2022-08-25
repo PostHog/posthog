@@ -970,10 +970,10 @@ export interface AnnotationType {
     scope: AnnotationScope
     content: string
     date_marker: string
-    created_by: UserBasicType | null
+    created_by?: UserBasicType | null
     created_at: string
     updated_at: string
-    dashboard_item: number | null
+    dashboard_item?: number | null
     insight_short_id?: InsightModel['short_id']
     insight_name?: InsightModel['name']
     deleted?: boolean

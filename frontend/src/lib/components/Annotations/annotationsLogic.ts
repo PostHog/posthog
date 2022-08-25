@@ -27,7 +27,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
             created_at: now(),
             scope,
         }),
-        deleteAnnotation: (id: string) => ({ id }),
+        deleteAnnotation: (id: AnnotationType['id']) => ({ id }),
         updateDiffType: (dates: string[]) => ({ dates }),
         setDiffType: (type: OpUnitType) => ({ type }),
     }),
@@ -56,7 +56,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
             createAnnotation: (state, { content, date_marker, created_at, scope }) => [
                 ...state,
                 {
-                    id: getNextKey(state).toString(),
+                    id: getNextKey(state),
                     content,
                     date_marker: date_marker,
                     created_at: created_at.toISOString(),
@@ -65,7 +65,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
                 },
             ],
             deleteAnnotation: (state, { id }) => {
-                if (parseInt(id) >= 0) {
+                if (id >= 0) {
                     return state.filter((a) => a.id !== id)
                 } else {
                     return state
@@ -110,7 +110,7 @@ export const annotationsLogic = kea<annotationsLogicType>({
             actions.loadAnnotations()
         },
         deleteAnnotation: async ({ id }) => {
-            parseInt(id) >= 0 &&
+            id >= 0 &&
                 deleteWithUndo({
                     endpoint: `projects/${teamLogic.values.currentTeamId}/annotations`,
                     object: { name: 'Annotation', id },
