@@ -190,12 +190,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <div className="border rounded p-4">
                                                 <LemonCheckbox
                                                     id="continuity-checkbox"
-                                                    label={
-                                                        <div>
-                                                            Persist flag across authentication steps{' '}
-                                                            <LemonTag type="warning">Beta</LemonTag>
-                                                        </div>
-                                                    }
+                                                    label="Persist flag across authentication steps"
                                                     onChange={() => onChange(!value)}
                                                     fullWidth
                                                     checked={value}
@@ -396,12 +391,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <div className="border rounded p-4">
                                                 <LemonCheckbox
                                                     id="continuity-checkbox"
-                                                    label={
-                                                        <div>
-                                                            Persist flag across authentication steps{' '}
-                                                            <LemonTag type="warning">Beta</LemonTag>
-                                                        </div>
-                                                    }
+                                                    label="Persist flag across authentication steps"
                                                     onChange={() => onChange(!value)}
                                                     fullWidth
                                                     checked={value}
@@ -467,7 +457,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                     </Link>
                                                                 )}
                                                                 String value (Multivariate test){' '}
-                                                                <LemonTag type="warning">Beta</LemonTag>
                                                             </div>
                                                         </Tooltip>
                                                     ),
@@ -843,7 +832,6 @@ function FeatureFlagRollout(): JSX.Element {
                                                     </Link>
                                                 )}
                                                 String value (Multivariate test){' '}
-                                                <LemonTag type="warning">Beta</LemonTag>
                                             </div>
                                         </Tooltip>
                                     ),
