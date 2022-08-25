@@ -20,7 +20,6 @@ from rest_framework.test import APITestCase as DRFTestCase
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.client import ch_pool, sync_execute
 from posthog.models import Organization, Team, User
-from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
@@ -146,9 +145,9 @@ class TestMixin:
     def setUp(self):
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
-            AsyncMigration.objects.create(
-                name="0006_persons_and_groups_on_events_backfill", status=MigrationStatus.CompletedSuccessfully
-            )
+            from posthog.models.team import util
+
+            util.can_enable_person_on_events = True
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
