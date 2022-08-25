@@ -77,7 +77,7 @@ class EventDefinitionViewSet(
 
         params = {
             "team_id": self.team_id,
-            "starts_with_dollar": "$%",
+            "is_posthog_event": "$%",
             **search_kwargs,
         }
 

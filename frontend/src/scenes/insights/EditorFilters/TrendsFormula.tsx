@@ -20,9 +20,9 @@ export function TrendsFormula({ filters, insightProps }: EditorFilterProps): JSX
     }, [filters.formula])
 
     return (
-        <>
+        <div className="flex items-center gap-2">
             {isUsingFormulas ? (
-                <div className="flex items-center gap-2">
+                <>
                     <LemonInput
                         className="flex-1"
                         placeholder="e.g. (A + B)/(A - B) * 100"
@@ -52,7 +52,7 @@ export function TrendsFormula({ filters, insightProps }: EditorFilterProps): JSX
                             setFilters({ formula: undefined })
                         }}
                     />
-                </div>
+                </>
             ) : (
                 <Tooltip
                     title={!formulaEnabled ? 'Please add at least one graph series to use formulas' : undefined}
@@ -69,6 +69,6 @@ export function TrendsFormula({ filters, insightProps }: EditorFilterProps): JSX
                     </LemonButton>
                 </Tooltip>
             )}
-        </>
+        </div>
     )
 }
