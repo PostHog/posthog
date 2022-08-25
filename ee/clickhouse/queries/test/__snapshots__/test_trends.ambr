@@ -27,7 +27,7 @@
                     (SELECT id
                      FROM person
                      WHERE team_id = 2
-                       AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', ''))))
+                       AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))))
                      GROUP BY id
                      HAVING max(is_deleted) = 0
                      AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))))
@@ -108,7 +108,7 @@
                                 (SELECT id
                                  FROM person
                                  WHERE team_id = 2
-                                   AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', ''))))
+                                   AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))))
                                  GROUP BY id
                                  HAVING max(is_deleted) = 0
                                  AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', ''))))))))
@@ -262,7 +262,7 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', '')))
+          AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))) person ON pdi.person_id = person.id
@@ -325,7 +325,7 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
-                AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', '')))
+                AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -481,7 +481,7 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
-                AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', ''))))
+                AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))))
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
@@ -533,7 +533,7 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
-                AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'name'), '^"|"$', '')))
+                AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -1007,8 +1007,8 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$os'), '^"|"$', ''))
-                OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', ''))))
+          AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
@@ -1068,8 +1068,8 @@
                      argMax(properties, version) as person_props
               FROM person
               WHERE team_id = 2
-                AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$os'), '^"|"$', ''))
-                      OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', ''))))
+                AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                      OR has(['safari'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND ((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
@@ -1111,9 +1111,9 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$os'), '^"|"$', ''))
-                 AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', ''))))
-               AND (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
+          AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                 AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
+               AND (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))
@@ -1173,9 +1173,9 @@
                      argMax(properties, version) as person_props
               FROM person
               WHERE team_id = 2
-                AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$os'), '^"|"$', ''))
-                       AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', ''))))
-                     AND (replaceRegexpAll(JSONExtractRaw(person.person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
+                AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(person.properties, '$os'), '^"|"$', ''))
+                       AND has(['chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', ''))))
+                     AND (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$os'), '^"|"$', ''))

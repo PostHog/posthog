@@ -266,7 +266,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', '')))
+                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -356,7 +356,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', '')))
+                            AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -446,7 +446,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', '')))
+                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -536,7 +536,7 @@
                          (SELECT id
                           FROM person
                           WHERE team_id = 2
-                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.person.properties, '$browser'), '^"|"$', '')))
+                            AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
                           GROUP BY id
                           HAVING max(is_deleted) = 0
                           AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
