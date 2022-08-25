@@ -132,7 +132,7 @@ def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
     prepend: str = "global",
-    table_name: str = "person",
+    table_name: str = "",
     allow_denormalized_props: bool = True,
     has_person_id_joined: bool = True,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
@@ -595,7 +595,7 @@ def get_property_string_expr(
     """
     materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
 
-    table_string = f"{table_alias}." if table_alias is not None else ""
+    table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
     if allow_denormalized_props and property_name in materialized_columns:
         return f'{table_string}"{materialized_columns[property_name]}"', True
