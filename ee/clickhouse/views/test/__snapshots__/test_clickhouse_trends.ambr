@@ -497,8 +497,8 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
-               AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))))
+          AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', '')))
+               AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', ''))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
@@ -570,8 +570,8 @@
                    (SELECT id
                     FROM person
                     WHERE team_id = 2
-                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
-                           AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))))
+                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', '')))
+                           AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', ''))))
                     GROUP BY id
                     HAVING max(is_deleted) = 0
                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
@@ -621,8 +621,8 @@
        (SELECT id
         FROM person
         WHERE team_id = 2
-          AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))))
-               AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))))
+          AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', ''))))
+               AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.person.properties, 'key'), '^"|"$', ''))))
         GROUP BY id
         HAVING max(is_deleted) = 0
         AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
