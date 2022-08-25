@@ -178,7 +178,7 @@ def parse_prop_clauses(
                 prop,
                 idx,
                 prepend,
-                prop_var="{}properties".format(table_formatted),
+                prop_var="properties",
                 allow_denormalized_props=allow_denormalized_props,
                 property_operator=property_operator,
                 table_name=table_name,
