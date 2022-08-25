@@ -93,7 +93,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-14 00:00:00')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+       AND timestamp <= toDateTime('2012-01-15 00:00:00') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -150,7 +150,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-14 00:00:00')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND timestamp <= toDateTime('2012-01-15 00:00:00')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
@@ -205,7 +205,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+       AND timestamp <= toDateTime('2012-01-15 00:00:00') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -313,7 +313,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND timestamp <= toDateTime('2012-01-15 00:00:00')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
@@ -380,7 +380,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+       AND timestamp <= toDateTime('2012-01-15 00:00:00') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -471,7 +471,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND timestamp <= toDateTime('2012-01-15 00:00:00')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
   LIMIT 200
@@ -624,7 +624,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= '2011-12-25 00:00:00'
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND timestamp <= toDateTime('2012-01-15 00:00:00')
        AND (((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))) )
   GROUP BY actor_id
   LIMIT 200
@@ -816,7 +816,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2020-01-02 00:00:00')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59')
+       AND timestamp <= toDateTime('2020-01-03 00:00:00')
        AND (NOT has([''], "$group_0")
             AND NOT has([''], "$group_0")) )
   GROUP BY actor_id
@@ -874,7 +874,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2020-01-02 00:00:00')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59') )
+       AND timestamp <= toDateTime('2020-01-03 00:00:00') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
