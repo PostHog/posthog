@@ -91,9 +91,13 @@ class PersonQuery:
             f"""
             SELECT {fields}
             FROM person
-            {cohort_query}
             WHERE team_id = %(team_id)s
-            {person_filters}
+            AND id IN (
+                SELECT id FROM person
+                {cohort_query}
+                WHERE team_id = %(team_id)s
+                {person_filters}
+            )
             GROUP BY id
             HAVING max(is_deleted) = 0
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
