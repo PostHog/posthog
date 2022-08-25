@@ -132,7 +132,7 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
 
 
 def validate_client_query_id(
-    client_query_id: Optional[str], args: Dict[any, any], client_query_team_id: Optional[int] = None
+    client_query_id: Optional[str], args: Dict[Any, Any], client_query_team_id: Optional[int] = None
 ) -> Optional[str]:
     if not client_query_id:
         return None
