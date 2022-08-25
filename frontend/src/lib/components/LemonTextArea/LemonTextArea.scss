@@ -31,4 +31,8 @@
     &:placeholder-shown {
         font-style: italic;
     }
+
+    .Field--error & {
+        border: 1px solid var(--danger);
+    }
 }
