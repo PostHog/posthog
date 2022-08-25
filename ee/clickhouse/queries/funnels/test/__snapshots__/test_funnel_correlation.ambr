@@ -190,10 +190,6 @@
                argMax(properties, version) as person_props
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
@@ -668,10 +664,6 @@
                argMax(pmat_$browser, version) as pmat_$browser
         FROM person
         WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2 )
         GROUP BY id
         HAVING max(is_deleted) = 0) person ON person.id = funnel_actors.actor_id) aggregation_target_with_props
   GROUP BY prop.1,
