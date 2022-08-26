@@ -10,19 +10,24 @@ import {
     ExportHistoricalEventsUpgradeV2,
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
+import {
+    fetchEventsForInterval,
+    fetchTimestampBoundariesForTeam,
+} from '../../../../../src/worker/vm/upgrades/utils/utils'
 import { pluginConfig39 } from '../../../../helpers/plugins'
 
 jest.mock('../../../../../src/utils/status')
+jest.mock('../../../../../src/worker/vm/upgrades/utils/utils')
 
 describe('addHistoricalEventsExportCapabilityV2()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 
@@ -58,6 +63,53 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             return vm.meta.global._testFunctions[name](...args)
         }
     }
+
+    describe('getTimestampBoundaries()', () => {
+        const getTimestampBoundaries = getTestMethod('getTimestampBoundaries')
+
+        it('returns timestamp boundaries passed into interface job', async () => {
+            expect(
+                await getTimestampBoundaries({
+                    dateFrom: '2021-10-29T00:00:00.000Z',
+                    dateTo: '2021-11-29T00:00:00.000Z',
+                })
+            ).toEqual({
+                min: new Date('2021-10-29T00:00:00.000Z'),
+                max: new Date('2021-11-29T00:00:00.000Z'),
+            })
+
+            expect(fetchTimestampBoundariesForTeam).not.toHaveBeenCalled()
+        })
+
+        it('raises an error for invalid timestamp formats', async () => {
+            await expect(
+                getTimestampBoundaries({
+                    dateFrom: 'afaffaf',
+                    dateTo: 'efg',
+                })
+            ).rejects.toThrowError("'dateFrom' and 'dateTo' should be timestamps in ISO string format.")
+        })
+
+        it('returns timestamp boundaries fetched from clickhouse if none passed from interface', async () => {
+            jest.mocked(fetchTimestampBoundariesForTeam).mockResolvedValue({
+                min: new Date('2021-10-29T00:00:00.000Z'),
+                max: new Date('2022-10-29T00:00:00.000Z'),
+            })
+
+            expect(await getTimestampBoundaries({})).toEqual({
+                min: new Date('2021-10-29T00:00:00.000Z'),
+                max: new Date('2022-10-29T00:00:00.000Z'),
+            })
+        })
+
+        it('raises an error if neither can be resolved', async () => {
+            jest.mocked(fetchTimestampBoundariesForTeam).mockResolvedValue(null)
+
+            await expect(getTimestampBoundaries({})).rejects.toThrowError(
+                `Unable to determine the timestamp bound for the export automatically. Please specify 'dateFrom'/'dateTo' values.`
+            )
+        })
+    })
 
     describe('progressBar()', () => {
         const progressBar = getTestMethod('progressBar')

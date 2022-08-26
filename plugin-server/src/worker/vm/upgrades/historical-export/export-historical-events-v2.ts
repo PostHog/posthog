@@ -257,15 +257,14 @@ export function addHistoricalEventsExportCapabilityV2(
 
     async function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): Promise<TimestampBoundaries> {
         if (payload && payload.dateFrom && payload.dateTo) {
-            try {
-                const min = new Date(payload.dateFrom)
-                const max = new Date(payload.dateTo)
+            const min = new Date(payload.dateFrom)
+            const max = new Date(payload.dateTo)
 
-                return { min, max }
-            } catch (error) {
+            if (isNaN(min.getTime()) || isNaN(max.getTime())) {
                 createLog(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
-                throw error
+                throw new Error(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
             }
+            return { min, max }
         } else {
             const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
 
