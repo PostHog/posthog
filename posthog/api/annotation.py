@@ -44,7 +44,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
+    def update(self, instance: Annotation, validated_data: Dict[str, Any]) -> Annotation:
+        instance.team_id = self.context["team_id"]
+        return super().update(instance, validated_data)
+
+    def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         project = Team.objects.get(id=self.context["team_id"])
         annotation = Annotation.objects.create(
