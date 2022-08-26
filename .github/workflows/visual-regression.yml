@@ -14,4 +14,4 @@ jobs:
                   path: posthog
                   fetch-depth: 0
             - name: How can this work?
-              run: yarn && node ./bin/visual-regression.js
+              run: yarn && node bin/visual-regression.js
