@@ -2,9 +2,7 @@ import React from 'react'
 import { useActions, useValues } from 'kea'
 import { colonDelimitedDuration } from '~/lib/utils'
 import { SessionRecordingType } from '~/types'
-import { Button, Row } from 'antd'
-import { sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
-import { LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { getRecordingListLimit, sessionRecordingsTableLogic } from './sessionRecordingsTableLogic'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import './SessionRecordingPlaylist.scss'
@@ -13,6 +11,8 @@ import { TZLabel } from 'lib/components/TimezoneAware'
 import { SessionRecordingPlayerV3 } from './player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
 
 interface SessionRecordingsTableProps {
     personUUID?: string
@@ -21,7 +21,7 @@ interface SessionRecordingsTableProps {
 
 export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTableProps): JSX.Element {
     const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID, isPlaylist: true })
-    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId } =
+    const { sessionRecordings, sessionRecordingsResponseLoading, hasNext, hasPrev, activeSessionRecordingId, offset } =
         useValues(sessionRecordingsTableLogicInstance)
     const { openSessionPlayer, loadNext, loadPrev } = useActions(sessionRecordingsTableLogicInstance)
 
@@ -70,30 +70,30 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
                     data-tooltip="session-recording-table"
                     emptyState="No matching recordings found"
                 />
-                {(hasPrev || hasNext) && (
-                    <Row className="SessionRecordingPlaylist__pagination-control">
-                        <Button
-                            type="link"
-                            disabled={!hasPrev}
-                            onClick={() => {
-                                loadPrev()
-                                window.scrollTo(0, 0)
-                            }}
-                        >
-                            <LeftOutlined /> Previous
-                        </Button>
-                        <Button
-                            type="link"
-                            disabled={!hasNext}
-                            onClick={() => {
-                                loadNext()
-                                window.scrollTo(0, 0)
-                            }}
-                        >
-                            Next <RightOutlined />
-                        </Button>
-                    </Row>
-                )}
+                <div className="SessionRecordingPlaylist__pagination-control">
+                    <span>{`${offset + 1} - ${
+                        offset +
+                        (sessionRecordingsResponseLoading ? getRecordingListLimit(true) : sessionRecordings.length)
+                    }`}</span>
+                    <LemonButton
+                        icon={<IconChevronLeft />}
+                        status="stealth"
+                        disabled={!hasPrev}
+                        onClick={() => {
+                            loadPrev()
+                            window.scrollTo(0, 0)
+                        }}
+                    />
+                    <LemonButton
+                        icon={<IconChevronRight />}
+                        status="stealth"
+                        disabled={!hasNext}
+                        onClick={() => {
+                            loadNext()
+                            window.scrollTo(0, 0)
+                        }}
+                    />
+                </div>
             </div>
             <div className="SessionRecordingPlaylist__right-column">
                 {activeSessionRecordingId ? (

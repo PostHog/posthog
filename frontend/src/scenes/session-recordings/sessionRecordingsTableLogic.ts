@@ -32,14 +32,9 @@ interface HashParams {
 }
 
 const TABLE_LIMIT = 50
-const PLAYLIST_LIMIT = 20
+const PLAYLIST_LIMIT = 10
 
-const getLimit = (props: SessionRecordingTableLogicProps): number => {
-    if (props.isPlaylist) {
-        return PLAYLIST_LIMIT
-    }
-    return TABLE_LIMIT
-}
+export const getRecordingListLimit = (isPlaylist: boolean): number => (isPlaylist ? PLAYLIST_LIMIT : TABLE_LIMIT)
 
 export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
     type: 'recording',
@@ -111,7 +106,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
                     const paramsDict = {
                         ...values.filterQueryParams,
                         person_uuid: props.personUUID ?? '',
-                        limit: getLimit(props),
+                        limit: getRecordingListLimit(props.isPlaylist),
                     }
                     const params = toParams(paramsDict)
                     await breakpoint(100) // Debounce for lots of quick filter changes
@@ -190,8 +185,8 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         offset: [
             0,
             {
-                loadNext: (previousOffset) => previousOffset + getLimit(props),
-                loadPrev: (previousOffset) => Math.max(previousOffset - getLimit(props)),
+                loadNext: (previousOffset) => previousOffset + getRecordingListLimit(props.isPlaylist),
+                loadPrev: (previousOffset) => Math.max(previousOffset - getRecordingListLimit(props.isPlaylist), 0),
                 setOffset: (_, { offset }) => offset,
             },
         ],
@@ -296,7 +291,6 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             const hashParams: HashParams = {
                 ...router.values.hashParams,
             }
-            console.log('actionToU', values.activeSessionRecordingId)
             if (!values.activeSessionRecordingId) {
                 delete hashParams.sessionRecordingId
             } else {
