@@ -16,7 +16,7 @@ export interface TimestampBoundaries {
     max: Date | null
 }
 
-export interface ExportEventsJobPayload extends Record<string, any> {
+export interface ExportHistoricalEventsJobPayload extends Record<string, any> {
     // The lower bound of the timestamp interval to be processed
     timestampCursor?: number
 
@@ -42,8 +42,8 @@ export type ExportHistoricalEventsUpgrade = Plugin<{
         pgClient: Client
         eventsToIgnore: Set<string>
         sanitizedTableName: string
-        exportHistoricalEvents: (payload: ExportEventsJobPayload) => Promise<void>
-        initTimestampsAndCursor: (payload: ExportEventsJobPayload | undefined) => Promise<void>
+        exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
+        initTimestampsAndCursor: (payload: ExportHistoricalEventsJobPayload | undefined) => Promise<void>
         setTimestampBoundaries: () => Promise<void>
         updateProgressBar: (incrementedCursor: number) => void
         timestampBoundariesForTeam: TimestampBoundaries

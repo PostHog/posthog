@@ -11,7 +11,7 @@ import {
     PluginTaskType,
 } from '../../../../types'
 import {
-    ExportEventsJobPayload,
+    ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgrade,
     fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
@@ -99,14 +99,14 @@ export function addHistoricalEventsExportCapability(
     tasks.job['exportHistoricalEvents'] = {
         name: 'exportHistoricalEvents',
         type: PluginTaskType.Job,
-        exec: (payload) => meta.global.exportHistoricalEvents(payload as ExportEventsJobPayload),
+        exec: (payload) => meta.global.exportHistoricalEvents(payload as ExportHistoricalEventsJobPayload),
     }
 
     tasks.job[INTERFACE_JOB_NAME] = {
         name: INTERFACE_JOB_NAME,
         type: PluginTaskType.Job,
         // TODO: Accept timestamp as payload
-        exec: async (payload: ExportEventsJobPayload) => {
+        exec: async (payload: ExportHistoricalEventsJobPayload) => {
             // only let one export run at a time
             const exportAlreadyRunning = await meta.storage.get(EXPORT_RUNNING_KEY, false)
             if (exportAlreadyRunning) {
@@ -133,7 +133,7 @@ export function addHistoricalEventsExportCapability(
         },
     } as unknown as PluginTask // :KLUDGE: Work around typing limitations
 
-    meta.global.exportHistoricalEvents = async (payload: ExportEventsJobPayload): Promise<void> => {
+    meta.global.exportHistoricalEvents = async (payload: ExportHistoricalEventsJobPayload): Promise<void> => {
         if (payload.retriesPerformedSoFar >= 15) {
             // create some log error here
             return
@@ -253,7 +253,7 @@ export function addHistoricalEventsExportCapability(
     // initTimestampsAndCursor decides what timestamp boundaries to use before
     // the export starts. if a payload is passed with boundaries, we use that,
     // but if no payload is specified, we use the boundaries determined at setupPlugin
-    meta.global.initTimestampsAndCursor = async (payload?: ExportEventsJobPayload) => {
+    meta.global.initTimestampsAndCursor = async (payload?: ExportHistoricalEventsJobPayload) => {
         // initTimestampsAndCursor will only run on **one** thread, because of our guard against
         // multiple exports. as a result, we need to set the boundaries on postgres, and
         // only set them in global when the job runs, so all threads have global state in sync
