@@ -80,6 +80,10 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
     @test_with_materialized_columns(event_properties=["key"], group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
+
         self._create_groups()
 
         _create_event(
@@ -183,6 +187,10 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
     @test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
+
         self._create_groups()
 
         journey = {
@@ -331,6 +339,10 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
     @test_with_materialized_columns(person_properties=["key"], group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_with_person_filter_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
+
         self._create_groups()
 
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
@@ -376,6 +388,10 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
     @test_with_materialized_columns(person_properties=["key"], group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_filtering_with_group_props_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
+
         self._create_groups()
 
         Person.objects.create(team_id=self.team.pk, distinct_ids=["person1"], properties={"key": "value"})
@@ -424,6 +440,10 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
     @test_with_materialized_columns(group_properties=[(0, "industry"), (2, "name")])
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
+
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=2)
 

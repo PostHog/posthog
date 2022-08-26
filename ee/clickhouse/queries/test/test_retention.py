@@ -244,6 +244,9 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
     @test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_in_period_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
         self._create_groups_and_events()
 
         filter = RetentionFilter(

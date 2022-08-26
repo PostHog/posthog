@@ -240,6 +240,9 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
         @test_with_materialized_columns(group_properties=[(0, "industry")])
         @snapshot_clickhouse_queries
         def test_funnel_aggregate_by_groups_breakdown_group_person_on_events(self):
+            from posthog.models.team import util
+
+            util.can_enable_person_on_events = True
             self._create_groups()
 
             journeys_for(
