@@ -7,8 +7,8 @@ import pixelmatch from 'pixelmatch'
     const page = await browser.newPage()
     try {
         await page.goto('https://storybook.posthog.net/?path=/docs/lemon-ui-lemon-button--default#types-and-statuses')
+        await page.waitForSelector('#lemon-ui-lemon-button--types-and-statuses')
         await page.click('#lemon-ui-lemon-button--types-and-statuses')
-        // await page.waitForTimeout(1500)
         await page.screenshot({ path: './visual-regression-screenshots/screenshot-button-types-and-statuses.png' })
 
         const screenshot = PNG.sync.read(
