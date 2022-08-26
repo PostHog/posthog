@@ -2774,6 +2774,10 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
     )
     @snapshot_clickhouse_queries
     def test_path_groups_filtering_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
+
         self._create_groups()
         # P1 for pageview event, org:5
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
