@@ -196,13 +196,14 @@ def trend_test_factory(trends):
 
                     # pagination works, no matter how few ids in people_response
                     self.assertIsNotNone(people_response["next"])
+                    self.assertTrue(people_response["missing_persons"])
 
                     next_url = people_response["next"]
                     second_people_response = self.client.get(f"{next_url}").json()
 
                     self.assertIsNotNone(second_people_response["next"])
-                    # TODO: VERY WEIRD how sometimes this returns an absolute URI, sometimes a relative one (depending on presence of
-                    # offset parameter?) wtf?
+                    self.assertTrue(second_people_response["missing_persons"])
+
                     first_load_ids = sorted(str(person["id"]) for person in people_response["results"][0]["people"])
                     second_load_ids = sorted(
                         str(person["id"]) for person in second_people_response["results"][0]["people"]
@@ -211,10 +212,10 @@ def trend_test_factory(trends):
                     self.assertEqual(len(first_load_ids + second_load_ids), 1)
                     self.assertEqual(first_load_ids + second_load_ids, [str(person.uuid)])
 
-                    self.assertIsNotNone(second_people_response["next"])
                     third_people_response = self.client.get(f"/{second_people_response['next']}").json()
-
                     self.assertIsNone(third_people_response["next"])
+                    self.assertFalse(third_people_response["missing_persons"])
+
                     third_load_ids = sorted(
                         str(person["id"]) for person in third_people_response["results"][0]["people"]
                     )

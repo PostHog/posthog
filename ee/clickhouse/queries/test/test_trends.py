@@ -17,7 +17,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
     maxDiff = None
 
     def _get_trend_people(self, filter, entity):
-        _, serialized_actors = TrendsActors(filter=filter, entity=entity, team=self.team).get_actors()
+        _, serialized_actors, _ = TrendsActors(filter=filter, entity=entity, team=self.team).get_actors()
         return serialized_actors
 
     def _create_groups(self):

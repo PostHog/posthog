@@ -90,21 +90,16 @@ class ActorBaseQuery:
 
     def get_actors(
         self,
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], bool]:
+    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """ Get actors in data model and dict formats. Builds query and executes """
         query, params = self.actor_query()
         raw_result = sync_execute(query, params)
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
-        has_next = False
-        limit = self._filter.limit or 100
-        if len(raw_result) >= limit:
-            has_next = True
-
         if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]:  # type: ignore
             serialized_actors = self.add_matched_recordings_to_serialized_actors(serialized_actors, raw_result)
 
-        return actors, serialized_actors, has_next
+        return actors, serialized_actors, len(raw_result)
 
     def query_for_session_ids_with_recordings(self, session_ids: Set[str]) -> Set[str]:
         """ Filters a list of session_ids to those that actually have recordings """

@@ -114,7 +114,7 @@ class Retention:
 
     def actors(self, filter: RetentionFilter, team: Team):
 
-        _, serialized_actors = self.actors_query(team=team, filter=filter).get_actors()
+        _, serialized_actors, _ = self.actors_query(team=team, filter=filter).get_actors()
 
         return serialized_actors
 
