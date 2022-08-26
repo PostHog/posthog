@@ -43,7 +43,10 @@ class Stickiness:
         """
 
         counts = sync_execute(
-            query, {**event_params, "num_intervals": filter.total_intervals}, client_query_id=filter.client_query_id
+            query,
+            {**event_params, "num_intervals": filter.total_intervals},
+            client_query_id=filter.client_query_id,
+            client_query_team_id=team.pk,
         )
         return self.process_result(counts, filter, entity)
 
