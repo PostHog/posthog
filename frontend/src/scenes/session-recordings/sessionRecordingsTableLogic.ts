@@ -34,7 +34,7 @@ interface HashParams {
 const TABLE_LIMIT = 50
 const PLAYLIST_LIMIT = 10
 
-export const getRecordingListLimit = (isPlaylist: boolean): number => (isPlaylist ? PLAYLIST_LIMIT : TABLE_LIMIT)
+export const getRecordingListLimit = (isPlaylist?: boolean): number => (isPlaylist ? PLAYLIST_LIMIT : TABLE_LIMIT)
 
 export const DEFAULT_DURATION_FILTER: RecordingDurationFilter = {
     type: 'recording',
@@ -60,7 +60,7 @@ export const DEFAULT_ENTITY_FILTERS = {
     ],
 }
 
-interface SessionRecordingTableLogicProps {
+export interface SessionRecordingTableLogicProps {
     isPlaylist?: boolean
     personUUID?: PersonUUID
     key?: string
