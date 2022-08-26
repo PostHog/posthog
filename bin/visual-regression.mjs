@@ -7,7 +7,7 @@ import pixelmatch from 'pixelmatch'
         mkdirSync('./visual-regression-screenshots/diffs', { recursive: true })
     }
 
-    const browser = await launch({ headless: false })
+    const browser = await launch()
 
     const page = await browser.newPage()
 
