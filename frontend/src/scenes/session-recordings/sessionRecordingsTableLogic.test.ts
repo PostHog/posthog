@@ -9,6 +9,7 @@ import { router } from 'kea-router'
 import { PropertyOperator } from '~/types'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { useMocks } from '~/mocks/jest'
+import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 
 describe('sessionRecordingsTableLogic', () => {
     let logic: ReturnType<typeof sessionRecordingsTableLogic.build>
@@ -292,6 +293,20 @@ describe('sessionRecordingsTableLogic', () => {
                         operator: PropertyOperator.LessThan,
                     },
                 })
+        })
+    })
+    describe('playlist mode', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsTableLogic({ isPlaylist: true })
+            logic.mount()
+        })
+        it('mounts and loads the recording when a recording is opened', () => {
+            expectLogic(
+                logic,
+                async () => await logic.actions.openSessionPlayer('abcd', RecordingWatchedSource.RecordingsList)
+            )
+                .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
+                .toDispatchActions(['loadEntireRecording'])
         })
     })
     describe('person specific logic', () => {

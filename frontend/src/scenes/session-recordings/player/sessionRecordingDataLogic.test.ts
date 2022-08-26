@@ -61,6 +61,11 @@ describe('sessionRecordingDataLogic', () => {
     })
 
     describe('loading session core', () => {
+        it('is triggered by loadEntireRecording', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEntireRecording()
+            }).toDispatchActions(['loadRecordingMeta', 'loadRecordingSnapshots'])
+        })
         it('fetch metadata and then snapshots', async () => {
             const resultAfterMetadataResponse = {
                 person: recordingMetaJson.person,
