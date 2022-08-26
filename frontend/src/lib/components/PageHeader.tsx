@@ -5,7 +5,7 @@ import { LemonDivider } from './LemonDivider'
 
 interface PageHeaderProps {
     title: string | JSX.Element
-    description?: string
+    description?: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
     style?: React.CSSProperties

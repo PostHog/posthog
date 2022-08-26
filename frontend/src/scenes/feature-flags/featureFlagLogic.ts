@@ -83,6 +83,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         addVariant: true,
         duplicateVariant: (index: number) => ({ index }),
         removeVariant: (index: number) => ({ index }),
+        editFeatureFlag: (editing: boolean) => ({ editing }),
         distributeVariantsEqually: true,
     }),
     forms(({ actions }) => ({
@@ -274,6 +275,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        isEditingFlag: [
+            false,
+            {
+                editFeatureFlag: (_, { editing }) => editing,
+            },
+        ],
     }),
     loaders(({ values, props }) => ({
         featureFlag: {
@@ -309,6 +316,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
             router.actions.replace(urls.featureFlag(featureFlag.id))
+            actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             deleteWithUndo({

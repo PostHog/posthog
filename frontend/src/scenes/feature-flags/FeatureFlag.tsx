@@ -84,6 +84,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         distributeVariantsEqually,
         setAggregationGroupTypeIndex,
         editFeatureFlag,
+        loadFeatureFlag,
     } = useActions(featureFlagLogic)
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
@@ -118,7 +119,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             data-attr="cancel-feature-flag"
                                             type="secondary"
                                             onClick={() => {
-                                                router.actions.push(urls.featureFlags())
+                                                if (isEditingFlag) {
+                                                    editFeatureFlag(false)
+                                                    loadFeatureFlag()
+                                                } else {
+                                                    router.actions.push(urls.featureFlags())
+                                                }
                                             }}
                                             disabled={featureFlagLoading}
                                         >
@@ -188,6 +194,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <LemonTextArea
                                             className="ph-ignore-input"
                                             data-attr="feature-flag-description"
+                                            defaultValue={featureFlag.name || ''}
                                         />
                                     </Field>
                                     <Field name="ensure_experience_continuity">
@@ -257,19 +264,33 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     ) : (
                         <>
                             <PageHeader
-                                title={featureFlag.key || 'Untitled'}
-                                description={featureFlag.name || 'testing description untitled'}
-                                buttons={
-                                    <div className="flex items-center gap-2">
+                                title={
+                                    <div className="flex items-center gap-2 mb-2">
+                                        {featureFlag.key || 'Untitled'}
                                         <CopyToClipboardInline
                                             explicitValue={featureFlag.key}
                                             iconStyle={{ color: 'var(--muted-alt)' }}
                                         />
-                                        {featureFlag.active ? (
-                                            <LemonTag type="success">Enabled</LemonTag>
+                                        <div className="flex">
+                                            {featureFlag.active ? (
+                                                <LemonTag type="success">Enabled</LemonTag>
+                                            ) : (
+                                                <LemonTag type="default">Disabled</LemonTag>
+                                            )}
+                                        </div>
+                                    </div>
+                                }
+                                description={
+                                    <>
+                                        {featureFlag.name ? (
+                                            <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
                                         ) : (
-                                            <LemonTag type="default">Disabled</LemonTag>
+                                            'There is no description for this feature flag.'
                                         )}
+                                    </>
+                                }
+                                buttons={
+                                    <div className="flex items-center gap-2 mb-2">
                                         <LemonButton
                                             data-attr="delete-feature-flag"
                                             status="danger"
@@ -285,7 +306,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             onClick={() => {
-                                                editFeatureFlag(featureFlag)
+                                                editFeatureFlag(true)
                                             }}
                                             disabled={featureFlagLoading}
                                         >
@@ -868,7 +889,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     <Col span={11}>Description</Col>
                                     <Col span={3}>Rollout</Col>
                                 </Row>
-                                <LemonDivider />
+                                <LemonDivider className="my-3" />
                                 {variants.map((variant, index) => (
                                     <>
                                         <Row>
@@ -878,10 +899,9 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     tooltipMessage={null}
                                                     description="key"
                                                     style={{
-                                                        display: 'inline-flex',
-                                                        justifyContent: 'flex-end',
                                                         marginLeft: '0.5rem',
                                                     }}
+                                                    iconStyle={{ color: 'var(--muted-alt)' }}
                                                 >
                                                     {variant.key}
                                                 </CopyToClipboardInline>
@@ -1107,7 +1127,6 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
     } = useActions(featureFlagLogic)
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
-    console.log('feature flag groups', featureFlag.filters.groups)
     return (
         <>
             <div className="feature-flag-form-row">
@@ -1118,7 +1137,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                         </div>
                     ) : (
                         <>
-                            <h3 className="l3">Release conditions</h3>
+                            <h3 className="l4">Release conditions</h3>
                             <div className="text-muted mb-4">
                                 Specify the {aggregationTargetName} to which you want to release this flag. Note that
                                 condition sets are rolled out independently of each other.
@@ -1167,9 +1186,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                         <div className="mb-4 border rounded p-4">
                             <Row align="middle" justify="space-between">
                                 <Row align="middle">
-                                    <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
-                                        Set {index + 1}
-                                    </span>
+                                    <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
                                     <div>
                                         {group.properties?.length ? (
                                             <>
@@ -1209,7 +1226,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     </Row>
                                 )}
                             </Row>
-                            <LemonDivider className="my-4" />
+                            <LemonDivider className="my-3" />
                             {readOnly ? (
                                 <>
                                     {group.properties.map((property, idx) => (
@@ -1241,8 +1258,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     />
                                 </div>
                             )}
-                            {!readOnly ||
-                                (readOnly && group.properties?.length > 0 && <LemonDivider className="my-4" />)}
+                            {(!readOnly || (readOnly && group.properties?.length > 0)) && (
+                                <LemonDivider className="my-3" />
+                            )}
                             {readOnly ? (
                                 <div>
                                     Rolled out to{' '}
