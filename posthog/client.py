@@ -21,6 +21,7 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
+from sentry_sdk import capture_message
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
@@ -38,6 +39,7 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
     TEST,
 )
+from posthog.settings.base_variables import DEBUG
 from posthog.timer import get_timer_thread
 from posthog.utils import generate_short_id
 
@@ -137,7 +139,11 @@ def validate_client_query_id(
     if not client_query_id:
         return None
     if not client_query_team_id and (not args or "team_id" not in args):
-        raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
+        if DEBUG or TEST:
+            raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
+        else:
+            capture_message("Query needs to have a team_id arg if you've passed client_query_id")
+            return None
     # the client_query_id is per request, but we might run multiple queries in parallel, hence we add a random id at the end
     random_id = generate_short_id()
     return f"{client_query_team_id or args['team_id']}_{client_query_id}_{random_id}"
