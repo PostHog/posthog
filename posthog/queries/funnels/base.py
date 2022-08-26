@@ -693,6 +693,7 @@ class ClickhouseFunnelBase(ABC):
                     query_alias="prop_basic",
                     column="person_properties",
                     allow_denormalized_props=True,
+                    materialised_table_column="person_properties",
                 )
             else:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
@@ -715,7 +716,8 @@ class ClickhouseFunnelBase(ABC):
                     property_name=self._filter.breakdown,
                     var="%(breakdown)s",
                     column=properties_field,
-                    allow_denormalized_props=False,
+                    allow_denormalized_props=True,
+                    materialised_table_column=properties_field,
                 )
             else:
                 properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
@@ -806,6 +808,9 @@ class ClickhouseFunnelBase(ABC):
                 self._team,
                 extra_params={"offset": 0},
                 use_all_funnel_entities=use_all_funnel_entities,
+                person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
+                if self._team.actor_on_events_querying_enabled
+                else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             )
 
         return None

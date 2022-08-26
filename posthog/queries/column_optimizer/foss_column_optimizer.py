@@ -69,6 +69,10 @@ class FOSSColumnOptimizer:
         return set()
 
     @cached_property
+    def group_on_event_columns_to_query(self) -> Set[ColumnName]:
+        return set()
+
+    @cached_property
     def should_query_elements_chain_column(self) -> bool:
         "Returns whether this query uses elements_chain"
         has_element_type_property = lambda properties: any(prop.type == "element" for prop in properties)
