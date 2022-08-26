@@ -78,7 +78,6 @@ export function PlayerInspectorV3(): JSX.Element {
                     tab={currentTab}
                     row={{
                         status: (record) => {
-                            console.log('RECORD LEVEL', record.level)
                             if (record.level === 'match') {
                                 return RowStatus.Match
                             }
