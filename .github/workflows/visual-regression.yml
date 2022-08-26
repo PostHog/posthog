@@ -1,10 +1,7 @@
 name: 'Visual Regresu=sion Tests'
 
 on:
-    push:
-        branches:
-            - master
-            - main
+    pull_request:
 
 jobs:
     storybook-deployment:
