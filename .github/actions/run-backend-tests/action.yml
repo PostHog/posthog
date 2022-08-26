@@ -128,7 +128,7 @@ runs:
           if: ${{ inputs.ee == 'true' && inputs.group == '1' && inputs.person-on-events == 'true' }}
           shell: bash
           run: |
-              ENABLE_ACTOR_ON_EVENTS_TEAMS=all pytest posthog -m "ee" --durations=100 --durations-min=1.0 $PYTEST_ARGS
+              PERSON_ON_EVENTS_ENABLED=true pytest posthog -m "ee" --durations=100 --durations-min=1.0 $PYTEST_ARGS
 
         - uses: codecov/codecov-action@v2
           if: ${{ inputs.cloud == 'false' }}
