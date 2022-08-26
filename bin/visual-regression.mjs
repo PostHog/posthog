@@ -1,10 +1,10 @@
 import { launch } from 'puppeteer'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 ;(async () => {
-    if (!fs.existsSync('./visual-regression-screenshots/diffs')) {
-        fs.mkdirSync('./visual-regression-screenshots/diffs', { recursive: true })
+    if (!existsSync('./visual-regression-screenshots/diffs')) {
+        mkdirSync('./visual-regression-screenshots/diffs', { recursive: true })
     }
 
     const browser = await launch()
