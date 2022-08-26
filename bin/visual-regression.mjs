@@ -27,12 +27,19 @@ import pixelmatch from 'pixelmatch'
         const { width, height } = screenshot
         const diff = new PNG({ width, height })
 
-        const numDiffPixels = pixelmatch(screenshot.data, baseline.data, diff.data, width, height, { threshold: 0.3 })
+        const numDiffPixels = pixelmatch(screenshot.data, baseline.data, diff.data, width, height, {
+            threshold: 0.3,
+            includeAA: true,
+        })
         if (numDiffPixels) {
             console.log('detected ', numDiffPixels, ' pixels difference')
             writeFileSync(
                 './visual-regression-screenshots/diffs/screenshot-button-types-and-statuses.png',
                 PNG.sync.write(diff)
+            )
+            writeFileSync(
+                './visual-regression-screenshots/diffs/original-screenshot-button-types-and-statuses.png',
+                PNG.sync.write(screenshot)
             )
         } else {
             console.log('no diff detected for button types and statuses')
