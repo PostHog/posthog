@@ -239,7 +239,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
-        reportDemoWarningDismissed: (key: string) => ({ key }),
+        reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportOnboardingStepTriggered: (stepKey: string, extraArgs: Record<string, string | number | boolean>) => ({
             stepKey,
             extraArgs,
@@ -466,8 +466,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadingMilliseconds,
             dashboardId,
         }),
+        reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
     },
     listeners: ({ values }) => ({
+        reportInstanceSettingChange: ({ name, value }) => {
+            posthog.capture('instance setting change', { name, value })
+        },
         reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
             posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
         },
@@ -685,7 +689,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 name_length: nameLength,
             })
         },
-        reportDemoWarningDismissed: async ({ key }) => {
+        reportProjectNoticeDismissed: async ({ key }) => {
+            // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
         },
         reportOnboardingStepTriggered: async ({ stepKey, extraArgs }) => {

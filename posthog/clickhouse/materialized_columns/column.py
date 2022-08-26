@@ -1,8 +1,8 @@
 from datetime import timedelta
 from typing import Dict, List, Literal, Union
 
+from posthog.cache_utils import cache_for
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns.util import cache_for
 from posthog.models.property import PropertyName, TableWithProperties
 
 ColumnName = str

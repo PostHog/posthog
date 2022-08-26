@@ -4,6 +4,7 @@ import { Meta } from '@storybook/react'
 import { LemonTable } from './LemonTable'
 import { IconGauge, IconWithCount } from './icons'
 import { LemonCheckbox } from './LemonCheckbox'
+import { LemonButton } from './LemonButton'
 
 interface IconDefinition {
     name: string
@@ -66,6 +67,20 @@ export function Library(): JSX.Element {
                                         boxShadow: showBorder ? '0px 0px 1px 1px red' : null,
                                     }}
                                 />
+                            )
+                        },
+                    },
+
+                    {
+                        title: 'In Button',
+                        key: 'button-icon',
+                        dataIndex: 'icon',
+                        render: function RenderButton(Icon) {
+                            Icon = Icon as IconDefinition['icon']
+                            return (
+                                <LemonButton type="secondary" icon={<Icon />}>
+                                    Button
+                                </LemonButton>
                             )
                         },
                     },

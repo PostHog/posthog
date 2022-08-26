@@ -156,7 +156,7 @@ export const navigationLogic = kea<navigationLogicType>({
                 )
             },
         ],
-        demoWarning: [
+        projectNoticeVariant: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,

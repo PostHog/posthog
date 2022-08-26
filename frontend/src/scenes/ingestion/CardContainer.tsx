@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { PanelFooter, PanelHeader } from './panels/PanelComponents'
 import './panels/Panels.scss'
 import { ArrowLeftOutlined } from '@ant-design/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export function CardContainer({
     index,
@@ -19,15 +20,13 @@ export function CardContainer({
     const { isSmallScreen } = useValues(ingestionLogic)
 
     return (
-        <div className="ingestion-card-container">
+        <div>
             {!isSmallScreen ? (
                 <div className="flex items-center" data-attr="wizard-step-counter">
                     {index !== 0 && (
-                        <ArrowLeftOutlined
-                            className="button-border clickable"
-                            style={{ marginRight: 4 }}
-                            onClick={onBack}
-                        />
+                        <LemonButton className="mr-2" size="small" status="primary-alt" onClick={onBack}>
+                            <ArrowLeftOutlined />
+                        </LemonButton>
                     )}
                     <PanelHeader index={index} />
                 </div>

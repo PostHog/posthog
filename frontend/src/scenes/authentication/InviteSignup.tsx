@@ -1,42 +1,30 @@
 import { useActions, useValues } from 'kea'
-import React, { lazy, Suspense, useRef, useState } from 'react'
+import React from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
 import './InviteSignup.scss'
-import { StarryBackground } from 'lib/components/StarryBackground'
 import { userLogic } from 'scenes/userLogic'
-import { Button, Row, Col, Input, Space } from 'antd'
-import { ArrowLeftOutlined, ArrowRightOutlined, ArrowDownOutlined } from '@ant-design/icons'
-import { router } from 'kea-router'
-import { PrevalidatedInvite, UserType } from '~/types'
+import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import Checkbox from 'antd/lib/checkbox/Checkbox'
-import smLogo from 'public/icon-white.svg'
 import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
 import { ProfilePicture } from '../../lib/components/ProfilePicture'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
+import { Field, PureField } from 'lib/forms/Field'
+import PasswordStrength from 'lib/components/PasswordStrength'
+import clsx from 'clsx'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: InviteSignup,
     logic: inviteSignupLogic,
 }
 
-export function WhoAmI({ user }: { user: UserType }): JSX.Element {
-    return (
-        <div className="whoami cursor-pointer" data-attr="top-navigation-whoami">
-            <ProfilePicture name={user.first_name} email={user.email} />
-            <div className="details hide-lte-lg">
-                <span>{user.first_name}</span>
-                <span>{user.organization?.name}</span>
-            </div>
-        </div>
-    )
-}
-
 const UTM_TAGS = 'utm_medium=in-product&utm_campaign=invite-signup'
-const PasswordStrength = lazy(() => import('../../lib/components/PasswordStrength'))
 
 interface ErrorMessage {
     title: string
@@ -46,36 +34,25 @@ interface ErrorMessage {
 
 function HelperLinks(): JSX.Element {
     return (
-        <span className="text-light font-bold">
-            <a className="plain-link" href="/">
-                App Home
-            </a>
+        <div className="font-bold text-center">
+            <Link to="/">App Home</Link>
             <span className="mx-2">|</span>
-            <a
-                className="plain-link"
-                href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}
-                rel="noopener"
-            >
+            <Link href={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
                 PostHog Website
-            </a>
+            </Link>
             <span className="mx-2">|</span>
-            <a
-                className="plain-link"
-                href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`}
-                rel="noopener"
-            >
+            <Link href={`https://posthog.com/slack?${UTM_TAGS}&utm_message=invalid-invite`} rel="noopener">
                 Contact Us
-            </a>
-        </span>
+            </Link>
+        </div>
     )
 }
 
 function BackToPostHog(): JSX.Element {
-    const { push } = useActions(router)
     return (
-        <Button icon={<ArrowLeftOutlined />} block onClick={() => push(urls.default())}>
+        <LemonButton type="secondary" icon={<IconChevronLeft />} center fullWidth to={urls.default()}>
             Go back to PostHog
-        </Button>
+        </LemonButton>
     )
 }
 
@@ -95,7 +72,7 @@ function ErrorView(): JSX.Element | null {
             actions: user ? <BackToPostHog /> : <HelperLinks />,
         },
         [ErrorCodes.InvalidRecipient]: {
-            title: 'Oops! You cannot use this invite link',
+            title: "Oops! This invite link can't be used",
             detail: (
                 <>
                     <div>{error?.detail}</div>
@@ -110,9 +87,9 @@ function ErrorView(): JSX.Element | null {
                             <div>
                                 You need to log in with the email address above, or create your own password.
                                 <div className="mt-4">
-                                    <Button icon={<ArrowLeftOutlined />} href={window.location.pathname}>
+                                    <LemonButton icon={<IconChevronLeft />} href={window.location.pathname}>
                                         Try again
-                                    </Button>
+                                    </LemonButton>
                                 </div>
                             </div>
                         )}
@@ -123,7 +100,9 @@ function ErrorView(): JSX.Element | null {
         },
         [ErrorCodes.Unknown]: {
             title: 'Oops! We could not validate this invite link',
-            detail: `${error?.detail} There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
+            detail: `${
+                error?.detail || ''
+            } There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
             actions: user ? <BackToPostHog /> : <HelperLinks />,
         },
     }
@@ -133,15 +112,12 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <StarryBackground>
-            <div className="error-view-container">
-                <div className="inner">
-                    <h1 className="page-title">{ErrorMessages[error.code].title}</h1>
-                    <div className="error-message">{ErrorMessages[error.code].detail}</div>
-                    <div className="actions">{ErrorMessages[error.code].actions}</div>
-                </div>
-            </div>
-        </StarryBackground>
+        <BridgePage view="signup-error" message="Oops!">
+            <h2>{ErrorMessages[error.code].title}</h2>
+            <div className="error-message">{ErrorMessages[error.code].detail}</div>
+            <LemonDivider dashed className="my-4" />
+            <div>{ErrorMessages[error.code].actions}</div>
+        </BridgePage>
     )
 }
 
@@ -151,226 +127,171 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     const { acceptedInviteLoading, acceptedInvite } = useValues(inviteSignupLogic)
 
     return (
-        <div className="authenticated-invite">
-            <Space className="inner" direction="vertical" align="center">
-                <Row>
-                    <h1 className="page-title">You have been invited to join {invite.organization_name}</h1>
-                </Row>
-                <Row>
-                    <span>
-                        You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
-                    </span>
-                </Row>
+        <BridgePage view={'accept-invite'} message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}>
+            <div className="space-y-2">
+                <h2>You have been invited to join {invite.organization_name}</h2>
+                <div>
+                    You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
+                </div>
                 {user && (
-                    <Row>
-                        <div className="whoami-mock">
-                            <div className="whoami-inner-container">
-                                <WhoAmI user={user} />
-                            </div>
+                    <div
+                        className="border rounded-lg border-dashed flex items-center gap-2 px-2 py-1"
+                        data-attr="top-navigation-whoami"
+                    >
+                        <ProfilePicture name={user.first_name} email={user.email} />
+                        <div className="">
+                            <div className="font-bold">{user.first_name}</div>
+                            <div>{user.organization?.name}</div>
                         </div>
-                    </Row>
+                    </div>
                 )}
-                <Row>
+                <div>
                     You can change organizations at any time by clicking on the dropdown at the top right corner of the
                     navigation bar.
-                </Row>
+                </div>
                 <div>
                     {!acceptedInvite ? (
                         <>
-                            <Button
+                            <LemonButton
                                 type="primary"
-                                block
+                                center
+                                fullWidth
                                 onClick={() => acceptInvite()}
-                                disabled={acceptedInviteLoading}
+                                loading={acceptedInviteLoading}
                             >
                                 Accept invite
-                            </Button>
-                            <div className="mt-4">
-                                <Link to="/">
-                                    <ArrowLeftOutlined /> Go back to PostHog
-                                </Link>
+                            </LemonButton>
+                            <div className="mt-2">
+                                <LemonButton type="secondary" center fullWidth icon={<IconChevronLeft />} to="/">
+                                    Go back to PostHog
+                                </LemonButton>
                             </div>
                         </>
                     ) : (
-                        <Button block onClick={() => (window.location.href = '/')}>
-                            Go to PostHog <ArrowRightOutlined />
-                        </Button>
+                        <LemonButton
+                            type="secondary"
+                            center
+                            fullWidth
+                            sideIcon={<IconChevronRight />}
+                            onClick={() => (window.location.href = '/')}
+                        >
+                            Go to PostHog
+                        </LemonButton>
                     )}
                 </div>
-            </Space>
-        </div>
+            </div>
+        </BridgePage>
     )
 }
 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
-    const [formValues, setFormValues] = useState({
-        firstName: invite?.first_name || '',
-        password: '',
-        emailOptIn: true,
-    })
-    const [formState, setFormState] = useState({ submitted: false, passwordInvalid: false })
-    const passwordInputRef = useRef<Input | null>(null)
-    const { acceptInvite } = useActions(inviteSignupLogic)
-    const { acceptedInviteLoading } = useValues(inviteSignupLogic)
-    const { socialAuthAvailable } = useValues(preflightLogic)
-
-    const parentContainerRef = useRef<HTMLDivElement | null>(null) // Used for scrolling on mobile
-    const mainContainerRef = useRef<HTMLDivElement | null>(null) // Used for scrolling on mobile
-
-    const goToMainContent = (): void => {
-        const yPos = mainContainerRef.current ? mainContainerRef.current.getBoundingClientRect().top : null
-        if (yPos) {
-            parentContainerRef.current?.scrollTo(0, yPos)
-        }
-    }
-
-    const handlePasswordChanged = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const { value } = e.target
-        setFormValues({ ...formValues, password: value })
-        if (value.length >= 8) {
-            setFormState({ ...formState, passwordInvalid: false })
-        } else {
-            setFormState({ ...formState, passwordInvalid: true })
-        }
-    }
-
-    const handleFormSubmit = (e: React.FormEvent<EventTarget>): void => {
-        e.preventDefault()
-        if (formState.passwordInvalid) {
-            setFormState({ ...formState, submitted: true })
-            if (passwordInputRef.current) {
-                passwordInputRef.current.focus()
-            }
-            return
-        }
-
-        const payload = {
-            first_name: formValues.firstName,
-            password: formValues.password,
-            email_opt_in: formValues.emailOptIn,
-        }
-        acceptInvite(payload)
-    }
+    const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
+    const { preflight } = useValues(preflightLogic)
 
     return (
-        <div className="unauthenticated-invite" ref={parentContainerRef}>
-            <Row>
-                <Col span={24} md={10} className="image-showcase-container">
-                    <div className="image-showcase ant-col-24 ant-col-md-10">
-                        <div className="the-mountains" />
-                        <div className="main-logo">
-                            <img src={smLogo} alt="" />
+        <BridgePage
+            view={'invites-signup'}
+            message={
+                <>
+                    Welcome to
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                </>
+            }
+        >
+            <div className="InviteSignupSummary">
+                <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
+                    <span>You've been invited to join</span>
+                    <span className="text-4xl font-bold border-b border-dashed pb-2">
+                        {invite?.organization_name || 'us'}
+                    </span>
+                    <span>on PostHog</span>
+                </div>
+            </div>
+
+            <h2 className="text-center">Create your PostHog account</h2>
+            <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
+                <PureField label="Email">
+                    <LemonInput type="email" disabled value={invite?.target_email} />
+                </PureField>
+                <Field
+                    name="password"
+                    label={
+                        <div className="flex flex-1 items-center justify-between">
+                            <span>Password</span>
+                            <span className="w-20">
+                                <PasswordStrength password={signup.password} />
+                            </span>
                         </div>
-                        <div className="showcase-content">
-                            <h1 className="page-title">
-                                Hello{invite?.first_name ? ` ${invite.first_name}` : ''}! You've been invited to join
-                            </h1>
-                            <div className="company">{invite?.organization_name || 'us'}</div>
-                            <h1 className="page-title">on PostHog</h1>
-                            <div className="mobile-continue">
-                                <Button icon={<ArrowDownOutlined />} type="default" onClick={goToMainContent}>
-                                    Continue
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </Col>
-                <Col span={24} md={14} className="rhs-content" ref={mainContainerRef}>
-                    <div className="rhs-inner">
-                        <SocialLoginButtons
-                            title="Continue with a provider"
-                            caption={`Remember to log in with ${invite?.target_email}`}
-                            queryString={invite ? `?invite_id=${invite.id}` : ''}
-                        />
-                        <div className="password-login">
-                            <h3 className="l3 text-center">
-                                {socialAuthAvailable ? 'Or create your own password' : 'Create your PostHog account'}
-                            </h3>
-                            <form onSubmit={handleFormSubmit}>
-                                <div className="input-set">
-                                    <label htmlFor="email">Email</label>
-                                    <Input type="email" disabled id="email" value={invite?.target_email} />
-                                </div>
-                                <div
-                                    className={`input-set${
-                                        formState.submitted && formState.passwordInvalid ? ' errored' : ''
-                                    }`}
-                                    style={{ paddingBottom: 8 }}
-                                >
-                                    <label htmlFor="password">Password</label>
-                                    <Input
-                                        placeholder="*******"
-                                        type="password"
-                                        required
-                                        disabled={acceptedInviteLoading}
-                                        autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
-                                        value={formValues.password}
-                                        onChange={handlePasswordChanged}
-                                        id="password"
-                                        ref={passwordInputRef}
-                                    />
-                                    <span className="caption">Your password must have at least 8 characters.</span>
-                                    <Suspense fallback={<></>}>
-                                        <PasswordStrength password={formValues.password} />
-                                    </Suspense>
-                                </div>
-                                <div className="input-set">
-                                    <label htmlFor="first_name">First Name</label>
-                                    <Input
-                                        placeholder="Jane"
-                                        type="text"
-                                        required
-                                        disabled={acceptedInviteLoading}
-                                        id="first_name"
-                                        value={formValues.firstName}
-                                        onChange={(e) => setFormValues({ ...formValues, firstName: e.target.value })}
-                                    />
-                                    {invite?.first_name && (
-                                        <span className="caption">
-                                            Your name was provided in the invite, feel free to change it.
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="mb-4">
-                                    <Checkbox
-                                        checked={formValues.emailOptIn}
-                                        onChange={(e) => setFormValues({ ...formValues, emailOptIn: e.target.checked })}
-                                        disabled={acceptedInviteLoading}
-                                        style={{ fontSize: 12, color: 'var(--muted)' }}
-                                    >
-                                        Send me product and security updates
-                                    </Checkbox>
-                                </div>
-                                <Button
-                                    type="primary"
-                                    htmlType="submit"
-                                    data-attr="password-signup"
-                                    disabled={formState.submitted && formState.passwordInvalid}
-                                    loading={acceptedInviteLoading}
-                                    block
-                                >
-                                    Continue
-                                </Button>
-                            </form>
-                            <div className="mt-4 text-center">
-                                By clicking continue you agree to our{' '}
-                                <a href="https://posthog.com/terms" target="_blank" rel="noopener">
-                                    Terms of Service
-                                </a>{' '}
-                                and{' '}
-                                <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
-                                    Privacy Policy
-                                </a>
-                                .
-                            </div>
-                            <div className="mt-4 text-center text-muted" style={{ marginBottom: 60 }}>
-                                Already have an account? <Link to="/login">Log in</Link>
-                            </div>
-                        </div>
-                    </div>
-                </Col>
-            </Row>
-        </div>
+                    }
+                >
+                    <LemonInput
+                        type="password"
+                        className="ph-ignore-input"
+                        data-attr="password"
+                        placeholder="••••••••••"
+                        autoComplete="new-password"
+                        autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
+                        disabled={isSignupSubmitting}
+                    />
+                </Field>
+
+                <Field
+                    name="first_name"
+                    label="First Name"
+                    help={
+                        invite?.first_name ? 'Your name was provided in the invite, feel free to change it.' : undefined
+                    }
+                >
+                    <LemonInput data-attr="first_name" placeholder="Jane" />
+                </Field>
+
+                <Field name="email_opt_in">
+                    {({ value, onChange }) => {
+                        console.log({ value })
+                        return (
+                            <LemonCheckbox
+                                checked={value}
+                                onChange={onChange}
+                                disabled={isSignupSubmitting}
+                                label="Send me product and security updates"
+                            />
+                        )
+                    }}
+                </Field>
+
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    data-attr="password-signup"
+                    loading={isSignupSubmitting}
+                    center
+                    fullWidth
+                >
+                    Continue
+                </LemonButton>
+            </Form>
+            <div className="mt-4 text-center text-muted">
+                Already have an account? <Link to="/login">Log in</Link>
+            </div>
+            <div className="mt-4 text-center text-muted">
+                By clicking continue you agree to our{' '}
+                <a href="https://posthog.com/terms" target="_blank" rel="noopener">
+                    Terms of Service
+                </a>{' '}
+                and{' '}
+                <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
+                    Privacy Policy
+                </a>
+                .
+            </div>
+            <SocialLoginButtons
+                className="mb-4"
+                title="Or sign in with"
+                caption={`Remember to log in with ${invite?.target_email}`}
+                topDivider
+                queryString={invite ? `?invite_id=${invite.id}` : ''}
+            />
+        </BridgePage>
     )
 }
 
@@ -383,7 +304,7 @@ export function InviteSignup(): JSX.Element {
     }
 
     return (
-        <div className={`invite-signup${user ? ' authenticated' : ''}`}>
+        <div className={clsx('InviteSignup', !!user && 'InviteSignup--authenticated')}>
             <ErrorView />
             {invite &&
                 (user ? (

@@ -22,7 +22,7 @@ export function PlayerControllerV2({ sessionRecordingId, playerKey }: SessionRec
     )
 
     return (
-        <div className="rrweb-controller" data-tooltip="recording-player">
+        <div className="rrweb-controller" data-attr="rrweb-controller">
             <span>
                 {currentPlayerState === SessionPlayerState.PLAY ? (
                     <IconPause
@@ -96,7 +96,7 @@ export function PlayerControllerV3({ sessionRecordingId, playerKey }: SessionRec
 
     return (
         <div className="rrweb-controller">
-            <div className="rrweb-controller__top" data-tooltip="recording-player">
+            <div className="rrweb-controller__top" data-attr="rrweb-controller">
                 {!isSmallScreen && <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />}
                 <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>

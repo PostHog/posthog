@@ -12,6 +12,12 @@ export default {
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
+const sharedMocks = {
+    post: {
+        '/api/login/precheck': { sso_enforcement: null, saml_available: false },
+    },
+}
+
 // export more stories with different state
 export const Cloud = (): JSX.Element => {
     useStorybookMocks({
@@ -24,6 +30,7 @@ export const Cloud = (): JSX.Element => {
                 available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
             },
         },
+        ...sharedMocks,
     })
     return <Login />
 }
@@ -36,6 +43,7 @@ export const SelfHosted = (): JSX.Element => {
                 realm: 'hosted-clickhouse',
                 available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
             },
+            ...sharedMocks,
         },
     })
     return <Login />
@@ -50,6 +58,7 @@ export const SelfHostedWithSAML = (): JSX.Element => {
                 available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: true },
             },
         },
+        ...sharedMocks,
     })
     return <Login />
 }
@@ -59,6 +68,7 @@ export const SSOError = (): JSX.Element => {
         get: {
             '/_preflight': preflightJson,
         },
+        ...sharedMocks,
     })
     useEffect(() => {
         // change the URL

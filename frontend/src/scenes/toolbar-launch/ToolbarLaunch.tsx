@@ -50,7 +50,7 @@ function ToolbarLaunch(): JSX.Element {
 
             <div className="my-4">
                 <LemonSwitch
-                    data-tooltip="toolbar-authorized-toggle"
+                    data-attr="toolbar-authorized-toggle"
                     label="Enable the PostHog toolbar"
                     onChange={() =>
                         updateUser({
@@ -67,8 +67,8 @@ function ToolbarLaunch(): JSX.Element {
                 Authorized URLs for Toolbar
             </h2>
             <p>
-                These are the domains and URLs where the <Link to={urls.toolbarLaunch()}>Toolbar</Link> will
-                automatically launch if you're signed in to your PostHog account.
+                Click on the URL to launch the toolbar.{' '}
+                {window.location.host === 'app.posthog.com' && 'Remember to disable your adblocker.'}
             </p>
             <AuthorizedUrls pageKey="toolbar-launch" />
 

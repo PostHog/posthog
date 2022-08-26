@@ -139,7 +139,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ProjectSettings]: {
         projectBased: true,
-        hideDemoWarnings: true,
+        hideProjectNotice: true,
         name: 'Project settings',
     },
     [Scene.IntegrationsRedirect]: {
@@ -151,7 +151,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
-        name: 'Toolbar',
+        name: 'Launch Toolbar',
     },
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
@@ -208,7 +208,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     // Cloud-only routes
     [Scene.Billing]: {
-        hideDemoWarnings: true,
+        hideProjectNotice: true,
         organizationBased: true,
     },
     [Scene.BillingSubscribed]: {

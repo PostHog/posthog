@@ -133,9 +133,7 @@ export function SharingModal({
                                                 onClick={togglePreview}
                                             >
                                                 Preview
-                                                {showPreview && !iframeLoaded ? (
-                                                    <Spinner size="sm" className="ml-2" />
-                                                ) : null}
+                                                {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
                                             </LemonButton>
                                             {showPreview && (
                                                 <div className="SharingPreview border-t">

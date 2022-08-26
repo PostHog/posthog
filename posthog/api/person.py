@@ -15,7 +15,7 @@ from typing import (
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
-from rest_framework import request, response, serializers, status, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
@@ -573,12 +573,13 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
-    def activity(self, request: request.Request, **kwargs):
+    def activity(self, request: request.Request, pk=None, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
-        item_id = kwargs["pk"]
-        if not self.get_queryset().filter(id=item_id, team_id=self.team_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+        item_id = None
+        if pk:
+            person = self.get_object()
+            item_id = person.pk
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)

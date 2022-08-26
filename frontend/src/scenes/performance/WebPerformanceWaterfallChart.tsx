@@ -285,7 +285,7 @@ function WaterfallChart(): JSX.Element {
             )}
             <SessionPlayerDrawer onClose={closeSessionPlayer} />
             {eventToDisplay && (
-                <Row data-tooltip="web-performance-chart">
+                <Row>
                     <Col span={24}>
                         <div className="waterfall-chart">
                             <Row style={{ marginBottom: '8px' }}>
