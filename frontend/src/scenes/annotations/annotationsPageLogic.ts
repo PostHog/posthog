@@ -31,7 +31,7 @@ export type AnnotationModalForm = {
 
 export const annotationsPageLogic = kea<annotationsPageLogicType>([
     path(['scenes', 'annotations', 'logic']),
-    actions(() => ({
+    actions({
         deleteAnnotation: (id: AnnotationType['id']) => ({ id }),
         restoreAnnotation: (id: AnnotationType['id']) => ({ id }),
         loadAnnotationsNext: () => true,
@@ -40,7 +40,7 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
         openModalToCreateAnnotation: () => true,
         openModalToEditAnnotation: (annotation: AnnotationType) => ({ annotation }),
         closeModal: true,
-    })),
+    }),
     loaders(({ actions }) => ({
         annotations: {
             __default: [],

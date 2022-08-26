@@ -135,6 +135,33 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @snapshot_clickhouse_queries
+    def test_filter_person_prop(self):
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id", "another_one"],
+            properties={"email": "someone@gmail.com"},
+            is_identified=True,
+            immediate=True,
+        )
+        person2: Person = _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id_2"],
+            properties={"email": "another@gmail.com", "some_prop": "some_value"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        # Filter
+        response = self.client.get(
+            "/api/person/?properties=%s" % json.dumps([{"key": "some_prop", "value": "some_value", "type": "person"}])
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
+        self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
+
     def test_filter_person_list(self):
 
         person1: Person = _create_person(
