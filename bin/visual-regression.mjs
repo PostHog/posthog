@@ -9,12 +9,12 @@ import pixelmatch from 'pixelmatch'
 
     const browser = await launch()
     const page = await browser.newPage()
+
     try {
         await page.goto('https://storybook.posthog.net/?path=/docs/lemon-ui-lemon-button--default#types-and-statuses')
         await page.waitForSelector('#lemon-ui-lemon-button--types-and-statuses')
         await page.click('#lemon-ui-lemon-button--types-and-statuses')
-        await page.waitForSelector('#story--lemon-ui-lemon-button--types-and-statuses')
-        await page.waitForTimeout(100)
+        await page.waitForTimeout(1500)
         await page.screenshot({ path: './visual-regression-screenshots/screenshot-button-types-and-statuses.png' })
 
         const screenshot = PNG.sync.read(
