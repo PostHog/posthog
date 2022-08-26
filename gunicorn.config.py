@@ -12,7 +12,13 @@ from prometheus_client import CollectorRegistry, Gauge, multiprocess, start_http
 
 loglevel = "error"
 keepalive = 120
-timeout = 90
+
+# Set the timeout to something lower than any downstreams, such that if the
+# timeout is hit, then the worker will be killed and respawned, which will then
+# we able to pick up any connections that were previously pending on the socket
+# and serve the requests before the downstream timeout.
+timeout = 15
+
 grateful_timeout = 120
 
 
