@@ -247,7 +247,7 @@
        AND timestamp <= toDateTime('2020-01-02 23:59:59')
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---
@@ -983,7 +983,7 @@
        AND timestamp >= toDateTime('2020-01-05 15:00:00')
        AND timestamp <= toDateTime('2020-01-05 16:00:00') )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---
