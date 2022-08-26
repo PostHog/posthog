@@ -12,8 +12,8 @@ export interface RawElement extends Element {
     $el_text?: string
 }
 export interface TimestampBoundaries {
-    min: Date | null
-    max: Date | null
+    min: Date
+    max: Date
 }
 
 export interface ExportHistoricalEventsJobPayload extends Record<string, any> {
