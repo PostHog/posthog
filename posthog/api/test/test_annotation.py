@@ -136,7 +136,28 @@ class TestAnnotation(APIBaseTest):
         )
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_updating_annotation(self, mock_capture):
+    def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture):
+        second_team = Team.objects.create(organization=self.organization, name="Second team")
+        test_annotation = Annotation.objects.create(
+            organization=self.organization, team=self.team, content="hello world!", scope=Annotation.Scope.ORGANIZATION
+        )
+        mock_capture.reset_mock()  # Disregard the "annotation created" call
+        self.client.force_login(self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/", {"scope": Annotation.Scope.PROJECT},
+        )
+        test_annotation.refresh_from_db()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(test_annotation.scope, Annotation.Scope.PROJECT)
+        # Previously the project was `self.team``, but after downgrading scope from "Organization" to "Project", we want
+        # the current project (i.e. `second_team`, whose ID was used in the API request) to own the annotation.
+        # This is so that an annotation doesn't disappear when its downgraded and it actually belonged to a different
+        # project than the one the user is viewing.
+        self.assertEqual(test_annotation.team, second_team)
+
+    def test_updating_annotation(self):
         test_annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -144,24 +165,17 @@ class TestAnnotation(APIBaseTest):
             created_at="2020-01-04T12:00:00Z",
             content="hello world!",
         )
-        mock_capture.reset_mock()  # Disregard the "annotation created" call
-
-        self.client.force_login(self.user)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/annotations/{test_annotation.pk}/",
             {"content": "Updated text", "scope": "organization"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
         test_annotation.refresh_from_db()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(test_annotation.content, "Updated text")
         self.assertEqual(test_annotation.scope, "organization")
         self.assertEqual(test_annotation.date_marker, None)
-
-        # Assert analytics are sent
-        mock_capture.assert_called_once_with(
-            self.user, "annotation updated", {"scope": "organization", "date_marker": None},
-        )
 
     def test_deleting_annotation(self):
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)

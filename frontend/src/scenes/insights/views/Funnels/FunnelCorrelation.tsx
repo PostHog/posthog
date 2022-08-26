@@ -126,7 +126,7 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                         onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
                                         placeholder="Optional. Help us by sharing details around your experience..."
                                         ref={detailedFeedbackRef}
-                                        onPressEnter={() => {
+                                        onPressCmdEnter={() => {
                                             detailedFeedbackRef.current?.blur()
                                             sendCorrelationAnalysisFeedback()
                                         }}

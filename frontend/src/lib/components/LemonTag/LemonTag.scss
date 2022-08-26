@@ -10,6 +10,7 @@
     color: var(--default);
     line-height: 1rem;
     white-space: nowrap;
+    cursor: default;
 
     &.highlight {
         background-color: var(--yellow-lightest);
