@@ -2,39 +2,33 @@ import { launch } from 'puppeteer'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
-
 ;(async () => {
     if (!existsSync('./visual-regression-screenshots/diffs')) {
         mkdirSync('./visual-regression-screenshots/diffs', { recursive: true })
     }
 
-    const browser = await launch()
-    // {headless:false}
+    const browser = await launch({ headless: false })
+
     const page = await browser.newPage()
 
     try {
         console.log('checking lemon button types and statuses')
-        await page.goto('https://storybook.posthog.net/?path=/docs/lemon-ui-lemon-button--default#types-and-statuses')
+        await page.goto('https://storybook.posthog.net/?path=/docs/lemon-ui-lemon-button--default')
         await page.waitForSelector('#lemon-ui-lemon-button--types-and-statuses')
-        // OMG storybook's delayed scroll is painful
-        await page.evaluate(() => {
-            console.log('PUPPETEER: evaluating!')
-            var iframe = document.getElementById('storybook-preview-iframe')
-            iframe.contentDocument.body.addEventListener('scroll', function () {
-                console.log('PUPPETEER: reacting to scroll')
-                window.clearTimeout(isScrolling)
 
-                isScrolling = setTimeout(function () {
-                    console.log('PUPPETEER: scrolling stopped!')
-                    window.scrollingStartedAndStopped = true
-                }, 100)
-            })
+        await page.waitForNetworkIdle()
+        await page.evaluate(() => {
+            // avoids storybook's weird slow scolling
+            const element = document
+                .getElementById('storybook-preview-iframe')
+                .contentDocument.getElementById('story--lemon-ui-lemon-button--types-and-statuses')
+            element.scrollIntoViewIfNeeded(false)
         })
 
-        await page.click('#lemon-ui-lemon-button--types-and-statuses')
-        await page.waitForNetworkIdle()
-        await page.waitForFunction('window.scrollingStartedAndStopped === true')
-        await page.screenshot({ path: './visual-regression-screenshots/screenshot-button-types-and-statuses.png' })
+        await page.screenshot({
+            path: './visual-regression-screenshots/screenshot-button-types-and-statuses.png',
+            fullPage: true,
+        })
 
         const screenshot = PNG.sync.read(
             readFileSync('./visual-regression-screenshots/screenshot-button-types-and-statuses.png')
@@ -56,7 +50,7 @@ import pixelmatch from 'pixelmatch'
                 PNG.sync.write(diff)
             )
             writeFileSync(
-                './visual-regression-screenshots/diffs/original-screenshot-button-types-and-statuses.png',
+                './visual-regression-screenshots/baseline/screenshot-button-types-and-statuses.png',
                 PNG.sync.write(screenshot)
             )
         } else {
