@@ -11,6 +11,7 @@ import pixelmatch from 'pixelmatch'
     const page = await browser.newPage()
 
     try {
+        console.log('checking lemon button types and statuses')
         await page.goto('https://storybook.posthog.net/?path=/docs/lemon-ui-lemon-button--default#types-and-statuses')
         await page.waitForSelector('#lemon-ui-lemon-button--types-and-statuses')
         await page.click('#lemon-ui-lemon-button--types-and-statuses')
@@ -26,7 +27,7 @@ import pixelmatch from 'pixelmatch'
         const { width, height } = screenshot
         const diff = new PNG({ width, height })
 
-        const numDiffPixels = pixelmatch(screenshot.data, baseline.data, diff.data, width, height, { threshold: 0.1 })
+        const numDiffPixels = pixelmatch(screenshot.data, baseline.data, diff.data, width, height, { threshold: 0.3 })
         if (numDiffPixels) {
             console.log('detected ', numDiffPixels, ' pixels difference')
             writeFileSync(
@@ -34,7 +35,7 @@ import pixelmatch from 'pixelmatch'
                 PNG.sync.write(diff)
             )
         } else {
-            ;('no diff detected for button types and statuses')
+            console.log('no diff detected for button types and statuses')
         }
     } catch (error) {
         console.error(error)
