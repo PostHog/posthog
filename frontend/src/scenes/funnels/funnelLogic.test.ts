@@ -480,7 +480,8 @@ describe('funnelLogic', () => {
                 }),
             })
 
-        expect(api.create).toBeCalledWith(
+        expect(api.create).toHaveBeenNthCalledWith(
+            2,
             `api/projects/${MOCK_TEAM_ID}/insights/funnel/`,
             expect.objectContaining({
                 actions: [],
@@ -493,7 +494,8 @@ describe('funnelLogic', () => {
                 breakdown_type: undefined,
                 insight: 'FUNNELS',
                 interval: 'day',
-            })
+            }),
+            expect.anything()
         )
     })
 

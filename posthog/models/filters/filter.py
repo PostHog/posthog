@@ -9,6 +9,7 @@ from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
     BreakdownValueMixin,
+    ClientQueryIdMixin,
     CompareMixin,
     DateMixin,
     DisplayDerivedMixin,
@@ -88,6 +89,7 @@ class Filter(
     DistinctIdMixin,
     EmailMixin,
     BaseFilter,
+    ClientQueryIdMixin,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
