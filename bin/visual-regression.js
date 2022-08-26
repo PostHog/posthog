@@ -2,7 +2,6 @@ import { launch } from 'puppeteer'
 import { readFileSync, writeFileSync } from 'fs'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
-
 ;(async () => {
     const browser = await launch()
     const page = await browser.newPage()
@@ -28,6 +27,8 @@ import pixelmatch from 'pixelmatch'
                 './visual-regression-screenshots/diffs/screenshot-button-types-and-statuses.png',
                 PNG.sync.write(diff)
             )
+        } else {
+            ;('no diff detected for button types and statuses')
         }
     } catch (error) {
         console.error(error)
