@@ -1,27 +1,9 @@
+from datetime import timedelta
 from typing import Any, List
 
-import structlog
-
-from posthog.client import sync_execute
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.cache_utils import cache_for
+from posthog.models.async_migration import is_async_migration_complete
 from posthog.models.person import Person, PersonDistinctId
-from posthog.models.team import Team
-from posthog.settings import CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON, CLICKHOUSE_CLUSTER
-from posthog.utils import get_crontab
-
-logger = structlog.get_logger(__name__)
-
-# Note: Session recording, dead letter queue, logs deletion will be handled by TTL
-TABLES_TO_DELETE_FROM = lambda: [
-    EVENTS_DATA_TABLE(),
-    "person",
-    "person_distinct_id",
-    "person_distinct_id2",
-    "groups",
-    "cohortpeople",
-    "person_static_cohort",
-    "plugin_log_entries",
-]
 
 
 def delete_bulky_postgres_data(team_ids: List[int]):
@@ -36,34 +18,19 @@ def _raw_delete(queryset: Any):
     queryset._raw_delete(queryset.db)
 
 
-def delete_teams_clickhouse_data(team_ids: List[int]):
-    logger.info(
-        f"Deleting teams data from clickhouse using background mutations.",
-        team_ids=team_ids,
-        tables=TABLES_TO_DELETE_FROM(),
-    )
-    for table in TABLES_TO_DELETE_FROM():
-        sync_execute(
-            f"ALTER TABLE {table} ON CLUSTER '{CLICKHOUSE_CLUSTER}' DELETE WHERE team_id IN %(team_ids)s",
-            {"team_ids": team_ids},
-        )
+can_enable_person_on_events = False
+
+# :TRICKY: Avoid overly eagerly checking whether the migration is complete.
+# We instead cache negative responses for a minute and a positive one forever.
+def person_on_events_ready() -> bool:
+    global can_enable_person_on_events
+
+    if can_enable_person_on_events:
+        return True
+    can_enable_person_on_events = _person_on_events_ready()
+    return can_enable_person_on_events
 
 
-def deleted_teams_with_clickhouse_data() -> List[int]:
-    valid_team_ids = set(Team.objects.all().values_list("pk", flat=True))
-    clickhouse_teams_result = sync_execute("SELECT DISTINCT team_id FROM events")
-    clickhouse_team_ids = set(row[0] for row in clickhouse_teams_result)
-    return list(clickhouse_team_ids - valid_team_ids)
-
-
-def delete_clickhouse_data_for_deleted_teams():
-    team_ids = deleted_teams_with_clickhouse_data()
-
-    if len(team_ids) > 0:
-        delete_teams_clickhouse_data(team_ids)
-    else:
-        logger.debug("No need to delete any data from clickhouse")
-
-
-def is_clickhouse_data_cron_enabled() -> bool:
-    return get_crontab(CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON) is not None
+@cache_for(timedelta(minutes=1))
+def _person_on_events_ready() -> bool:
+    return is_async_migration_complete("0006_persons_and_groups_on_events_backfill")

@@ -1,6 +1,6 @@
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_retention_?$ (ClickhouseInsightsViewSet) */ WITH actor_query AS
+  /* user_id:0 request:_snapshot_ */ WITH actor_query AS
     (WITH 'day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
@@ -60,7 +60,7 @@
 ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.1
   '
-  /* request:api_person_retention_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -133,7 +133,7 @@
 ---
 # name: RetentionTests.test_retention_aggregation_by_distinct_id_and_retrieve_people.2
   '
-  /* request:api_person_retention_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -206,7 +206,7 @@
 ---
 # name: RetentionTests.test_retention_test_account_filters
   '
-  /* request:api_projects_(?P<parent_lookup_team_id>[^_.]+)_insights_retention_?$ (ClickhouseInsightsViewSet) */ WITH actor_query AS
+  /* user_id:0 request:_snapshot_ */ WITH actor_query AS
     (WITH 'day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
@@ -226,6 +226,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -257,6 +262,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -294,7 +304,7 @@
 ---
 # name: RetentionTests.test_retention_test_account_filters.1
   '
-  /* request:api_person_retention_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -317,6 +327,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -348,6 +363,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -381,7 +401,7 @@
 ---
 # name: RetentionTests.test_retention_test_account_filters.2
   '
-  /* request:api_person_retention_?$ (LegacyEnterprisePersonViewSet) */
+  /* user_id:0 request:_snapshot_ */
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
@@ -404,6 +424,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id
@@ -435,6 +460,11 @@
           (SELECT id
            FROM person
            WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (NOT (replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%posthog.com%')) )
            GROUP BY id
            HAVING max(is_deleted) = 0
            AND (NOT (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%posthog.com%'))) person ON person.id = pdi.person_id

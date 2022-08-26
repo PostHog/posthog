@@ -17,7 +17,7 @@ from ee.settings import (
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
-from posthog.clickhouse.materialized_columns.util import instance_memoize
+from posthog.cache_utils import instance_memoize
 from posthog.client import sync_execute
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.sql import GET_EVENT_PROPERTIES_COUNT, GET_PERSON_PROPERTIES_COUNT

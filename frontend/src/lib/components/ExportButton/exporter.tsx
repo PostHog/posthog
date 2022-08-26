@@ -91,7 +91,7 @@ export async function triggerExport(asset: TriggerExportProps): Promise<void> {
         {
             pending: (
                 <DelayedContent
-                    atStart={<Spinner style={{ width: '1.5rem', height: '1.5rem' }} />}
+                    atStart={<Spinner />}
                     afterDelay={<Animation size="small" type={AnimationType.SportsHog} />}
                 />
             ),

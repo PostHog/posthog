@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import cast
+from typing import Dict, Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
 
@@ -70,7 +70,8 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the user was properly created
         self.assertEqual(user.first_name, "John")
         self.assertEqual(user.email, "hedgehog@posthog.com")
-        self.assertEqual(user.email_opt_in, False)
+        self.assertFalse(user.email_opt_in)
+        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the team was properly created
         self.assertEqual(team.name, "Default Project")
@@ -98,6 +99,23 @@ class TestSignupAPI(APIBaseTest):
 
         # Assert that the password was correctly saved
         self.assertTrue(user.check_password("notsecure"))
+
+    @pytest.mark.skip_on_multitenancy
+    def test_signup_disallowed_on_email_collision(self):
+        # Create a user with the same email
+        User.objects.create(email="fake@posthog.com", first_name="Jane")
+
+        response = self.client.post(
+            "/api/signup/", {"first_name": "John", "email": "fake@posthog.com", "password": "notsecure"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "There is already an account with this email address.", code="unique", attr="email"
+            ),
+        )
+        self.assertEqual(User.objects.count(), 1)
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_self_hosted_by_default(self):
@@ -169,8 +187,9 @@ class TestSignupAPI(APIBaseTest):
         # Assert that the user & org were properly created
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
-        self.assertEqual(user.email_opt_in, True)  # Defaults to True
+        self.assertTrue(user.email_opt_in)  # Defaults to True
         self.assertEqual(organization.name, "Jane")
+        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_identify.assert_called_once()
@@ -215,7 +234,9 @@ class TestSignupAPI(APIBaseTest):
 
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/signup", body)
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.status_code, status.HTTP_400_BAD_REQUEST, f"{attribute} is required",
+            )
             self.assertEqual(
                 response.json(),
                 {
@@ -224,6 +245,41 @@ class TestSignupAPI(APIBaseTest):
                     "detail": "This field is required.",
                     "attr": attribute,
                 },
+                f"{attribute} is required",
+            )
+
+        self.assertEqual(User.objects.count(), count)
+        self.assertEqual(Team.objects.count(), team_count)
+        self.assertEqual(Organization.objects.count(), org_count)
+
+    def test_cant_sign_up_with_required_attributes_null(self):
+        count: int = User.objects.count()
+        team_count: int = Team.objects.count()
+        org_count: int = Organization.objects.count()
+
+        required_attributes = ["first_name", "email"]
+
+        for attribute in required_attributes:
+            body: Dict[str, Optional[str]] = {
+                "first_name": "Jane",
+                "email": "invalid@posthog.com",
+                "password": "notsecure",
+            }
+            body[attribute] = None
+
+            response = self.client.post("/api/signup/", body)
+            self.assertEqual(
+                response.status_code, status.HTTP_400_BAD_REQUEST, f"{attribute} may not be null",
+            )
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "null",
+                    "detail": "This field may not be null.",
+                    "attr": attribute,
+                },
+                f"{attribute} may not be null",
             )
 
         self.assertEqual(User.objects.count(), count)
@@ -413,6 +469,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count + 1)
         user = cast(User, User.objects.last())
         self.assertEqual(user.email, "jane@hogflix.posthog.com")
+        self.assertFalse(user.is_staff)  # Not first user in the instance
         self.assertEqual(user.organization, new_org)
         self.assertEqual(user.team, new_project)
         self.assertEqual(user.organization_memberships.count(), 1)
@@ -471,6 +528,7 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(User.objects.count(), user_count)  # should remain the same
             user = cast(User, User.objects.last())
             self.assertEqual(user.email, "jane@hogflix.posthog.com")
+            self.assertFalse(user.is_staff)  # Not first user in the instance
             self.assertEqual(user.organization, new_org)
             self.assertEqual(user.team, new_project)
             self.assertEqual(user.organization_memberships.count(), 1)
@@ -582,7 +640,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(Organization.objects.count(), org_count)
 
 
-class TestInviteSignup(APIBaseTest):
+class TestInviteSignupAPI(APIBaseTest):
     """
     Tests the sign up process for users with an invite (i.e. existing organization).
     """
@@ -895,6 +953,7 @@ class TestInviteSignup(APIBaseTest):
         # User is not changed
         self.assertEqual(user.first_name, "")
         self.assertEqual(user.email, "test+159@posthog.com")
+        self.assertFalse(user.is_staff)  # Not first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -1084,7 +1143,7 @@ class TestInviteSignup(APIBaseTest):
 
     def test_api_social_invite_sign_up(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
-        # simulate SSO process started
+        # Simulate SSO process started
         session = self.client.session
         session.update({"backend": "google-oauth2", "email": "test_api_social_invite_sign_up@posthog.com"})
         session.save()

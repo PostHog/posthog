@@ -966,14 +966,16 @@ export enum AnnotationScope {
 }
 
 export interface AnnotationType {
-    id: string
+    id: number
     scope: AnnotationScope
     content: string
     date_marker: string
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
-    dashboard_item?: number
+    dashboard_item?: number | null
+    insight_short_id?: InsightModel['short_id']
+    insight_name?: InsightModel['name']
     deleted?: boolean
     creation_type?: string
 }
@@ -1117,6 +1119,10 @@ export interface FilterType {
 
 export interface RecordingEventsFilters {
     query: string
+}
+
+export enum RecordingWindowFilter {
+    All = 'all',
 }
 
 export type InsightEditorFilterGroup = {
@@ -1561,6 +1567,13 @@ export interface PropertyDefinition {
     is_action?: boolean
 }
 
+export enum PropertyDefinitionState {
+    Pending = 'pending',
+    Loading = 'loading',
+    Missing = 'missing',
+    Error = 'error',
+}
+
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
@@ -1953,8 +1966,10 @@ export type CombinedEvent = EventDefinition | ActionType
 
 export enum CombinedEventType {
     All = 'all',
-    Event = 'event',
     ActionEvent = 'action_event',
+    Event = 'event',
+    EventCustom = 'event_custom',
+    EventPostHog = 'event_posthog',
 }
 
 export interface IntegrationType {

@@ -25,6 +25,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { isLemonSelectSection } from 'lib/components/LemonSelect'
 
 export function DashboardHeader(): JSX.Element | null {
     const { dashboard, allItemsLoading, dashboardMode, canEditDashboard, showSubscriptions, subscriptionId, apiUrl } =
@@ -107,7 +108,7 @@ export function DashboardHeader(): JSX.Element | null {
                     ) : (
                         <>
                             <More
-                                data-tooltip="dashboard-three-dots-options-menu"
+                                data-attr="dashboard-three-dots-options-menu"
                                 overlay={
                                     dashboard ? (
                                         <>
@@ -269,7 +270,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         tagsAvailable={dashboardTags.filter((tag) => !dashboard.tags?.includes(tag))}
                                         className="insight-metadata-tags"
-                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : dashboard.tags.length ? (
                                     <ObjectTags
@@ -277,7 +277,6 @@ export function DashboardHeader(): JSX.Element | null {
                                         saving={dashboardLoading}
                                         staticOnly
                                         className="insight-metadata-tags"
-                                        data-tooltip="dashboard-tags"
                                     />
                                 ) : null}
                             </>
@@ -305,8 +304,11 @@ function CollaboratorBubbles({
 
     const effectiveRestrictionLevelOption = DASHBOARD_RESTRICTION_OPTIONS[dashboard.effective_restriction_level]
     const tooltipParts: string[] = []
-    if (typeof effectiveRestrictionLevelOption?.label === 'string') {
-        tooltipParts.push(effectiveRestrictionLevelOption.label)
+    if (
+        isLemonSelectSection(effectiveRestrictionLevelOption) &&
+        typeof effectiveRestrictionLevelOption?.title === 'string'
+    ) {
+        tooltipParts.push(effectiveRestrictionLevelOption.title)
     }
     if (dashboard.is_shared) {
         tooltipParts.push('Shared publicly')

@@ -46,7 +46,7 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
 }
 
 function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Element {
-    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
 
     return (
@@ -61,7 +61,6 @@ function EmailPreferences({ isRestricted }: RestrictedComponentProps): JSX.Eleme
                         updateOrganization({ is_member_join_email_enabled: checked })
                     }}
                     checked={!!currentOrganization?.is_member_join_email_enabled}
-                    loading={currentOrganizationLoading}
                     disabled={isRestricted || !currentOrganization}
                     label="Email all current members when a new member joins"
                     bordered

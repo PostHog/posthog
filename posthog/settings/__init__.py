@@ -34,18 +34,16 @@ from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
 from posthog.settings.object_storage import *
-
+from posthog.settings.demo import *
 from posthog.settings.web import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
-CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 2, type_cast=int)
+CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, type_cast=int)
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
-DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
-SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 debug_queries = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
 INSTANCE_PREFERENCES = {
@@ -124,9 +122,13 @@ KAFKA_RECORDING_EVENTS_TO_OBJECT_STORAGE_INGESTION_TOPIC: str = os.getenv(
 )
 
 
-# Schedule to run column materialization on. Follows crontab syntax.
+# Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this
-CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env("CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON", optional=True)
+CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON = get_from_env(
+    "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+    # Defaults to 5AM UTC on Sunday
+    "0 5 * * SUN",
+)
 
 
 # Extend and override these settings with EE's ones

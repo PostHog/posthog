@@ -43,7 +43,7 @@ export type ExportHistoricalEventsUpgrade = Plugin<{
         eventsToIgnore: Set<string>
         sanitizedTableName: string
         exportHistoricalEvents: (payload: ExportEventsJobPayload) => Promise<void>
-        initTimestampsAndCursor: (payload: Record<string, any> | undefined) => Promise<void>
+        initTimestampsAndCursor: (payload: ExportEventsJobPayload | undefined) => Promise<void>
         setTimestampBoundaries: () => Promise<void>
         updateProgressBar: (incrementedCursor: number) => void
         timestampBoundariesForTeam: TimestampBoundaries
@@ -59,6 +59,7 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
     try {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
+        /* plugin-server:fetchTimestampBoundariesForTeam */
         SELECT min(_timestamp) as min, max(_timestamp) as max
         FROM events
         WHERE team_id = ${teamId}`)

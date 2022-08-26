@@ -31,6 +31,11 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
         str,
     ),
+    "PERSON_ON_EVENTS_ENABLED": (
+        get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
+        "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
+        bool,
+    ),
     "GEOIP_PROPERTY_OVERRIDES_TEAMS": (
         get_from_env("GEOIP_PROPERTY_OVERRIDES_TEAMS", ""),
         "Whether to use GeoIP to override person properties when calling the `/decide` endpoint for feature flags",
@@ -61,9 +66,9 @@ CONSTANCE_CONFIG = {
         "(Advanced) Whether having an async migration running, errored or required should prevent upgrades.",
         bool,
     ),
-    "ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION": (
-        get_from_env("ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION", False, type_cast=str_to_bool),
-        "(Advanced) Whether to show the experimental 0006 async migration.",
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION": (
+        get_from_env("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION", False, type_cast=str_to_bool),
+        "(Advanced) Whether to ignore async migrations posthog version restrictions",
         bool,
     ),
     "STRICT_CACHING_TEAMS": (
@@ -154,7 +159,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
-    "ASYNC_MIGRATIONS_SHOW_PERSON_ON_EVENTS_MIGRATION",
+    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
@@ -165,7 +170,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
-    "ENABLE_ACTOR_ON_EVENTS_TEAMS",
+    "PERSON_ON_EVENTS_ENABLED",
     "GEOIP_PROPERTY_OVERRIDES_TEAMS",
     "STRICT_CACHING_TEAMS",
     "SLACK_APP_CLIENT_ID",

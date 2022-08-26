@@ -1,8 +1,6 @@
-from datetime import date, datetime
+from datetime import datetime
 from itertools import groupby
-from typing import List, Optional, Tuple, Union, cast
-
-from dateutil.relativedelta import relativedelta
+from typing import List, Optional, Tuple
 
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
@@ -176,7 +174,6 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                 "reached_from_step_count": period_row[1],
                 "reached_to_step_count": period_row[2],
                 "conversion_rate": period_row[3],
-                "is_period_final": self._is_period_final(period_row[0]),
             }
 
             if breakdown_clause:
@@ -222,16 +219,3 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
             "days": days,
             "labels": labels,
         }
-
-    def _is_period_final(self, timestamp: Union[datetime, date]):
-        # difference between current date and timestamp greater than window
-        now = datetime.utcnow().date()
-        intervals_to_subtract = cast(int, self._filter.funnel_window_interval) * -1
-        interval_unit = (
-            "day" if self._filter.funnel_window_interval_unit is None else self._filter.funnel_window_interval_unit
-        )
-        delta = relativedelta(**{f"{interval_unit}s": intervals_to_subtract})  # type: ignore
-        completed_end = now + delta
-        compare_timestamp = timestamp.date() if isinstance(timestamp, datetime) else timestamp
-        is_final = compare_timestamp <= completed_end
-        return is_final

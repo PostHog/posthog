@@ -1,5 +1,5 @@
-import { runInSpan } from '../../../sentry'
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
+import { instrument } from '../../../utils/metrics'
 import { JobName } from './../../../types'
 
 type JobRunner = {
@@ -42,10 +42,15 @@ export function durationToMs(duration: number, unit: string): number {
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
         try {
-            await runInSpan(
+            await instrument(
+                server.statsd,
                 {
-                    op: 'vm.enqueuePluginJob',
-                    description: type,
+                    metricName: 'vm.enqueuePluginJob',
+                    key: 'plugin',
+                    tag: pluginConfig.plugin?.name ?? '?',
+                    tags: {
+                        type,
+                    },
                     data: {
                         type,
                         payload,

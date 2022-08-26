@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { HTMLProps, useCallback, useEffect, useMemo } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
 import { Tooltip } from '../Tooltip'
 import { TableRow } from './TableRow'
 import './LemonTable.scss'
@@ -55,13 +55,15 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
-    disableSortingCancellation?: boolean
+    noSortingCancellation?: boolean
     /** Sorting order to start with. */
     defaultSorting?: Sorting | null
     /** Controlled sort order. */
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** Defaults to true. Used if you don't want to use the URL to store sort order **/
+    useURLForSorting?: boolean
     /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
     loadingSkeletonRows?: number
     /** What to show when there's no data. */
@@ -71,7 +73,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -90,17 +91,17 @@ export function LemonTable<T extends Record<string, any>>({
     expandable,
     showHeader = true,
     uppercaseHeader = true,
-    disableSortingCancellation = false,
+    noSortingCancellation: disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
     onSort,
+    useURLForSorting = true,
     loadingSkeletonRows = 1,
     emptyState,
     nouns = ['entry', 'entries'],
     className,
     style,
     'data-attr': dataAttr,
-    'data-tooltip': dataTooltip,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -108,19 +109,27 @@ export function LemonTable<T extends Record<string, any>>({
     const { location, searchParams, hashParams } = useValues(router)
     const { push } = useActions(router)
 
-    /** Replace the current browsing history item to change sorting */
+    // used when not using URL to store sorting
+    const [internalSorting, setInternalSorting] = useState<Sorting | null>(sorting || null)
+
+    /** update sorting and conditionally replace the current browsing history item */
     const setLocalSorting = useCallback(
-        (newSorting: Sorting | null) =>
-            push(
-                location.pathname,
-                {
-                    ...searchParams,
-                    [currentSortingParam]: newSorting
-                        ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                        : undefined,
-                },
-                hashParams
-            ),
+        (newSorting: Sorting | null) => {
+            setInternalSorting(newSorting)
+            onSort?.(newSorting)
+            if (useURLForSorting) {
+                return push(
+                    location.pathname,
+                    {
+                        ...searchParams,
+                        [currentSortingParam]: newSorting
+                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                            : undefined,
+                    },
+                    hashParams
+                )
+            }
+        },
         [location, searchParams, hashParams, push]
     )
 
@@ -140,6 +149,7 @@ export function LemonTable<T extends Record<string, any>>({
     /** Sorting. */
     const currentSorting =
         sorting ||
+        internalSorting ||
         (searchParams[currentSortingParam]
             ? searchParams[currentSortingParam].startsWith('-')
                 ? {
@@ -191,7 +201,6 @@ export function LemonTable<T extends Record<string, any>>({
             )}
             style={style}
             data-attr={dataAttr}
-            data-tooltip={dataTooltip}
         >
             <div className="scrollable__inner" ref={scrollRef}>
                 <div className="LemonTable__content">
@@ -248,8 +257,8 @@ export function LemonTable<T extends Record<string, any>>({
                                                                   determineColumnKey(column, 'sorting'),
                                                                   disableSortingCancellation
                                                               )
+
                                                               setLocalSorting(nextSorting)
-                                                              onSort?.(nextSorting)
                                                           }
                                                         : undefined
                                                 }

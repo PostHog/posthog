@@ -711,7 +711,7 @@ export interface Cohort {
     last_calculation: string
     errors_calculating: number
     is_static: boolean
-    version: number
+    version: number | null
     pending_version: number
 }
 

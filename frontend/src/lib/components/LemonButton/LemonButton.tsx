@@ -16,7 +16,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** What color scheme the button should follow */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -40,7 +40,6 @@ export interface LemonButtonPropsBase
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
-    'data-tooltip'?: string
     'aria-label'?: string
 }
 
@@ -73,7 +72,7 @@ function LemonButtonInternal(
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
     if (loading) {
-        icon = <Spinner size="sm" />
+        icon = <Spinner monocolor />
     }
 
     const ButtonComponent = to || href ? Link : 'button'

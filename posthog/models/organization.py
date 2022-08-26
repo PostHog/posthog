@@ -1,3 +1,4 @@
+import sys
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
@@ -112,7 +113,7 @@ class Organization(UUIDModel):
         Returns a tuple with (billing_plan_key, billing_realm)
         """
         # Demo gets all features
-        if settings.DEMO:
+        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
             return (License.ENTERPRISE_PLAN, "demo")
         # If on Cloud, grab the organization's price
         if hasattr(self, "billing"):

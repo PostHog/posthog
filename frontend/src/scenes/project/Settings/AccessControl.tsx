@@ -56,8 +56,13 @@ export function AccessControl({ isRestricted }: RestrictedComponentProps): JSX.E
                     )
                 }}
                 checked={!!projectPermissioningEnabled}
-                loading={currentOrganizationLoading || currentTeamLoading}
-                disabled={isRestricted || !currentOrganization || !currentTeam}
+                disabled={
+                    isRestricted ||
+                    !currentOrganization ||
+                    !currentTeam ||
+                    currentOrganizationLoading ||
+                    currentTeamLoading
+                }
                 bordered
                 label="Make project private"
             />

@@ -83,7 +83,6 @@ export function SharingModal({
                             id="sharing-switch"
                             label={`Share ${resource} publicly`}
                             checked={sharingConfiguration.enabled}
-                            loading={sharingConfigurationLoading}
                             data-attr="sharing-switch"
                             onChange={(active) => setIsEnabled(active)}
                             icon={<IconGlobeLock />}
@@ -134,9 +133,7 @@ export function SharingModal({
                                                 onClick={togglePreview}
                                             >
                                                 Preview
-                                                {showPreview && !iframeLoaded ? (
-                                                    <Spinner size="sm" className="ml-2" />
-                                                ) : null}
+                                                {showPreview && !iframeLoaded ? <Spinner className="ml-2" /> : null}
                                             </LemonButton>
                                             {showPreview && (
                                                 <div className="SharingPreview border-t">

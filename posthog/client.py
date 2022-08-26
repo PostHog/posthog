@@ -21,9 +21,6 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
-from django.core.cache import cache
-from django.utils.timezone import now
-from sentry_sdk.api import capture_exception
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
@@ -42,7 +39,7 @@ from posthog.settings import (
     TEST,
 )
 from posthog.timer import get_timer_thread
-from posthog.utils import get_safe_cache
+from posthog.utils import generate_short_id
 
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
@@ -134,7 +131,27 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
         return result
 
 
-def sync_execute(query, args=None, settings=None, with_column_types=False, flush=True):
+def validate_client_query_id(
+    client_query_id: Optional[str], args: Dict[Any, Any], client_query_team_id: Optional[int] = None
+) -> Optional[str]:
+    if not client_query_id:
+        return None
+    if not client_query_team_id and (not args or "team_id" not in args):
+        raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
+    # the client_query_id is per request, but we might run multiple queries in parallel, hence we add a random id at the end
+    random_id = generate_short_id()
+    return f"{client_query_team_id or args['team_id']}_{client_query_id}_{random_id}"
+
+
+def sync_execute(
+    query,
+    args=None,
+    settings=None,
+    with_column_types=False,
+    flush=True,
+    client_query_id: Optional[str] = None,
+    client_query_team_id: Optional[int] = None,
+):
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -154,7 +171,11 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
 
         try:
             result = client.execute(
-                prepared_sql, params=prepared_args, settings=settings, with_column_types=with_column_types,
+                prepared_sql,
+                params=prepared_args,
+                settings=settings,
+                with_column_types=with_column_types,
+                query_id=validate_client_query_id(client_query_id, args, client_query_team_id),
             )
         except Exception as err:
             err = wrap_query_error(err)
@@ -171,8 +192,6 @@ def sync_execute(query, args=None, settings=None, with_column_types=False, flush
 
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print("Execution time: %.6fs" % (execution_time,))
-            if _request_information is not None and _request_information.get("save", False):
-                save_query(prepared_sql, execution_time)
     return result
 
 
@@ -322,8 +341,6 @@ def execute_with_progress(
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))
-        if _request_information is not None and _request_information.get("save", False):
-            save_query(prepared_sql, execution_time)
 
 
 def enqueue_execute_with_progress(
@@ -497,7 +514,8 @@ def _annotate_tagged_query(query, args):
         tags["team_id"] = args["team_id"]
     # Annotate the query with information on the request/task
     if _request_information is not None:
-        query = f"/* {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
+        user_id = f" user_id:{_request_information['user_id']}" if _request_information.get("user_id") else ""
+        query = f"/*{user_id} {_request_information['kind']}:{_request_information['id'].replace('/', '_')} */ {query}"
 
     return query, tags
 
@@ -522,27 +540,3 @@ def format_sql(rendered_sql, colorize=True):
             pass
 
     return formatted_sql
-
-
-def save_query(sql: str, execution_time: float) -> None:
-    """
-    Save query for debugging purposes
-    """
-    if _request_information is None:
-        return
-
-    try:
-        key = "save_query_{}".format(_request_information["user_id"])
-        queries = json.loads(get_safe_cache(key) or "[]")
-
-        queries.insert(
-            0,
-            {
-                "timestamp": now().isoformat(),
-                "query": format_sql(sql, colorize=False),
-                "execution_time": execution_time,
-            },
-        )
-        cache.set(key, json.dumps(queries), timeout=120)
-    except Exception as e:
-        capture_exception(e)

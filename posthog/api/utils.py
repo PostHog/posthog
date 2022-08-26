@@ -361,13 +361,22 @@ def create_event_definitions_sql(
         """
 
     # Only return event definitions
-    if event_type == CombinedEventType.EVENT:
+    if (
+        event_type == CombinedEventType.EVENT
+        or event_type == CombinedEventType.EVENT_CUSTOM
+        or event_type == CombinedEventType.EVENT_POSTHOG
+    ):
         raw_event_definition_fields = ",".join(event_definition_fields)
         ordering = (
             "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
             if is_enterprise
             else "ORDER BY name ASC"
         )
+
+        if event_type == CombinedEventType.EVENT_CUSTOM:
+            shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+        if event_type == CombinedEventType.EVENT_POSTHOG:
+            shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
 
         return (
             f"""

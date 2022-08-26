@@ -179,41 +179,44 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                         )}
                     </Field>
                     <Field name="steps">
-                        {({ value, onChange }) => (
+                        {({ value: stepsValue, onChange }) => (
                             <Row gutter={[24, 24]}>
                                 <>
-                                    {value?.map((step: ActionStepType, index: number) => (
-                                        <ActionStep
-                                            key={step.id || step.isNew}
-                                            identifier={String(step.id || step.isNew)}
-                                            index={index}
-                                            step={step}
-                                            actionId={action.id || 0}
-                                            isOnlyStep={!!value && value.length === 1}
-                                            onDelete={() => {
-                                                const identifier = step.id ? 'id' : 'isNew'
-                                                onChange(
-                                                    value?.filter(
-                                                        (s: ActionStepType) => s[identifier] !== step[identifier]
+                                    {stepsValue.map((step: ActionStepType, index: number) => {
+                                        const identifier = String(JSON.stringify(step))
+                                        return (
+                                            <ActionStep
+                                                key={identifier}
+                                                identifier={identifier}
+                                                index={index}
+                                                step={step}
+                                                actionId={action.id || 0}
+                                                isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                                onDelete={() => {
+                                                    const identifier = step.id ? 'id' : 'isNew'
+                                                    onChange(
+                                                        stepsValue?.filter(
+                                                            (s: ActionStepType) => s[identifier] !== step[identifier]
+                                                        ) ?? []
                                                     )
-                                                )
-                                            }}
-                                            onChange={(newStep) => {
-                                                onChange(
-                                                    value?.map((s: ActionStepType) =>
-                                                        (step.id && s.id == step.id) ||
-                                                        (step.isNew && s.isNew === step.isNew)
-                                                            ? {
-                                                                  id: step.id,
-                                                                  isNew: step.isNew,
-                                                                  ...newStep,
-                                                              }
-                                                            : s
+                                                }}
+                                                onChange={(newStep) => {
+                                                    onChange(
+                                                        stepsValue?.map((s: ActionStepType) =>
+                                                            (step.id && s.id == step.id) ||
+                                                            (step.isNew && s.isNew === step.isNew)
+                                                                ? {
+                                                                      id: step.id,
+                                                                      isNew: step.isNew,
+                                                                      ...newStep,
+                                                                  }
+                                                                : s
+                                                        ) ?? []
                                                     )
-                                                )
-                                            }}
-                                        />
-                                    ))}
+                                                }}
+                                            />
+                                        )
+                                    })}
                                 </>
 
                                 <Col span={24} md={12}>
@@ -237,7 +240,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 <LemonCheckbox
                                     id="webhook-checkbox"
                                     checked={!!value}
-                                    onChange={(e) => onChange(e.target.checked)}
+                                    onChange={onChange}
                                     disabled={!slackEnabled}
                                     label={
                                         <>

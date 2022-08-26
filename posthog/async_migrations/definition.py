@@ -91,11 +91,6 @@ class AsyncMigrationDefinition:
     def __init__(self, name: str):
         self.name = name
 
-    # run before creating the migration model. Returns a boolean specifying if the instance should
-    # set up the AsyncMigration model and show this migration in the UI
-    def is_hidden(self) -> bool:
-        return False
-
     # will be run before starting the migration, return a boolean specifying if the instance needs this migration
     # e.g. instances where fresh setups are already set up correctly
     def is_required(self) -> bool:

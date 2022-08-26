@@ -154,6 +154,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     resource = exported_asset.export_context
 
     path: str = resource["path"]
+    columns: List[str] = resource.get("columns", [])
 
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
@@ -196,7 +197,10 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 
-    rendered_csv_content = renderer.render(all_csv_rows)
+    render_context = {}
+    if columns:
+        render_context["header"] = columns
+    rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
 
 
