@@ -14,6 +14,7 @@ import {
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
 import { fetchTimestampBoundariesForTeam } from '../../../../../src/worker/vm/upgrades/utils/utils'
 import { pluginConfig39 } from '../../../../helpers/plugins'
+import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/worker/vm/upgrades/utils/utils')
@@ -27,9 +28,14 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     })
 
     afterAll(async () => {
+        await hub.promiseManager.awaitPromisesIfNeeded()
         await hub.kafkaProducer.flush()
         await closeHub()
     })
+
+    function storage() {
+        return createStorage(hub, pluginConfig39)
+    }
 
     function addCapabilities(overrides?: any) {
         const mockVM = deepmerge(overrides, {
@@ -41,7 +47,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 job: {},
             },
             meta: {
-                storage: createStorage(hub, pluginConfig39),
+                storage: storage(),
                 utils: createUtils(hub, pluginConfig39.id),
                 jobs: {
                     exportHistoricalEvents: jest.fn().mockReturnValue(jest.fn()),
@@ -63,6 +69,108 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             return vm.meta.global._testFunctions[name](...args)
         }
     }
+
+    describe('calculateCoordination()', () => {
+        const calculateCoordination = getTestMethod('calculateCoordination')
+
+        const params = {
+            id: 1,
+            parallelism: 3,
+            dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+            dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+        }
+
+        beforeEach(async () => {
+            await resetTestDatabase()
+        })
+
+        it('does nothing if enough tasks running', async () => {
+            const result = await calculateCoordination(params, [], [
+                '2021-10-29T00:00:00.000Z',
+                '2021-10-30T00:00:00.000Z',
+                '2021-10-31T00:00:00.000Z',
+            ] as ISOTimestamp[])
+
+            expect(result).toEqual({
+                hasChanges: false,
+                done: [],
+                running: ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
+                toStartRunning: [],
+                progress: 0,
+                exportIsDone: false,
+            })
+        })
+
+        it('kicks off new tasks if theres room', async () => {
+            const result = await calculateCoordination(params, [], [])
+
+            expect(result).toEqual({
+                hasChanges: true,
+                done: [],
+                running: ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
+                toStartRunning: [
+                    ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z'],
+                    ['2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
+                    ['2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
+                ],
+                progress: 0,
+                exportIsDone: false,
+            })
+        })
+
+        it('marks running tasks as done and counts progress', async () => {
+            await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', {
+                done: false,
+                progress: 0.5,
+            })
+            await storage().set('EXPORT_DATE_STATUS_2021-10-30T00:00:00.000Z', {
+                done: true,
+                progress: 1,
+            })
+
+            const result = await calculateCoordination(params, [], [
+                '2021-10-29T00:00:00.000Z',
+                '2021-10-30T00:00:00.000Z',
+                '2021-10-31T00:00:00.000Z',
+            ] as ISOTimestamp[])
+
+            expect(result).toEqual({
+                hasChanges: true,
+                done: ['2021-10-30T00:00:00.000Z'],
+                running: ['2021-10-29T00:00:00.000Z', '2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
+                toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']],
+                progress: 0.375,
+                exportIsDone: false,
+            })
+        })
+
+        it('notifies if export is done after marking running tasks as done', async () => {
+            await storage().set('EXPORT_DATE_STATUS_2021-10-30T00:00:00.000Z', {
+                done: true,
+                progress: 1,
+            })
+
+            const result = await calculateCoordination(
+                params,
+                ['2021-10-29T00:00:00.000Z', '2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'] as ISOTimestamp[],
+                ['2021-10-30T00:00:00.000Z'] as ISOTimestamp[]
+            )
+
+            expect(result).toEqual({
+                hasChanges: true,
+                done: expect.arrayContaining([
+                    '2021-10-29T00:00:00.000Z',
+                    '2021-10-30T00:00:00.000Z',
+                    '2021-10-31T00:00:00.000Z',
+                    '2021-11-01T00:00:00.000Z',
+                ]),
+                running: [],
+                toStartRunning: [],
+                progress: 1,
+                exportIsDone: true,
+            })
+        })
+    })
 
     describe('nextFetchTimeInterval()', () => {
         const nextFetchTimeInterval = getTestMethod('nextFetchTimeInterval')

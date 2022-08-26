@@ -94,6 +94,11 @@ interface CoordinationUpdate {
     exportIsDone: boolean
 }
 
+interface ExportDateStatus {
+    done: boolean
+    progress: number
+}
+
 export function addHistoricalEventsExportCapabilityV2(
     hub: Hub,
     pluginConfig: PluginConfig,
@@ -166,8 +171,7 @@ export function addHistoricalEventsExportCapabilityV2(
             await meta.storage.set(`EXPORT_DATE_STATUS_${payload.startTime}`, {
                 done: true,
                 progress: 1,
-                exportId: payload.exportId,
-            })
+            } as ExportDateStatus)
 
             return
         }
@@ -175,9 +179,8 @@ export function addHistoricalEventsExportCapabilityV2(
         await meta.storage.set(`EXPORT_DATE_STATUS_${payload.startTime}`, {
             done: false,
             progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
-            exportId: payload.exportId,
-            // :TODO: Save timestampCursor, use that to skip on restarts occurring
-        })
+            // :TODO: Save timestampCursor, exportId, use that to skip on restarts occurring
+        } as ExportDateStatus)
 
         let events: PluginEvent[] = []
 
@@ -318,6 +321,7 @@ export function addHistoricalEventsExportCapabilityV2(
         if (update.hasChanges) {
             await Promise.all(
                 update.toStartRunning.map(async ([startDate, endDate]) => {
+                    // :TODO: Log this
                     await meta.jobs
                         .exportHistoricalEvents({
                             timestampCursor: new Date(startDate).getTime(),
@@ -354,9 +358,10 @@ export function addHistoricalEventsExportCapabilityV2(
 
         let progress = progressPerDay * done.length
         for (const date of running || []) {
-            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, { done: false })) as {
-                done: boolean
-            }
+            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, {
+                done: false,
+                progress: 0,
+            })) as ExportDateStatus
 
             if (dateStatus.done) {
                 hasChanges = true
@@ -364,7 +369,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 runningDates.delete(date)
                 progress += progressPerDay
             } else {
-                progress += progressPerDay * progress
+                progress += progressPerDay * dateStatus.progress
             }
             // :TODO: Check this is 'stuck' for some reason.
         }
@@ -373,9 +378,14 @@ export function addHistoricalEventsExportCapabilityV2(
 
         if (runningDates.size < params.parallelism && doneDates.size + runningDates.size < allDates.length) {
             for (const [startDate, endDate] of allDates) {
-                if (!doneDates.has(startDate) && !runningDates.has(endDate)) {
+                if (!doneDates.has(startDate) && !runningDates.has(startDate)) {
                     runningDates.add(startDate)
                     toStartRunning.push([startDate, endDate])
+                    hasChanges = true
+
+                    if (runningDates.size === params.parallelism) {
+                        break
+                    }
                 }
             }
         }
