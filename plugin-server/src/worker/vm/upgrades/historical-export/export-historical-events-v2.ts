@@ -20,7 +20,7 @@ const TWELVE_HOURS = 1000 * 60 * 60 * 12
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
 export const EVENTS_PER_RUN = 500
 
-const EXPORT_RUNNING_KEY = 'is_export_running'
+export const EXPORT_RUNNING_KEY = 'is_export_running_v2'
 
 const INTERFACE_JOB_NAME = 'Export historical events V2'
 
@@ -28,7 +28,7 @@ export interface TestFunctions {
     exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
     getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => Promise<TimestampBoundaries>
     nextFetchTimeInterval: (payload: ExportHistoricalEventsJobPayload, eventCount: number) => number
-    coordinateHistoricExport: () => Promise<void>
+    coordinateHistoricExport: (update?: CoordinationUpdate) => Promise<void>
     calculateCoordination: (
         params: ExportParams,
         done: Array<ISOTimestamp>,
@@ -297,7 +297,7 @@ export function addHistoricalEventsExportCapabilityV2(
         return payload.fetchTimeInterval
     }
 
-    async function coordinateHistoricExport() {
+    async function coordinateHistoricExport(update?: CoordinationUpdate) {
         const params = await getExportParameters()
 
         if (!params) {
@@ -306,7 +306,7 @@ export function addHistoricalEventsExportCapabilityV2(
         }
 
         const { done, running } = (await meta.storage.get(`EXPORT_COORDINATION`, {})) as CoordinationPayload
-        const update = await calculateCoordination(params, done || [], running || [])
+        update = update || (await calculateCoordination(params, done || [], running || []))
 
         if (update.exportIsDone) {
             await meta.storage.del(EXPORT_RUNNING_KEY)

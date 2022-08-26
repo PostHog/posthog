@@ -8,6 +8,7 @@ import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
 import {
     addHistoricalEventsExportCapabilityV2,
     EVENTS_PER_RUN,
+    EXPORT_RUNNING_KEY,
     ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgradeV2,
     TestFunctions,
@@ -22,14 +23,16 @@ jest.mock('../../../../../src/worker/vm/upgrades/utils/utils')
 describe('addHistoricalEventsExportCapabilityV2()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let vm: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+        hub.kafkaProducer.queueMessage = jest.fn()
+        hub.kafkaProducer.flush = jest.fn()
     })
 
     afterAll(async () => {
         await hub.promiseManager.awaitPromisesIfNeeded()
-        await hub.kafkaProducer.flush()
         await closeHub()
     })
 
@@ -50,7 +53,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 storage: storage(),
                 utils: createUtils(hub, pluginConfig39.id),
                 jobs: {
-                    exportHistoricalEvents: jest.fn().mockReturnValue(jest.fn()),
+                    exportHistoricalEvents: jest.fn().mockReturnValue({ runNow: jest.fn() }),
                 },
                 global: {},
             },
@@ -64,11 +67,114 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     function getTestMethod<T extends keyof TestFunctions>(name: T): TestFunctions[T] {
         // @ts-expect-error testing-related schenanigans
         return (...args: any[]) => {
-            const vm = addCapabilities()
+            vm = addCapabilities()
             // @ts-expect-error testing-related schenanigans
             return vm.meta.global._testFunctions[name](...args)
         }
     }
+
+    describe('coordinateHistoricExport()', () => {
+        const coordinateHistoricExport = getTestMethod('coordinateHistoricExport')
+
+        beforeEach(async () => {
+            jest.spyOn(hub.db, 'queuePluginLogEntry')
+
+            await resetTestDatabase()
+        })
+
+        it('does nothing if export isnt running / is done', async () => {
+            await coordinateHistoricExport()
+
+            expect(await storage().get('EXPORT_COORDINATION', null)).toEqual(null)
+            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+        })
+
+        describe('export is running', () => {
+            const params = {
+                id: 1,
+                parallelism: 3,
+                dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+                dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+            }
+
+            beforeEach(async () => {
+                await storage().set(EXPORT_RUNNING_KEY, params)
+            })
+
+            it('logs progress of the export and does not start excessive jobs', async () => {
+                await coordinateHistoricExport({
+                    hasChanges: false,
+                    exportIsDone: false,
+                    progress: 0.7553,
+                    done: [],
+                    running: [],
+                    toStartRunning: [],
+                })
+
+                expect(hub.db.queuePluginLogEntry).toHaveBeenCalledTimes(1)
+                expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        message: expect.stringContaining('Export progress: ■■■■■■■■■■■■■■■□□□□□ (75.5)%'),
+                    })
+                )
+
+                expect(vm.meta.jobs.exportHistoricalEvents).not.toHaveBeenCalled()
+                expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(params)
+            })
+
+            it('starts up new jobs and updates coordination data if needed', async () => {
+                await coordinateHistoricExport({
+                    hasChanges: true,
+                    exportIsDone: false,
+                    progress: 0.7553,
+                    done: [
+                        '2021-10-29T00:00:00.000Z',
+                        '2021-10-30T00:00:00.000Z',
+                        '2021-10-31T00:00:00.000Z',
+                    ] as ISOTimestamp[],
+                    running: ['2021-11-01T00:00:00.000Z'] as ISOTimestamp[],
+                    toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']] as Array<
+                        [ISOTimestamp, ISOTimestamp]
+                    >,
+                })
+
+                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                    endTime: 1635742800000,
+                    exportId: 1,
+                    fetchTimeInterval: 600000,
+                    offset: 0,
+                    retriesPerformedSoFar: 0,
+                    startTime: 1635724800000,
+                    timestampCursor: 1635724800000,
+                })
+
+                expect(await storage().get('EXPORT_COORDINATION', null)).toEqual({
+                    done: ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
+                    running: ['2021-11-01T00:00:00.000Z'],
+                    progress: 0.7553,
+                })
+            })
+
+            it('handles export being marked as done', async () => {
+                await coordinateHistoricExport({
+                    hasChanges: false,
+                    exportIsDone: true,
+                    progress: 1,
+                    done: [],
+                    running: [],
+                    toStartRunning: [],
+                })
+
+                expect(hub.db.queuePluginLogEntry).toHaveBeenCalledTimes(1)
+                expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        message: expect.stringContaining('Done exporting all events!'),
+                    })
+                )
+                expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+            })
+        })
+    })
 
     describe('calculateCoordination()', () => {
         const calculateCoordination = getTestMethod('calculateCoordination')
