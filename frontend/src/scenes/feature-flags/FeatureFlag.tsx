@@ -518,15 +518,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 {!hasAvailableFeature(
                                                                     AvailableFeature.MULTIVARIATE_FLAGS
                                                                 ) && (
-                                                                    <Link to={upgradeLink} target="_blank">
-                                                                        <LockOutlined
-                                                                            style={{
-                                                                                marginRight: 4,
-                                                                                color: 'var(--warning)',
-                                                                            }}
-                                                                        />
-                                                                    </Link>
-                                                                )}
+                                                                        <Link to={upgradeLink} target="_blank">
+                                                                            <LockOutlined
+                                                                                style={{
+                                                                                    marginRight: 4,
+                                                                                    color: 'var(--warning)',
+                                                                                }}
+                                                                            />
+                                                                        </Link>
+                                                                    )}
                                                                 String value (Multivariate test){' '}
                                                             </div>
                                                         </Tooltip>
@@ -782,9 +782,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <LemonDivider className="my-4" />
                                             <div className="ml-4">
                                                 <PropertyFilters
-                                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                                        featureFlag.filters.groups.length
-                                                    }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
+                                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                                     propertyFilters={group?.properties}
                                                     onChange={(properties) =>
                                                         updateConditionSet(index, undefined, properties)
@@ -1248,9 +1247,8 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <div>
                                     <PropertyFilters
                                         orFiltering={true}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                            featureFlag.filters.groups.length
-                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
+                                            }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                         propertyFilters={group?.properties}
                                         logicalRowDivider
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}

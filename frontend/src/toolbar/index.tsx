@@ -1,4 +1,3 @@
-import 'react-toastify/dist/ReactToastify.css'
 import '~/styles'
 import './styles.scss'
 

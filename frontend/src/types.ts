@@ -966,14 +966,16 @@ export enum AnnotationScope {
 }
 
 export interface AnnotationType {
-    id: string
+    id: number
     scope: AnnotationScope
     content: string
     date_marker: string
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
-    dashboard_item?: number
+    dashboard_item?: number | null
+    insight_short_id?: InsightModel['short_id']
+    insight_name?: InsightModel['name']
     deleted?: boolean
     creation_type?: string
 }
@@ -1964,8 +1966,10 @@ export type CombinedEvent = EventDefinition | ActionType
 
 export enum CombinedEventType {
     All = 'all',
-    Event = 'event',
     ActionEvent = 'action_event',
+    Event = 'event',
+    EventCustom = 'event_custom',
+    EventPostHog = 'event_posthog',
 }
 
 export interface IntegrationType {

@@ -10,7 +10,9 @@ export function PlatformPanel(): JSX.Element {
     const { setPlatform } = useActions(ingestionLogic)
 
     return (
-        <div className="welcome-panel">
+        // We want a forced width for this view only
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ maxWidth: 400 }}>
             <h1 className="ingestion-title">Welcome to PostHog</h1>
             <p>
                 First things first, where do you want to send events from? You can always instrument more sources later.

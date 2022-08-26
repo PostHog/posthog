@@ -18,8 +18,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=invites-table] tbody tr:last-of-type td:nth-last-child(2)').then((element) => {
             cy.visit(element.text())
         })
-        cy.get('.error-view-container').should('exist')
-        cy.get('h1.page-title').should('contain', 'Oops! You cannot use this invite link')
+        cy.get('h2').should('contain', "Oops! This invite link can't be used")
         cy.get('.error-message div').should('contain', 'This invite is intended for another email address')
 
         // Delete the invite
@@ -47,11 +46,11 @@ describe('Invite Signup', () => {
             cy.visit('/signup/' + response.body.id)
         })
         cy.get('.error-view-container').should('not.exist')
-        cy.get('h1.page-title').should('contain', "You've been invited to join")
-        cy.get('#email').should('have.value', `n**********${target_email[11]}@posthog.com`)
-        cy.get('#password').type('12345678')
+        cy.get('.InviteSignupSummary span').should('contain', "You've been invited to join")
+        cy.get('input[type="email"]').should('have.value', `n**********${target_email[11]}@posthog.com`)
+        cy.get('[data-attr="password"]').type('12345678')
         cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working
-        cy.get('#first_name').type('Bob')
+        cy.get('[data-attr="first_name"]').type('Bob')
         cy.get('[data-attr=password-signup]').click()
         cy.get('.Toastify__toast-body').should('contain', 'You have joined')
         cy.location('pathname').should('include', urls.projectHomepage())
@@ -76,8 +75,8 @@ describe('Invite Signup', () => {
                 cy.get('[data-attr=top-menu-item-logout]').click()
                 cy.visit(element.text())
             })
-        cy.get('#password').type('12345678')
-        cy.get('#first_name').type('Bob')
+        cy.get('[data-attr="password"]').type('12345678')
+        cy.get('[data-attr="first_name"]').type('Bob')
         cy.get('[data-attr=password-signup]').click()
         cy.get('.Toastify__toast-body').should('contain', 'You have joined')
         cy.location('pathname').should('include', urls.projectHomepage())
