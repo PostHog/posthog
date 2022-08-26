@@ -32,7 +32,6 @@ export function ProjectHomepage(): JSX.Element {
     const headerButtons = (
         <div style={{ display: 'flex' }}>
             <LemonButton
-                data-tooltip="invite-members-button"
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()

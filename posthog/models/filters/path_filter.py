@@ -6,6 +6,7 @@ from posthog.constants import INSIGHT_PATHS
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
+    ClientQueryIdMixin,
     DateMixin,
     EntitiesMixin,
     FilterTestAccountsMixin,
@@ -63,6 +64,7 @@ class PathFilter(
     PathLimitsMixin,
     GroupsAggregationMixin,
     FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
+    ClientQueryIdMixin,
     SimplifyFilterMixin,
     IncludeRecordingsMixin,
     # TODO: proper fix for EventQuery abstraction
