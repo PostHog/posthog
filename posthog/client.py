@@ -132,15 +132,12 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
 
 
 def validate_client_query_id(
-    client_query_id: Optional[str], args: Dict[Any, Any], client_query_team_id: Optional[int] = None
+    client_query_id: Optional[str], client_query_team_id: Optional[int] = None
 ) -> Optional[str]:
-    if not client_query_id:
-        return None
-    if not client_query_team_id and (not args or "team_id" not in args):
+    if client_query_id and not client_query_team_id:
         raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
-    # the client_query_id is per request, but we might run multiple queries in parallel, hence we add a random id at the end
     random_id = generate_short_id()
-    return f"{client_query_team_id or args['team_id']}_{client_query_id}_{random_id}"
+    return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
 def sync_execute(
@@ -175,7 +172,7 @@ def sync_execute(
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validate_client_query_id(client_query_id, args, client_query_team_id),
+                query_id=validate_client_query_id(client_query_id, client_query_team_id),
             )
         except Exception as err:
             err = wrap_query_error(err)
