@@ -390,6 +390,11 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['person1'], person."pmat_name")) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
