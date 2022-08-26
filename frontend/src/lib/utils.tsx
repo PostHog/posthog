@@ -887,12 +887,12 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
     }
-    const parseDate = /^([\-\+]?[0-9]+|)([dmwqy])(|Start|End)$/
+    const parseDate = /^([\-\+]?)([0-9]*)([dmwqy])(|Start|End)$/
     const matches = (date || '').match(parseDate)
     let response: null | dayjs.Dayjs = null
     if (matches) {
-        const [, rawAmount, rawUnit, clip] = matches
-        const amount = rawAmount ? parseInt(rawAmount) : 0
+        const [, sign, rawAmount, rawUnit, clip] = matches
+        const amount = rawAmount ? parseInt(sign + rawAmount) : 0
         const unit = dateOptionsMap[rawUnit] || 'day'
 
         switch (unit) {
@@ -902,10 +902,10 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
             case 'quarter':
                 response = dayjs().add(amount * 3, 'month')
                 break
-            case 'months':
+            case 'month':
                 response = dayjs().add(amount, 'month')
                 break
-            case 'weeks':
+            case 'week':
                 response = dayjs().add(amount * 7, 'day')
                 break
             default:
