@@ -70,6 +70,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         aggregationTargetName,
         taxonomicGroupTypes,
         featureFlagLoading,
+        isEditingFlag,
     } = useValues(featureFlagLogic)
     const {
         addConditionSet,
@@ -96,8 +97,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
     const isNewFeatureFlag = id === 'new' || id === undefined
-    // const isNewFeatureFlag = false
-    const isEditingFlag = false
 
     return (
         <>
@@ -306,8 +305,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <FeatureFlagRollout readOnly />
                                             <FeatureFlagReleaseConditions readOnly />
                                         </Col>
-                                        <Col span={11}>
-                                            <div className="ml-4">Insights that use this feature</div>
+                                        <Col span={11} className="pl-4">
+                                            <div className="border rounded p-4 mb-4">
+                                                Insights that use this feature
+                                            </div>
+                                            <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                                         </Col>
                                     </Row>
                                 </Tabs.TabPane>
