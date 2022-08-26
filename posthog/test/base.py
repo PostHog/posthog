@@ -286,7 +286,6 @@ def test_with_materialized_columns(
                 materialize("person", prop)
                 materialize("events", prop, table_column="person_properties")
             for group_type_index, prop in group_properties:
-                materialize("groups", prop, table_column="group_properties")
                 materialize("events", prop, table_column=f"group{group_type_index}_properties")  # type: ignore
 
             try:
