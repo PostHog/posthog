@@ -393,8 +393,11 @@ export function addHistoricalEventsExportCapabilityV2(
     function getExportDateRange({ dateFrom, dateTo }: ExportParams): Array<[ISOTimestamp, ISOTimestamp]> {
         const result: Array<[ISOTimestamp, ISOTimestamp]> = []
         let date = dateFrom
-        while (date <= dateTo) {
-            const nextDate = DateTime.fromISO(date).toUTC().plus({ days: 1 }).toISO() as ISOTimestamp
+        while (date < dateTo) {
+            let nextDate = DateTime.fromISO(date).toUTC().plus({ days: 1 }).startOf('day').toISO() as ISOTimestamp
+            if (nextDate > dateTo) {
+                nextDate = dateTo
+            }
             result.push([date, nextDate])
             date = nextDate
         }

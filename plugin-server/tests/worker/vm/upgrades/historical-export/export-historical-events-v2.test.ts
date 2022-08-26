@@ -1,7 +1,7 @@
 import { PluginMeta } from '@posthog/plugin-scaffold'
 import deepmerge from 'deepmerge'
 
-import { Hub, PluginConfigVMInternalResponse } from '../../../../../src/types'
+import { Hub, ISOTimestamp, PluginConfigVMInternalResponse } from '../../../../../src/types'
 import { createHub } from '../../../../../src/utils/db/hub'
 import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
@@ -10,10 +10,7 @@ import {
     ExportHistoricalEventsUpgradeV2,
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
-import {
-    fetchEventsForInterval,
-    fetchTimestampBoundariesForTeam,
-} from '../../../../../src/worker/vm/upgrades/utils/utils'
+import { fetchTimestampBoundariesForTeam } from '../../../../../src/worker/vm/upgrades/utils/utils'
 import { pluginConfig39 } from '../../../../helpers/plugins'
 
 jest.mock('../../../../../src/utils/status')
@@ -108,6 +105,49 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             await expect(getTimestampBoundaries({})).rejects.toThrowError(
                 `Unable to determine the timestamp bound for the export automatically. Please specify 'dateFrom'/'dateTo' values.`
             )
+        })
+    })
+
+    describe('getExportDateRange()', () => {
+        const getExportDateRange = getTestMethod('getExportDateRange')
+
+        it('returns values in range from start of the date', () => {
+            expect(
+                getExportDateRange({
+                    id: 1,
+                    parallelism: 1,
+                    dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+                    dateTo: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+                })
+            ).toEqual([])
+
+            expect(
+                getExportDateRange({
+                    id: 1,
+                    parallelism: 1,
+                    dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+                    dateTo: '2021-11-02T00:00:00.000Z' as ISOTimestamp,
+                })
+            ).toEqual([
+                ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z'],
+                ['2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
+                ['2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
+                ['2021-11-01T00:00:00.000Z', '2021-11-02T00:00:00.000Z'],
+            ])
+        })
+
+        it('handles partial-day ranges gracefully', () => {
+            expect(
+                getExportDateRange({
+                    id: 1,
+                    parallelism: 1,
+                    dateFrom: '2021-10-29T01:00:00.000Z' as ISOTimestamp,
+                    dateTo: '2021-10-30T05:55:00.000Z' as ISOTimestamp,
+                })
+            ).toEqual([
+                ['2021-10-29T01:00:00.000Z', '2021-10-30T00:00:00.000Z'],
+                ['2021-10-30T00:00:00.000Z', '2021-10-30T05:55:00.000Z'],
+            ])
         })
     })
 
