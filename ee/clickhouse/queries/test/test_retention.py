@@ -151,7 +151,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
     def test_groups_filtering_person_on_events(self):
         self._create_groups_and_events()
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             result = Retention().run(
                 RetentionFilter(
                     data={
@@ -213,7 +213,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             team=self.team,
         )
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
 
             result = Retention().run(filter, self.team)
             self.assertEqual(
@@ -256,7 +256,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
             team=self.team,
         )
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             actor_result = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
 
             self.assertTrue(actor_result[0]["person"]["id"] == "org:6")

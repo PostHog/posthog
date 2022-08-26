@@ -295,7 +295,7 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 "breakdown_group_type_index": 0,
                 "aggregation_group_type_index": 0,
             }
-            with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+            with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 result = Funnel(Filter(data=filters, team=self.team), self.team).run()
 
             assert_funnel_breakdown_result_is_correct(

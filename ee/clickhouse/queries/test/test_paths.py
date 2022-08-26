@@ -2864,7 +2864,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
             }
         )
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
             self.assertEqual(

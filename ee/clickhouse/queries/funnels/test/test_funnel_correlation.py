@@ -749,7 +749,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             "aggregation_group_type_index": 0,
         }
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             filter = Filter(data=filters)
             correlation = FunnelCorrelation(filter, self.team)
             result = correlation._run()[0]

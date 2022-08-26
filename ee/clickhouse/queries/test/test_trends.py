@@ -104,7 +104,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             timestamp="2020-01-02T12:00:02Z",
         )
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = Trends().run(
                 Filter(
                     data={
@@ -222,7 +222,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             }
         )
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = Trends().run(filter, self.team,)
 
             self.assertEqual(len(response), 2)
@@ -366,7 +366,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             }
         )
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = Trends().run(filter, self.team,)
 
             self.assertEqual(len(response), 1)
@@ -417,7 +417,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             team=self.team,
         )
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = Trends().run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
@@ -463,7 +463,7 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             }
         )
 
-        with override_instance_config("ENABLE_ACTOR_ON_EVENTS_TEAMS", f"{self.team.pk}"):
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             response = Trends().run(filter, self.team,)
 
             self.assertEqual(len(response), 1)
