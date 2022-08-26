@@ -146,9 +146,7 @@ class TestClickhouseRetention(retention_test_factory(Retention)):  # type: ignor
         self.assertTrue(actor_result[1]["person"]["id"] == "org:5")
         self.assertEqual(actor_result[1]["appearances"], [1, 1, 1, 1, 1, 0, 0])
 
-    @test_with_materialized_columns(
-        group_properties=[(0, "industry")], verify_no_jsonextract=False
-    )  # remove once person on events is default
+    @test_with_materialized_columns(group_properties=[(0, "industry")])
     @snapshot_clickhouse_queries
     def test_groups_filtering_person_on_events(self):
         self._create_groups_and_events()
