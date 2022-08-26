@@ -272,7 +272,7 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the first event ever ingested
-            if (!timestampBoundaries.min) {
+            if (!timestampBoundaries) {
                 throw new Error(
                     `Unable to determine the lower timestamp bound for the export automatically. Please specify a 'dateFrom' value.`
                 )
@@ -292,7 +292,7 @@ export function addHistoricalEventsExportCapability(
             }
         } else {
             // no timestamp override specified via the payload, default to the last event before the plugin was enabled
-            if (!timestampBoundaries.max) {
+            if (!timestampBoundaries) {
                 throw new Error(
                     `Unable to determine the upper timestamp bound for the export automatically. Please specify a 'dateTo' value.`
                 )

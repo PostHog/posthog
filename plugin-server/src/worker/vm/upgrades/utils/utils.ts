@@ -56,7 +56,7 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
     return new Date(DateTime.fromFormat(timestamp, 'yyyy-MM-dd HH:mm:ss').toISO())
 }
 
-export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
+export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries | null> => {
     try {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
         /* plugin-server:fetchTimestampBoundariesForTeam */
@@ -73,16 +73,10 @@ export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): P
         const isValidMin = minDate.getTime() !== new Date(0).getTime()
         const isValidMax = maxDate.getTime() !== new Date(0).getTime()
 
-        return {
-            min: isValidMin ? minDate : null,
-            max: isValidMax ? maxDate : null,
-        }
+        return isValidMin && isValidMax ? { min: minDate, max: maxDate } : null
     } catch (e) {
         Sentry.captureException(e)
-        return {
-            min: null,
-            max: null,
-        }
+        return null
     }
 }
 
