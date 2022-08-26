@@ -136,14 +136,14 @@ describe('consoleLogsListLogic', () => {
             await expectLogic(logic, () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
-                sharedListLogic.actions.setWindowIdFilter(
+                sharedListLogic(playerLogicProps).actions.setWindowIdFilter(
                     '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
                 )
             })
                 .toDispatchActionsInAnyOrder([
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
-                    sharedListLogic.actionTypes.setWindowIdFilter,
+                    sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
                     consoleLogs: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']
