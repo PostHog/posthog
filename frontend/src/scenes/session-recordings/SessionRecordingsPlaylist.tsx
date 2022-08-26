@@ -31,7 +31,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
             render: function RenderPlayButton(_: any, sessionRecording: SessionRecordingType) {
                 return (
                     <div>
-                        {asDisplay(sessionRecording.person)}
+                        {asDisplay(sessionRecording.person, 25)}
                         <div>
                             <span>
                                 <TZLabel
