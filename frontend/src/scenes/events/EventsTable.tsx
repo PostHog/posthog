@@ -500,20 +500,24 @@ export function EventsTable({
                                     closeOnClickInside: false,
                                     overlay: [
                                         <ExportWithConfirmation
-                                            key={0}
-                                            placement={'topRight'}
-                                            onConfirm={() => startDownload()}
-                                        >
-                                            <LemonButton status="stealth">Export all columns</LemonButton>
-                                        </ExportWithConfirmation>,
-                                        <ExportWithConfirmation
                                             key={1}
-                                            placement={'bottomRight'}
+                                            placement={'topRight'}
                                             onConfirm={() => {
                                                 startDownload(exportColumns)
                                             }}
                                         >
-                                            <LemonButton status="stealth">Export current columns</LemonButton>
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export current columns
+                                            </LemonButton>
+                                        </ExportWithConfirmation>,
+                                        <ExportWithConfirmation
+                                            key={0}
+                                            placement={'bottomRight'}
+                                            onConfirm={() => startDownload()}
+                                        >
+                                            <LemonButton fullWidth={true} status="stealth">
+                                                Export all columns
+                                            </LemonButton>
                                         </ExportWithConfirmation>,
                                     ],
                                 }}
