@@ -8,13 +8,18 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 import type { listLogicType } from './listLogicType'
 
-export type RowStatus = 'warning' | 'error' | 'information' | 'match'
+export enum RowStatus {
+    Warning = 'warning',
+    Error = 'error',
+    Information = 'information',
+    Match = 'match',
+}
 export const TAB_TO_LOGIC: Record<SessionRecordingTab, Logic> = {
     [SessionRecordingTab.EVENTS]: eventsListLogic,
     [SessionRecordingTab.CONSOLE]: consoleLogsListLogic,
 }
 export const DEFAULT_ROW_HEIGHT = 40 + 4 // Default height + padding
-export const OVERSCANNED_ROW_COUNT = 50
+export const OVERSCANNED_ROW_COUNT = 25
 const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
 export interface ListLogicProps {

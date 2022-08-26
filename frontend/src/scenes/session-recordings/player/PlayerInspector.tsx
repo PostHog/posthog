@@ -12,6 +12,8 @@ import React from 'react'
 import { SessionRecordingTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { interleave } from 'lib/utils'
+import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 
 const { TabPane } = Tabs
 
@@ -75,20 +77,55 @@ export function PlayerInspectorV3(): JSX.Element {
                 <PlayerList
                     tab={currentTab}
                     row={{
+                        status: (record) => {
+                            console.log('RECORD LEVEL', record.level)
+                            if (record.level === 'match') {
+                                return RowStatus.Match
+                            }
+                            if (currentTab === SessionRecordingTab.EVENTS) {
+                                return null
+                            }
+                            // Below statuses only apply to console logs
+                            if (record.level === 'warn') {
+                                return RowStatus.Warning
+                            }
+                            if (record.level === 'log') {
+                                return RowStatus.Information
+                            }
+                            if (record.level === 'error') {
+                                return RowStatus.Error
+                            }
+                            if (record.level === 'error') {
+                                return RowStatus.Error
+                            }
+                            return RowStatus.Information
+                        },
                         content: function renderContent(record) {
                             if (currentTab === SessionRecordingTab.CONSOLE) {
-                                return <>"CONSOLE"</>
+                                return (
+                                    <div className="font-mono text-xs w-full text-ellipsis">
+                                        {interleave(record.previewContent, ' ')}
+                                    </div>
+                                )
                             }
                             return (
-                                <PropertyKeyInfo
-                                    className="font-medium"
-                                    value={record.event}
-                                    disableIcon
-                                    disablePopover
-                                    ellipsis={true}
-                                    style={{ maxWidth: 150 }}
-                                />
+                                <div className="flex flex-row justify-start">
+                                    <PropertyKeyInfo
+                                        className="font-medium"
+                                        value={record.event}
+                                        disableIcon
+                                        disablePopover
+                                        ellipsis={true}
+                                        style={{ maxWidth: 150 }}
+                                    />
+                                </div>
                             )
+                        },
+                        sideContent: function renderSideContent(record) {
+                            if (currentTab === SessionRecordingTab.CONSOLE) {
+                                return <div className="font-mono text-xs">{record.traceContent?.[0]}</div>
+                            }
+                            return null
                         },
                     }}
                 />

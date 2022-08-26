@@ -47,23 +47,31 @@ function PlayerListRowRaw<T extends Record<string, any>>({
         <div
             key={keyDetermined}
             data-attr={`player-list-item-${recordIndex}`}
-            className={clsx(
-                'PlayerList__item',
-                classNameDetermined,
-                statusDetermined && `PlayerList__item--status-${statusDetermined}`,
-                currentDetermined && `PlayerList__item--current`
-            )}
+            className={clsx('PlayerList__item', classNameDetermined)}
             style={style}
             onClick={() => {
                 record.playerPosition && onClick(record)
             }}
             data-tooltip="recording-player-list"
         >
-            <div className="h-full rounded flex flex-row items-center justify-between bg-light border border-border px-2">
-                <div className="flex flex-row grow gap-1 items-center">
+            <div
+                className={clsx(
+                    'PlayerList__item__content',
+                    'cursor-pointer h-full rounded flex flex-row gap-3 items-center justify-between border px-2',
+                    {
+                        'bg-light': statusDetermined === RowStatus.Information,
+                        'text-warning-dark bg-warning-highlight': statusDetermined === RowStatus.Warning,
+                        'text-danger-dark bg-danger-highlight': statusDetermined === RowStatus.Error,
+                        'text-indigo bg-purple-light': statusDetermined === RowStatus.Match,
+                    },
+                    currentDetermined ? 'PlayerList__item__content--current border-primary' : 'border-border'
+                )}
+            >
+                <div className="flex flex-row items-center">
                     {!!expandable && rowExpandable >= 0 ? (
                         <LemonButton
                             noPadding
+                            className="shrink-0"
                             icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                             size="small"
                             active={isRowExpanded}
@@ -82,13 +90,13 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         <LemonButton size="small" />
                     )}
                     <div>
-                        <IconWindow value="1" className="text-muted" />
+                        <IconWindow value="1" className="text-muted shrink-0" />
                     </div>
-                    {contentDetermined}
                 </div>
-                <div className="flex flex-row gap-3 items-center">
+                <div className="grow overflow-hidden">{contentDetermined}</div>
+                <div className="flex shrink-0 flex-row gap-3 items-center text-muted">
                     {sideContentDetermined}
-                    <div className="text-xs">{record.colonTimestamp}</div>
+                    <div style={{ fontSize: 11 }}>{record.colonTimestamp}</div>
                     <LemonButtonWithPopup
                         data-attr="player-list-item-menu"
                         id="player-list-item-menu"

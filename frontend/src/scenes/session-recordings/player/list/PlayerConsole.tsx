@@ -24,15 +24,7 @@ export function PlayerConsole(): JSX.Element | null {
                     seek(log.playerPosition)
                 }}
             >
-                <div className="trace-string">
-                    {log.parsedTraceURL ? (
-                        <a className="text-muted" href={log.parsedTraceURL} target="_blank">
-                            {log.parsedTraceString}
-                        </a>
-                    ) : (
-                        <span className="text-muted">{log.parsedTraceString}</span>
-                    )}
-                </div>
+                <div className="trace-string">{log.traceContent?.[0]}</div>
                 <p className="log-text">{log.parsedPayload}</p>
             </div>
         )

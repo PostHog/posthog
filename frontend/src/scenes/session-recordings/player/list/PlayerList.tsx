@@ -48,8 +48,6 @@ export function PlayerList<T extends Record<string, any>>({ tab, expandable, row
         }
     }, [listRef.current])
 
-    console.log('LISTDATA', data)
-
     return (
         <div className="PlayerList">
             {sessionEventsDataLoading ? (
@@ -133,7 +131,7 @@ export function PlayerList<T extends Record<string, any>>({ tab, expandable, row
                                                 classNameDetermined={rowClassNameDetermined}
                                                 statusDetermined={rowStatusDetermined}
                                                 currentDetermined={rowCurrentDetermined}
-                                                style={{ ...style, zIndex: data.length - index }}
+                                                style={style}
                                                 expandable={expandable}
                                                 contentDetermined={rowContentDetermined}
                                                 sideContentDetermined={rowSideContentDetermined}

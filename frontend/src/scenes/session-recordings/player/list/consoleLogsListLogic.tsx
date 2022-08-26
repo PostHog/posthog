@@ -15,8 +15,10 @@ import {
     getPlayerPositionFromEpochTime,
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
-import { colonDelimitedDuration } from 'lib/utils'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import md5 from 'md5'
+import { parseEntry } from 'scenes/session-recordings/player/list/consoleLogsUtils'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -34,43 +36,40 @@ export const FEEDBACK_OPTIONS = {
 function parseConsoleLogPayload(
     payload: RRWebRecordingConsoleLogPayload
 ): Omit<RecordingConsoleLog, keyof RecordingTimeMixinType> {
-    const { level, payload: logPayload, trace } = payload
+    const { level, payload: content, trace } = payload
 
-    const parsedPayload = logPayload
-        ?.map?.((item) => (item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item))
+    // Parse each string entry in content and trace
+    const contentFiltered = content?.filter((entry): entry is string => !!entry) ?? []
+    const traceFiltered = trace?.filter((entry): entry is string => !!entry) ?? []
+    const parsedEntries = contentFiltered.map((entry) => parseEntry(entry))
+    const parsedTrace = traceFiltered.map((entry) => parseEntry(entry))
+
+    // Create a preview and full version of logs
+    const previewContent = parsedEntries
+        .map(({ type, size, parsed }) => {
+            if (['array', 'object'].includes(type)) {
+                return `${capitalizeFirstLetter(type)} (${size})`
+            }
+            return parsed
+        })
+        .flat()
+    const fullContent = [
+        ...parsedEntries.map(({ parsed }) => parsed),
+        ...parsedTrace.map(({ parsed }) => parsed),
+    ].flat()
+    const traceContent = parsedTrace.map(({ traceUrl }) => traceUrl).filter((traceUrl) => !!traceUrl)
+
+    const parsedPayload = contentFiltered
+        .map((item) => (item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item))
         .join(' ')
 
-    // Parse the trace string
-    let parsedTraceString
-    let parsedTraceURL
-    // trace[] contains strings that looks like:
-    // * ":123:456"
-    // * "https://example.com/path/to/file.js:123:456"
-    // * "Login (https://example.com/path/to/file.js:123:456)"
-    // Note: there may be other formats too, but we only handle these ones now
-    if (trace && trace.length > 0) {
-        const traceWithoutParentheses = trace[0].split('(').slice(-1)[0].replace(')', '')
-        const splitTrace = traceWithoutParentheses.split(':')
-        const lineNumbers = splitTrace.slice(-2).join(':')
-        parsedTraceURL = splitTrace.slice(0, -2).join(':')
-        if (splitTrace.length >= 4) {
-            // Case with URL and line number
-            try {
-                const fileNameFromURL = new URL(parsedTraceURL).pathname.split('/').slice(-1)[0]
-                parsedTraceString = `${fileNameFromURL}:${lineNumbers}`
-            } catch (e) {
-                // If we can't parse the URL, fall back to this line number
-                parsedTraceString = `:${lineNumbers}`
-            }
-        } else {
-            // Case with line number only
-            parsedTraceString = `:${lineNumbers}`
-        }
-    }
     return {
         parsedPayload,
-        parsedTraceString,
-        parsedTraceURL,
+        previewContent,
+        fullContent,
+        traceContent,
+        count: 1,
+        hash: md5(parsedPayload),
         level,
     }
 }
