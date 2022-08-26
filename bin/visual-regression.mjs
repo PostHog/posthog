@@ -2,20 +2,38 @@ import { launch } from 'puppeteer'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
+
 ;(async () => {
     if (!existsSync('./visual-regression-screenshots/diffs')) {
         mkdirSync('./visual-regression-screenshots/diffs', { recursive: true })
     }
 
     const browser = await launch()
+    // {headless:false}
     const page = await browser.newPage()
 
     try {
         console.log('checking lemon button types and statuses')
         await page.goto('https://storybook.posthog.net/?path=/docs/lemon-ui-lemon-button--default#types-and-statuses')
         await page.waitForSelector('#lemon-ui-lemon-button--types-and-statuses')
+        // OMG storybook's delayed scroll is painful
+        await page.evaluate(() => {
+            console.log('PUPPETEER: evaluating!')
+            var iframe = document.getElementById('storybook-preview-iframe')
+            iframe.contentDocument.body.addEventListener('scroll', function () {
+                console.log('PUPPETEER: reacting to scroll')
+                window.clearTimeout(isScrolling)
+
+                isScrolling = setTimeout(function () {
+                    console.log('PUPPETEER: scrolling stopped!')
+                    window.scrollingStartedAndStopped = true
+                }, 100)
+            })
+        })
+
         await page.click('#lemon-ui-lemon-button--types-and-statuses')
-        await page.waitForTimeout(3000)
+        await page.waitForNetworkIdle()
+        await page.waitForFunction('window.scrollingStartedAndStopped === true')
         await page.screenshot({ path: './visual-regression-screenshots/screenshot-button-types-and-statuses.png' })
 
         const screenshot = PNG.sync.read(
