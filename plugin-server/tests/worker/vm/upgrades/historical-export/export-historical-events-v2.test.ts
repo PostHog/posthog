@@ -7,6 +7,8 @@ import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
 import {
     addHistoricalEventsExportCapabilityV2,
+    EVENTS_PER_RUN,
+    ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgradeV2,
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
@@ -25,6 +27,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     })
 
     afterAll(async () => {
+        await hub.kafkaProducer.flush()
         await closeHub()
     })
 
@@ -60,6 +63,43 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             return vm.meta.global._testFunctions[name](...args)
         }
     }
+
+    describe('nextFetchTimeInterval()', () => {
+        const nextFetchTimeInterval = getTestMethod('nextFetchTimeInterval')
+
+        const ONE_HOUR = 1000 * 60 * 60
+        const defaultPayload: ExportHistoricalEventsJobPayload = {
+            timestampCursor: 0,
+            startTime: 0,
+            endTime: 1000,
+            offset: 0,
+            retriesPerformedSoFar: 0,
+            exportId: 0,
+            fetchTimeInterval: ONE_HOUR,
+        }
+
+        it('returns existing fetchTimeInterval if more in current time range', () => {
+            expect(nextFetchTimeInterval(defaultPayload, EVENTS_PER_RUN)).toEqual(ONE_HOUR)
+        })
+
+        it('returns existing fetchTimeInterval if more in current time range on a late page', () => {
+            expect(nextFetchTimeInterval({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, EVENTS_PER_RUN)).toEqual(
+                ONE_HOUR
+            )
+        })
+
+        it('returns existing fetchTimeInterval if time range mostly full', () => {
+            expect(nextFetchTimeInterval(defaultPayload, EVENTS_PER_RUN * 0.9)).toEqual(ONE_HOUR)
+        })
+
+        it('increases fetchTimeInterval if time range mostly empty', () => {
+            expect(nextFetchTimeInterval(defaultPayload, EVENTS_PER_RUN * 0.1)).toEqual(ONE_HOUR * 1.2)
+        })
+
+        it('decreases fetchTimeInterval if on a late page and no more to fetch', () => {
+            expect(nextFetchTimeInterval({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, 10)).toEqual(ONE_HOUR / 1.2)
+        })
+    })
 
     describe('getTimestampBoundaries()', () => {
         const getTimestampBoundaries = getTestMethod('getTimestampBoundaries')

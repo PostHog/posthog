@@ -18,7 +18,7 @@ import { fetchEventsForInterval, fetchTimestampBoundariesForTeam, TimestampBound
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
-const EVENTS_PER_RUN = 500
+export const EVENTS_PER_RUN = 500
 
 const EXPORT_RUNNING_KEY = 'is_export_running'
 
@@ -288,10 +288,10 @@ export function addHistoricalEventsExportCapabilityV2(
             return Math.min(Math.floor(payload.fetchTimeInterval * 1.2), TWELVE_HOURS)
         }
         // If time window seems too large, reduce it
-        if (payload.offset > 2) {
+        if (payload.offset > 2 * EVENTS_PER_RUN) {
             return Math.max(Math.floor(payload.fetchTimeInterval / 1.2), TEN_MINUTES)
         }
-        return payload.offset
+        return payload.fetchTimeInterval
     }
 
     async function coordinateHistoricExport() {
