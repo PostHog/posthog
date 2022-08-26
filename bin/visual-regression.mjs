@@ -2,7 +2,6 @@ import { launch } from 'puppeteer'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
-import { pathToFileURL } from 'url'
 ;(async () => {
     if (!existsSync('./visual-regression-screenshots/diffs')) {
         mkdirSync('./visual-regression-screenshots/diffs', { recursive: true })
