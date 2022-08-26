@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select, Divider } from 'antd'
+import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -9,7 +9,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconCopy, IconDelete, IconPlus } from 'lib/components/icons'
+import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconSubdirectoryArrowRight } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -35,6 +35,11 @@ import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermar
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as featureFlagLibLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { FeatureFlagsTabs } from './featureFlagsLogic'
+import { flagActivityDescriber } from './activityDescriptions'
+import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopup/utils'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -86,12 +91,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
     // whether to warn the user that their variants will be lost
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
+    const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
 
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
     const isNewFeatureFlag = id === 'new' || id === undefined
     // const isNewFeatureFlag = false
-    const isEditingFlag = true
+    const isEditingFlag = false
 
     return (
         <>
@@ -289,6 +295,26 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </div>
                                 }
                             />
+                            <Tabs
+                                activeKey={activeTab}
+                                destroyInactiveTabPane
+                                onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                            >
+                                <Tabs.TabPane tab="Overview" key="overview">
+                                    <Row>
+                                        <Col span={13}>
+                                            <FeatureFlagRollout readOnly />
+                                            <FeatureFlagReleaseConditions readOnly />
+                                        </Col>
+                                        <Col span={11}>
+                                            <div className="ml-4">Insights that use this feature</div>
+                                        </Col>
+                                    </Row>
+                                </Tabs.TabPane>
+                                <Tabs.TabPane tab="History" key="history">
+                                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
+                                </Tabs.TabPane>
+                            </Tabs>
                         </>
                     )}
                 </div>
@@ -797,7 +823,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function FeatureFlagRollout(): JSX.Element {
+interface FeatureFlagReadOnlyProps {
+    readOnly?: boolean
+}
+
+function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const {
         multivariateEnabled,
         variants,
@@ -806,6 +836,7 @@ function FeatureFlagRollout(): JSX.Element {
         variantRolloutSum,
         nonEmptyVariants,
         aggregationTargetName,
+        featureFlag,
     } = useValues(featureFlagLogic)
     const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled, duplicateVariant } =
         useActions(featureFlagLogic)
@@ -814,82 +845,135 @@ function FeatureFlagRollout(): JSX.Element {
 
     return (
         <>
-            <div className="mb-8">
-                <h3 className="l4">Served value</h3>
-                <div className="mb-2">
-                    <Popconfirm
-                        placement="top"
-                        title="Change value type? The variants below will be lost."
-                        disabled={featureFlagLoading}
-                        visible={showVariantDiscardWarning}
-                        onConfirm={() => {
-                            setMultivariateEnabled(false)
-                            setShowVariantDiscardWarning(false)
-                        }}
-                        onCancel={() => setShowVariantDiscardWarning(false)}
-                        okText="OK"
-                        cancelText="Cancel"
-                    >
-                        <Radio.Group
-                            options={[
-                                {
-                                    label: 'Boolean value (A/B test)',
-                                    value: false,
-                                },
-                                {
-                                    label: (
-                                        <Tooltip
-                                            title={
-                                                hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                                    ? ''
-                                                    : 'This feature is not available on your current plan.'
-                                            }
-                                        >
-                                            <div>
-                                                {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                                                    <Link to={upgradeLink} target="_blank">
-                                                        <LockOutlined
-                                                            style={{ marginRight: 4, color: 'var(--warning)' }}
-                                                        />
-                                                    </Link>
-                                                )}
-                                                String value (Multivariate test){' '}
-                                            </div>
-                                        </Tooltip>
-                                    ),
-                                    value: true,
-                                    disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
-                                },
-                            ]}
-                            onChange={(e) => {
-                                const { value } = e.target
-                                if (value === false && nonEmptyVariants.length) {
-                                    setShowVariantDiscardWarning(true)
-                                } else {
-                                    setMultivariateEnabled(value)
-                                    focusVariantKeyField(0)
-                                }
-                            }}
-                            value={multivariateEnabled}
-                            optionType="button"
-                        />
-                    </Popconfirm>
-                </div>
-                <div className="text-muted mb-4">
-                    {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                    {multivariateEnabled ? (
+            {readOnly ? (
+                <>
+                    <div className="font-medium border rounded p-2 pl-3 mb-4">
+                        Served value:{' '}
+                        <b>
+                            {featureFlag.filters.multivariate
+                                ? 'String value (Multivariate test)'
+                                : 'Boolean value (A/B test)'}
+                        </b>
+                    </div>
+                    {featureFlag.filters.multivariate && (
                         <>
-                            <strong>a variant key</strong> according to the below distribution
+                            <div className="mb-2">
+                                <b>Variant keys</b>
+                            </div>
+                            <div className="border rounded p-4 mb-4">
+                                <Row className="font-semibold">
+                                    <Col span={10}>Key</Col>
+                                    <Col span={11}>Description</Col>
+                                    <Col span={3}>Rollout</Col>
+                                </Row>
+                                <LemonDivider />
+                                {variants.map((variant, index) => (
+                                    <>
+                                        <Row>
+                                            <Col span={10}>
+                                                <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                                                <CopyToClipboardInline
+                                                    tooltipMessage={null}
+                                                    description="key"
+                                                    style={{
+                                                        display: 'inline-flex',
+                                                        justifyContent: 'flex-end',
+                                                        marginLeft: '0.5rem',
+                                                    }}
+                                                >
+                                                    {variant.key}
+                                                </CopyToClipboardInline>
+                                            </Col>
+                                            <Col span={12}>
+                                                {variant.name || 'There is no description for this variant key'}
+                                            </Col>
+                                            <Col span={2}>{variant.rollout_percentage}%</Col>
+                                        </Row>
+                                        {index !== variants.length - 1 && <LemonDivider className="my-3" />}
+                                    </>
+                                ))}
+                            </div>
                         </>
-                    ) : (
-                        <strong>
-                            <code>true</code>
-                        </strong>
-                    )}{' '}
-                    if they match one or more release condition groups.
+                    )}
+                </>
+            ) : (
+                <div className="mb-8">
+                    <h3 className="l4">Served value</h3>
+                    <div className="mb-2">
+                        <Popconfirm
+                            placement="top"
+                            title="Change value type? The variants below will be lost."
+                            disabled={featureFlagLoading}
+                            visible={showVariantDiscardWarning}
+                            onConfirm={() => {
+                                setMultivariateEnabled(false)
+                                setShowVariantDiscardWarning(false)
+                            }}
+                            onCancel={() => setShowVariantDiscardWarning(false)}
+                            okText="OK"
+                            cancelText="Cancel"
+                        >
+                            <Radio.Group
+                                options={[
+                                    {
+                                        label: 'Boolean value (A/B test)',
+                                        value: false,
+                                    },
+                                    {
+                                        label: (
+                                            <Tooltip
+                                                title={
+                                                    hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
+                                                        ? ''
+                                                        : 'This feature is not available on your current plan.'
+                                                }
+                                            >
+                                                <div>
+                                                    {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                                                        <Link to={upgradeLink} target="_blank">
+                                                            <LockOutlined
+                                                                style={{ marginRight: 4, color: 'var(--warning)' }}
+                                                            />
+                                                        </Link>
+                                                    )}
+                                                    String value (Multivariate test){' '}
+                                                </div>
+                                            </Tooltip>
+                                        ),
+                                        value: true,
+                                        disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
+                                    },
+                                ]}
+                                onChange={(e) => {
+                                    const { value } = e.target
+                                    if (value === false && nonEmptyVariants.length) {
+                                        setShowVariantDiscardWarning(true)
+                                    } else {
+                                        setMultivariateEnabled(value)
+                                        focusVariantKeyField(0)
+                                    }
+                                }}
+                                value={multivariateEnabled}
+                                optionType="button"
+                            />
+                        </Popconfirm>
+                    </div>
+                    <div className="text-muted mb-4">
+                        {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                        {multivariateEnabled ? (
+                            <>
+                                <strong>a variant key</strong> according to the below distribution
+                            </>
+                        ) : (
+                            <strong>
+                                <code>true</code>
+                            </strong>
+                        )}{' '}
+                        if they match one or more release condition groups.
+                    </div>
                 </div>
-            </div>
-            {multivariateEnabled && (
+            )}
+            {!readOnly && multivariateEnabled && (
                 <div className="feature-flag-variants">
                     <h3 className="l4">Variant keys</h3>
                     <span>The rollout percentage of feature flag variants must add up to 100%</span>
@@ -1009,7 +1093,7 @@ function FeatureFlagRollout(): JSX.Element {
     )
 }
 
-function FeatureFlagReleaseConditions(): JSX.Element {
+function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const { aggregationTargetName, featureFlag, groupTypes, taxonomicGroupTypes } = useValues(featureFlagLogic)
     const {
@@ -1021,18 +1105,26 @@ function FeatureFlagReleaseConditions(): JSX.Element {
     } = useActions(featureFlagLogic)
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
-
+    console.log('feature flag groups', featureFlag.filters.groups)
     return (
         <>
             <div className="feature-flag-form-row">
                 <div data-tooltip="feature-flag-release-conditions">
-                    <h3 className="l3">Release conditions</h3>
-                    <div className="text-muted mb-4">
-                        Specify the {aggregationTargetName} to which you want to release this flag. Note that condition
-                        sets are rolled out independently of each other.
-                    </div>
+                    {readOnly ? (
+                        <div className="mb-2">
+                            <b>Release conditions</b>
+                        </div>
+                    ) : (
+                        <>
+                            <h3 className="l3">Release conditions</h3>
+                            <div className="text-muted mb-4">
+                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
+                                condition sets are rolled out independently of each other.
+                            </div>
+                        </>
+                    )}
                 </div>
-                {showGroupsOptions && (
+                {!readOnly && showGroupsOptions && (
                     <div className="centered">
                         Match by
                         <Select
@@ -1070,16 +1162,24 @@ function FeatureFlagReleaseConditions(): JSX.Element {
                 {featureFlag.filters.groups.map((group, index) => (
                     <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
-                        <Card style={{ marginBottom: 16 }}>
+                        <div className="mb-4 border rounded p-4">
                             <Row align="middle" justify="space-between">
                                 <Row align="middle">
                                     <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
                                         Set {index + 1}
                                     </span>
-                                    <div className="font-medium">
+                                    <div>
                                         {group.properties?.length ? (
                                             <>
-                                                Matching <b>{aggregationTargetName}</b> against the criteria
+                                                {readOnly ? (
+                                                    <>
+                                                        Match <b>{aggregationTargetName}</b> against <b>all</b> criteria
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        Matching <b>{aggregationTargetName}</b> against the criteria
+                                                    </>
+                                                )}
                                             </>
                                         ) : (
                                             <>
@@ -1088,62 +1188,92 @@ function FeatureFlagReleaseConditions(): JSX.Element {
                                         )}
                                     </div>
                                 </Row>
-                                <Row>
-                                    <LemonButton
-                                        icon={<IconCopy />}
-                                        status="muted"
-                                        noPadding
-                                        onClick={() => duplicateConditionSet(index)}
-                                    />
-                                    {featureFlag.filters.groups.length > 1 && (
+                                {!readOnly && (
+                                    <Row>
                                         <LemonButton
-                                            icon={<IconDelete />}
+                                            icon={<IconCopy />}
                                             status="muted"
                                             noPadding
-                                            onClick={() => removeConditionSet(index)}
+                                            onClick={() => duplicateConditionSet(index)}
                                         />
-                                    )}
-                                </Row>
+                                        {featureFlag.filters.groups.length > 1 && (
+                                            <LemonButton
+                                                icon={<IconDelete />}
+                                                status="muted"
+                                                noPadding
+                                                onClick={() => removeConditionSet(index)}
+                                            />
+                                        )}
+                                    </Row>
+                                )}
                             </Row>
                             <LemonDivider className="my-4" />
-                            <div>
-                                <PropertyFilters
-                                    orFiltering={true}
-                                    pageKey={`feature-flag-${featureFlag.id}-${index}-${
-                                        featureFlag.filters.groups.length
-                                    }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
-                                    propertyFilters={group?.properties}
-                                    logicalRowDivider
-                                    onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                    taxonomicGroupTypes={taxonomicGroupTypes}
-                                />
-                            </div>
-
-                            <LemonDivider className="my-4" />
-
-                            <div className="feature-flag-form-row">
-                                <div className="centered">
-                                    Roll out to{' '}
-                                    <InputNumber
-                                        style={{ width: 100, marginLeft: 8, marginRight: 8 }}
-                                        onChange={(value): void => {
-                                            updateConditionSet(index, value as number)
-                                        }}
-                                        value={group.rollout_percentage != null ? group.rollout_percentage : 100}
-                                        min={0}
-                                        max={100}
-                                        addonAfter="%"
-                                    />{' '}
-                                    of <b>{aggregationTargetName}</b> in this set
+                            {readOnly ? (
+                                <>
+                                    {group.properties.map((property, idx) => (
+                                        <>
+                                            <Row align="middle" className="gap-2 mt-1">
+                                                {idx === 0 ? (
+                                                    <IconSubdirectoryArrowRight />
+                                                ) : (
+                                                    <span style={{ width: 14 }}>&</span>
+                                                )}
+                                                <span className="simple-tag tag-light-blue">{property.key} </span>
+                                                <span>{genericOperatorToHumanName(property.operator)} </span>
+                                                <span>{propertyValueToHumanName(property.value)}</span>
+                                            </Row>
+                                        </>
+                                    ))}
+                                </>
+                            ) : (
+                                <div>
+                                    <PropertyFilters
+                                        orFiltering={true}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                            featureFlag.filters.groups.length
+                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                        propertyFilters={group?.properties}
+                                        logicalRowDivider
+                                        onChange={(properties) => updateConditionSet(index, undefined, properties)}
+                                        taxonomicGroupTypes={taxonomicGroupTypes}
+                                    />
                                 </div>
-                            </div>
-                        </Card>
+                            )}
+                            {!readOnly ||
+                                (readOnly && group.properties?.length > 0 && <LemonDivider className="my-4" />)}
+                            {readOnly ? (
+                                <div>
+                                    Rolled out to{' '}
+                                    <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
+                                    <b>{aggregationTargetName}</b> in this set
+                                </div>
+                            ) : (
+                                <div className="feature-flag-form-row">
+                                    <div className="centered">
+                                        Roll out to{' '}
+                                        <InputNumber
+                                            style={{ width: 100, marginLeft: 8, marginRight: 8 }}
+                                            onChange={(value): void => {
+                                                updateConditionSet(index, value as number)
+                                            }}
+                                            value={group.rollout_percentage != null ? group.rollout_percentage : 100}
+                                            min={0}
+                                            max={100}
+                                            addonAfter="%"
+                                        />{' '}
+                                        of <b>{aggregationTargetName}</b> in this set
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </Col>
                 ))}
             </Row>
-            <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
-                Add condition set
-            </LemonButton>
+            {!readOnly && (
+                <LemonButton type="secondary" className="mt-0" onClick={addConditionSet} icon={<IconPlus />}>
+                    Add condition set
+                </LemonButton>
+            )}
         </>
     )
 }
