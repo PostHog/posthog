@@ -45,18 +45,6 @@ const eventTypeOptions: LemonSelectOptions<CombinedEventType> = [
         label: 'PostHog events',
         'data-attr': 'event-type-option-event-posthog',
     },
-    {
-        value: CombinedEventType.EventCustom,
-        label: 'Events / Custom',
-        icon: <UnverifiedEvent />,
-        'data-attr': 'event-type-option-event-custom',
-    },
-    {
-        value: CombinedEventType.EventPostHog,
-        label: 'Events / PostHog',
-        icon: <UnverifiedEvent />,
-        'data-attr': 'event-type-option-event-posthog',
-    },
 ]
 
 export const scene: SceneExport = {

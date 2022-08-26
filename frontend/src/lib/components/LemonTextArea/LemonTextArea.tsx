@@ -17,15 +17,17 @@ export interface LemonTextAreaProps
     disabled?: boolean
     ref?: React.Ref<HTMLTextAreaElement>
     onChange?: (newValue: string) => void
-    onPressEnter?: (newValue: string) => void
+    /** Callback called when Cmd + Enter (or Ctrl + Enter) is pressed.
+     * This checks for Cmd/Ctrl, as opposed to LemonInput, to avoid blocking multi-line input. */
+    onPressCmdEnter?: (newValue: string) => void
     minRows?: number
     maxRows?: number
     rows?: number
 }
 
-/** A `LemonRow`-based `textarea` component for multi-line text. */
+/** A `textarea` component for multi-line text. */
 export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
-    { className, onChange, onFocus, onBlur, onPressEnter, minRows = 3, onKeyDown, ...textProps },
+    { className, onChange, onFocus, onBlur, onPressCmdEnter: onPressEnter, minRows = 3, onKeyDown, ...textProps },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLTextAreaElement | null>(null)
@@ -37,7 +39,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
             ref={textRef}
             className={clsx('LemonTextArea', className)}
             onKeyDown={(e) => {
-                if (onPressEnter && e.key === 'Enter') {
+                if (onPressEnter && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     onPressEnter(textProps.value?.toString() ?? '')
                 }
 
