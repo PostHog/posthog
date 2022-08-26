@@ -1,3 +1,20 @@
+/*
+Historical exports (v2) work the following way:
+
+- User triggers a `Export historical events V2` job from the UI.
+  This saves the time range as the running export with parallelism options.
+- `runEveryMinute` acts as a coordinator: It takes the time range job runs on, splits it into pieces,
+  ensures that enough pieces are running, reports progress and finalizes the export.
+- `exportHistoricalEvents` job is responsible for exporting data between particular start and end points
+    - It tracks its progress under `statusKey`
+    - It dynamically resizes the time window we fetch data to minimize waiting.
+    - It calls plugins `exportEvents` with each batch of events it finds
+    - It handles retries by retrying RetryErrors up to 15 times
+
+Note:
+- parallelism is only settable by superusers to avoid abuse.
+*/
+
 import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
