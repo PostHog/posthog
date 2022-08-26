@@ -237,7 +237,9 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-        @test_with_materialized_columns(group_properties=[(0, "industry")])
+        @test_with_materialized_columns(
+            group_properties=[(0, "industry")], verify_no_jsonextract=False
+        )  # remove once person on events is default
         @snapshot_clickhouse_queries
         def test_funnel_aggregate_by_groups_breakdown_group_person_on_events(self):
             self._create_groups()

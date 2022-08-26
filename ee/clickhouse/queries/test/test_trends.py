@@ -77,7 +77,9 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
         self.assertEqual(response[1]["breakdown_value"], "uh")
         self.assertEqual(response[1]["count"], 1)
 
-    @test_with_materialized_columns(event_properties=["key"], group_properties=[(0, "industry")])
+    @test_with_materialized_columns(
+        event_properties=["key"], group_properties=[(0, "industry")], verify_no_jsonextract=False
+    )  # remove once person on events is default
     @snapshot_clickhouse_queries
     def test_breakdown_with_filter_groups_person_on_events(self):
         self._create_groups()
@@ -328,7 +330,9 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
         response = Trends().run(filter, self.team)
         self.assertEqual(response[0]["count"], 1)
 
-    @test_with_materialized_columns(person_properties=["key"], group_properties=[(0, "industry")])
+    @test_with_materialized_columns(
+        person_properties=["key"], group_properties=[(0, "industry")], verify_no_jsonextract=False
+    )  # remove once person on events is default
     @snapshot_clickhouse_queries
     def test_breakdown_by_group_props_with_person_filter_person_on_events(self):
         self._create_groups()
@@ -373,7 +377,9 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             self.assertEqual(response[0]["breakdown_value"], "finance")
             self.assertEqual(response[0]["count"], 1)
 
-    @test_with_materialized_columns(person_properties=["key"], group_properties=[(0, "industry")])
+    @test_with_materialized_columns(
+        person_properties=["key"], group_properties=[(0, "industry")], verify_no_jsonextract=False
+    )  # remove once person on events is default
     @snapshot_clickhouse_queries
     def test_filtering_with_group_props_person_on_events(self):
         self._create_groups()
@@ -421,7 +427,9 @@ class TestClickhouseTrends(trend_test_factory(Trends)):  # type: ignore
             response = Trends().run(filter, self.team)
             self.assertEqual(response[0]["count"], 1)
 
-    @test_with_materialized_columns(group_properties=[(0, "industry"), (2, "name")])
+    @test_with_materialized_columns(
+        group_properties=[(0, "industry"), (2, "name")], verify_no_jsonextract=False
+    )  # remove once person on events is default
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

@@ -2770,7 +2770,9 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         )
 
     @test_with_materialized_columns(
-        ["$current_url", "$screen_name"], group_properties=[(0, "industry"), (1, "industry")]
+        ["$current_url", "$screen_name"],
+        group_properties=[(0, "industry"), (1, "industry")],
+        verify_no_jsonextract=False,  # remove once person on events is default
     )
     @snapshot_clickhouse_queries
     def test_path_groups_filtering_person_on_events(self):
