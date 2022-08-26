@@ -63,6 +63,9 @@ export interface ExportHistoricalEventsJobPayload {
 
     // Time frame to fetch events for.
     fetchTimeInterval: number
+
+    // Key to report export status to
+    statusKey: string
 }
 
 export interface ExportHistoricalEventsUIPayload {
@@ -159,7 +162,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
         if (payload.retriesPerformedSoFar >= 15) {
-            // create some log error here
+            // :TODO: Should we cancel the whole export? Notify users?
             return
         }
 
@@ -167,8 +170,12 @@ export function addHistoricalEventsExportCapabilityV2(
         // :TODO: Handle double-processing somehow?
 
         if (payload.timestampCursor >= payload.endTime) {
-            createLog(`Finished processing events between ${payload.startTime} and ${payload.endTime}`)
-            await meta.storage.set(`EXPORT_DATE_STATUS_${payload.startTime}`, {
+            createLog(
+                `Finished processing events between ${new Date(payload.startTime).toISOString()} and ${new Date(
+                    payload.endTime
+                ).toISOString()}`
+            )
+            await meta.storage.set(payload.statusKey, {
                 done: true,
                 progress: 1,
             } as ExportDateStatus)
@@ -176,7 +183,8 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
-        await meta.storage.set(`EXPORT_DATE_STATUS_${payload.startTime}`, {
+        // :TODO: This key system is incompatible with what's done elsewhere.
+        await meta.storage.set(payload.statusKey, {
             done: false,
             progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
             // :TODO: Save timestampCursor, exportId, use that to skip on restarts occurring
@@ -186,6 +194,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
         let fetchEventsError: Error | unknown | null = null
         try {
+            // :TODO: Verify this handles borders correctly
             events = await fetchEventsForInterval(
                 hub.db,
                 pluginConfig.team_id,
@@ -202,6 +211,7 @@ export function addHistoricalEventsExportCapabilityV2(
         let exportEventsError: Error | unknown | null = null
 
         if (fetchEventsError) {
+            // :TODO: This doesn't stop currently running jobs from continuing
             await meta.storage.del(EXPORT_RUNNING_KEY)
             // :TODO: Retries logic.
             createLog(`Failed fetching events. Stopping export - please try again later.`)
@@ -224,7 +234,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 `Failed processing events ${payload.offset}-${payload.offset + events.length} from ${new Date(
                     payload.timestampCursor
                 ).toISOString()} to ${new Date(
-                    payload.timestampCursor + EVENTS_TIME_INTERVAL
+                    payload.timestampCursor + payload.fetchTimeInterval
                 ).toISOString()}. Retrying in ${nextRetrySeconds}s`
             )
 
@@ -248,12 +258,13 @@ export function addHistoricalEventsExportCapabilityV2(
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(1, 'seconds')
         }
+        // :TODO: When unknown exportEventsError?
 
-        if (events.length > 0) {
+        if (events.length > 0 && !exportEventsError) {
             createLog(
                 `Successfully processed events ${payload.offset}-${payload.offset + events.length} from ${new Date(
                     payload.timestampCursor
-                ).toISOString()} to ${new Date(payload.timestampCursor + EVENTS_TIME_INTERVAL).toISOString()}.`
+                ).toISOString()} to ${new Date(payload.timestampCursor + payload.fetchTimeInterval).toISOString()}.`
             )
         }
     }
@@ -331,6 +342,7 @@ export function addHistoricalEventsExportCapabilityV2(
                             retriesPerformedSoFar: 0,
                             exportId: params.id,
                             fetchTimeInterval: EVENTS_TIME_INTERVAL,
+                            statusKey: `EXPORT_DATE_STATUS_${startDate}`,
                         } as ExportHistoricalEventsJobPayload)
                         .runNow()
                 })

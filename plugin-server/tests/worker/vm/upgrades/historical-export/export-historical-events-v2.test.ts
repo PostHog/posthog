@@ -1,5 +1,4 @@
-import { PluginMeta } from '@posthog/plugin-scaffold'
-import deepmerge from 'deepmerge'
+import { PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub, ISOTimestamp, PluginConfigVMInternalResponse } from '../../../../../src/types'
 import { createHub } from '../../../../../src/utils/db/hub'
@@ -13,22 +12,35 @@ import {
     ExportHistoricalEventsUpgradeV2,
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
-import { fetchTimestampBoundariesForTeam } from '../../../../../src/worker/vm/upgrades/utils/utils'
+import {
+    fetchEventsForInterval,
+    fetchTimestampBoundariesForTeam,
+} from '../../../../../src/worker/vm/upgrades/utils/utils'
 import { pluginConfig39 } from '../../../../helpers/plugins'
 import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/worker/vm/upgrades/utils/utils')
 
+const ONE_HOUR = 1000 * 60 * 60
+
 describe('addHistoricalEventsExportCapabilityV2()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
     let vm: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
+    let runNow: jest.Mock, runIn: jest.Mock
+
+    beforeEach(() => {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-expect-error
+        vm = undefined
+    })
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
         hub.kafkaProducer.queueMessage = jest.fn()
         hub.kafkaProducer.flush = jest.fn()
+        jest.spyOn(hub.db, 'queuePluginLogEntry')
     })
 
     afterAll(async () => {
@@ -40,8 +52,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         return createStorage(hub, pluginConfig39)
     }
 
-    function addCapabilities(overrides?: any) {
-        const mockVM = deepmerge(overrides, {
+    function createVM() {
+        runIn = jest.fn()
+        runNow = jest.fn()
+        // :TODO: Kill deepmerge
+        const mockVM = {
             methods: {
                 exportEvents: jest.fn(),
             },
@@ -53,32 +68,191 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 storage: storage(),
                 utils: createUtils(hub, pluginConfig39.id),
                 jobs: {
-                    exportHistoricalEvents: jest.fn().mockReturnValue({ runNow: jest.fn() }),
+                    exportHistoricalEvents: jest.fn().mockReturnValue({ runNow, runIn }),
                 },
                 global: {},
             },
-        }) as unknown as PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
+        } as unknown as PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
 
         addHistoricalEventsExportCapabilityV2(hub, pluginConfig39, mockVM)
 
-        return mockVM
+        vm = mockVM
     }
 
     function getTestMethod<T extends keyof TestFunctions>(name: T): TestFunctions[T] {
         // @ts-expect-error testing-related schenanigans
         return (...args: any[]) => {
-            vm = addCapabilities()
+            if (!vm) {
+                createVM()
+            }
             // @ts-expect-error testing-related schenanigans
             return vm.meta.global._testFunctions[name](...args)
         }
     }
 
+    describe('exportHistoricalEvents()', () => {
+        const exportHistoricalEvents = getTestMethod('exportHistoricalEvents')
+
+        const defaultPayload: ExportHistoricalEventsJobPayload = {
+            timestampCursor: 1635724800000,
+            startTime: 1635724800000,
+            endTime: 1635742800000,
+            exportId: 1,
+            fetchTimeInterval: ONE_HOUR,
+            offset: 0,
+            retriesPerformedSoFar: 0,
+            statusKey: 'statusKey',
+        }
+
+        it('stores current progress in storage under `statusKey`', async () => {
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([])
+
+            await exportHistoricalEvents({ ...defaultPayload, timestampCursor: 1635730000000 })
+
+            expect(await storage().get('statusKey', null)).toEqual({
+                done: false,
+                progress: expect.closeTo(0.28888),
+            })
+        })
+
+        it('logs and marks part of export done if reached the end', async () => {
+            await exportHistoricalEvents({ ...defaultPayload, timestampCursor: defaultPayload.endTime })
+
+            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Finished processing events between 2021-11-01T00:00:00.000Z and 2021-11-01T05:00:00.000Z'
+                    ),
+                })
+            )
+            expect(await storage().get('statusKey', null)).toEqual({
+                done: true,
+                progress: 1,
+            })
+        })
+
+        it('calls exportEvents and logs with fetched events', async () => {
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
+
+            await exportHistoricalEvents(defaultPayload)
+
+            expect(vm.methods.exportEvents).toHaveBeenCalledWith([1, 2, 3])
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Successfully processed events 0-3 from 2021-11-01T00:00:00.000Z to 2021-11-01T01:00:00.000Z.'
+                    ),
+                })
+            )
+        })
+
+        it('does not call exportEvents or log if no events in time range', async () => {
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([])
+
+            await exportHistoricalEvents(defaultPayload)
+
+            expect(vm.methods.exportEvents).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+        })
+
+        it('stops export if events fetch fails', async () => {
+            jest.mocked(fetchEventsForInterval).mockRejectedValue(new Error('Fetch failed'))
+            await storage().set(EXPORT_RUNNING_KEY, {
+                id: 1,
+                parallelism: 3,
+                dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+                dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+            })
+
+            await exportHistoricalEvents(defaultPayload)
+
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Failed fetching events. Stopping export - please try again later.'
+                    ),
+                })
+            )
+            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+        })
+
+        it('schedules a retry if exportEvents raises a RetryError', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
+            jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
+
+            await exportHistoricalEvents(defaultPayload)
+
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Failed processing events 0-3 from 2021-11-01T00:00:00.000Z to 2021-11-01T01:00:00.000Z.'
+                    ),
+                })
+            )
+            expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                ...defaultPayload,
+                retriesPerformedSoFar: 1,
+            })
+            expect(runIn).toHaveBeenCalledWith(3, 'seconds')
+        })
+
+        it('schedules a retry with exponential backoff', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
+            jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
+
+            await exportHistoricalEvents({ ...defaultPayload, retriesPerformedSoFar: 5 })
+
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Failed processing events 0-3 from 2021-11-01T00:00:00.000Z to 2021-11-01T01:00:00.000Z.'
+                    ),
+                })
+            )
+            expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                ...defaultPayload,
+                retriesPerformedSoFar: 6,
+            })
+            expect(runIn).toHaveBeenCalledWith(96, 'seconds')
+        })
+
+        it('stops processing date if an unknown error was raised in exportEvents', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
+            jest.mocked(vm.methods.exportEvents).mockRejectedValue(new Error('Unknown error'))
+
+            await exportHistoricalEvents(defaultPayload)
+
+            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+            expect(vm.meta.jobs.exportHistoricalEvents).not.toHaveBeenCalled()
+        })
+
+        it('stops processing after 15 retries', async () => {
+            await exportHistoricalEvents({ ...defaultPayload, retriesPerformedSoFar: 15 })
+
+            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+        })
+
+        // describe('calling next time window', () => {
+        //     it('calls next time range if this range was empty')
+        //     it('calls next time range if this range had few events')
+        //     it('increases offset if this range had full page of events')
+        //     it('resets `retriesPerformedSoFar`')
+        //     it('does not cross endTime when bumping time window')
+        // })
+    })
+
     describe('coordinateHistoricExport()', () => {
         const coordinateHistoricExport = getTestMethod('coordinateHistoricExport')
 
         beforeEach(async () => {
-            jest.spyOn(hub.db, 'queuePluginLogEntry')
-
             await resetTestDatabase()
         })
 
@@ -146,6 +320,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     retriesPerformedSoFar: 0,
                     startTime: 1635724800000,
                     timestampCursor: 1635724800000,
+                    statusKey: 'EXPORT_DATE_STATUS_2021-11-01T00:00:00.000Z',
                 })
 
                 expect(await storage().get('EXPORT_COORDINATION', null)).toEqual({
@@ -281,7 +456,6 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('nextFetchTimeInterval()', () => {
         const nextFetchTimeInterval = getTestMethod('nextFetchTimeInterval')
 
-        const ONE_HOUR = 1000 * 60 * 60
         const defaultPayload: ExportHistoricalEventsJobPayload = {
             timestampCursor: 0,
             startTime: 0,
@@ -290,6 +464,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             retriesPerformedSoFar: 0,
             exportId: 0,
             fetchTimeInterval: ONE_HOUR,
+            statusKey: 'abc',
         }
 
         it('returns existing fetchTimeInterval if more in current time range', () => {
