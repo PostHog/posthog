@@ -3,6 +3,10 @@ import { readFileSync, writeFileSync } from 'fs'
 import { PNG } from 'pngjs'
 import pixelmatch from 'pixelmatch'
 ;(async () => {
+    if (!fs.existsSync('./visual-regression-screenshots/diffs')) {
+        fs.mkdirSync('./visual-regression-screenshots/diffs', { recursive: true })
+    }
+
     const browser = await launch()
     const page = await browser.newPage()
     try {
