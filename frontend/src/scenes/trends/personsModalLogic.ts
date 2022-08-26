@@ -176,6 +176,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 ) => ({
                     people: [],
                     count: 0,
+                    missingPersons: 0,
                     action,
                     label,
                     day: date_from,
@@ -186,6 +187,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value, crossDataset, seriesId }) => ({
                     people: [],
                     count: 0,
+                    missingPersons: 0,
                     day: date_from,
                     label,
                     action,
