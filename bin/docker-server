@@ -19,7 +19,7 @@ exec gunicorn posthog.wsgi \
     --access-logfile - \
     --worker-tmp-dir /dev/shm \
     --workers=2 \
-    --threads=4 \
+    --threads=16 \
     --worker-class=gthread \
     ${STATSD_HOST:+--statsd-host $STATSD_HOST:$STATSD_PORT} \
     --limit-request-line=8190 $@
