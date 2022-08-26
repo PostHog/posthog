@@ -186,14 +186,21 @@ def properties_to_Q(
         for item in cohort_properties:
             if item.key == "id":
                 cohort_id = int(cast(Union[str, int], item.value))
-                cohort = Cohort.objects.get(pk=cohort_id)
-                filters &= Q(
-                    Exists(
-                        CohortPeople.objects.filter(
-                            cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
-                        ).only("id")
+                cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+                if cohort.is_static:
+                    filters &= Q(
+                        Exists(
+                            CohortPeople.objects.filter(cohort_id=cohort.pk, person_id=OuterRef("person_id")).only("id")
+                        )
                     )
-                )
+                else:
+                    filters &= Q(
+                        Exists(
+                            CohortPeople.objects.filter(
+                                cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
+                            ).only("id")
+                        )
+                    )
 
     if len([prop for prop in properties if prop.type == "group"]):
         raise ValueError("Group properties are not supported for indirect filtering via postgres")

@@ -122,6 +122,7 @@ export const FEATURE_FLAGS = {
     // Re-enable person modal CSV downloads when frontend can support new entity properties
     PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
+    CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
     SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
     SESSION_RECORDINGS_PLAYER_V3_FILTERING: 'session-recording-player-v3-filtering', // owner: @alexkim205

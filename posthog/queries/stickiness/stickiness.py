@@ -42,7 +42,9 @@ class Stickiness:
         SETTINGS optimize_move_to_prewhere = 0
         """
 
-        counts = sync_execute(query, {**event_params, "num_intervals": filter.total_intervals})
+        counts = sync_execute(
+            query, {**event_params, "num_intervals": filter.total_intervals}, client_query_id=filter.client_query_id
+        )
         return self.process_result(counts, filter, entity)
 
     def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):

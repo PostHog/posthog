@@ -8,7 +8,7 @@ import posthog.models.insight
 def create_short_ids(apps, schema_editor):
     DashboardItem = apps.get_model("posthog", "DashboardItem")
     for obj in DashboardItem.objects.all():
-        obj.short_id = posthog.models.insight.generate_short_id()
+        obj.short_id = posthog.utils.generate_short_id()
         obj.save()
 
 
@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name="dashboarditem",
             name="short_id",
-            field=models.CharField(blank=True, max_length=12, default=posthog.models.insight.generate_short_id),
+            field=models.CharField(blank=True, max_length=12, default=posthog.utils.generate_short_id),
         ),
         migrations.AlterUniqueTogether(name="dashboarditem", unique_together={("team", "short_id")},),
     ]
