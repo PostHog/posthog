@@ -13,9 +13,9 @@ jobs:
               with:
                   fetch-depth: 0
             - name: How can this work?
-              run: yarn && node bin/visual-regression.js
+              run: yarn && node bin/visual-regression.mjs
             - name: Archive screenshots
               uses: actions/upload-artifact@v3
               with:
-                  name: screenshots
-                  path: screenshot*.png
+                  name: visual-regression-images
+                  path: visual-regression-screenshots/*
