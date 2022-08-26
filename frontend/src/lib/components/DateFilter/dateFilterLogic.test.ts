@@ -49,7 +49,7 @@ describe('dateFilterLogic', () => {
             isRollingDateRange: true,
         })
 
-        const threeDaysAgo = dayjs().subtract(3, 'd').format('YYYY-MM-DD')
+        const threeDaysAgo = dayjs().subtract(3, 'd')
         logic.actions.setRangeDateFrom(threeDaysAgo)
         await expect(logic.values).toMatchObject({
             rangeDateFrom: threeDaysAgo,

@@ -37,6 +37,7 @@ import {
     durationOperatorMap,
     isExternalLink,
     selectorOperatorMap,
+    dateStringToDayJs,
 } from './utils'
 import {
     ActionFilter,
@@ -331,6 +332,54 @@ describe('dateFilterToText()', () => {
                 '2018-04-04 12:00:00 - 2018-04-09 11:05:00'
             )
         })
+    })
+})
+
+describe('dateStringToDayJs', () => {
+    beforeEach(() => {
+        tk.freeze(new Date(1330688329321))
+    })
+    afterEach(() => {
+        tk.reset()
+    })
+
+    it('handles various start/end values', () => {
+        expect(dateStringToDayJs('dStart')?.utc(true).toISOString()).toEqual('2012-03-02T00:00:00.000Z')
+        expect(dateStringToDayJs('dEnd')?.utc(true).toISOString()).toEqual('2012-03-02T23:59:59.999Z')
+        expect(dateStringToDayJs('wStart')?.utc(true).toISOString()).toEqual('2012-02-26T00:00:00.000Z')
+        expect(dateStringToDayJs('wEnd')?.utc(true).toISOString()).toEqual('2012-03-03T23:59:59.999Z')
+        expect(dateStringToDayJs('mStart')?.utc(true).toISOString()).toEqual('2012-03-01T00:00:00.000Z')
+        expect(dateStringToDayJs('mEnd')?.utc(true).toISOString()).toEqual('2012-03-31T23:59:59.999Z')
+        expect(dateStringToDayJs('qStart')?.utc(true).toISOString()).toEqual('2012-01-01T00:00:00.000Z')
+        expect(dateStringToDayJs('qEnd')?.utc(true).toISOString()).toEqual('2012-03-31T23:59:59.999Z')
+        expect(dateStringToDayJs('yStart')?.utc(true).toISOString()).toEqual('2012-01-01T00:00:00.000Z')
+        expect(dateStringToDayJs('yEnd')?.utc(true).toISOString()).toEqual('2012-12-31T23:59:59.999Z')
+    })
+
+    it('handles pluses and minuses', () => {
+        expect(dateStringToDayJs('1d')?.utc(true).toISOString()).toEqual('2012-03-03T12:38:49.321Z')
+        expect(dateStringToDayJs('2d')?.utc(true).toISOString()).toEqual('2012-03-04T12:38:49.321Z')
+        expect(dateStringToDayJs('3d')?.utc(true).toISOString()).toEqual('2012-03-05T12:38:49.321Z')
+        expect(dateStringToDayJs('33d')?.utc(true).toISOString()).toEqual('2012-04-04T12:38:49.321Z')
+        expect(dateStringToDayJs('d')?.utc(true).toISOString()).toEqual('2012-03-02T12:38:49.321Z')
+        expect(dateStringToDayJs('-1d')?.utc(true).toISOString()).toEqual('2012-03-01T12:38:49.321Z')
+        expect(dateStringToDayJs('-2d')?.utc(true).toISOString()).toEqual('2012-02-29T12:38:49.321Z')
+        expect(dateStringToDayJs('-3d')?.utc(true).toISOString()).toEqual('2012-02-28T12:38:49.321Z')
+        expect(dateStringToDayJs('-33d')?.utc(true).toISOString()).toEqual('2012-01-29T12:38:49.321Z')
+    })
+
+    it('handles various units', () => {
+        expect(dateStringToDayJs('d')?.utc(true).toISOString()).toEqual('2012-03-02T12:38:49.321Z')
+        expect(dateStringToDayJs('m')?.utc(true).toISOString()).toEqual('2012-03-02T12:38:49.321Z')
+        expect(dateStringToDayJs('w')?.utc(true).toISOString()).toEqual('2012-03-02T12:38:49.321Z')
+        expect(dateStringToDayJs('q')?.utc(true).toISOString()).toEqual('2012-03-02T12:38:49.321Z')
+        expect(dateStringToDayJs('y')?.utc(true).toISOString()).toEqual('2012-03-02T12:38:49.321Z')
+        expect(dateStringToDayJs('x')).toEqual(null)
+    })
+
+    it('handles various dates', () => {
+        expect(dateStringToDayJs('2022-02-22')?.utc(true).toISOString()).toEqual('2022-02-22T00:00:00.000Z')
+        expect(dateStringToDayJs('1999-12-31')?.utc(true).toISOString()).toEqual('1999-12-31T00:00:00.000Z')
     })
 })
 

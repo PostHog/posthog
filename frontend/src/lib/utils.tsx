@@ -10,7 +10,7 @@ import {
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
-    dateMappingOption,
+    DateMappingOption,
     EventType,
     FilterLogicalOperator,
     FilterType,
@@ -713,7 +713,7 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
 }
 
-export const dateMapping: dateMappingOption[] = [
+export const dateMapping: DateMappingOption[] = [
     { key: 'Custom', values: [] },
     {
         key: 'Today',
@@ -805,6 +805,7 @@ export function getFormattedLastWeekDate(lastDay: dayjs.Dayjs = dayjs()): string
 }
 
 const dateOptionsMap = {
+    y: 'year',
     q: 'quarter',
     m: 'month',
     w: 'week',
@@ -815,7 +816,7 @@ export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
     dateTo: string | dayjs.Dayjs | null | undefined,
     defaultValue: string,
-    dateOptions: dateMappingOption[] = dateMapping,
+    dateOptions: DateMappingOption[] = dateMapping,
     isDateFormatted: boolean = false,
     dateFormat: string = DATE_FORMAT
 ): string {
@@ -879,6 +880,46 @@ export function dateFilterToText(
     }
 
     return defaultValue
+}
+
+/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs()` */
+export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+    if (isDate.test(date || '')) {
+        return dayjs(date)
+    }
+    const parseDate = /^([\-\+]?[0-9]+|)([dmwqy])(|Start|End)$/
+    const matches = (date || '').match(parseDate)
+    let response: null | dayjs.Dayjs = null
+    if (matches) {
+        const [, rawAmount, rawUnit, clip] = matches
+        const amount = rawAmount ? parseInt(rawAmount) : 0
+        const unit = dateOptionsMap[rawUnit] || 'day'
+
+        switch (unit) {
+            case 'year':
+                response = dayjs().add(amount, 'year')
+                break
+            case 'quarter':
+                response = dayjs().add(amount * 3, 'month')
+                break
+            case 'months':
+                response = dayjs().add(amount, 'month')
+                break
+            case 'weeks':
+                response = dayjs().add(amount * 7, 'day')
+                break
+            default:
+                response = dayjs().add(amount, 'day')
+                break
+        }
+
+        if (clip === 'Start') {
+            return response.startOf(unit)
+        } else if (clip === 'End') {
+            return response.endOf(unit)
+        }
+    }
+    return response
 }
 
 export function copyToClipboard(value: string, description: string = 'text'): boolean {

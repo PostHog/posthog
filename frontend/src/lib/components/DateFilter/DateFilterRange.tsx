@@ -11,11 +11,11 @@ import { Tooltip } from '../Tooltip'
 export function DateFilterRange(props: {
     onClickOutside: () => void
     onClick: (e: React.MouseEvent) => void
-    onDateFromChange: (date?: dayjs.Dayjs) => void
-    onDateToChange: (date?: dayjs.Dayjs) => void
+    onDateFromChange: (date: dayjs.Dayjs | null) => void
+    onDateToChange: (date: dayjs.Dayjs | null) => void
     onApplyClick: () => void
-    rangeDateFrom?: string | dayjs.Dayjs | null
-    rangeDateTo?: string | dayjs.Dayjs | null
+    rangeDateFrom?: dayjs.Dayjs | null
+    rangeDateTo?: dayjs.Dayjs | null
     getPopupContainer?: (props: any) => HTMLElement
     disableBeforeYear?: number
 }): JSX.Element {
@@ -73,8 +73,8 @@ export function DateFilterRange(props: {
                     }}
                     onChange={(dates) => {
                         if (dates && dates.length === 2) {
-                            props.onDateFromChange(dates[0] || undefined)
-                            props.onDateToChange(dates[1] || undefined)
+                            props.onDateFromChange(dates[0] || null)
+                            props.onDateToChange(dates[1] || null)
                             setCalendarOpen(false)
                         }
                     }}

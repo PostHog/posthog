@@ -1,7 +1,7 @@
 import React, { useRef } from 'react'
 import { dateMapping, dateFilterToText, uuid } from 'lib/utils'
 import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
-import { dateMappingOption } from '~/types'
+import { DateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/components/Tooltip'
 import { dateFilterLogic } from './dateFilterLogic'
@@ -19,7 +19,7 @@ export interface DateFilterProps {
     onChange?: (fromDate: string, toDate: string) => void
     disabled?: boolean
     getPopupContainer?: () => HTMLElement
-    dateOptions?: dateMappingOption[]
+    dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
 }
 interface RawDateFilterProps extends DateFilterProps {
@@ -43,7 +43,7 @@ export function DateFilter({
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps = { key, dateFrom, dateTo, onChange, defaultValue, dateOptions, isDateFormatted }
-    const { open, openDateRange, close, setRangeDateFrom, setRangeDateTo, setDate } = useActions(
+    const { open, openDateRange, close, setRangeDateFrom, setRangeDateTo, setDate, applyRange } = useActions(
         dateFilterLogic(logicProps)
     )
     const { isOpen, isDateRangeOpen, rangeDateFrom, rangeDateTo, value, isFixedDateRange, isRollingDateRange } =
@@ -58,20 +58,13 @@ export function DateFilter({
         document.getElementById('daterange_selector')?.focus()
     }
 
-    function onApplyClick(): void {
-        close()
-        const formattedRangeDateFrom = dayjs(rangeDateFrom).format('YYYY-MM-DD')
-        const formattedRangeDateTo = dayjs(rangeDateTo).format('YYYY-MM-DD')
-        setDate(formattedRangeDateFrom, formattedRangeDateTo)
-    }
-
     const popupOverlay = isDateRangeOpen ? (
         <DateFilterRange
             getPopupContainer={getPopupContainer}
             onClick={dropdownOnClick}
             onDateFromChange={(date) => setRangeDateFrom(date)}
             onDateToChange={(date) => setRangeDateTo(date)}
-            onApplyClick={onApplyClick}
+            onApplyClick={applyRange}
             onClickOutside={close}
             rangeDateFrom={rangeDateFrom}
             rangeDateTo={rangeDateTo}
@@ -97,7 +90,6 @@ export function DateFilter({
                             key={key}
                             onClick={() => {
                                 setDate(values[0], values[1])
-                                close()
                             }}
                             active={isActive}
                             status="stealth"
@@ -114,7 +106,6 @@ export function DateFilter({
                     selected={isRollingDateRange}
                     onChange={(fromDate) => {
                         setDate(fromDate, '')
-                        close()
                     }}
                     makeLabel={makeLabel}
                     popup={{
