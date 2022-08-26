@@ -1213,6 +1213,11 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
@@ -1286,6 +1291,11 @@
              (SELECT id
               FROM person
               WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['person1'], person."pmat_name")) )
               GROUP BY id
               HAVING max(is_deleted) = 0
               AND (has(['person1'], argMax(person."pmat_name", _timestamp)))) person ON person.id = pdi.person_id
