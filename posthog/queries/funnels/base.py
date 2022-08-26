@@ -245,7 +245,7 @@ class ClickhouseFunnelBase(ABC):
 
     def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
-        return sync_execute(query, self.params)
+        return sync_execute(query, self.params, client_query_id=self._filter.client_query_id)
 
     def _get_timestamp_outer_select(self) -> str:
         if self._include_preceding_timestamp:

@@ -35,6 +35,8 @@ class Retention:
         result = sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query,),
             settings={"timeout_before_checking_execution_speed": 60},
+            client_query_id=filter.client_query_id,
+            client_query_team_id=team.pk,
         )
 
         result_dict = {

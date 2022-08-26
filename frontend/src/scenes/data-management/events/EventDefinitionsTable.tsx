@@ -21,7 +21,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
-import { ActionEvent, IconWebhook, UnverifiedEvent } from 'lib/components/icons'
+import { IconWebhook, UnverifiedEvent } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -33,14 +33,17 @@ const eventTypeOptions: LemonSelectOptions<CombinedEventType> = [
     {
         value: CombinedEventType.ActionEvent,
         label: 'Calculated events',
-        icon: <ActionEvent />,
         'data-attr': 'event-type-option-action-event',
     },
     {
-        value: CombinedEventType.Event,
-        label: 'Events',
-        icon: <UnverifiedEvent />,
-        'data-attr': 'event-type-option-event',
+        value: CombinedEventType.EventCustom,
+        label: 'Custom events',
+        'data-attr': 'event-type-option-event-custom',
+    },
+    {
+        value: CombinedEventType.EventPostHog,
+        label: 'PostHog events',
+        'data-attr': 'event-type-option-event-posthog',
     },
     {
         value: CombinedEventType.EventCustom,
