@@ -38,7 +38,7 @@ class EnterprisePersonViewSet(PersonViewSet):
     @cached_function
     def calculate_funnel_correlation_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[list, Optional[str], Optional[str], bool]]:
+    ) -> Dict[str, Tuple[list, Optional[str], Optional[str], int]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None, False)}
 
@@ -64,7 +64,7 @@ class EnterprisePersonViewSet(PersonViewSet):
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url, len(serialized_actors) != raw_count)}
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
 
 class LegacyEnterprisePersonViewSet(EnterprisePersonViewSet):

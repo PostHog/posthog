@@ -224,7 +224,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
                 "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
                 "next": next_url,
                 "previous": current_url[1:],
-                "missing_persons": raw_count != len(serialized_actors),
+                "missing_persons": raw_count - len(serialized_actors),
             }
         )
 

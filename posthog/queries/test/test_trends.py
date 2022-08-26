@@ -196,13 +196,14 @@ def trend_test_factory(trends):
 
                     # pagination works, no matter how few ids in people_response
                     self.assertIsNotNone(people_response["next"])
-                    self.assertTrue(people_response["missing_persons"])
+                    self.assertTrue(people_response["missing_persons"] >= 4)
 
                     next_url = people_response["next"]
                     second_people_response = self.client.get(f"{next_url}").json()
 
                     self.assertIsNotNone(second_people_response["next"])
-                    self.assertTrue(second_people_response["missing_persons"])
+                    self.assertTrue(second_people_response["missing_persons"] >= 4)
+                    self.assertTrue(second_people_response["missing_persons"] + people_response["missing_persons"] == 9)
 
                     first_load_ids = sorted(str(person["id"]) for person in people_response["results"][0]["people"])
                     second_load_ids = sorted(

@@ -273,7 +273,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     @cached_function
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], bool]]:
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None, False)}
 
@@ -290,7 +290,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url, raw_count != len(serialized_actors))}
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
@@ -328,7 +328,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     @cached_function
     def calculate_path_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], bool]]:
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         if request.user.is_anonymous or not self.team:
             return {"result": ([], None, None, False)}
 
@@ -350,7 +350,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url, raw_count != len(serialized_actors))}
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
