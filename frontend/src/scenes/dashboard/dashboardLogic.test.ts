@@ -11,6 +11,10 @@ import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import anything = jasmine.anything
+import api from 'lib/api'
+
+jest.mock('lib/utils/getAppContext')
+import { getAppContext } from 'lib/utils/getAppContext'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
@@ -57,6 +61,8 @@ describe('dashboardLogic', () => {
     let dashboards = {}
 
     beforeEach(() => {
+        jest.spyOn(api, 'update')
+
         const insights: Record<number, InsightModel> = {
             172: { ...insightsOnDashboard([5, 6])[1], short_id: '172' as InsightShortId },
             175: {
@@ -145,6 +151,7 @@ describe('dashboardLogic', () => {
                 },
             },
             patch: {
+                '/api/projects/:team/dashboards/:id/': () => [200, "we don't care"],
                 '/api/projects/:team/insights/:id/': (req) => {
                     try {
                         if (typeof req.body !== 'object') {
@@ -433,6 +440,7 @@ describe('dashboardLogic', () => {
 
     describe('layouts', () => {
         beforeEach(async () => {
+            ;(getAppContext as jest.Mock).mockImplementation(() => ({ anonymous: false }))
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -450,6 +458,68 @@ describe('dashboardLogic', () => {
                         { h: 5, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
                         { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
                         { h: 5, i: 'text-tile-4', minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                    ],
+                },
+            })
+        })
+
+        it('can update layouts', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts({
+                    sm: [
+                        { h: 12, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
+                        { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
+                        { h: 21, i: 'text-tile-4', minH: 5, minW: 3, w: 6, x: 0, y: 5 },
+                    ],
+                    xs: [
+                        { h: 7, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
+                        { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
+                        { h: 9, i: 'text-tile-4', minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                    ],
+                })
+            })
+                .toMatchValues({
+                    layouts: {
+                        sm: [
+                            { h: 12, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
+                            { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
+                            { h: 21, i: 'text-tile-4', minH: 5, minW: 3, w: 6, x: 0, y: 5 },
+                        ],
+                        xs: [
+                            { h: 7, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
+                            { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
+                            { h: 9, i: 'text-tile-4', minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                        ],
+                    },
+                })
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith('api/projects/997/dashboards/5', {
+                tile_layouts: {
+                    insight_tiles: [
+                        {
+                            id: 172,
+                            layouts: {
+                                sm: { i: 'insight-tile-172', h: 12, minH: 5, minW: 3, w: 6, x: 6, y: 0 },
+                                xs: { i: 'insight-tile-172', h: 7, minH: 5, minW: 3, w: 1, x: 0, y: 0 },
+                            },
+                        },
+                        {
+                            id: 175,
+                            layouts: {
+                                sm: { i: 'insight-tile-175', h: 5, minH: 5, minW: 3, w: 6, x: 0, y: 0 },
+                                xs: { i: 'insight-tile-175', h: 5, minH: 5, minW: 3, w: 1, x: 0, y: 5 },
+                            },
+                        },
+                    ],
+                    text_tiles: [
+                        {
+                            id: 4,
+                            layouts: {
+                                sm: { i: 'text-tile-4', h: 21, minH: 5, minW: 3, w: 6, x: 0, y: 5 },
+                                xs: { i: 'text-tile-4', h: 9, minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                            },
+                        },
                     ],
                 },
             })

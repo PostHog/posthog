@@ -94,7 +94,6 @@ export const dashboardLogic = kea<dashboardLogicType>({
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
         updateLayouts: (layouts: Layouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
-        saveLayouts: true,
         updateItemColor: (insightNumericId: number, color: string | null) => ({ insightNumericId, color }),
         removeItem: (insight: Partial<InsightModel>) => ({ insight }),
         refreshAllDashboardItems: (items?: InsightModel[]) => ({ items }),
@@ -178,23 +177,27 @@ export const dashboardLogic = kea<dashboardLogicType>({
             {
                 loadExportedDashboard: (_, { dashboard }) => dashboard,
                 updateLayouts: (state, { layouts }) => {
-                    const itemLayouts: Record<string, Partial<Record<string, Layout>>> = {}
-                    state?.items.forEach((item) => {
-                        itemLayouts[item.short_id] = {}
-                    })
+                    const insightLayouts = {}
+                    const textTileLayouts = {}
 
                     Object.entries(layouts).forEach(([col, layout]) => {
                         layout.forEach((layoutItem) => {
-                            if (!itemLayouts[layoutItem.i]) {
-                                itemLayouts[layoutItem.i] = {}
+                            const [type /*skip*/, , id] = layoutItem.i.split('-')
+                            let target = insightLayouts
+                            if (type === 'text') {
+                                target = textTileLayouts
                             }
-                            itemLayouts[layoutItem.i][col] = layoutItem
+                            if (!target[id]) {
+                                target[id] = {}
+                            }
+                            target[id][col] = layoutItem
                         })
                     })
 
                     return {
                         ...state,
-                        items: state?.items.map((item) => ({ ...item, layouts: itemLayouts[item.short_id] })),
+                        items: state?.items.map((item) => ({ ...item, layouts: insightLayouts[item.id] })),
+                        text_tiles: state?.text_tiles.map((tile) => ({ ...tile, layouts: textTileLayouts[tile.id] })),
                     } as DashboardType
                 },
                 [dashboardsModel.actionTypes.updateDashboardItem]: (state, { item, dashboardIds }) => {
@@ -367,6 +370,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         items: [(s) => [s.allItems], (allItems) => allItems?.items?.filter((i) => !i.deleted)],
+        textTiles: [(s) => [s.allItems], (allItems) => allItems?.text_tiles],
         itemsLoading: [
             (s) => [s.allItemsLoading, s.refreshStatus],
             (allItemsLoading, refreshStatus) => {
@@ -426,9 +430,8 @@ export const dashboardLogic = kea<dashboardLogicType>({
             },
         ],
         layouts: [
-            (s) => [s.items, s.dashboard],
-            (items, dashboard) => {
-                const { text_tiles } = dashboard ?? { text_tiles: [] }
+            (s) => [s.items, s.textTiles],
+            (items, textTiles) => {
                 // The dashboard redesign includes constraints on the size of dashboard items
                 const minW = MIN_ITEM_WIDTH_UNITS
                 const minH = MIN_ITEM_HEIGHT_UNITS
@@ -437,7 +440,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                 const candidates: CanBeLaidOut[] = (items || [])
                     .map((i) => i as unknown as CanBeLaidOut)
-                    .concat(text_tiles?.map((t) => t as unknown as CanBeLaidOut))
+                    .concat(textTiles?.map((t) => t as unknown as CanBeLaidOut) || [])
 
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
                     const layouts = candidates
@@ -626,10 +629,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
             }
         },
-        updateLayouts: () => {
-            actions.saveLayouts()
-        },
-        saveLayouts: async (_, breakpoint) => {
+        updateLayouts: async (_, breakpoint) => {
             await breakpoint(300)
             if (!isUserLoggedIn()) {
                 // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
@@ -639,16 +639,14 @@ export const dashboardLogic = kea<dashboardLogicType>({
                 // what are we saving layouts against?!
                 return
             }
+
+            const tilesForUpdate = {
+                insight_tiles: values.items?.map((i) => ({ id: i.id, layouts: i.layouts })) || [],
+                text_tiles: values.textTiles?.map((t) => ({ id: t.id, layouts: t.layouts })) || [],
+            }
+
             await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
-                tile_layouts:
-                    values.items?.map((item) => {
-                        const layouts: Record<string, Layout> = {}
-                        Object.entries(item.layouts).forEach(([layoutKey, layout]) => {
-                            const { i, ...rest } = layout
-                            layouts[layoutKey] = rest
-                        })
-                        return { id: item.id, layouts }
-                    }) || [],
+                tile_layouts: tilesForUpdate,
             })
         },
         updateItemColor: async ({ insightNumericId, color }) => {

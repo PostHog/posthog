@@ -15,8 +15,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export function DashboardItems(): JSX.Element {
-    const { dashboard, items, layouts, dashboardMode, placement, isRefreshing, highlightedInsightId, refreshStatus } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        items,
+        textTiles,
+        layouts,
+        dashboardMode,
+        placement,
+        isRefreshing,
+        highlightedInsightId,
+        refreshStatus,
+    } = useValues(dashboardLogic)
     const { updateLayouts, updateContainerWidth, updateItemColor, removeItem, refreshAllDashboardItems } =
         useActions(dashboardLogic)
     const { duplicateInsight, renameInsight, moveToDashboard } = useActions(insightsModel)
@@ -112,7 +121,7 @@ export function DashboardItems(): JSX.Element {
                     />
                 ))}
                 {showTextCards &&
-                    dashboard?.text_tiles?.map((textTile: DashboardTextTile) => (
+                    textTiles?.map((textTile: DashboardTextTile) => (
                         <TextCard
                             key={`text-tile-${textTile.id}`}
                             body={textTile.body}
