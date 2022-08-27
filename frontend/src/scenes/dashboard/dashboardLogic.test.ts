@@ -5,7 +5,7 @@ import _dashboardJson from './__mocks__/dashboard.json'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightModel, DashboardType, InsightShortId } from '~/types'
+import { InsightModel, DashboardType, InsightShortId, DashboardTextTile } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dayjs, now } from 'lib/dayjs'
@@ -18,11 +18,16 @@ function insightsOnDashboard(dashboardsRelation: number[]): InsightModel[] {
     return dashboardJson.items.map((i) => ({ ...i, dashboards: dashboardsRelation }))
 }
 
-const dashboardResult = (dashboardId: number, items: InsightModel[]): DashboardType => {
+const dashboardResult = (
+    dashboardId: number,
+    items: InsightModel[],
+    textTiles?: DashboardTextTile[]
+): DashboardType => {
     return {
         ...dashboardJson,
         id: dashboardId,
         items: [...items],
+        text_tiles: [...(textTiles || [])],
     }
 }
 
@@ -54,7 +59,10 @@ describe('dashboardLogic', () => {
     beforeEach(() => {
         const insights: Record<number, InsightModel> = {
             172: { ...insightsOnDashboard([5, 6])[1], short_id: '172' as InsightShortId },
-            175: { ...insightsOnDashboard([5, 6])[0], short_id: '175' as InsightShortId },
+            175: {
+                ...insightsOnDashboard([5, 6])[0],
+                short_id: '175' as InsightShortId,
+            },
             666: {
                 ...insightsOnDashboard([6])[0],
                 id: 666,
@@ -76,7 +84,13 @@ describe('dashboardLogic', () => {
             },
         }
         dashboards = {
-            5: { ...dashboardResult(5, [insights['172'], insights['175']]) },
+            5: {
+                ...dashboardResult(
+                    5,
+                    [insights['172'], insights['175']],
+                    [{ id: 4, body: 'I AM A TEXT', layouts: {}, color: 'blue' } as DashboardTextTile]
+                ),
+            },
             6: {
                 ...dashboardResult(6, [
                     uncached(insights['172']),
@@ -383,6 +397,7 @@ describe('dashboardLogic', () => {
                 })
         })
     })
+
     describe('lastRefreshed', () => {
         it('should be the earliest refreshed dashboard', async () => {
             logic = dashboardLogic({ id: 5 })
@@ -413,6 +428,31 @@ describe('dashboardLogic', () => {
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
                 .toFinishListeners()
+        })
+    })
+
+    describe('layouts', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('makes expected layouts', () => {
+            expectLogic(logic).toMatchValues({
+                layouts: {
+                    sm: [
+                        { h: 8, i: 'insight-tile-172', minH: 5, minW: 3, w: 6, x: 6, y: 0 },
+                        { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 6, x: 0, y: 0 },
+                        { h: 5, i: 'text-tile-4', minH: 5, minW: 3, w: 6, x: 0, y: 5 },
+                    ],
+                    xs: [
+                        { h: 5, i: 'insight-tile-172', minH: 5, minW: 3, w: 1, x: 0, y: 0 },
+                        { h: 5, i: 'insight-tile-175', minH: 5, minW: 3, w: 1, x: 0, y: 5 },
+                        { h: 5, i: 'text-tile-4', minH: 5, minW: 3, w: 1, x: 0, y: 10 },
+                    ],
+                },
+            })
         })
     })
 })

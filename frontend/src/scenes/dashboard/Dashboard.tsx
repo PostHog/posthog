@@ -17,6 +17,7 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 
 interface Props {
     id?: string
@@ -141,10 +142,7 @@ function DashboardScene(): JSX.Element {
                     )}
                     {placement !== DashboardPlacement.Export && (
                         <div className="flex pb-4 space-x-4 dashoard-items-actions">
-                            <div
-                                className="left-item"
-                                style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
-                            >
+                            <div className={clsx('left-item', placement === DashboardPlacement.Public && 'text-right')}>
                                 {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement) ? (
                                     <LastRefreshText />
                                 ) : (

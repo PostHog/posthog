@@ -437,11 +437,12 @@ export const dashboardLogic = kea<dashboardLogicType>({
 
                 const candidates: CanBeLaidOut[] = (items || [])
                     .map((i) => i as unknown as CanBeLaidOut)
-                    .concat(text_tiles.map((t) => t as unknown as CanBeLaidOut))
+                    .concat(text_tiles?.map((t) => t as unknown as CanBeLaidOut))
 
                 for (const col of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
                     const layouts = candidates
-                        .filter((i) => !i.deleted)
+                        .filter((i) => !!i)
+                        .filter((i) => !i?.deleted)
                         .map((item) => {
                             const layout = item.layouts && item.layouts[col]
                             const { x, y, w, h } = layout || {}

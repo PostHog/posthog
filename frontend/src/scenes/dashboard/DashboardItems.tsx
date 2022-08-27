@@ -85,7 +85,7 @@ export function DashboardItems(): JSX.Element {
             >
                 {items?.map((item: InsightModel) => (
                     <InsightCard
-                        key={`insight-tile-${item.short_id}`}
+                        key={`insight-tile-${item.id}`}
                         insight={item}
                         dashboardId={dashboard?.id}
                         loading={isRefreshing(item.short_id)}

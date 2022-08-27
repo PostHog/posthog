@@ -805,7 +805,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     result: any | null
 }
 
-export interface DashboardTextTile extends Tileable, Cacheable {
+export interface DashboardTextTile extends Tileable {
     id: number
     body: string
 }
