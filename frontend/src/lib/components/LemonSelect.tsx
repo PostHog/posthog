@@ -10,9 +10,11 @@ export interface LemonSelectOption<T> {
     value: T
     label: string | JSX.Element
     icon?: React.ReactElement
+    sideIcon?: React.ReactElement
     disabled?: boolean
+    tooltip?: string
     'data-attr'?: string
-    element?: React.ReactElement
+    element?: React.ReactElement // TODO: Unify with `label`
 }
 
 export type LemonSelectOptions<T> = LemonSelectSection<T>[] | LemonSelectOption<T>[]
@@ -123,6 +125,8 @@ export function LemonSelect<T>({
                                 <LemonButton
                                     key={index}
                                     icon={option.icon}
+                                    sideIcon={option.sideIcon}
+                                    tooltip={option.tooltip}
                                     onClick={() => {
                                         if (option.value != localValue) {
                                             onChange?.(option.value)
@@ -148,7 +152,7 @@ export function LemonSelect<T>({
                     className: popup?.className,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
-                icon={localValue && allOptions.find((o) => o.value == localValue)?.icon}
+                icon={localValue && allOptions.find((o) => o.value === localValue)?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <div /> : undefined}
                 type="secondary"
@@ -156,7 +160,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {(localValue && (allOptions.find((o) => o.value == localValue)?.label || localValue)) || (
+                    {(localValue && (allOptions.find((o) => o.value === localValue)?.label || localValue)) || (
                         <span className="text-muted">{placeholder}</span>
                     )}
                 </span>

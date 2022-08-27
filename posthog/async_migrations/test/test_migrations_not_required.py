@@ -12,6 +12,7 @@ from posthog.models.person.sql import COMMENT_DISTINCT_ID_COLUMN_SQL
 class TestAsyncMigrationsNotRequired(AsyncMigrationBaseTest):
     def setUp(self):
         sync_execute(COMMENT_DISTINCT_ID_COLUMN_SQL())
+        sync_execute("TRUNCATE TABLE sharded_events")
 
     def test_async_migrations_not_required_on_fresh_instances(self):
         for name, migration in ALL_ASYNC_MIGRATIONS.items():

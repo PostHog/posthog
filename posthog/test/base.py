@@ -24,6 +24,7 @@ from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.person import Person
 from posthog.models.person.sql import (
@@ -142,10 +143,17 @@ class TestMixin:
             _setup_test_data(cls)
 
     def setUp(self):
+
+        if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            from posthog.models.team import util
+
+            util.can_enable_person_on_events = True
+
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
+
         if len(persons_cache_tests) > 0:
             persons_cache_tests.clear()
             raise Exception(
@@ -279,6 +287,7 @@ class QueryMatchingTest:
             query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
+            query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
 
         # Replace organization_id lookups, for postgres
         query = re.sub(
@@ -298,6 +307,8 @@ class QueryMatchingTest:
             r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
             query,
         )
+
+        query = re.sub(fr"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -411,9 +422,10 @@ def _create_person(*args, **kwargs):
     Pass immediate=True to create immediately and get a pk back
     """
     global persons_ordering_int
-    kwargs["uuid"] = uuid.UUID(
-        int=persons_ordering_int, version=4
-    )  # make sure the ordering of uuids is always consistent
+    if not (kwargs.get("uuid")):
+        kwargs["uuid"] = uuid.UUID(
+            int=persons_ordering_int, version=4
+        )  # make sure the ordering of uuids is always consistent
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
     if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
@@ -563,6 +575,23 @@ def snapshot_clickhouse_alter_queries(fn):
     @wraps(fn)
     def wrapped(self, *args, **kwargs):
         with self.capture_queries("ALTER") as queries:
+            fn(self, *args, **kwargs)
+
+        for query in queries:
+            if "FROM system.columns" not in query:
+                self.assertQueryMatchesSnapshot(query)
+
+    return wrapped
+
+
+def snapshot_clickhouse_insert_cohortpeople_queries(fn):
+    """
+    Captures and snapshots INSERT queries from test using `syrupy` library.
+    """
+
+    @wraps(fn)
+    def wrapped(self, *args, **kwargs):
+        with self.capture_queries("INSERT INTO cohortpeople") as queries:
             fn(self, *args, **kwargs)
 
         for query in queries:

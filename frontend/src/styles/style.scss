@@ -52,19 +52,6 @@ label.disabled {
     color: #888;
 }
 
-.ant-modal-mask {
-    z-index: var(--z-ant-modal-mask) !important;
-}
-.ant-modal-wrap {
-    z-index: var(--z-ant-modal-wrap) !important;
-}
-.ant-message {
-    z-index: var(--z-ant-message) !important;
-}
-.ant-select-dropdown {
-    z-index: var(--z-ant-select-dropdown) !important;
-}
-
 .ant-select-arrow .anticon {
     vertical-align: top !important;
 }

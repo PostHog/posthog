@@ -1,11 +1,14 @@
-.ant-picker .ant-picker-input,
-.ant-picker.ant-picker-range {
-    display: flex;
-    flex-direction: row-reverse;
-}
+// TODO: This is commented as date-range pickers end up nastily reversed.
+// Leaving it here to be fixed later
 
-.ant-picker .ant-picker-input span.ant-picker-suffix,
-.ant-picker.ant-picker-range span.ant-picker-suffix {
-    margin-left: 0;
-    margin-right: 5px;
-}
+// .ant-picker .ant-picker-input,
+// .ant-picker.ant-picker-range {
+//     display: flex;
+//     flex-direction: row-reverse;
+// }
+
+// .ant-picker .ant-picker-input span.ant-picker-suffix,
+// .ant-picker.ant-picker-range span.ant-picker-suffix {
+//     margin-left: 0;
+//     margin-right: 5px;
+// }

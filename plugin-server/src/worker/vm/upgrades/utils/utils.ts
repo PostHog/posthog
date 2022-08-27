@@ -43,7 +43,7 @@ export type ExportHistoricalEventsUpgrade = Plugin<{
         eventsToIgnore: Set<string>
         sanitizedTableName: string
         exportHistoricalEvents: (payload: ExportEventsJobPayload) => Promise<void>
-        initTimestampsAndCursor: (payload: Record<string, any> | undefined) => Promise<void>
+        initTimestampsAndCursor: (payload: ExportEventsJobPayload | undefined) => Promise<void>
         setTimestampBoundaries: () => Promise<void>
         updateProgressBar: (incrementedCursor: number) => void
         timestampBoundariesForTeam: TimestampBoundaries
@@ -59,6 +59,7 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
 export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
     try {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
+        /* plugin-server:fetchTimestampBoundariesForTeam */
         SELECT min(_timestamp) as min, max(_timestamp) as max
         FROM events
         WHERE team_id = ${teamId}`)
@@ -138,12 +139,18 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
         properties['$elements'] = convertDatabaseElementsToRawElements(elements_chain)
     }
     properties['$$historical_export_source_db'] = 'clickhouse'
+    let ts: DateTime | string = timestamp
+    try {
+        ts = timestamp.toISO()
+    } catch (e) {
+        Sentry.captureException(e, { extra: { event, timestamp } })
+    }
     const parsedEvent = {
         uuid,
         team_id,
         distinct_id,
         properties,
-        timestamp: timestamp.toISO(),
+        timestamp: String(ts),
         now: DateTime.now().toISO(),
         event: eventName || '',
         ip: properties?.['$ip'] || '',

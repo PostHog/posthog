@@ -1806,6 +1806,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}").status_code, status.HTTP_200_OK
         )
 
+    def test_cancel_running_query(self) -> None:
+        # There is no good way of writing a test that tests this without it being very slow
+        #  Just verify it doesn't throw an error
+        response = self.client.post(f"/api/projects/{self.team.id}/insights/cancel", {"client_query_id": f"testid"})
+        self.assertEqual(response.status_code, 201, response.content)
+
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
     ) -> Tuple[int, Dict[str, Any]]:

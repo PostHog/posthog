@@ -13,7 +13,6 @@ export function IPCapture(): JSX.Element {
                 updateCurrentTeam({ anonymize_ips: checked })
             }}
             checked={!!currentTeam?.anonymize_ips}
-            loading={currentTeamLoading}
             disabled={currentTeamLoading}
             label="Discard client IP data"
             bordered

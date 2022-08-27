@@ -2,7 +2,7 @@
     border-top: 1px solid var(--border);
 }
 .dashboard .insights-table {
-    flex-grow: 1;
+    min-height: 100%;
     border-top: none;
 }
 

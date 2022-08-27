@@ -38,6 +38,40 @@ const SvgIcon: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }
     />
 )
 
+export function IconSpinner({ monocolor = false, ...props }: SvgIconProps & { monocolor?: boolean }): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            {/* top-right */}
+            <circle cx="17" cy="7.574" r="3" fill={monocolor ? 'currentColor' : '#1D4AFF'} fillOpacity={1} />
+            {/* top-left */}
+            <circle
+                cx="7"
+                cy="7.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#F9BD2B'}
+                fillOpacity={monocolor ? 0.75 : 1}
+            />
+
+            {/* bottom-left */}
+            <circle
+                cx="7"
+                cy="17.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#F54E00'}
+                fillOpacity={monocolor ? 0.5 : 1}
+            />
+            {/* bottom-right */}
+            <circle
+                cx="17"
+                cy="17.574"
+                r="3"
+                fill={monocolor ? 'currentColor' : '#000000'}
+                fillOpacity={monocolor ? 0.25 : 1}
+            />
+        </SvgIcon>
+    )
+}
+
 export function IconJavascript(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 32 32" fill="currentColor" {...props}>
@@ -1082,7 +1116,7 @@ export function IconClose(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
             <path
-                d="M16.9248 15.4656L13.4592 12L16.9248 8.53443C17.0251 8.43411 17.0251 8.26995 16.9248 8.16963L15.8304 7.07524C15.7301 6.97492 15.5659 6.97492 15.4656 7.07524L12 10.5408L8.53443 7.07524C8.43411 6.97492 8.26995 6.97492 8.16963 7.07524L7.07524 8.16963C6.97492 8.26995 6.97492 8.43411 7.07524 8.53443L10.5408 12L7.07524 15.4656C6.97492 15.5659 6.97492 15.7301 7.07524 15.8304L8.16963 16.9248C8.26995 17.0251 8.43411 17.0251 8.53443 16.9248L12 13.4592L15.4656 16.9248C15.5659 17.0251 15.7301 17.0251 15.8304 16.9248L16.9248 15.8304C17.0251 15.7301 17.0251 15.5659 16.9248 15.4656Z"
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"
                 fill="currentColor"
             />
         </SvgIcon>

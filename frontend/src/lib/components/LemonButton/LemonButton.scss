@@ -33,7 +33,7 @@
     .LemonButton__content {
         flex: 1;
         overflow: hidden;
-        line-height: 1rem;
+        line-height: initial;
     }
 
     &.LemonButton--centered {
@@ -117,8 +117,7 @@
             }
         }
 
-        .LemonIcon,
-        .spinner {
+        .LemonIcon {
             color: var(--muted-alt);
         }
 
@@ -150,14 +149,12 @@
             }
             &:not(:disabled):active {
                 color: var(--#{$status}-dark, var(--primary-dark));
-                .LemonIcon,
-                .spinner {
+                .LemonIcon {
                     color: var(--#{$status}-dark, var(--primary-dark));
                 }
             }
 
-            .LemonIcon,
-            .spinner {
+            .LemonIcon {
                 color: var(--#{$status});
             }
 
@@ -166,8 +163,7 @@
                 color: var(--white);
                 background: var(--#{$status});
 
-                .LemonIcon,
-                .spinner {
+                .LemonIcon {
                     color: var(--white);
                 }
                 &:not(:disabled):hover,
@@ -175,15 +171,19 @@
                     color: var(--white);
                     background: var(--#{$status}-light, var(--#{$status}));
 
-                    .LemonIcon,
-                    .spinner {
+                    .LemonIcon {
                         color: var(--white);
                     }
                 }
                 &:not(:disabled):active {
+                    color: var(--white);
+                    .LemonIcon {
+                        color: var(--white);
+                    }
                     background: var(--#{$status}-dark, var(--#{$status}));
                 }
             }
+
             // Secondary - outlined color style
             &.LemonButton--secondary {
                 background: var(--bg-light);

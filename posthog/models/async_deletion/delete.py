@@ -22,8 +22,11 @@ TABLES_TO_DELETE_TEAM_DATA_FROM = [
 
 
 def run_event_table_deletions():
-    deletions = list(AsyncDeletion.objects.filter(delete_verified_at__isnull=True))
+    queued_deletions = list(AsyncDeletion.objects.filter(delete_verified_at__isnull=True))
+    process_found_event_table_deletions(queued_deletions)
 
+
+def process_found_event_table_deletions(deletions: List[AsyncDeletion]):
     if len(deletions) == 0:
         logger.debug("No AsyncDeletion to perform")
         return

@@ -38,7 +38,6 @@ export interface LemonRowPropsBase<T extends keyof JSX.IntrinsicElements>
      * */
     size?: 'small' | 'medium' | 'tall' | 'large'
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 export interface LemonRowProps<T extends keyof JSX.IntrinsicElements = 'div'> extends LemonRowPropsBase<T> {
@@ -72,7 +71,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
 ): JSX.Element {
     const symbolic = children === null || children === undefined || children === false
     if (loading) {
-        icon = <Spinner size="sm" />
+        icon = <Spinner />
     }
     const element = React.createElement(
         tag || 'div',

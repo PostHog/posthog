@@ -43,7 +43,7 @@ export function PlayerConsole(): JSX.Element | null {
             <div className="console-log">
                 {sessionPlayerDataLoading ? (
                     <div style={{ display: 'flex', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
-                        <Spinner size="lg" />
+                        <Spinner className="text-4xl" />
                     </div>
                 ) : consoleLogs.length > 0 ? (
                     <AutoSizer>

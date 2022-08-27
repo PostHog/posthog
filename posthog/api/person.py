@@ -15,7 +15,7 @@ from typing import (
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
-from rest_framework import request, response, serializers, status, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
@@ -45,6 +45,7 @@ from posthog.logging.timing import timed
 from posthog.models import Cohort, Filter, Person, User
 from posthog.models.activity_logging.activity_log import Change, Detail, Merge, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -222,12 +223,20 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             delete_ch_distinct_ids(
                 person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
             )
+            if "delete_events" in request.GET:
+                AsyncDeletion.objects.create(
+                    deletion_type=DeletionType.Person,
+                    team_id=self.team_id,
+                    key=str(person.uuid),
+                    created_by=cast(User, self.request.user),
+                )
+
             person.delete()
 
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
-                user=request.user,  # type: ignore
+                user=cast(User, request.user),
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
@@ -564,12 +573,13 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], detail=True)
-    def activity(self, request: request.Request, **kwargs):
+    def activity(self, request: request.Request, pk=None, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
-        item_id = kwargs["pk"]
-        if not self.get_queryset().filter(id=item_id, team_id=self.team_id).exists():
-            return Response("", status=status.HTTP_404_NOT_FOUND)
+        item_id = None
+        if pk:
+            person = self.get_object()
+            item_id = person.pk
 
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)

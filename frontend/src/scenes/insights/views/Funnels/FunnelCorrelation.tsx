@@ -119,14 +119,14 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                                 />
                             </div>
                         </div>
-                        {correlationDetailedFeedbackVisible || true ? (
+                        {correlationDetailedFeedbackVisible ? (
                             <>
                                 <form onSubmit={sendCorrelationAnalysisFeedback} className="space-y-2">
                                     <LemonTextArea
                                         onBlur={(e) => setCorrelationDetailedFeedback(e.target.value)}
                                         placeholder="Optional. Help us by sharing details around your experience..."
                                         ref={detailedFeedbackRef}
-                                        onPressEnter={() => {
+                                        onPressCmdEnter={() => {
                                             detailedFeedbackRef.current?.blur()
                                             sendCorrelationAnalysisFeedback()
                                         }}

@@ -4,8 +4,8 @@ from typing import Dict, List, Literal, Union
 
 from django.utils.timezone import now
 
+from posthog.cache_utils import cache_for
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns.util import cache_for
 from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.models.instance_setting import get_instance_setting

@@ -12,7 +12,7 @@ import {
 } from '~/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { DownOutlined } from '@ant-design/icons'
-import { BareEntity, entityFilterLogic } from '../entityFilterLogic'
+import { entityFilterLogic } from '../entityFilterLogic'
 import { getEventNamesForAction } from 'lib/utils'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
@@ -109,7 +109,7 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
 }: ActionFilterRowProps): JSX.Element {
-    const { selectedFilter, entities, entityFilterVisible } = useValues(logic)
+    const { selectedFilter, entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
         selectFilter,
@@ -124,7 +124,7 @@ export function ActionFilterRow({
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
-    let entity: BareEntity, name: string | null | undefined, value: PropertyFilterValue
+    let name: string | null | undefined, value: PropertyFilterValue
     const { math, math_property: mathProperty, math_group_type_index: mathGroupTypeIndex } = filter
 
     const onClose = (): void => {
@@ -161,10 +161,13 @@ export function ActionFilterRow({
     if (filter.type === EntityTypes.NEW_ENTITY) {
         name = null
         value = null
+    } else if (filter.type === EntityTypes.ACTIONS) {
+        const action = actions.find((action) => action.id === filter.id)
+        name = action?.name || filter.name
+        value = action?.id || filter.id
     } else {
-        entity = (entities[filter.type] as BareEntity[])?.filter((action) => action.id === filter.id)[0] || {}
-        name = entity.name || filter.name
-        value = entity.id || filter.id
+        name = filter.name || String(filter.id)
+        value = filter.name || filter.id
     }
 
     const orLabel = <div className="stateful-badge or width-locked">OR</div>

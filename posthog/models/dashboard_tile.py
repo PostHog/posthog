@@ -82,7 +82,11 @@ def update_filters_hashes(tile_update_candidates) -> None:
 
 def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:
     tiles = list(
-        DashboardTile.objects.filter(dashboard=dashboard).select_related("insight").order_by("insight__order").all()
+        DashboardTile.objects.filter(dashboard=dashboard)
+        .select_related("insight")
+        .exclude(insight__deleted=True)
+        .order_by("insight__order")
+        .all()
     )
     tiles.sort(key=lambda x: x.layouts.get(size, {}).get("y", 100))
     return tiles
