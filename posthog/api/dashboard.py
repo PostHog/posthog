@@ -189,11 +189,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         if "text_tiles" in validated_data:
             # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
-            self.fields["text_tiles"].update(
-                list(  # type: ignore
-                    instance.text_tiles.all()
-                ),
-                validated_data.pop("text_tiles"),
+            self.fields["text_tiles"].update(  # type: ignore
+                list(instance.text_tiles.all()), validated_data.pop("text_tiles"),
             )
 
         instance = super().update(instance, validated_data)

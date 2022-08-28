@@ -1491,6 +1491,7 @@ export enum DashboardMode { // Default mode is null
     Edit = 'edit', // When the dashboard is being edited
     Fullscreen = 'fullscreen', // When the dashboard is on full screen (presentation) mode
     Sharing = 'sharing', // When the sharing configuration is opened
+    EditTextTile = 'edittexttile',
 }
 
 // Hotkeys for local (component) actions
