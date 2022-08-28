@@ -174,6 +174,30 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(len(response.json()["results"][0]["short_id"]), 8)
 
+    def test_insight_history_saved(self) -> None:
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/", {"filters": {"hello": "test"}, "saved": True}, format="json"
+        ).json()
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/", {"filters": {"hello": "test"}}, format="json"
+        ).json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true&saved=true").json()
+        self.assertEqual(response["count"], 1)
+
+    def test_insight_history_per_user(self) -> None:
+        test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
+
+        Insight.objects.create(filters={"hello": "test"}, team=self.team, created_by=test_user)
+
+        # Make sure the endpoint works with and without the trailing slash
+        self.client.post(f"/api/projects/{self.team.id}/insights", {"filters": {"hello": "test"}}, format="json").json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?user=true").json()
+        self.assertEqual(response["count"], 1)
+
     def test_get_favorited_insight_items(self):
         filter_dict = {
             "events": [{"id": "$pageview"}],

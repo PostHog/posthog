@@ -43,3 +43,41 @@ class TestDashboardTextTiles(APIBaseTest, QueryMatchingTest):
                 {"body": "I AM ALSO TEXT!", "color": None, "id": tiles[1]["id"], "layouts": {}},
             ],
         )
+
+    def test_dashboard_item_layout_can_update_text_tiles(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"text_tiles": [{"body": "Woah, text"}]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        text_tile_id = response.json()["text_tiles"][0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {
+                "tile_layouts": {
+                    "text_tiles": [
+                        {
+                            "id": text_tile_id,
+                            "layouts": {
+                                "lg": {"x": "0", "y": "0", "w": "6", "h": "5"},
+                                "sm": {"w": "7", "h": "5", "x": "0", "y": "0", "moved": "False", "static": "False",},
+                                "xs": {"x": "0", "y": "0", "w": "6", "h": "5"},
+                                "xxs": {"x": "0", "y": "0", "w": "2", "h": "5"},
+                            },
+                        }
+                    ]
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        dashboard_json = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/", {"refresh": False}
+        ).json()
+        text_tile_layouts = dashboard_json["text_tiles"][0]["layouts"]
+        self.assertTrue("lg" in text_tile_layouts)

@@ -107,7 +107,8 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
-        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        # tags are created separately below as global tag relationships
+        tags = validated_data.pop("tags", None)
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
@@ -188,7 +189,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         if "text_tiles" in validated_data:
             # mypy thinks this doesn't work... but it does ¯\_(ツ)_/¯
-            self.fields["text_tiles"].update(list(instance.text_tiles.all()), validated_data.pop("text_tiles"))  # type: ignore
+            self.fields["text_tiles"].update(
+                list(  # type: ignore
+                    instance.text_tiles.all()
+                ),
+                validated_data.pop("text_tiles"),
+            )
 
         instance = super().update(instance, validated_data)
 
@@ -197,16 +203,16 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         initial_data = dict(self.initial_data)
 
-        tile_layouts = initial_data.pop("tile_layouts", [])
-        for tile_layout in tile_layouts:
-            number_updated = DashboardTile.objects.filter(
-                dashboard__id=instance.id, insight__id=(tile_layout["id"])
-            ).update(layouts=tile_layout["layouts"])
-            # TODO need a test here
-            if number_updated == 0:
-                DashboardTextTile.objects.filter(dashboard__id=instance.id, id=tile_layout["id"]).update(
-                    layouts=tile_layout["layouts"]
-                )
+        tile_layouts = initial_data.pop("tile_layouts", {"insight_tiles": [], "text_tiles": []})
+        for insight_tile_layout in tile_layouts.get("insight_tiles", []):
+            DashboardTile.objects.filter(dashboard__id=instance.id, insight__id=(insight_tile_layout["id"])).update(
+                layouts=insight_tile_layout["layouts"]
+            )
+
+        for text_tile_layout in tile_layouts.get("text_tiles", []):
+            DashboardTextTile.objects.filter(dashboard__id=instance.id, id=text_tile_layout["id"]).update(
+                layouts=text_tile_layout["layouts"]
+            )
 
         colors = initial_data.pop("colors", [])
         for color in colors:

@@ -631,6 +631,7 @@ export const dashboardLogic = kea<dashboardLogicType>({
         },
         updateLayouts: async (_, breakpoint) => {
             await breakpoint(300)
+
             if (!isUserLoggedIn()) {
                 // If user is anonymous (i.e. viewing a shared dashboard logged out), we don't save any layout changes.
                 return
