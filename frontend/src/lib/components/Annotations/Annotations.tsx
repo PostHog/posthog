@@ -80,10 +80,7 @@ export function Annotations({
             const groupedAnnotationKey = chosenTime.format('YYYY-MM-DD')
             const annotations = groupedAnnotations[groupedAnnotationKey] || []
 
-            if (intervalUnit === 'minute') {
-                const minuteKey = chosenTime.format('YYYY-MM-DDTHH:mm')
-                filterAnnotations(annotations, minuteKey, index)
-            } else if (intervalUnit === 'hour') {
+            if (intervalUnit === 'hour') {
                 const hourKey = chosenTime.format('YYYY-MM-DDTHH')
                 filterAnnotations(annotations, hourKey, index)
             } else if (annotations.length) {

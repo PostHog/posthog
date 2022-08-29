@@ -178,14 +178,6 @@ describe('insightAnnotationsLogic', () => {
 
     describe('groupedAnnotations', () => {
         const INTERVAL_WITH_EXPECTED_GROUPING: Record<IntervalType, Record<string, AnnotationType[]>> = {
-            minute: {
-                '2022-08-10 12:00': [MOCK_ANNOTATION_ORG_SCOPED, MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_3],
-                '2022-08-10 12:01': [MOCK_ANNOTATION_PROJECT_SCOPED],
-                '2022-08-10 13:00': [MOCK_ANNOTATION_INSIGHT_1_SCOPED],
-                '2022-08-11 12:00': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_1],
-                '2022-08-17 12:00': [MOCK_ANNOTATION_ORG_SCOPED_FROM_INSIGHT_1],
-                '2022-09-10 12:00': [MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3],
-            },
             hour: {
                 '2022-08-10 12': [
                     MOCK_ANNOTATION_ORG_SCOPED,

@@ -28,6 +28,7 @@ export interface AnnotationModalForm {
 }
 
 export type AnnotationData = Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
 
 export const annotationsLogic = kea<annotationsLogicType>([
     path(['scenes', 'annotations', 'annotationsPageLogic']),
@@ -58,7 +59,7 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 annotationData,
             }: {
                 annotationId: AnnotationType['id']
-                annotationData: Omit<AnnotationData, 'insightId'>
+                annotationData: AnnotationDataWithoutInsight
             }) => {
                 const updatedAnnotation = await api.annotations.update(annotationId, annotationData)
                 actions.replaceAnnotation(updatedAnnotation)

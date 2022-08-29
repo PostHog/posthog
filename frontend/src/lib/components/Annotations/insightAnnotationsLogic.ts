@@ -4,16 +4,15 @@ import { groupBy } from 'lib/utils'
 import { AnnotationScope, InsightModel, IntervalType } from '~/types'
 import type { insightAnnotationsLogicType } from './insightAnnotationsLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { AnnotationData, annotationsLogic } from 'scenes/annotations/annotationsLogic'
+import { AnnotationDataWithoutInsight, annotationsLogic } from 'scenes/annotations/annotationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-interface InsightAnnotationsLogicProps {
-    dashboardItemId: InsightModel['short_id']
+export interface InsightAnnotationsLogicProps {
+    dashboardItemId: InsightModel['short_id'] | 'new'
     insightNumericId: InsightModel['id'] | 'new'
 }
 
 const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
-    minute: 'YYYY-MM-DD HH:mm',
     hour: 'YYYY-MM-DD HH',
     day: 'YYYY-MM-DD',
     week: 'YYYY-MM-DD',
@@ -36,7 +35,7 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
         actions: [annotationsLogic, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
     }),
     actions({
-        createAnnotation: (annotationData: Omit<AnnotationData, 'insightId'>) => ({ annotationData }),
+        createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
     }),
     listeners(({ actions, props }) => ({
         createAnnotation: async ({ annotationData }) => {
