@@ -9,20 +9,13 @@ from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # django-axes settings to lockout after too many attempts
-
-
 AXES_ENABLED = get_from_env("AXES_ENABLED", not TEST, type_cast=str_to_bool)
 AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
-AXES_META_PRECEDENCE_ORDER = [
-    "HTTP_X_FORWARDED_FOR",
-    "REMOTE_ADDR",
-]
 
 # Application definition
-
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
     "django.contrib.admin",
