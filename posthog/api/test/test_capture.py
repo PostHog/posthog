@@ -126,7 +126,9 @@ class TestCapture(BaseTest):
         data = {"event": "some_event", "properties": {"distinct_id": 2, "token": self.team.api_token,}}
 
         self.client.get(
-            "/e/?data=%s" % quote(self._to_json(data)), HTTP_X_FORWARDED_FOR="1.2.3.4, 5.6.7.8", HTTP_ORIGIN="https://localhost"
+            "/e/?data=%s" % quote(self._to_json(data)),
+            HTTP_X_FORWARDED_FOR="1.2.3.4, 5.6.7.8",
+            HTTP_ORIGIN="https://localhost",
         )
         self.assertDictContainsSubset(
             {
