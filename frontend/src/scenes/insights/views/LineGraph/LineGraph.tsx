@@ -59,7 +59,6 @@ interface LineGraphProps {
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
-    timezone: string | null | undefined
     aggregationAxisFormat?: AggregationAxisFormat
 }
 
@@ -105,15 +104,12 @@ export function LineGraph_({
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
-    timezone,
     aggregationAxisFormat = 'numeric',
 }: LineGraphProps): JSX.Element {
-    if (!timezone) {
-        timezone = 'UTC'
-    }
-
     let datasets = _datasets
+
     const { createTooltipData } = useValues(lineGraphLogic)
+    const { timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const chartRef = useRef<HTMLCanvasElement | null>(null)
@@ -360,7 +356,6 @@ export function LineGraph_({
                                 <>
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
-                                        timezone={timezone}
                                         seriesData={seriesData}
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
                                         renderCount={

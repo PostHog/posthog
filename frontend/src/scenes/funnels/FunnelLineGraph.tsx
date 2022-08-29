@@ -25,7 +25,6 @@ export function FunnelLineGraph({
             datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
             labels={steps?.[0]?.labels ?? ([] as string[])}
             isInProgress={incompletenessOffsetFromEnd < 0}
-            timezone={insight.timezone}
             inSharedMode={!!inSharedMode}
             showPersonsModal={showPersonsModal}
             tooltip={{
