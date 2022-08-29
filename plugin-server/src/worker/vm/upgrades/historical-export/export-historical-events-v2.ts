@@ -341,14 +341,13 @@ export function addHistoricalEventsExportCapabilityV2(
             createLog('Done exporting all events!')
             return
         }
-        // :TODO: Log what dates we're kicking off
 
         createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10})%`)
 
         if (update.hasChanges) {
             await Promise.all(
                 update.toStartRunning.map(async ([startDate, endDate]) => {
-                    // :TODO: Log this
+                    createLog(f`Starting job to export ${startDate}-${endDate}`)
                     await meta.jobs
                         .exportHistoricalEvents({
                             timestampCursor: new Date(startDate).getTime(),
