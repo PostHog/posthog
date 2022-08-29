@@ -165,6 +165,7 @@ export function addHistoricalEventsExportCapabilityV2(
         },
     } as unknown as PluginTask // :KLUDGE: Work around typing limitations
 
+    // :TODO: Rename this to avoid conflicts
     tasks.job['exportHistoricalEvents'] = {
         name: 'exportHistoricalEvents',
         type: PluginTaskType.Job,
@@ -296,7 +297,7 @@ export function addHistoricalEventsExportCapabilityV2(
         }
     }
 
-    async function startChunk(payload: ExportHistoricalEventsJobPayload, now: number, progress = 0): Promise<void> {
+    async function startChunk(payload: ExportHistoricalEventsJobPayload, progress = 0): Promise<void> {
         // Save for detecting retries
         await meta.storage.set(payload.statusKey, {
             ...payload,
