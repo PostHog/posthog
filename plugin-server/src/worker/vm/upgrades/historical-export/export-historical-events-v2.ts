@@ -320,7 +320,10 @@ export function addHistoricalEventsExportCapabilityV2(
 
         if (payload.retriesPerformedSoFar >= 15) {
             await stopExport(
-                `Exporting events from ${dateRange(payload.startTime, payload.endTime)} failed after 15 retries.`
+                `Exporting events from ${dateRange(
+                    payload.startTime,
+                    payload.endTime
+                )} failed after 15 retries. Stopping export.`
             )
             return
         }
@@ -402,15 +405,16 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         } else {
             const incrementCursor = events.length < EVENTS_PER_RUN
-            const incrementedTimeCursor = Math.min(payload.endTime, payload.timestampCursor + payload.fetchTimeInterval)
+            const fetchTimeInterval = nextFetchTimeInterval(payload, events.length)
+            const incrementedTimeCursor = Math.min(payload.endTime, payload.timestampCursor + fetchTimeInterval)
 
             await meta.jobs
                 .exportHistoricalEvents({
                     ...payload,
                     retriesPerformedSoFar: 0,
                     timestampCursor: incrementCursor ? incrementedTimeCursor : payload.timestampCursor,
-                    intraIntervalOffset: incrementCursor ? 0 : payload.offset + EVENTS_PER_RUN,
-                    fetchTimeInterval: nextFetchTimeInterval(payload, events.length),
+                    offset: incrementCursor ? 0 : payload.offset + EVENTS_PER_RUN,
+                    fetchTimeInterval,
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(1, 'seconds')
         }

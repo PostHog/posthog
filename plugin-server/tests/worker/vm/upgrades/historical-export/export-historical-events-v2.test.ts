@@ -106,14 +106,26 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             statusKey: 'statusKey',
         }
 
+        beforeEach(async () => {
+            await storage().set(EXPORT_RUNNING_KEY, {
+                id: 1,
+                parallelism: 3,
+                dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+                dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+            })
+        })
+
         it('stores current progress in storage under `statusKey`', async () => {
             jest.mocked(fetchEventsForInterval).mockResolvedValue([])
 
             await exportHistoricalEvents({ ...defaultPayload, timestampCursor: 1635730000000 })
 
             expect(await storage().get('statusKey', null)).toEqual({
+                ...defaultPayload,
+                timestampCursor: 1635730000000,
                 done: false,
                 progress: expect.closeTo(0.28888),
+                statusTime: Date.now(),
             })
         })
 
@@ -124,13 +136,16 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
-                        'Finished processing events between 2021-11-01T00:00:00.000Z and 2021-11-01T05:00:00.000Z'
+                        'Finished processing events from 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z'
                     ),
                 })
             )
             expect(await storage().get('statusKey', null)).toEqual({
+                ...defaultPayload,
+                timestampCursor: defaultPayload.endTime,
                 done: true,
                 progress: 1,
+                statusTime: Date.now(),
             })
         })
 
@@ -231,24 +246,119 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
             await exportHistoricalEvents(defaultPayload)
 
-            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
             expect(vm.meta.jobs.exportHistoricalEvents).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'exportEvents returned unknown error, stopping export. error=Error: Unknown error'
+                    ),
+                })
+            )
+
+            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
         })
 
         it('stops processing after 15 retries', async () => {
             await exportHistoricalEvents({ ...defaultPayload, retriesPerformedSoFar: 15 })
 
-            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
             expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Exporting events from 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z failed after 15 retries. Stopping export.'
+                    ),
+                })
+            )
+
+            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
         })
 
-        // describe('calling next time window', () => {
-        //     it('calls next time range if this range was empty')
-        //     it('calls next time range if this range had few events')
-        //     it('increases offset if this range had full page of events')
-        //     it('resets `retriesPerformedSoFar`')
-        //     it('does not cross endTime when bumping time window')
-        // })
+        it('does nothing if no export is running', async () => {
+            await storage().del(EXPORT_RUNNING_KEY)
+
+            await exportHistoricalEvents(defaultPayload)
+
+            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+        })
+
+        it('does nothing if a different export is running', async () => {
+            await exportHistoricalEvents({ ...defaultPayload, exportId: 779 })
+
+            expect(fetchEventsForInterval).not.toHaveBeenCalled()
+            expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
+        })
+
+        describe('calling next time window', () => {
+            it('calls next time range if this range was empty', async () => {
+                jest.mocked(fetchEventsForInterval).mockResolvedValue([])
+
+                await exportHistoricalEvents(defaultPayload)
+
+                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                    ...defaultPayload,
+                    timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval * 1.2,
+                    offset: 0,
+                    fetchTimeInterval: defaultPayload.fetchTimeInterval * 1.2,
+                })
+            })
+
+            it('calls next time range if this range had some events', async () => {
+                jest.mocked(fetchEventsForInterval).mockResolvedValue(new Array(400))
+
+                await exportHistoricalEvents(defaultPayload)
+
+                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                    ...defaultPayload,
+                    timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
+                    offset: 0,
+                    fetchTimeInterval: defaultPayload.fetchTimeInterval,
+                })
+            })
+
+            it('increases offset if this range had full page of events', async () => {
+                jest.mocked(fetchEventsForInterval).mockResolvedValue(new Array(500))
+
+                await exportHistoricalEvents(defaultPayload)
+
+                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                    ...defaultPayload,
+                    timestampCursor: defaultPayload.timestampCursor,
+                    offset: 500,
+                })
+            })
+
+            it('resets `retriesPerformedSoFar` and `offset` when page increases', async () => {
+                jest.mocked(fetchEventsForInterval).mockResolvedValue(new Array(300))
+
+                await exportHistoricalEvents({
+                    ...defaultPayload,
+                    offset: 1000,
+                    retriesPerformedSoFar: 10,
+                })
+
+                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                    ...defaultPayload,
+                    timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
+                    offset: 0,
+                    retriesPerformedSoFar: 0,
+                })
+            })
+
+            it('does not cross endTime when bumping time window', async () => {
+                jest.mocked(fetchEventsForInterval).mockResolvedValue(new Array(300))
+
+                await exportHistoricalEvents({
+                    ...defaultPayload,
+                    timestampCursor: defaultPayload.endTime - 100,
+                })
+
+                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                    ...defaultPayload,
+                    timestampCursor: defaultPayload.endTime,
+                })
+            })
+        })
     })
 
     describe('coordinateHistoricExport()', () => {
