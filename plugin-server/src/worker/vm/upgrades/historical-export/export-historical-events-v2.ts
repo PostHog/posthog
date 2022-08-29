@@ -5,11 +5,17 @@ Historical exports (v2) work the following way:
   This saves the time range as the running export with parallelism options.
 - `runEveryMinute` acts as a coordinator: It takes the time range job runs on, splits it into pieces,
   ensures that enough pieces are running, reports progress and finalizes the export.
-- `exportHistoricalEvents` job is responsible for exporting data between particular start and end points
+- `exportHistoricalEvents` job is responsible for exporting data between particular start and end points (chunk)
     - It tracks its progress under `statusKey`
     - It dynamically resizes the time window we fetch data to minimize waiting.
     - It calls plugins `exportEvents` with each batch of events it finds
     - It handles retries by retrying RetryErrors up to 15 times
+
+Error handling:
+- Failing to fetch events from clickhouse stops the export outright
+- For every batch of events fetched, `exportEvents` RetryError is retried up to 15 times
+- Unknown errors raised by `exportEvents` cause export to fail
+- We periodically check whether a running chunk has made progress. If not, the chunk is restarted
 
 Note:
 - parallelism is only settable by superusers to avoid abuse.
