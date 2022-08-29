@@ -4,13 +4,13 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { DatePicker } from 'lib/components/DatePicker'
 import React from 'react'
-import { annotationScopeToName, annotationsLogic, ANNOTATION_DAYJS_FORMAT } from './annotationsLogic'
+import { annotationScopeToName, annotationsPageLogic, ANNOTATION_DAYJS_FORMAT } from './annotationsPageLogic'
 import { AnnotationScope } from '~/types'
 import { IconWarning } from 'lib/components/icons'
 
 export function AnnotationModal(): JSX.Element {
-    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting } = useValues(annotationsLogic)
-    const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationsLogic)
+    const { isModalOpen, existingModalAnnotation, isAnnotationModalSubmitting } = useValues(annotationsPageLogic)
+    const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationsPageLogic)
 
     const isInsightScoped = existingModalAnnotation?.scope === AnnotationScope.Insight
 
@@ -56,7 +56,7 @@ export function AnnotationModal(): JSX.Element {
             }
         >
             <Form
-                logic={annotationsLogic}
+                logic={annotationsPageLogic}
                 formKey="annotationModal"
                 id="annotation-modal-form"
                 enableFormOnSubmit

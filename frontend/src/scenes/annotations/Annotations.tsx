@@ -3,9 +3,9 @@ import { useValues, useActions } from 'kea'
 import {
     annotationScopeToLevel,
     annotationScopeToName,
-    annotationsLogic,
+    annotationsPageLogic,
     ANNOTATION_DAYJS_FORMAT,
-} from './annotationsLogic'
+} from './annotationsPageLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -24,14 +24,15 @@ import { AnnotationModal } from './AnnotationModal'
 
 export const scene: SceneExport = {
     component: Annotations,
-    logic: annotationsLogic,
+    logic: annotationsPageLogic,
 }
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsLogic)
-    const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } = useActions(annotationsLogic)
+    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsPageLogic)
+    const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
+        useActions(annotationsPageLogic)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {

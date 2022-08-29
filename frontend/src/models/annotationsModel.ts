@@ -1,46 +1,21 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils'
-import type { annotationsLogicType } from './annotationsLogicType'
-import { AnnotationScope, AnnotationType } from '~/types'
+import type { annotationsModelType } from './annotationsModelType'
+import { AnnotationType } from '~/types'
 import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import { dayjs } from 'lib/dayjs'
-
-export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
-
-export const annotationScopeToName: Record<AnnotationScope, string> = {
-    [AnnotationScope.Insight]: 'Insight',
-    [AnnotationScope.Project]: 'Project',
-    [AnnotationScope.Organization]: 'Organization',
-}
-
-export const annotationScopeToLevel: Record<AnnotationScope, number> = {
-    [AnnotationScope.Insight]: 0,
-    [AnnotationScope.Project]: 1,
-    [AnnotationScope.Organization]: 2,
-}
-
-export interface AnnotationModalForm {
-    dateMarker: dayjs.Dayjs
-    scope: AnnotationType['scope']
-    content: AnnotationType['content']
-}
 
 export type AnnotationData = Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
 export type AnnotationDataWithoutInsight = Omit<AnnotationData, 'dashboard_item'>
 
-export const annotationsLogic = kea<annotationsLogicType>([
-    path(['scenes', 'annotations', 'annotationsPageLogic']),
+export const annotationsModel = kea<annotationsModelType>([
+    path(['models', 'annotationsModel']),
     actions({
         deleteAnnotation: (annotation: AnnotationType) => ({ annotation }),
         loadAnnotationsNext: () => true,
         setNext: (next: string | null) => ({ next }),
         appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
         replaceAnnotation: (annotation: AnnotationType) => ({ annotation }),
-        openModalToCreateAnnotation: () => true,
-        openModalToEditAnnotation: (annotation: AnnotationType) => ({ annotation }),
-        closeModal: true,
     }),
     loaders(({ values, actions }) => ({
         annotations: {
@@ -104,33 +79,8 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 appendAnnotations: () => false,
             },
         ],
-        isModalOpen: [
-            false,
-            {
-                openModalToCreateAnnotation: () => true,
-                openModalToEditAnnotation: () => true,
-                closeModal: () => false,
-            },
-        ],
-        existingModalAnnotation: [
-            null as AnnotationType | null,
-            {
-                openModalToCreateAnnotation: () => null,
-                openModalToEditAnnotation: (_, { annotation }) => annotation,
-            },
-        ],
     })),
     listeners(({ actions, values }) => ({
-        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content } }) => {
-            actions.setAnnotationModalValues({
-                dateMarker: dayjs(date_marker),
-                scope,
-                content,
-            })
-        },
-        openModalToCreateAnnotation: () => {
-            actions.resetAnnotationModal()
-        },
         loadAnnotationsNext: async () => {
             let results: AnnotationType[] = []
             if (values.next) {
@@ -139,39 +89,6 @@ export const annotationsLogic = kea<annotationsLogicType>([
                 results = response.results
             }
             actions.appendAnnotations(results)
-        },
-    })),
-    forms(({ actions, values }) => ({
-        annotationModal: {
-            defaults: {
-                dateMarker: dayjs(),
-                content: '',
-                scope: AnnotationScope.Project,
-            } as AnnotationModalForm,
-            errors: ({ content }) => ({
-                content: !content ? 'An annotation must have text content.' : null,
-            }),
-            submit: async (data) => {
-                const { dateMarker, content, scope } = data
-                if (values.existingModalAnnotation) {
-                    // updateAnnotation inlined so that isAnnotationModalSubmitting works
-                    const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
-                        date_marker: dateMarker.toISOString(),
-                        content,
-                        scope,
-                    })
-                    actions.replaceAnnotation(updatedAnnotation)
-                } else {
-                    // createAnnotationGenerically inlined so that isAnnotationModalSubmitting works
-                    const createdAnnotation = await api.annotations.create({
-                        date_marker: dateMarker.toISOString(),
-                        content,
-                        scope,
-                    })
-                    actions.appendAnnotations([createdAnnotation])
-                }
-                actions.closeModal()
-            },
         },
     })),
     afterMount(({ actions }) => actions.loadAnnotations()),

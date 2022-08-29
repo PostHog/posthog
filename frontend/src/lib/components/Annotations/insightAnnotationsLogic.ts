@@ -4,8 +4,7 @@ import { groupBy } from 'lib/utils'
 import { AnnotationScope, InsightModel, IntervalType } from '~/types'
 import type { insightAnnotationsLogicType } from './insightAnnotationsLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { AnnotationDataWithoutInsight, annotationsLogic } from 'scenes/annotations/annotationsLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
 
 export interface InsightAnnotationsLogicProps {
     dashboardItemId: InsightModel['short_id'] | 'new'
@@ -24,15 +23,8 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
     props({} as InsightAnnotationsLogicProps),
     key(({ insightNumericId }) => insightNumericId),
     connect({
-        values: [
-            insightLogic,
-            ['intervalUnit'],
-            annotationsLogic,
-            ['annotations', 'annotationsLoading'],
-            teamLogic,
-            ['currentTeam'],
-        ],
-        actions: [annotationsLogic, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
+        values: [insightLogic, ['intervalUnit', 'timezone'], annotationsModel, ['annotations', 'annotationsLoading']],
+        actions: [annotationsModel, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
     }),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
@@ -47,6 +39,10 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
         relevantAnnotations: [
             (s) => [s.annotations],
             (annotations) => {
+                // This assumes that there are no more than AnnotationsViewSet.default_limit (500) annotations
+                // in the project. Right now this is true on Cloud, though some projects are getting close (400+).
+                // If we see the scale increasing, we might need to fetch annotations on a per-insight basis here.
+                // That would greatly increase the number of requests to the annotations endpoint though.
                 return annotations.filter(
                     (annotation) =>
                         annotation.scope !== AnnotationScope.Insight ||
@@ -55,15 +51,11 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
             },
         ],
         groupedAnnotations: [
-            (s) => [s.relevantAnnotations, s.intervalUnit, s.currentTeam],
-            (annotations, intervalUnit, currentTeam) => {
+            (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
+            (annotations, intervalUnit, timezone) => {
                 const format = INTERVAL_UNIT_TO_DAYJS_FORMAT[intervalUnit]
                 return groupBy(annotations, (annotation) =>
-                    dayjs
-                        .utc(annotation['date_marker'])
-                        .tz(currentTeam?.timezone || 'UTC', true)
-                        .startOf(intervalUnit)
-                        .format(format)
+                    dayjs.utc(annotation['date_marker']).tz(timezone, true).startOf(intervalUnit).format(format)
                 )
             },
         ],

@@ -15,6 +15,7 @@ interface AnnotationsProps {
     currentDateMarker?: string | null
     onClick: () => void
     onClose: () => void
+    timezone: string
 }
 
 export function Annotations({
@@ -27,6 +28,7 @@ export function Annotations({
     accessoryColor,
     onClose,
     currentDateMarker,
+    timezone,
 }: AnnotationsProps): JSX.Element {
     // insightAnnotationsLogic must be bound using BindLogic
     const { intervalUnit, groupedAnnotations } = useValues(insightAnnotationsLogic)
@@ -37,7 +39,7 @@ export function Annotations({
         (input: string, applyAll: boolean): void => {
             createAnnotation({
                 content: input,
-                date_marker: date,
+                date_marker: dayjs(date).tz(timezone).toISOString(),
                 scope: applyAll ? AnnotationScope.Project : AnnotationScope.Insight,
             })
         }
@@ -47,7 +49,7 @@ export function Annotations({
     const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
         <AnnotationMarker
             elementId={date}
-            label={dayjs(date).format('MMMM Do YYYY')}
+            label={dayjs(date).format('MMMM Do YYYY HH:mm')}
             key={index}
             left={index * interval + leftExtent - 12.5}
             top={topExtent}

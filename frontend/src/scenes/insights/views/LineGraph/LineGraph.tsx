@@ -59,7 +59,7 @@ interface LineGraphProps {
     isCompare?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
-    timezone?: string | null
+    timezone: string | null | undefined
     aggregationAxisFormat?: AggregationAxisFormat
 }
 
@@ -108,9 +108,14 @@ export function LineGraph_({
     timezone,
     aggregationAxisFormat = 'numeric',
 }: LineGraphProps): JSX.Element {
+    if (!timezone) {
+        timezone = 'UTC'
+    }
+
     let datasets = _datasets
     const { createTooltipData } = useValues(lineGraphLogic)
     const { aggregationLabel } = useValues(groupsModel)
+
     const chartRef = useRef<HTMLCanvasElement | null>(null)
     const myLineChart = useRef<Chart<ChartType, any, string>>()
     const annotationsRoot = useRef<HTMLDivElement | null>(null)
@@ -689,6 +694,7 @@ export function LineGraph_({
                         }}
                         color={colors.annotationColor}
                         accessoryColor={colors.annotationAccessoryColor}
+                        timezone={timezone}
                     />
                 )}
                 {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
@@ -710,7 +716,9 @@ export function LineGraph_({
                             if (date) {
                                 createAnnotation({
                                     content: textInput,
-                                    date_marker: date,
+                                    date_marker: dayjs(date)
+                                        .tz(timezone as string)
+                                        .toISOString(),
                                     scope: applyAll ? AnnotationScope.Project : AnnotationScope.Insight,
                                 })
                             }

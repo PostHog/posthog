@@ -1,5 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
-import { annotationsLogic } from 'scenes/annotations/annotationsLogic'
+import { annotationsPageLogic } from 'scenes/annotations/annotationsPageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -133,7 +133,7 @@ describe('insightAnnotationsLogic', () => {
             insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
         })
         logic.mount()
-        await expectLogic(annotationsLogic).toDispatchActions(['loadAnnotations'])
+        await expectLogic(annotationsPageLogic).toDispatchActions(['loadAnnotations'])
     })
 
     describe('relevantAnnotations', () => {
@@ -143,7 +143,7 @@ describe('insightAnnotationsLogic', () => {
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
             })
             logic.mount()
-            await expectLogic(annotationsLogic).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(annotationsPageLogic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // The annotation scoped to insight 3 should be omitted
@@ -161,7 +161,7 @@ describe('insightAnnotationsLogic', () => {
         it('returns annotations scoped to the project for a new insight', async () => {
             logic = insightAnnotationsLogic({ dashboardItemId: 'new', insightNumericId: 'new' })
             logic.mount()
-            await expectLogic(annotationsLogic).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(annotationsPageLogic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // The annotation scoped to insight 3 should be omitted
@@ -253,7 +253,7 @@ describe('insightAnnotationsLogic', () => {
                     insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
                 })
                 logic.mount()
-                await expectLogic(annotationsLogic).toDispatchActions(['loadAnnotationsSuccess'])
+                await expectLogic(annotationsPageLogic).toDispatchActions(['loadAnnotationsSuccess'])
                 await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
                     'loadInsightSuccess',
                 ])

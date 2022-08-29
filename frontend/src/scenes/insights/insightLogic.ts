@@ -564,6 +564,7 @@ export const insightLogic = kea<insightLogicType>({
             },
         ],
         intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
+        timezone: [(s) => [s.insight], (insight) => insight?.timezone || 'UTC'],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
