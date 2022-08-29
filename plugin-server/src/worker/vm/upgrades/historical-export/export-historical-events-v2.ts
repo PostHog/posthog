@@ -37,7 +37,7 @@ const TWELVE_HOURS = 1000 * 60 * 60 * 12
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
 export const EVENTS_PER_RUN = 500
 
-export const EXPORT_RUNNING_KEY = 'is_export_running_v2'
+export const EXPORT_RUNNING_KEY = 'export_running'
 
 const INTERFACE_JOB_NAME = 'Export historical events V2'
 
