@@ -189,8 +189,7 @@ export function addHistoricalEventsExportCapabilityV2(
         update = update || (await calculateCoordination(params, done || [], running || []))
 
         if (update.exportIsDone) {
-            await meta.storage.del(EXPORT_RUNNING_KEY)
-            createLog('Done exporting all events!')
+            await stopExport('Done exporting all events!')
             return
         }
 
@@ -247,7 +246,7 @@ export function addHistoricalEventsExportCapabilityV2(
             } else {
                 progress += progressPerDay * (dateStatus?.progress ?? 0)
             }
-            // :TODO: Check this is 'stuck' for some reason.
+            // :TODO: Check this is 'stuck' for some reason, restart
         }
 
         const toStartRunning: Array<[ISOTimestamp, ISOTimestamp]> = []
@@ -277,20 +276,23 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
-        if (payload.retriesPerformedSoFar >= 15) {
-            // :TODO: Should we cancel the whole export? Notify users?
+        const activeExportParameters = await getExportParameters()
+        if (activeExportParameters?.id != payload.exportId) {
+            // This export has finished or has been stopped
             return
         }
 
-        // :TODO: Handle task when this export isn't active anymore.
+        if (payload.retriesPerformedSoFar >= 15) {
+            await stopExport(
+                `Exporting events from ${dateRange(payload.startTime, payload.endTime)} failed after 15 retries.`
+            )
+            return
+        }
+
         // :TODO: Handle double-processing somehow?
 
         if (payload.timestampCursor >= payload.endTime) {
-            createLog(
-                `Finished processing events between ${new Date(payload.startTime).toISOString()} and ${new Date(
-                    payload.endTime
-                ).toISOString()}`
-            )
+            createLog(`Finished processing events from ${dateRange(payload.startTime, payload.endTime)}`)
             await meta.storage.set(payload.statusKey, {
                 done: true,
                 progress: 1,
@@ -312,6 +314,7 @@ export function addHistoricalEventsExportCapabilityV2(
         let fetchEventsError: Error | unknown | null = null
         try {
             // :TODO: Verify this handles borders correctly
+            // :TODO: Use `timestamp` not `_timestamp`
             events = await fetchEventsForInterval(
                 hub.db,
                 pluginConfig.team_id,
@@ -328,10 +331,7 @@ export function addHistoricalEventsExportCapabilityV2(
         let exportEventsError: Error | unknown | null = null
 
         if (fetchEventsError) {
-            // :TODO: This doesn't stop currently running jobs from continuing
-            await meta.storage.del(EXPORT_RUNNING_KEY)
-            // :TODO: Retries logic.
-            createLog(`Failed fetching events. Stopping export - please try again later.`)
+            await stopExport('Failed fetching events. Stopping export - please try again later.')
             return
         } else {
             if (events.length > 0) {
@@ -348,11 +348,10 @@ export function addHistoricalEventsExportCapabilityV2(
 
             // "Failed processing events 0-100 from 2021-08-19T12:34:26.061Z to 2021-08-19T12:44:26.061Z. Retrying in 3s"
             createLog(
-                `Failed processing events ${payload.offset}-${payload.offset + events.length} from ${new Date(
-                    payload.timestampCursor
-                ).toISOString()} to ${new Date(
+                `Failed processing events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
+                    payload.timestampCursor,
                     payload.timestampCursor + payload.fetchTimeInterval
-                ).toISOString()}. Retrying in ${nextRetrySeconds}s`
+                )}. Retrying in ${nextRetrySeconds}s`
             )
 
             await meta.jobs
@@ -361,7 +360,10 @@ export function addHistoricalEventsExportCapabilityV2(
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(nextRetrySeconds, 'seconds')
-        } else if (!exportEventsError) {
+        } else if (exportEventsError) {
+            await stopExport(`exportEvents returned unknown error, stopping export. error=${exportEventsError}`)
+            return
+        } else {
             const incrementCursor = events.length < EVENTS_PER_RUN
             const incrementedTimeCursor = Math.min(payload.endTime, payload.timestampCursor + payload.fetchTimeInterval)
 
@@ -375,15 +377,21 @@ export function addHistoricalEventsExportCapabilityV2(
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(1, 'seconds')
         }
-        // :TODO: When unknown exportEventsError?
 
         if (events.length > 0 && !exportEventsError) {
             createLog(
-                `Successfully processed events ${payload.offset}-${payload.offset + events.length} from ${new Date(
-                    payload.timestampCursor
-                ).toISOString()} to ${new Date(payload.timestampCursor + payload.fetchTimeInterval).toISOString()}.`
+                `Successfully processed events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
+                    payload.timestampCursor,
+                    payload.timestampCursor + payload.fetchTimeInterval
+                )}.`
             )
         }
+    }
+
+    async function stopExport(message: string) {
+        // :TODO: This doesn't stop currently running jobs from continuing
+        await meta.storage.del(EXPORT_RUNNING_KEY)
+        createLog(message)
     }
 
     async function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): Promise<TimestampBoundaries> {
@@ -451,6 +459,10 @@ export function addHistoricalEventsExportCapabilityV2(
             .join('')
 
         return progressBarCompleted + progressBarRemaining
+    }
+
+    function dateRange(startTime: number, endTime: number): string {
+        return `${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()}`
     }
 
     async function getExportParameters(): Promise<ExportParams | null> {
