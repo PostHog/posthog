@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
@@ -464,5 +464,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
             },
         ],
+    }),
+    afterMount(({ props, actions }) => {
+        if (props.sessionRecordingId) {
+            actions.loadEntireRecording()
+        }
     }),
 ])

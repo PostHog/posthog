@@ -2,10 +2,7 @@ import { actions, connect, kea, path, reducers } from 'kea'
 import { SessionRecordingId } from '~/types'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-
 import type { sessionPlayerDrawerLogicType } from './sessionPlayerDrawerLogicType'
-import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
-import { subscriptions } from 'kea-subscriptions'
 
 interface HashParams {
     sessionRecordingId?: SessionRecordingId
@@ -31,18 +28,6 @@ export const sessionPlayerDrawerLogic = kea<sessionPlayerDrawerLogicType>([
                 closeSessionPlayer: () => null,
             },
         ],
-    }),
-    subscriptions({
-        activeSessionRecordingId: (sessionRecordingId, oldSessionRecordingId) => {
-            if (sessionRecordingId !== oldSessionRecordingId) {
-                if (sessionRecordingId) {
-                    if (!sessionRecordingDataLogic({ sessionRecordingId }).isMounted()) {
-                        sessionRecordingDataLogic({ sessionRecordingId }).mount()
-                    }
-                    sessionRecordingDataLogic({ sessionRecordingId }).actions.loadEntireRecording()
-                }
-            }
-        },
     }),
     actionToUrl(({ values }) => {
         const buildURL = (
