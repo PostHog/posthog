@@ -22,29 +22,6 @@ class TestAnnotation(APIBaseTest):
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual(response["results"][0]["content"], "hello world!")
 
-    def test_query_annotations_by_datetime(self):
-        Annotation.objects.create(
-            organization=self.organization,
-            team=self.team,
-            created_by=self.user,
-            content="hello_early",
-            created_at="2020-01-04T13:00:01Z",
-        )
-        Annotation.objects.create(
-            organization=self.organization,
-            team=self.team,
-            created_by=self.user,
-            content="hello_later",
-            created_at="2020-01-06T13:00:01Z",
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/annotations/?before=2020-01-05").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["content"], "hello_early")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/annotations/?after=2020-01-05").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["content"], "hello_later")
-
     def test_org_scoped_annotations_are_returned_between_projects(self):
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         Annotation.objects.create(
