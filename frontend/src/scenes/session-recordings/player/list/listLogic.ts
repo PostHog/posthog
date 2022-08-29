@@ -26,6 +26,7 @@ export interface ListLogicProps extends SessionRecordingPlayerProps {
     tab: SessionRecordingTab
 }
 
+// See sharedListLogic for logic that is shared across recording tabs
 export const listLogic = kea<listLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'listLogic', key]),
     props({} as ListLogicProps),
