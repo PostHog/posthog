@@ -59,7 +59,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%2C%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%2C%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D",
+                "$initial_referring_domain": "127.0.0.1:8000"
             },
             "$group_0": "017eca8c-03d9-0000-45ef-b1d4ecab7048",
             "$group_1": "017eca8b-fdce-0000-6923-f64fc0d0edac",
@@ -130,7 +132,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://localhost:8000/login?next=/events",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://localhost:8000/login?next=/events",
+                "$initial_referring_domain": "localhost:8000"
             }
         },
         "event": "$pageview",
@@ -204,7 +208,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%2C%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%2C%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D",
+                "$initial_referring_domain": "127.0.0.1:8000"
             },
             "$group_0": "017eca8c-03d9-0000-45ef-b1d4ecab7048",
             "$group_1": "017eca8b-fdce-0000-6923-f64fc0d0edac",
@@ -275,7 +281,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://localhost:8000/login?next=/events",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://localhost:8000/login?next=/events",
+                "$initial_referring_domain": "localhost:8000"
             }
         },
         "event": "$pageview",
@@ -349,7 +357,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%2C%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%22is_set%22%2C%22operator%22%3A%22is_set%22%2C%22type%22%3A%22event%22%7D%5D",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%5D",
+                "$initial_referring_domain": "127.0.0.1:8000"
             },
             "$group_0": "017eca8c-03d9-0000-45ef-b1d4ecab7048",
             "$group_1": "017eca8b-fdce-0000-6923-f64fc0d0edac",
@@ -420,7 +430,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://localhost:8000/login?next=/events",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://localhost:8000/login?next=/events",
+                "$initial_referring_domain": "localhost:8000"
             }
         },
         "event": "$pageview",
@@ -494,7 +506,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%5D",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%5D",
+                "$initial_referring_domain": "127.0.0.1:8000"
             },
             "$group_0": "017eca8c-03d9-0000-45ef-b1d4ecab7048",
             "$group_1": "017eca8b-fdce-0000-6923-f64fc0d0edac",
@@ -565,7 +579,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://localhost:8000/login?next=/events",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://localhost:8000/login?next=/events",
+                "$initial_referring_domain": "localhost:8000"
             }
         },
         "event": "$pageview",
@@ -639,7 +655,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%5D",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%5D",
+                "$initial_referring_domain": "127.0.0.1:8000"
             },
             "$group_0": "017eca8c-03d9-0000-45ef-b1d4ecab7048",
             "$group_1": "017eca8b-fdce-0000-6923-f64fc0d0edac",
@@ -718,7 +736,9 @@
                 "$initial_browser": "Chrome",
                 "$initial_device_type": "Desktop",
                 "$initial_current_url": "http://127.0.0.1:8000/web-performance?properties=%5B%7B%22key%22%3A%22%24performance_page_loaded%22%2C%22value%22%3A%222700%22%2C%22operator%22%3A%22gt%22%2C%22type%22%3A%22event%22%7D%5D",
-                "$initial_browser_version": 97
+                "$initial_browser_version": 97,
+                "$initial_referrer": "http://127.0.0.1:8000/web-performance",
+                "$initial_referring_domain": "127.0.0.1:8000"
             },
             "$group_0": "017eca8c-03d9-0000-45ef-b1d4ecab7048",
             "$group_1": "017eca8b-fdce-0000-6923-f64fc0d0edac",
