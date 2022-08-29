@@ -13,6 +13,7 @@ Historical exports (v2) work the following way:
 
 Note:
 - parallelism is only settable by superusers to avoid abuse.
+- Double-processing might be possible if a task is queued in graphile for a long time
 */
 
 import { Plugin, PluginEvent, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
@@ -328,8 +329,6 @@ export function addHistoricalEventsExportCapabilityV2(
             )
             return
         }
-
-        // :TODO: Handle double-processing somehow?
 
         if (payload.timestampCursor >= payload.endTime) {
             createLog(`Finished processing events from ${dateRange(payload.startTime, payload.endTime)}`)
