@@ -100,10 +100,6 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
         openModalToCreateAnnotation: () => {
             actions.resetAnnotationModal()
         },
-        restoreAnnotation: async ({ id }) => {
-            await api.annotations.restore(id)
-            actions.loadAnnotations()
-        },
         deleteAnnotation: ({ id }) => {
             deleteWithUndo({
                 endpoint: api.annotations.determineDeleteEndpoint(),
