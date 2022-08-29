@@ -472,7 +472,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                 feature_flag = request.GET["feature_flag"]
                 queryset = queryset.filter(
                     Q(filters__breakdown__icontains=f"$feature/{feature_flag}")
-                    | Q(filters__properties__values__icontains=feature_flag)
                     | Q(filters__properties__icontains=feature_flag)
                 )
             elif key == "user":
