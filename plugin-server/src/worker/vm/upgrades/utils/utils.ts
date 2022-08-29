@@ -139,18 +139,12 @@ export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): His
         properties['$elements'] = convertDatabaseElementsToRawElements(elements_chain)
     }
     properties['$$historical_export_source_db'] = 'clickhouse'
-    let ts: DateTime | string = timestamp
-    try {
-        ts = timestamp.toISO()
-    } catch (e) {
-        Sentry.captureException(e, { extra: { event, timestamp } })
-    }
     const parsedEvent = {
         uuid,
         team_id,
         distinct_id,
         properties,
-        timestamp: String(ts),
+        timestamp: timestamp.toISO(),
         now: DateTime.now().toISO(),
         event: eventName || '',
         ip: properties?.['$ip'] || '',
