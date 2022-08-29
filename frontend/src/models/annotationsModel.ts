@@ -55,7 +55,7 @@ export const annotationsModel = kea<annotationsModelType>({
             createGlobalAnnotation: (state, { content, date_marker, created_at, created_by, annotationScope }) => [
                 ...state,
                 {
-                    id: getNextKey(state).toString(),
+                    id: getNextKey(state),
                     content,
                     date_marker: date_marker,
                     created_at: created_at.toISOString(),

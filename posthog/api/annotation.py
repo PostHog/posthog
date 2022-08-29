@@ -1,6 +1,6 @@
 from typing import Any, Dict
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework import filters, request, serializers, viewsets
@@ -13,7 +13,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Annotation, Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import str_to_bool
 
 
 class AnnotationSerializer(serializers.ModelSerializer):
@@ -27,6 +26,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "date_marker",
             "creation_type",
             "dashboard_item",
+            "insight_short_id",
+            "insight_name",
             "created_by",
             "created_at",
             "updated_at",
@@ -36,12 +37,18 @@ class AnnotationSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "creation_type",
+            "insight_short_id",
+            "insight_name",
             "created_by",
             "created_at",
             "updated_at",
         ]
 
-    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Annotation:
+    def update(self, instance: Annotation, validated_data: Dict[str, Any]) -> Annotation:
+        instance.team_id = self.context["team_id"]
+        return super().update(instance, validated_data)
+
+    def create(self, validated_data: Dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         project = Team.objects.get(id=self.context["team_id"])
         annotation = Annotation.objects.create(
@@ -55,7 +62,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/user-guides/annotations) for more information on annotations.
     """
 
-    queryset = Annotation.objects.all()
+    queryset = Annotation.objects.select_related("dashboard_item")
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     filter_backends = [filters.SearchFilter]
@@ -64,12 +71,23 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = self._filter_request(self.request, queryset)
-            order = self.request.GET.get("order", None)
-            if order:
-                queryset = queryset.order_by(order)
+            order = self.request.GET.get("order", "-date_marker")
+            queryset = self._filter_request(self.request, queryset).order_by(order)
+        if self.action != "partial_update":
+            # We never want deleted items to be included in the queryset… except when we want to restore an annotation
+            # Annotations are restored with a PATCH request setting `deleted` to `False`
+            queryset = queryset.filter(deleted=False)
 
         return queryset
+
+    def filter_queryset_by_parents_lookups(self, queryset):
+        parents_query_dict = self.parents_query_dict.copy()
+        organization_id = self.team.organization_id
+
+        return queryset.filter(
+            Q(team_id=parents_query_dict["team_id"])
+            | Q(scope=Annotation.Scope.ORGANIZATION, organization_id=organization_id)
+        )
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -83,11 +101,6 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
                 queryset = queryset.filter(dashboard_item_id=request.GET["dashboardItemId"])
             elif key == "scope":
                 queryset = queryset.filter(scope=request.GET["scope"])
-            elif key == "apply_all":
-                queryset_method = queryset.exclude if str_to_bool(request.GET["apply_all"]) else queryset.filter
-                queryset = queryset_method(scope=Annotation.Scope.INSIGHT)
-            elif key == "deleted":
-                queryset = queryset.filter(deleted=str_to_bool(request.GET["deleted"]))
 
         return queryset
 
@@ -108,7 +121,3 @@ def annotation_created(sender, instance, created, raw, using, **kwargs):
     if instance.created_by:
         event_name: str = "annotation created" if created else "annotation updated"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
-
-
-class LegacyAnnotationsViewSet(AnnotationsViewSet):
-    legacy_team_compatibility = True

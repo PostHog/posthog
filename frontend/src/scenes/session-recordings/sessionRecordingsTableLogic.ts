@@ -19,7 +19,6 @@ import { teamLogic } from '../teamLogic'
 import { dayjs } from 'lib/dayjs'
 import { SessionRecordingType } from '~/types'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
-import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 
 export type PersonUUID = string
 interface Params {
@@ -203,7 +202,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
             },
         ],
     }),
-    listeners: ({ actions, selectors, values, props }) => ({
+    listeners: ({ actions, values, props }) => ({
         setEntityFilters: () => {
             actions.getSessionRecordings()
         },
@@ -225,19 +224,6 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
         getSessionRecordingsSuccess: () => {
             if (props.isPlaylist && !values.activeSessionRecordingId && values.sessionRecordings.length > 0) {
                 actions.openSessionPlayer(values.sessionRecordings[0].id, RecordingWatchedSource.RecordingsList)
-            }
-        },
-        openSessionPlayer: ({ sessionRecordingId }, _, __, prevState) => {
-            const oldSessionRecordingId = selectors.activeSessionRecordingId(prevState)
-            // Note outside of the playlist, the recording is played via the drawer, and the logic
-            // to mount and load the recording is handled in the drawer logic.
-            if (props.isPlaylist && sessionRecordingId !== oldSessionRecordingId) {
-                if (sessionRecordingId) {
-                    if (!sessionRecordingDataLogic({ sessionRecordingId }).isMounted()) {
-                        sessionRecordingDataLogic({ sessionRecordingId }).mount()
-                    }
-                    sessionRecordingDataLogic({ sessionRecordingId }).actions.loadEntireRecording()
-                }
             }
         },
     }),

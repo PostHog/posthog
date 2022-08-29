@@ -1,5 +1,3 @@
-import secrets
-import string
 from typing import Optional
 
 import structlog
@@ -14,14 +12,9 @@ from rest_framework.exceptions import ValidationError
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
-from posthog.utils import absolute_uri, generate_cache_key
+from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
-
-
-def generate_short_id():
-    """Generate securely random 8 characters long alphanumeric ID."""
-    return "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
 
 
 class Insight(models.Model):

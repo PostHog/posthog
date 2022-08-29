@@ -71,10 +71,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
-    const hasAttribution =
-        isFunnels &&
-        filters.funnel_viz_type === FunnelVizType.Steps &&
-        featureFlags[FEATURE_FLAGS.BREAKDOWN_ATTRIBUTION]
+    const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
     const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
     const advancedOptionsExpanded = !!advancedOptionsCount
