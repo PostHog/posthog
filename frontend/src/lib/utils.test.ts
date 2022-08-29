@@ -337,7 +337,7 @@ describe('dateFilterToText()', () => {
 
 describe('dateStringToDayJs', () => {
     beforeEach(() => {
-        tk.freeze(new Date(1330688329321))
+        tk.freeze(1330688329321)
     })
     afterEach(() => {
         tk.reset()
