@@ -1,5 +1,9 @@
 .LemonCalendar {
-    > tbody > tr > td > .LemonButton > .LemonButton__content {
+    display: flex;
+    align-items: start;
+    column-gap: 0.5rem;
+
+    .LemonCalendar__month > tbody > tr > td > .LemonButton > .LemonButton__content {
         // right-align dates
         justify-content: end;
     }

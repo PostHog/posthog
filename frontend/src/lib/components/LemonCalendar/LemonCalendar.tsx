@@ -13,7 +13,7 @@ export interface LemonCalendarProps {
     /** Called if the user changed the month in the calendar */
     onFirstMonthChanged?: (date: string) => void
     /** Return the classnames for a date */
-    getLemonButtonProps?: (date: string, defaultProps: LemonButtonProps) => LemonButtonProps
+    getLemonButtonProps?: (date: string, month: string, defaultProps: LemonButtonProps) => LemonButtonProps
     /** Number of months */
     months?: number
     /** Number of weeks in each month */
@@ -32,30 +32,31 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
     }, [props.firstMonth])
 
     return (
-        <>
+        <div className="LemonCalendar">
             {range(0, months).map((month) => {
                 const startOfMonth = (firstMonth ? dayjs(firstMonth) : dayjs()).add(month, 'month').startOf('month')
                 const endOfMonth = (firstMonth ? dayjs(firstMonth) : dayjs()).add(month, 'month').endOf('month')
-
+                const stringMonth = startOfMonth.format('YYYY-MM-DD')
                 // TODO: support the easier US Sunday-first format as well
                 const firstDay = startOfMonth.subtract(startOfMonth.day() === 0 ? 6 : startOfMonth.day() - 1, 'days')
                 const lastDay = endOfMonth.add(endOfMonth.day() === 0 ? 0 : 7 - endOfMonth.day(), 'days')
                 const weeks = props.weeks ?? lastDay.diff(firstDay, 'week') + 1
-                const today = dayjs().format('YYYY-MM-DD')
                 const showLeftMonth = month === 0
                 const showRightMonth = month + 1 === months
 
                 return (
-                    <table className="LemonCalendar" key={month}>
+                    <table className="LemonCalendar__month" key={month}>
                         <thead>
                             <tr>
                                 {showLeftMonth && (
-                                    <th className="text-muted">
+                                    <th>
                                         <LemonButton
                                             status="stealth"
                                             fullWidth
                                             onClick={() => {
-                                                const newDate = startOfMonth.subtract(1, 'month').format('YYYY-MM-DD')
+                                                const newDate = dayjs(firstMonth)
+                                                    .subtract(1, 'month')
+                                                    .format('YYYY-MM-DD')
                                                 setFirstMonth(newDate)
                                                 props.onFirstMonthChanged?.(newDate)
                                             }}
@@ -64,19 +65,23 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                         </LemonButton>
                                     </th>
                                 )}
-                                <th
-                                    colSpan={7 - (showLeftMonth ? 1 : 0) - (showRightMonth ? 1 : 0)}
-                                    className="py-2 text-xs font-bold text-muted uppercase"
-                                >
-                                    {startOfMonth.format('MMMM')} {startOfMonth.year()}
+                                <th colSpan={7 - (showLeftMonth ? 1 : 0) - (showRightMonth ? 1 : 0)}>
+                                    <LemonButton
+                                        status="muted"
+                                        fullWidth
+                                        center
+                                        className="text-xs font-bold text-muted uppercase cursor-default"
+                                    >
+                                        {startOfMonth.format('MMMM')} {startOfMonth.year()}
+                                    </LemonButton>
                                 </th>
                                 {showRightMonth && (
-                                    <th className="text-muted">
+                                    <th>
                                         <LemonButton
                                             status="stealth"
                                             fullWidth
                                             onClick={() => {
-                                                const newDate = startOfMonth.add(1, 'month').format('YYYY-MM-DD')
+                                                const newDate = dayjs(firstMonth).add(1, 'month').format('YYYY-MM-DD')
                                                 setFirstMonth(newDate)
                                                 props.onFirstMonthChanged?.(newDate)
                                             }}
@@ -101,22 +106,11 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                         const date = firstDay.add(week * 7 + day, 'day')
                                         const stringDate = date.format('YYYY-MM-DD')
                                         const defaultProps: LemonButtonProps = {}
-                                        //     const from = (rangeDateFrom ?? dayjs()).format('YYYY-MM-DD')
-                                        //     console.log({ date, from: from })
-                                        //     return date === (rangeDateFrom ?? dayjs()).format('YYYY-MM-DD')
-                                        //         ? { status: 'primary', type: 'primary' }
-                                        //         : date > now
-                                        //         ? { status: 'muted', className: 'text-muted opacity-25' }
-                                        //         : date > from
-                                        //         ? { active: true }
-                                        //         : {}
-                                        // }}
-                                        if (stringDate > today) {
-                                            defaultProps.className = 'text-muted opacity-25'
+                                        if (date.isBefore(startOfMonth) || date.isAfter(endOfMonth)) {
+                                            defaultProps.className = 'opacity-25'
                                         }
-
                                         const buttonProps = props.getLemonButtonProps
-                                            ? props.getLemonButtonProps(stringDate, defaultProps)
+                                            ? props.getLemonButtonProps(stringDate, stringMonth, defaultProps)
                                             : defaultProps
                                         return (
                                             <td key={day}>
@@ -137,6 +131,6 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                     </table>
                 )
             })}
-        </>
+        </div>
     )
 }

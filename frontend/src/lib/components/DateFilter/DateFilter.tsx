@@ -79,7 +79,7 @@ export function DateFilter({
                     setRangeDateTo(null)
                     applyRange()
                 }}
-                getLemonButtonProps={(date, defaultProps) => {
+                getLemonButtonProps={(date, _month, defaultProps) => {
                     const from = (rangeDateFrom ?? dayjs()).format('YYYY-MM-DD')
                     return {
                         ...defaultProps,
