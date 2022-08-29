@@ -341,7 +341,6 @@ export function addHistoricalEventsExportCapabilityV2(
             createLog('Done exporting all events!')
             return
         }
-        // :TODO: Handle all done! Unset the EXPORT_RUNNING_KEY
         // :TODO: Log what dates we're kicking off
 
         createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10})%`)
