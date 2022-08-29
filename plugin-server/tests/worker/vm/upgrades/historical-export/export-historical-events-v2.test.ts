@@ -41,6 +41,8 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         hub.kafkaProducer.queueMessage = jest.fn()
         hub.kafkaProducer.flush = jest.fn()
         jest.spyOn(hub.db, 'queuePluginLogEntry')
+
+        jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000)
     })
 
     afterAll(async () => {
@@ -283,6 +285,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     done: [],
                     running: [],
                     toStartRunning: [],
+                    toResume: [],
                 })
 
                 expect(hub.db.queuePluginLogEntry).toHaveBeenCalledTimes(1)
@@ -377,6 +380,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 done: [],
                 running: ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
                 toStartRunning: [],
+                toResume: [],
                 progress: 0,
                 exportIsDone: false,
             })
@@ -394,6 +398,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ['2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
                     ['2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
                 ],
+                toResume: [],
                 progress: 0,
                 exportIsDone: false,
             })
@@ -403,10 +408,12 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', {
                 done: false,
                 progress: 0.5,
+                statusTime: Date.now() - 60_000,
             })
             await storage().set('EXPORT_DATE_STATUS_2021-10-30T00:00:00.000Z', {
                 done: true,
                 progress: 1,
+                statusTime: Date.now() - 60_000,
             })
 
             const result = await calculateCoordination(params, [], [
@@ -420,6 +427,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 done: ['2021-10-30T00:00:00.000Z'],
                 running: ['2021-10-29T00:00:00.000Z', '2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
                 toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']],
+                toResume: [],
                 progress: 0.375,
                 exportIsDone: false,
             })
@@ -447,8 +455,35 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 ]),
                 running: [],
                 toStartRunning: [],
+                toResume: [],
                 progress: 1,
                 exportIsDone: true,
+            })
+        })
+
+        it('resumes running task after a long enough of a delay', async () => {
+            const dateStatus = {
+                done: false,
+                progress: 0.5,
+                statusTime: Date.now() - 20 * 60 * 1000,
+                retriesPerformedSoFar: 0,
+            }
+            await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', dateStatus)
+
+            const result = await calculateCoordination(params, [], [
+                '2021-10-29T00:00:00.000Z',
+                '2021-10-30T00:00:00.000Z',
+                '2021-10-31T00:00:00.000Z',
+            ] as ISOTimestamp[])
+
+            expect(result).toEqual({
+                hasChanges: true,
+                done: [],
+                running: ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
+                toStartRunning: [],
+                toResume: [dateStatus],
+                progress: 0.125,
+                exportIsDone: false,
             })
         })
     })
@@ -590,6 +625,53 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(progressBar(0.7)).toEqual('■■■■■■■■■■■■■■□□□□□□')
             expect(progressBar(0.12)).toEqual('■■□□□□□□□□□□□□□□□□□□')
             expect(progressBar(0.12, 10)).toEqual('■□□□□□□□□□')
+        })
+    })
+
+    describe('stopExport()', () => {
+        const stopExport = getTestMethod('stopExport')
+
+        it('unsets EXPORT_RUNNING_KEY', async () => {
+            await storage().set(EXPORT_RUNNING_KEY, {
+                id: 1,
+                parallelism: 3,
+                dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
+                dateTo: '2021-11-01T05:00:00.000Z' as ISOTimestamp,
+            })
+
+            await stopExport('')
+
+            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+        })
+    })
+
+    describe('shouldResume()', () => {
+        const shouldResume = getTestMethod('shouldResume')
+
+        it('resumes task when a bit over 10 minutes have passed', () => {
+            const status = {
+                statusTime: 10_000_000_000,
+                retriesPerformedSoFar: 0,
+            } as any
+
+            expect(shouldResume(status, 10_000_000_000)).toEqual(false)
+            expect(shouldResume(status, 9_000_000_000)).toEqual(false)
+            expect(shouldResume(status, 10_000_060_000)).toEqual(false)
+            expect(shouldResume(status, 10_000_590_000)).toEqual(false)
+            expect(shouldResume(status, 10_000_660_000)).toEqual(true)
+            expect(shouldResume(status, 10_001_000_000)).toEqual(true)
+        })
+
+        it('accounts for retries exponential backoff', () => {
+            const status = {
+                statusTime: 10_000_000_000,
+                retriesPerformedSoFar: 10,
+            } as any
+
+            expect(shouldResume(status, 10_000_660_000)).toEqual(false)
+            // Roughly 2**11*3 seconds are waited between retry 10 and 11
+            expect(shouldResume(status, 10_006_000_000)).toEqual(false)
+            expect(shouldResume(status, 10_006_200_000)).toEqual(false)
         })
     })
 })

@@ -53,6 +53,8 @@ export interface TestFunctions {
     ) => Promise<CoordinationUpdate>
     getExportDateRange: (params: ExportParams) => Array<[ISOTimestamp, ISOTimestamp]>
     progressBar: (progress: number, length?: number) => string
+    stopExport: (message: string) => Promise<void>
+    shouldResume: (status: ExportChunkStatus, now: number) => void
 }
 
 export type ExportHistoricalEventsUpgradeV2 = Plugin<{
@@ -115,7 +117,7 @@ interface CoordinationUpdate {
     exportIsDone: boolean
 }
 
-interface ExportChunkStatus extends ExportHistoricalEventsJobPayload {
+export interface ExportChunkStatus extends ExportHistoricalEventsJobPayload {
     done: boolean
     progress: number
     // When was this status recorded
@@ -238,10 +240,9 @@ export function addHistoricalEventsExportCapabilityV2(
     async function calculateCoordination(
         params: ExportParams,
         done: Array<ISOTimestamp>,
-        running: Array<ISOTimestamp>,
-        now?: number
+        running: Array<ISOTimestamp>
     ): Promise<CoordinationUpdate> {
-        now = now || Date.now()
+        const now = Date.now()
         const allDates = getExportDateRange(params)
 
         let hasChanges = false
@@ -534,6 +535,8 @@ export function addHistoricalEventsExportCapabilityV2(
             calculateCoordination,
             getExportDateRange,
             progressBar,
+            stopExport,
+            shouldResume,
         }
     }
 }
