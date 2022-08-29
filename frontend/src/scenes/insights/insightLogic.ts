@@ -22,7 +22,6 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { filterTrendsClientSideParams, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { pollFunnel } from 'scenes/funnels/funnelUtils'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId, summarizeInsightFilters } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -33,7 +32,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -241,9 +240,8 @@ export const insightLogic = kea<insightLogicType>({
                     // fetch this now, as it might be different when we report below
                     const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
-                    // If a query is in progress, debounce before making the second query
+                    // If a query is in progress, kill that query
                     if (cache.abortController) {
-                        await breakpoint(300)
                         cache.abortController.abort()
                     }
                     cache.abortController = new AbortController()
@@ -251,7 +249,7 @@ export const insightLogic = kea<insightLogicType>({
                     const { filters } = values
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
-                    const params = { ...filters, ...(refresh ? { refresh: true } : {}) }
+                    const params = { ...filters, ...(refresh ? { refresh: true } : {}), client_query_id: queryId }
 
                     const dashboardItemId = props.dashboardItemId
                     actions.startQuery(queryId)
@@ -292,14 +290,23 @@ export const insightLogic = kea<insightLogicType>({
                                 cache.abortController.signal
                             )
                         } else if (insight === InsightType.FUNNELS) {
-                            response = await pollFunnel(currentTeamId, params)
+                            const { refresh, ...bodyParams } = params
+                            response = await api.create(
+                                `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
+                                bodyParams,
+                                cache.abortController.signal
+                            )
                         } else if (insight === InsightType.PATHS) {
-                            response = await api.create(`api/projects/${currentTeamId}/insights/path`, params)
+                            response = await api.create(
+                                `api/projects/${currentTeamId}/insights/path`,
+                                params,
+                                cache.abortController.signal
+                            )
                         } else {
                             throw new Error(`Cannot load insight of type ${insight}`)
                         }
                     } catch (e: any) {
-                        if (e.name === 'AbortError') {
+                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             actions.abortQuery(queryId, insight, scene, e)
                         }
                         breakpoint()
@@ -734,6 +741,7 @@ export const insightLogic = kea<insightLogicType>({
             actions.setIsLoading(true)
         },
         abortQuery: ({ queryId, view, scene, exception }) => {
+            const { currentTeamId } = values
             const duration = new Date().getTime() - values.queryStartTimes[queryId]
             const tags = {
                 insight: view,
@@ -742,7 +750,9 @@ export const insightLogic = kea<insightLogicType>({
                 ...exception,
             }
 
-            posthog.capture('insight aborted', { ...tags, duration })
+            if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
+                api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+            }
             captureInternalMetric({ method: 'timing', metric: 'insight_abort_time', value: duration, tags })
         },
         endQuery: ({ queryId, view, lastRefresh, exception }) => {

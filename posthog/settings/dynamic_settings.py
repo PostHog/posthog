@@ -26,11 +26,6 @@ CONSTANCE_CONFIG = {
         "Whether unique users should be counted by distinct IDs. Speeds up queries at the cost of accuracy.",
         str,
     ),
-    "ENABLE_ACTOR_ON_EVENTS_TEAMS": (
-        get_from_env("ENABLE_ACTOR_ON_EVENTS_TEAMS", ""),
-        "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
-        str,
-    ),
     "PERSON_ON_EVENTS_ENABLED": (
         get_from_env("PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool),
         "Whether to use query path using person_id, person_properties, and group_properties on events or the old query",
