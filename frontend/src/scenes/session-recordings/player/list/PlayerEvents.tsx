@@ -22,13 +22,13 @@ import {
     eventsListLogic,
     OVERSCANNED_ROW_COUNT,
     DEFAULT_ROW_HEIGHT,
-} from 'scenes/session-recordings/player/eventsListLogic'
+} from 'scenes/session-recordings/player/list/eventsListLogic'
 import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RecordingEventType, SessionRecordingPlayerProps } from '~/types'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
@@ -87,7 +87,7 @@ function EventDescription({ description }: { description: string }): JSX.Element
 export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const listRef = useRef<List>(null)
     const {
-        listEvents,
+        data,
         localFilters,
         currentBoxSizeAndPosition,
         showPositionFinder,
@@ -111,7 +111,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
 
     const rowRenderer = useCallback(
         function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
-            const event = listEvents[index]
+            const event = data[index]
             const hasDescription = getKeyMapping(event.event, 'event')
             const isEventCurrent = isCurrent(index)
 
@@ -120,7 +120,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
                     key={key}
                     className={clsx('event-list-item', { 'current-event': isEventCurrent })}
                     align="top"
-                    style={{ ...style, zIndex: listEvents.length - index }}
+                    style={{ ...style, zIndex: data.length - index }}
                     onClick={() => {
                         event.playerPosition && handleEventClick(event.playerPosition)
                     }}
@@ -132,7 +132,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
                     <Col
                         className={clsx('event-item-content', {
                             rendering: !isRowIndexRendered(index),
-                            'out-of-band-event': event.isOutOfBandEvent,
+                            'out-of-band-event': event.isOutOfBand,
                         })}
                     >
                         <Row className="event-item-content-top-row">
@@ -145,7 +145,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
                                     ellipsis={true}
                                     style={{ maxWidth: 150 }}
                                 />
-                                {event.isOutOfBandEvent && (
+                                {event.isOutOfBand && (
                                     <Tooltip
                                         className="out-of-band-event-tooltip"
                                         title={
@@ -174,7 +174,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
             )
         },
         [
-            listEvents.length,
+            data.length,
             renderedRows.startIndex,
             renderedRows.stopIndex,
             currentBoxSizeAndPosition.top,
@@ -185,7 +185,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
     const cellRangeRenderer = useCallback(
         function _cellRangeRenderer(props: GridCellRangeProps): React.ReactNode[] {
             const children = defaultCellRangeRenderer(props)
-            if (listEvents.length > 0) {
+            if (data.length > 0) {
                 children.push(
                     <div
                         key="highlight-box"
@@ -199,7 +199,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
             }
             return children
         },
-        [currentBoxSizeAndPosition.top, currentBoxSizeAndPosition.height, sessionEventsDataLoading, listEvents.length]
+        [currentBoxSizeAndPosition.top, currentBoxSizeAndPosition.height, sessionEventsDataLoading, data.length]
     )
 
     return (
@@ -252,7 +252,7 @@ export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecording
                                         cellRangeRenderer={cellRangeRenderer}
                                         overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                         overscanIndicesGetter={overscanIndicesGetter}
-                                        rowCount={listEvents.length}
+                                        rowCount={data.length}
                                         rowRenderer={rowRenderer}
                                         rowHeight={DEFAULT_ROW_HEIGHT}
                                     />

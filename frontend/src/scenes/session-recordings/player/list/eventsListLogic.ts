@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, connect, kea, key, listeners, path, reducers, selectors, props } from 'kea'
 import {
     PlayerPosition,
     RecordingEventsFilters,
@@ -12,17 +12,17 @@ import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, c
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 
 export const DEFAULT_ROW_HEIGHT = 65 // Two lines
 export const OVERSCANNED_ROW_COUNT = 50
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
-export const eventsListLogic = kea<eventsListLogicType>({
-    path: ['scenes', 'session-recordings', 'player', 'eventsListLogic'],
-    props: {} as SessionRecordingPlayerProps,
-    key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
-    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
+export const eventsListLogic = kea<eventsListLogicType>([
+    path(['scenes', 'session-recordings', 'player', 'eventsListLogic']),
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         logic: [eventUsageLogic],
         actions: [
             sessionRecordingDataLogic({ sessionRecordingId }),
@@ -38,8 +38,8 @@ export const eventsListLogic = kea<eventsListLogicType>({
             sharedListLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
-    }),
-    actions: {
+    })),
+    actions({
         setLocalFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         setRenderedRows: (renderMeta: RenderedRows) => ({ renderMeta }),
         setList: (list: List) => ({ list }),
@@ -47,8 +47,8 @@ export const eventsListLogic = kea<eventsListLogicType>({
         disablePositionFinder: true,
         scrollTo: (rowIndex?: number) => ({ rowIndex }),
         handleEventClick: (playerPosition: PlayerPosition) => ({ playerPosition }),
-    },
-    reducers: {
+    }),
+    reducers({
         localFilters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -80,8 +80,8 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 disablePositionFinder: () => true,
             },
         ],
-    },
-    listeners: ({ actions, values }) => ({
+    }),
+    listeners(({ actions, values }) => ({
         setLocalFilters: async (_, breakpoint) => {
             await breakpoint(250)
             actions.setFilters(values.localFilters)
@@ -102,9 +102,9 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 actions.seek(playerPosition)
             }
         },
-    }),
-    selectors: () => ({
-        listEvents: [
+    })),
+    selectors(() => ({
+        data: [
             (selectors) => [selectors.eventsToShow, selectors.windowIdFilter],
             (events: RecordingEventType[], windowIdFilter): RecordingEventType[] => {
                 return events
@@ -120,13 +120,13 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
         currentStartIndex: [
-            (selectors) => [selectors.listEvents, selectors.currentPlayerTime],
+            (selectors) => [selectors.data, selectors.currentPlayerTime],
             (events, currentPlayerTime): number => {
                 return events.findIndex((e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0))
             },
         ],
         currentTimeRange: [
-            (selectors) => [selectors.currentStartIndex, selectors.listEvents, selectors.currentPlayerTime],
+            (selectors) => [selectors.currentStartIndex, selectors.data, selectors.currentPlayerTime],
             (startIndex, events, currentPlayerTime) => {
                 if (events.length < 1) {
                     return { start: 0, end: 0 }
@@ -141,12 +141,12 @@ export const eventsListLogic = kea<eventsListLogicType>({
             },
         ],
         isCurrent: [
-            (selectors) => [selectors.currentTimeRange, selectors.listEvents],
+            (selectors) => [selectors.currentTimeRange, selectors.data],
             (indices, events) => (index: number) =>
                 (events?.[index]?.playerTime ?? 0) >= indices.start && (events?.[index]?.playerTime ?? 0) < indices.end,
         ],
         currentIndices: [
-            (selectors) => [selectors.listEvents, selectors.isCurrent],
+            (selectors) => [selectors.data, selectors.isCurrent],
             (events, isCurrent) => ({
                 startIndex: clamp(
                     events.findIndex((_, i) => isCurrent(i)),
@@ -213,5 +213,5 @@ export const eventsListLogic = kea<eventsListLogicType>({
                 return visibleRange.startIndex > currentEventsRange.stopIndex
             },
         ],
-    }),
-})
+    })),
+])

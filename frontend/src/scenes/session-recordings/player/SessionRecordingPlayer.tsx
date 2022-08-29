@@ -7,9 +7,9 @@ import { PlayerControllerV2, PlayerControllerV3 } from 'scenes/session-recording
 import { Col, Row } from 'antd'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerInspectorV2, PlayerInspectorV3 } from 'scenes/session-recordings/player/PlayerInspector'
-import { PlayerMetaV3 } from './PlayerMeta'
+import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
 import { SessionRecordingPlayerProps } from '~/types'
-import { PlayerFilter } from 'scenes/session-recordings/player/PlayerFilter'
+import { PlayerMetaV3 } from './PlayerMeta'
 
 export function useFrameRef({
     sessionRecordingId,

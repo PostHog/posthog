@@ -14,11 +14,9 @@ import {
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
-    SessionRecordingTab,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from '../../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
@@ -27,9 +25,8 @@ import {
     getPlayerTimeFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './playerUtils'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
-
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
+import { teamLogic } from 'scenes/teamLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -147,11 +144,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             recordingData,
             loadTime,
         }),
-        loadEntireRecording: () => true,
-        loadRecordingMeta: () => true,
+        loadEntireRecording: true,
+        loadRecordingMeta: true,
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
-        setTab: (tab: SessionRecordingTab) => ({ tab }),
     }),
     reducers({
         filters: [
@@ -164,12 +160,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as SessionRecordingId | null,
             {
                 loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
-            },
-        ],
-        tab: [
-            SessionRecordingTab.EVENTS as SessionRecordingTab,
-            {
-                setTab: (_, { tab }) => tab,
             },
         ],
         chunkPaginationIndex: [
@@ -254,15 +244,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 SessionRecordingUsageType.ANALYZED,
                 10
             )
-        },
-        setTab: ({ tab }) => {
-            if (tab === SessionRecordingTab.CONSOLE) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportRecordingConsoleViewed(
-                        consoleLogsListLogic.findMounted()?.values?.consoleLogs?.length ?? 0
-                    )
-            }
         },
     })),
     loaders(({ values, props }) => ({
@@ -359,7 +340,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         // If possible, place the event 1s before the actual event
                         const timesToAttemptToPlaceEvent = [+dayjs(event.timestamp) - 1000, +dayjs(event.timestamp)]
                         let eventPlayerPosition = null
-                        let isOutOfBandEvent = false
+                        let isOutOfBand = false
                         for (const eventEpochTimeToAttempt of timesToAttemptToPlaceEvent) {
                             if (
                                 !event.properties.$window_id &&
@@ -374,7 +355,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     values.sessionPlayerData?.metadata?.segments
                                 )
                                 if (eventPlayerPosition) {
-                                    isOutOfBandEvent = true
+                                    isOutOfBand = true
                                     break
                                 }
                             } else {
@@ -399,7 +380,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     ...event,
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
-                                    isOutOfBandEvent: isOutOfBandEvent,
+                                    isOutOfBand,
                                     percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
                                         ? (100 * eventPlayerTime) /
                                           values.sessionPlayerData.metadata.recordingDurationMs

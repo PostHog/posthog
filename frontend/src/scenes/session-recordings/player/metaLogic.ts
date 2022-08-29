@@ -6,7 +6,7 @@ import { eventWithTime } from 'rrweb/typings/types'
 import { PersonType, RecordingEventType, SessionRecordingPlayerProps } from '~/types'
 import { findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
-import { eventsListLogic } from 'scenes/session-recordings/player/eventsListLogic'
+import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {

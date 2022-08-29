@@ -14,6 +14,7 @@ import {
     getSegmentFromPlayerPosition,
 } from './playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -26,23 +27,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
     props({} as SessionRecordingPlayerProps),
     key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingPlayerProps) => {
-        return {
-            logic: [eventUsageLogic],
-            values: [
-                sessionRecordingDataLogic({ sessionRecordingId: props.sessionRecordingId }),
-                ['sessionRecordingId', 'sessionPlayerData', 'tab'],
-                playerSettingsLogic,
-                ['speed', 'skipInactivitySetting'],
-            ],
-            actions: [
-                sessionRecordingDataLogic({ sessionRecordingId: props.sessionRecordingId }),
-                ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab'],
-                playerSettingsLogic,
-                ['setSpeed', 'setSkipInactivitySetting'],
-            ],
-        }
-    }),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
+        logic: [eventUsageLogic],
+        values: [
+            sessionRecordingDataLogic({ sessionRecordingId }),
+            ['sessionRecordingId', 'sessionPlayerData'],
+            sharedListLogic({ sessionRecordingId, playerKey }),
+            ['tab'],
+            playerSettingsLogic,
+            ['speed', 'skipInactivitySetting'],
+        ],
+        actions: [
+            sessionRecordingDataLogic({ sessionRecordingId }),
+            ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
+            sharedListLogic({ sessionRecordingId, playerKey }),
+            ['setTab'],
+            playerSettingsLogic,
+            ['setSpeed', 'setSkipInactivitySetting'],
+        ],
+    })),
     actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
