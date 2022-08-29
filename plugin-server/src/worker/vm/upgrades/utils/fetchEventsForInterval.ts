@@ -30,6 +30,7 @@ export const fetchEventsForInterval = async (
     )
 
     const fetchEventsQuery = `
+    /* plugin-server:fetchEventsForInterval */
     SELECT
         event,
         uuid,
