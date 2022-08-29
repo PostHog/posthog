@@ -9,7 +9,7 @@ import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
 import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
 import { IconCalendar } from '../icons'
-import { LemonCalendar } from 'lib/components/LemonCalendar/LemonCalendar'
+import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -93,23 +93,12 @@ export function DateFilter({
                 disableBeforeYear={2015}
             />
         ) : view === DateFilterView.DateToNow ? (
-            <LemonCalendar
-                firstMonth={(rangeDateFrom as any) ?? null}
-                onClick={(date) => {
+            <LemonCalendarSelect
+                value={(rangeDateFrom as any) ?? dayjs().format('YYYY-MM-DD')}
+                onChange={(date) => {
                     setRangeDateFrom(dayjs(date))
                     setRangeDateTo(null)
                     applyRange()
-                }}
-                getLemonButtonProps={(date, _month, defaultProps) => {
-                    const from = (rangeDateFrom ?? dayjs()).format('YYYY-MM-DD')
-                    return {
-                        ...defaultProps,
-                        ...(date === from
-                            ? { status: 'primary', type: 'primary' }
-                            : date > from
-                            ? { active: true }
-                            : {}),
-                    }
                 }}
             />
         ) : (

@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
 import { IconChevronLeft, IconChevronRight } from 'lib/components/icons'
+import clsx from 'clsx'
 
 export interface LemonCalendarProps {
     /** Fired if a calendar cell is clicked */
@@ -24,6 +25,7 @@ const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 
 export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
     const months = Math.max(props.months ?? 1, 1)
+    const today = dayjs().startOf('day')
     const [firstMonth, setFirstMonth] = useState(props.firstMonth ?? dayjs().format('YYYY-MM-DD'))
     useEffect(() => {
         if (props.firstMonth && props.firstMonth !== firstMonth) {
@@ -105,17 +107,20 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                     {range(0, 7).map((day) => {
                                         const date = firstDay.add(week * 7 + day, 'day')
                                         const stringDate = date.format('YYYY-MM-DD')
-                                        const defaultProps: LemonButtonProps = {}
-                                        if (date.isBefore(startOfMonth) || date.isAfter(endOfMonth)) {
-                                            defaultProps.className = 'opacity-25'
+                                        const defaultProps: LemonButtonProps = {
+                                            className: clsx('flex-col', {
+                                                'opacity-25': date.isBefore(startOfMonth) || date.isAfter(endOfMonth),
+                                                LemonCalendar__today: date.isSame(today),
+                                            }),
                                         }
-                                        const buttonProps = props.getLemonButtonProps
-                                            ? props.getLemonButtonProps(stringDate, stringMonth, defaultProps)
-                                            : defaultProps
+                                        const buttonProps =
+                                            props.getLemonButtonProps?.(stringDate, stringMonth, defaultProps) ??
+                                            defaultProps
                                         return (
                                             <td key={day}>
                                                 <LemonButton
                                                     fullWidth
+                                                    center
                                                     status="stealth"
                                                     onClick={() => props.onClick?.(stringDate)}
                                                     {...buttonProps}

@@ -3,8 +3,17 @@
     align-items: start;
     column-gap: 0.5rem;
 
-    .LemonCalendar__month > tbody > tr > td > .LemonButton > .LemonButton__content {
-        // right-align dates
-        justify-content: end;
+    .LemonCalendar__today {
+        position: relative;
+        &:after {
+            position: absolute;
+            bottom: 5px;
+            left: calc(50% - 2px);
+            content: '';
+            border-radius: 100%;
+            width: 4px;
+            height: 4px;
+            background: currentcolor;
+        }
     }
 }
