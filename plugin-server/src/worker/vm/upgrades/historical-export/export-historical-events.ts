@@ -259,7 +259,7 @@ export function addHistoricalEventsExportCapability(
         // only set them in global when the job runs, so all threads have global state in sync
 
         // Fetch the max and min timestamps for a team's events
-        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
+        const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id, '_timestamp')
 
         if (payload && payload.dateFrom) {
             try {

@@ -359,8 +359,6 @@ export function addHistoricalEventsExportCapabilityV2(
 
         let fetchEventsError: Error | unknown | null = null
         try {
-            // :TODO: Verify this handles borders correctly
-            // :TODO: Use `timestamp` not `_timestamp`
             events = await fetchEventsForInterval(
                 hub.db,
                 pluginConfig.team_id,
@@ -451,7 +449,7 @@ export function addHistoricalEventsExportCapabilityV2(
             }
             return { min, max }
         } else {
-            const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id)
+            const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id, 'timestamp')
 
             // no timestamp override specified via the payload, default to the first event ever ingested
             if (!timestampBoundaries) {
