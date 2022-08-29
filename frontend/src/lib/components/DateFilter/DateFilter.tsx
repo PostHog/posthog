@@ -60,6 +60,27 @@ export function DateFilter({
 
     const popupOverlay =
         view === DateFilterView.FixedRange ? (
+            // <LemonCalendar
+            //     firstMonth={(rangeDateFrom as any) ?? null}
+            //     months={2}
+            //     onClick={(date) => {
+            //         setRangeDateFrom(dayjs(date))
+            //         setRangeDateTo(null)
+            //         applyRange()
+            //     }}
+            //     getLemonButtonProps={(date, _month, defaultProps) => {
+            //         const from = (rangeDateFrom ?? dayjs()).format('YYYY-MM-DD')
+            //         const to = (rangeDateTo ?? dayjs()).format('YYYY-MM-DD')
+            //         return {
+            //             ...defaultProps,
+            //             ...(date === from || date === to
+            //                 ? { status: 'primary', type: 'primary' }
+            //                 : from && to && date > from && date < to
+            //                 ? { active: true }
+            //                 : {}),
+            //         }
+            //     }}
+            // />
             <DateFilterRange
                 getPopupContainer={getPopupContainer}
                 onClick={dropdownOnClick}
