@@ -13,6 +13,7 @@ import {
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
 } from './playerUtils'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
 
@@ -25,8 +26,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
     connect({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData', 'tab']],
-        actions: [sessionRecordingLogic, ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess', 'setTab']],
+        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData'], sharedListLogic, ['tab']],
+        actions: [
+            sessionRecordingLogic,
+            ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
+            sharedListLogic,
+            ['setTab'],
+        ],
     }),
     actions({
         tryInitReplayer: () => true,

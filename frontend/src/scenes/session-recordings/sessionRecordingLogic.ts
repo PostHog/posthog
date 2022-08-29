@@ -16,7 +16,6 @@ import {
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
-    SessionRecordingTab,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -29,7 +28,6 @@ import {
     getPlayerTimeFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './player/playerUtils'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -144,7 +142,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
         loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
         loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
         loadEvents: (url?: string) => ({ url }),
-        setTab: (tab: SessionRecordingTab) => ({ tab }),
     }),
     reducers({
         filters: [
@@ -157,12 +154,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
             null as SessionRecordingId | null,
             {
                 loadRecording: (_, { sessionRecordingId }) => sessionRecordingId ?? null,
-            },
-        ],
-        tab: [
-            SessionRecordingTab.EVENTS as SessionRecordingTab,
-            {
-                setTab: (_, { tab }) => tab,
             },
         ],
         chunkPaginationIndex: [
@@ -243,15 +234,6 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                 SessionRecordingUsageType.ANALYZED,
                 10
             )
-        },
-        setTab: ({ tab }) => {
-            if (tab === SessionRecordingTab.CONSOLE) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportRecordingConsoleViewed(
-                        consoleLogsListLogic.findMounted()?.values?.consoleLogs?.length ?? 0
-                    )
-            }
         },
     })),
     loaders(({ values }) => ({
@@ -338,7 +320,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                         // If possible, place the event 1s before the actual event
                         const timesToAttemptToPlaceEvent = [+dayjs(event.timestamp) - 1000, +dayjs(event.timestamp)]
                         let eventPlayerPosition = null
-                        let isOutOfBandEvent = false
+                        let isOutOfBand = false
                         for (const eventEpochTimeToAttempt of timesToAttemptToPlaceEvent) {
                             if (
                                 !event.properties.$window_id &&
@@ -353,7 +335,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                                     values.sessionPlayerData?.metadata?.segments
                                 )
                                 if (eventPlayerPosition) {
-                                    isOutOfBandEvent = true
+                                    isOutOfBand = true
                                     break
                                 }
                             } else {
@@ -378,7 +360,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                                     ...event,
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
-                                    isOutOfBandEvent: isOutOfBandEvent,
+                                    isOutOfBand,
                                     percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
                                         ? (100 * eventPlayerTime) /
                                           values.sessionPlayerData.metadata.recordingDurationMs

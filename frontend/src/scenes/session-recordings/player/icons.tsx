@@ -89,14 +89,15 @@ export function IconWindow({
     value,
     className = '',
 }: { value: number | string } & IconProps): JSX.Element {
+    const shortValue = typeof value === 'number' ? value : String(value).charAt(0)
     return (
         <div
             onClick={onClick}
             className={clsx('flex justify-center items-center relative shrink-0', className)}
             style={style}
         >
-            <span className="absolute font-semibold" style={{ fontSize: 8, top: 1 }}>
-                {value}
+            <span className="absolute font-semibold" style={{ fontSize: 8, marginTop: 1 }}>
+                {shortValue}
             </span>
             <svg
                 className="text-lg"

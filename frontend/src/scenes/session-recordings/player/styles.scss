@@ -74,7 +74,8 @@
             margin-bottom: var(--recording-spacing);
         }
 
-        .player-events {
+        .player-events,
+        .player-list {
             width: 100%;
             height: inherit;
             position: relative;

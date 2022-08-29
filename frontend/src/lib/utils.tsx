@@ -1443,3 +1443,21 @@ export function processCohort(cohort: CohortType): CohortType {
         },
     }
 }
+
+export function interleave(arr: any[], delimiter: any): any[] {
+    return arr.flatMap((item, index, _arr) =>
+        _arr.length - 1 !== index // check for the last item
+            ? [item, delimiter]
+            : item
+    )
+}
+
+export function findAllIndices(arr: any[], callback: (item: any) => boolean): number[] {
+    const indexes = []
+    for (let i = 0; i < arr.length; i++) {
+        if (callback(arr[i])) {
+            indexes.push(i)
+        }
+    }
+    return indexes
+}

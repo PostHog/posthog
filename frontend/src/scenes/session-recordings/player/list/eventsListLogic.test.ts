@@ -4,15 +4,15 @@ import { initKeaTests } from '~/test/init'
 import {
     DEFAULT_SCROLLING_RESET_TIME_INTERVAL,
     eventsListLogic,
-} from 'scenes/session-recordings/player/eventsListLogic'
+} from 'scenes/session-recordings/player/list/eventsListLogic'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 
 describe('eventsListLogic', () => {
     let logic: ReturnType<typeof eventsListLogic.build>
@@ -147,7 +147,7 @@ describe('eventsListLogic', () => {
                     sessionRecordingLogic.actionTypes.loadEventsSuccess,
                 ])
                 .toMatchValues({
-                    listEvents: [
+                    data: [
                         expect.objectContaining({
                             playerPosition: {
                                 time: 0,
@@ -204,7 +204,7 @@ describe('eventsListLogic', () => {
                     sharedListLogic.actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
-                    listEvents: [
+                    data: [
                         expect.objectContaining({
                             playerPosition: {
                                 time: 99000,
