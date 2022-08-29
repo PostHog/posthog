@@ -36,6 +36,7 @@ import {
     PluginTask,
     PluginTaskType,
 } from '../../../../types'
+import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
 import { fetchEventsForInterval, fetchTimestampBoundariesForTeam, TimestampBoundaries } from '../utils/utils'
 
@@ -154,6 +155,7 @@ export function addHistoricalEventsExportCapabilityV2(
             // only let one export run at a time
             const alreadyRunningExport = await getExportParameters()
             if (!!alreadyRunningExport) {
+                createLog('Export already running, not starting another.')
                 return
             }
 
@@ -207,7 +209,7 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
-        createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10})%`)
+        createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10}%)`)
 
         if (update.hasChanges) {
             await Promise.all(
@@ -333,6 +335,7 @@ export function addHistoricalEventsExportCapabilityV2(
                     payload.endTime
                 )} failed after 15 retries. Stopping export.`
             )
+            // :TODO: processError
             return
         }
 
@@ -357,7 +360,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
         let events: PluginEvent[] = []
 
-        let fetchEventsError: Error | unknown | null = null
+        let fetchEventsError: Error | null = null
         try {
             events = await fetchEventsForInterval(
                 hub.db,
@@ -372,9 +375,10 @@ export function addHistoricalEventsExportCapabilityV2(
             Sentry.captureException(error)
         }
 
-        let exportEventsError: Error | unknown | null = null
+        let exportEventsError: Error | null = null
 
         if (fetchEventsError) {
+            await processError(hub, pluginConfig, fetchEventsError)
             await stopExport('Failed fetching events. Stopping export - please try again later.')
             return
         } else {
@@ -405,6 +409,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(nextRetrySeconds, 'seconds')
         } else if (exportEventsError) {
+            await processError(hub, pluginConfig, exportEventsError)
             await stopExport(`exportEvents returned unknown error, stopping export. error=${exportEventsError}`)
             return
         } else {

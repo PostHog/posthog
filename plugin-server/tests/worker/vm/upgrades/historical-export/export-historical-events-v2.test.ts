@@ -401,7 +401,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 expect(hub.db.queuePluginLogEntry).toHaveBeenCalledTimes(1)
                 expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                     expect.objectContaining({
-                        message: expect.stringContaining('Export progress: ■■■■■■■■■■■■■■■□□□□□ (75.5)%'),
+                        message: expect.stringContaining('Export progress: ■■■■■■■■■■■■■■■□□□□□ (75.5%)'),
                     })
                 )
 
