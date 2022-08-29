@@ -133,7 +133,7 @@ export const fetchEventsForInterval = async (
     )
 }
 
-export const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
+const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
     const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
     if (eventName === '$autocapture' && elements_chain) {
         properties['$elements'] = convertDatabaseElementsToRawElements(elements_chain)
