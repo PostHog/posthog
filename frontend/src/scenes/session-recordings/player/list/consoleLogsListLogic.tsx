@@ -39,7 +39,7 @@ function parseConsoleLogPayload(
     const { level, payload: content, trace } = payload
 
     // Parse each string entry in content and trace
-    const contentFiltered = content?.filter((entry): entry is string => !!entry) ?? []
+    const contentFiltered = Array.isArray(content) ? content?.filter((entry): entry is string => !!entry) ?? [] : []
     const traceFiltered = trace?.filter((entry): entry is string => !!entry) ?? []
     const parsedEntries = contentFiltered.map((entry) => parseEntry(entry))
     const parsedTrace = traceFiltered.map((entry) => parseEntry(entry))

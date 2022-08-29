@@ -16,7 +16,14 @@ export interface ParsedEntry {
 //  - If url is detected in the string, shorten it and wrap with <a> tag
 //  - If object is detected in string, parse it and make it pretty
 //  - If array is detected in string, parse it and make it pretty
-export function parseEntry(entry: string): ParsedEntry {
+export function parseEntry(entry?: string): ParsedEntry {
+    if (!entry) {
+        return {
+            type: 'string',
+            parsed: null,
+            size: 0,
+        }
+    }
     // If entry is flanked by `"`'s, remove them.
     let rawEntry = entry.replace(/^"/, '').replace(/"$/, '')
     let traceUrl: React.ReactNode = null

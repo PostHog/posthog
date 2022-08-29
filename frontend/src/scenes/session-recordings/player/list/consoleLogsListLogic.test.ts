@@ -3,7 +3,6 @@ import { expectLogic } from 'kea-test-utils'
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
-import { listLogic } from 'scenes/session-recordings/player/list/listLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
@@ -29,7 +28,7 @@ describe('consoleLogsListLogic', () => {
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionRecordingLogic, eventUsageLogic, listLogic])
+            await expectLogic(logic).toMount([sessionRecordingLogic, eventUsageLogic, sharedListLogic])
         })
     })
 
@@ -70,9 +69,7 @@ describe('consoleLogsListLogic', () => {
                             // Empty payload object
                             expect.objectContaining({
                                 level: undefined,
-                                parsedPayload: undefined,
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -82,8 +79,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -93,8 +88,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -104,8 +97,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'warn',
                                 parsedPayload: 'A big deal And a huge deal',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -114,9 +105,7 @@ describe('consoleLogsListLogic', () => {
                             // Bad data trace and payload
                             expect.objectContaining({
                                 level: 'error',
-                                parsedPayload: undefined,
-                                parsedTraceString: ':adcfvertyu$rf3423',
-                                parsedTraceURL: '',
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -146,9 +135,7 @@ describe('consoleLogsListLogic', () => {
                             // Empty payload object
                             expect.objectContaining({
                                 level: undefined,
-                                parsedPayload: undefined,
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -158,8 +145,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -169,8 +154,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -180,8 +163,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'warn',
                                 parsedPayload: 'A big deal And a huge deal',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -190,9 +171,7 @@ describe('consoleLogsListLogic', () => {
                             // Bad data trace and payload
                             expect.objectContaining({
                                 level: 'error',
-                                parsedPayload: undefined,
-                                parsedTraceString: ':adcfvertyu$rf3423',
-                                parsedTraceURL: '',
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
