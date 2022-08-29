@@ -277,8 +277,8 @@ test('capture new person', async () => {
         $current_url: 'https://test.com',
         $os: 'Mac OS X',
         $browser_version: '95',
-        $initial_referring_domain: 'https://google.com',
-        $initial_referrer_url: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
+        $referrer_url: 'https://google.com/?q=posthog',
         utm_medium: 'twitter',
         gclid: 'GOOGLE ADS ID',
         $elements: [
@@ -336,14 +336,16 @@ test('capture new person', async () => {
             $initial_current_url: 'https://test.com',
             $initial_browser_version: '95',
             $initial_gclid: 'GOOGLE ADS ID',
+            $initial_referrer_url: 'https://google.com/?q=posthog',
+            $initial_referring_domain: 'https://google.com',
         },
         utm_medium: 'twitter',
         distinct_id: 2,
         $current_url: 'https://test.com',
         $browser_version: '95',
         gclid: 'GOOGLE ADS ID',
-        $initial_referrer_url: 'https://google.com/?q=posthog',
-        $initial_referring_domain: 'https://google.com',
+        $referrer_url: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     })
 
     // capture a second time to verify e.g. event_names is not ['$autocapture', '$autocapture']
@@ -543,7 +545,7 @@ test('capture new person', async () => {
         {
             id: expect.any(String),
             is_numerical: false,
-            name: '$initial_referring_domain',
+            name: '$referring_domain',
             property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
@@ -553,7 +555,7 @@ test('capture new person', async () => {
         {
             id: expect.any(String),
             is_numerical: false,
-            name: '$initial_referrer_url',
+            name: '$referrer_url',
             property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
