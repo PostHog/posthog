@@ -150,7 +150,8 @@ export function addHistoricalEventsExportCapabilityV2(
                 return
             }
 
-            // :TODO: Clear/invalidate old export storage somehow
+            // Clear old (conflicting) storage
+            await meta.storage.del('EXPORT_COORDINATION')
 
             const id = Math.floor(Math.random() * 10000 + 1)
             const parallelism = Number(payload.parallelism ?? 1)
