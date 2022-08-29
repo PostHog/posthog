@@ -19,7 +19,7 @@ export const OVERSCANNED_ROW_COUNT = 50
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
 export const eventsListLogic = kea<eventsListLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'eventsListLogic']),
+    path((key) => ['scenes', 'session-recordings', 'player', 'eventsListLogic', key]),
     props({} as SessionRecordingPlayerProps),
     key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({

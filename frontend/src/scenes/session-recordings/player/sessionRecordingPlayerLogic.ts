@@ -24,7 +24,7 @@ export interface Player {
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
+    path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerProps),
     key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({

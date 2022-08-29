@@ -7,7 +7,7 @@ import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/cons
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
 export const sharedListLogic = kea<sharedListLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'sharedListLogic']),
+    path((key) => ['scenes', 'session-recordings', 'player', 'sharedListLogic', key]),
     props({} as SessionRecordingPlayerProps),
     key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect({

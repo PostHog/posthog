@@ -130,7 +130,7 @@ export interface SessionRecordingDataLogicProps {
 }
 
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
-    path(['scenes', 'session-recordings', 'sessionRecordingDataLogic']),
+    path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({

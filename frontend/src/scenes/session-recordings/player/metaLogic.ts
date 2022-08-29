@@ -24,7 +24,7 @@ const getEventProperties = (event: RecordingEventType, keys: string[]): string |
 }
 
 export const metaLogic = kea<metaLogicType>({
-    path: ['scenes', 'session-recordings', 'player', 'metaLogic'],
+    path: (key) => ['scenes', 'session-recordings', 'player', 'metaLogic', key],
     props: {} as SessionRecordingPlayerProps,
     key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
     connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({

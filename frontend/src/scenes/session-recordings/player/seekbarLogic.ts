@@ -17,7 +17,7 @@ import {
     THUMB_SIZE,
 } from './playerUtils'
 export const seekbarLogic = kea<seekbarLogicType>({
-    path: ['scenes', 'session-recordings', 'player', 'seekbarLogic'],
+    path: (key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key],
     props: {} as SessionRecordingPlayerProps,
     key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
     connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({

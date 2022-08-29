@@ -76,7 +76,7 @@ function parseConsoleLogPayload(
 }
 
 export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'consoleLogsListLogic']),
+    path((key) => ['scenes', 'session-recordings', 'player', 'consoleLogsListLogic', key]),
     props({} as SessionRecordingPlayerProps),
     key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
