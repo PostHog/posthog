@@ -1,4 +1,4 @@
-import { LemonCalendar } from 'lib/components/LemonCalendar/LemonCalendar'
+import { LemonCalendar, LemonCalendarProps } from 'lib/components/LemonCalendar/LemonCalendar'
 import React from 'react'
 import { dayjs } from 'lib/dayjs'
 
@@ -6,6 +6,7 @@ interface LemonCalendarSelectProps {
     value?: string | null
     onChange: (date: string) => void
     months?: number
+    getLemonButtonProps?: LemonCalendarProps['getLemonButtonProps']
 }
 
 export function LemonCalendarSelect({ value, onChange, months }: LemonCalendarSelectProps): JSX.Element {

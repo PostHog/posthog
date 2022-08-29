@@ -1,15 +1,16 @@
 import React, { useRef } from 'react'
 import { dateMapping, dateFilterToText, uuid } from 'lib/utils'
-import { DateFilterRange } from 'lib/components/DateFilter/DateFilterRange'
 import { DateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/components/Tooltip'
-import { dateFilterLogic, DateFilterView } from './dateFilterLogic'
+import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
 import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
 import { IconCalendar } from '../icons'
 import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
+import { LemonCalendarRange } from 'lib/components/LemonCalendar/LemonCalendarRange'
+import { DateFilterView } from 'lib/components/DateFilter/types'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -52,45 +53,17 @@ export function DateFilter({
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
 
-    function dropdownOnClick(e: React.MouseEvent): void {
-        e.preventDefault()
-        open()
-        document.getElementById('daterange_selector')?.focus()
-    }
-
     const popupOverlay =
         view === DateFilterView.FixedRange ? (
-            // <LemonCalendar
-            //     firstMonth={(rangeDateFrom as any) ?? null}
-            //     months={2}
-            //     onClick={(date) => {
-            //         setRangeDateFrom(dayjs(date))
-            //         setRangeDateTo(null)
-            //         applyRange()
-            //     }}
-            //     getLemonButtonProps={(date, _month, defaultProps) => {
-            //         const from = (rangeDateFrom ?? dayjs()).format('YYYY-MM-DD')
-            //         const to = (rangeDateTo ?? dayjs()).format('YYYY-MM-DD')
-            //         return {
-            //             ...defaultProps,
-            //             ...(date === from || date === to
-            //                 ? { status: 'primary', type: 'primary' }
-            //                 : from && to && date > from && date < to
-            //                 ? { active: true }
-            //                 : {}),
-            //         }
-            //     }}
-            // />
-            <DateFilterRange
-                getPopupContainer={getPopupContainer}
-                onClick={dropdownOnClick}
-                onDateFromChange={(date) => setRangeDateFrom(date)}
-                onDateToChange={(date) => setRangeDateTo(date)}
-                onApplyClick={applyRange}
-                onClickOutside={close}
-                rangeDateFrom={rangeDateFrom}
-                rangeDateTo={rangeDateTo}
-                disableBeforeYear={2015}
+            <LemonCalendarRange
+                value={[rangeDateFrom?.format('YYYY-MM-DD') || null, rangeDateTo?.format('YYYY-MM-DD') || null]}
+                onChange={([from, to]) => {
+                    setRangeDateFrom(from ? dayjs(from) : null)
+                    setRangeDateTo(to ? dayjs(to) : null)
+                    applyRange()
+                }}
+                onClose={open}
+                months={2}
             />
         ) : view === DateFilterView.DateToNow ? (
             <LemonCalendarSelect

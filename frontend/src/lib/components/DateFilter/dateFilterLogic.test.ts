@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
-import { dateFilterLogic, DateFilterLogicPropsType, DateFilterView } from './dateFilterLogic'
+import { dateFilterLogic } from './dateFilterLogic'
+import { DateFilterView, DateFilterLogicProps } from 'lib/components/DateFilter/types'
 
 describe('dateFilterLogic', () => {
-    let props: DateFilterLogicPropsType
+    let props: DateFilterLogicProps
     const onChange = jest.fn()
     let logic: ReturnType<typeof dateFilterLogic.build>
 
