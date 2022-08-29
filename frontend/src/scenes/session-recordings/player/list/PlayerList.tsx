@@ -16,7 +16,7 @@ import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined } from '@ant-design/i
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
-import { PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
+import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -27,6 +27,8 @@ interface RowConfig<T extends Record<string, any>> {
     content?: JSX.Element | ((record: T) => JSX.Element | null)
     /** Callback to render main content on right side of row */
     sideContent?: JSX.Element | ((record: T) => JSX.Element | null)
+    /** Side menu options for each row in the list **/
+    options?: ListRowOptions<T> | ((record: T, index: number) => ListRowOptions<T>)
 }
 
 export interface PlayerListProps<T> {
@@ -46,7 +48,7 @@ export function PlayerList<T extends Record<string, any>>({ tab, expandable, row
         if (listRef?.current) {
             setList(listRef.current)
         }
-    }, [listRef.current])
+    }, [listRef.current, tab])
 
     return (
         <div className="PlayerList">
@@ -54,25 +56,27 @@ export function PlayerList<T extends Record<string, any>>({ tab, expandable, row
                 <SpinnerOverlay />
             ) : (
                 <>
-                    <div className={clsx('PlayerList__position-finder', { visible: showPositionFinder })}>
-                        <div
-                            className="flex justify-center items-center grow left"
-                            onClick={() => {
-                                scrollTo()
-                            }}
-                        >
-                            {isDirectionUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                            Jump to current time
+                    {listRef?.current && (
+                        <div className={clsx('PlayerList__position-finder', { visible: showPositionFinder })}>
+                            <div
+                                className="flex justify-center items-center grow left"
+                                onClick={() => {
+                                    scrollTo()
+                                }}
+                            >
+                                {isDirectionUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                                Jump to current time
+                            </div>
+                            <div
+                                className="flex justify-center items-center right"
+                                onClick={() => {
+                                    disablePositionFinder()
+                                }}
+                            >
+                                <CloseOutlined />
+                            </div>
                         </div>
-                        <div
-                            className="flex justify-center items-center right"
-                            onClick={() => {
-                                disablePositionFinder()
-                            }}
-                        >
-                            <CloseOutlined />
-                        </div>
-                    </div>
+                    )}
                     <AutoSizer>
                         {({ height, width }: { height: number; width: number }) => {
                             return (
@@ -121,6 +125,10 @@ export function PlayerList<T extends Record<string, any>>({ tab, expandable, row
                                             typeof row?.sideContent === 'function'
                                                 ? row.sideContent(record)
                                                 : row?.sideContent
+                                        const optionsDetermined =
+                                            typeof row?.options === 'function'
+                                                ? row.options(record, index)
+                                                : row?.options
 
                                         return (
                                             <PlayerListRow
@@ -138,6 +146,7 @@ export function PlayerList<T extends Record<string, any>>({ tab, expandable, row
                                                 onClick={(record) => {
                                                     handleRowClick(record.playerPosition)
                                                 }}
+                                                optionsDetermined={optionsDetermined ?? []}
                                             />
                                         )
                                     }}

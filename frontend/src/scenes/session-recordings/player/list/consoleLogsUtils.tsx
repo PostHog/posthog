@@ -38,7 +38,7 @@ export function parseEntry(entry: string): ParsedEntry {
     rawEntry = rawEntry.replace(/\\n/g, ' ').replace(/\s+/g, ' ')
 
     // Wrap urls with anchor tags
-    const boluses = rawEntry.split(' ').map((bolus) => {
+    const rawEntriesSplit = rawEntry.split(' ').map((splitEntry) => {
         if (STRING_INCLUDES_URL.test(rawEntry)) {
             // Parse the trace string
             // trace[] contains strings that looks like:
@@ -100,11 +100,11 @@ export function parseEntry(entry: string): ParsedEntry {
             })
             return element
         }
-        return <>{bolus}</>
+        return <>{splitEntry}</>
     })
 
     return {
-        parsed: boluses,
+        parsed: rawEntriesSplit,
         type: 'string',
         size: -1,
         traceUrl,
