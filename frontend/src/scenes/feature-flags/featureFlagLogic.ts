@@ -417,6 +417,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
         if (foundFlag) {
             actions.setFeatureFlag(foundFlag)
+            actions.loadRecentInsights()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }
