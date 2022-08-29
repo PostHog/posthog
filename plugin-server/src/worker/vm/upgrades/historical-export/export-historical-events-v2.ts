@@ -110,13 +110,16 @@ interface CoordinationUpdate {
     done: Array<ISOTimestamp>
     running: Array<ISOTimestamp>
     toStartRunning: Array<[ISOTimestamp, ISOTimestamp]>
+    toResume: Array<ExportChunkStatus>
     progress: number
     exportIsDone: boolean
 }
 
-interface ExportDateStatus extends ExportHistoricalEventsJobPayload {
+interface ExportChunkStatus extends ExportHistoricalEventsJobPayload {
     done: boolean
     progress: number
+    // When was this status recorded
+    statusTime: number
 }
 
 export function addHistoricalEventsExportCapabilityV2(
@@ -198,19 +201,28 @@ export function addHistoricalEventsExportCapabilityV2(
         if (update.hasChanges) {
             await Promise.all(
                 update.toStartRunning.map(async ([startDate, endDate]) => {
-                    createLog(`Starting job to export ${startDate}-${endDate}`)
-                    await meta.jobs
-                        .exportHistoricalEvents({
-                            timestampCursor: new Date(startDate).getTime(),
-                            startTime: new Date(startDate).getTime(),
-                            endTime: new Date(endDate).getTime(),
-                            offset: 0,
-                            retriesPerformedSoFar: 0,
-                            exportId: params.id,
-                            fetchTimeInterval: EVENTS_TIME_INTERVAL,
-                            statusKey: `EXPORT_DATE_STATUS_${startDate}`,
-                        } as ExportHistoricalEventsJobPayload)
-                        .runNow()
+                    createLog(`Starting job to export ${startDate} to ${endDate}`)
+
+                    const payload: ExportHistoricalEventsJobPayload = {
+                        timestampCursor: new Date(startDate).getTime(),
+                        startTime: new Date(startDate).getTime(),
+                        endTime: new Date(endDate).getTime(),
+                        offset: 0,
+                        retriesPerformedSoFar: 0,
+                        exportId: params.id,
+                        fetchTimeInterval: EVENTS_TIME_INTERVAL,
+                        statusKey: `EXPORT_DATE_STATUS_${startDate}`,
+                    }
+                    await startChunk(payload)
+                })
+            )
+
+            await Promise.all(
+                update.toResume.map(async (payload: ExportChunkStatus) => {
+                    createLog(
+                        `Export chunk from ${dateRange(payload.startTime, payload.endTime)} seems inactive, restarting!`
+                    )
+                    await startChunk(payload, payload.progress)
                 })
             )
 
@@ -225,8 +237,10 @@ export function addHistoricalEventsExportCapabilityV2(
     async function calculateCoordination(
         params: ExportParams,
         done: Array<ISOTimestamp>,
-        running: Array<ISOTimestamp>
+        running: Array<ISOTimestamp>,
+        now?: number
     ): Promise<CoordinationUpdate> {
+        now = now || Date.now()
         const allDates = getExportDateRange(params)
 
         let hasChanges = false
@@ -235,8 +249,10 @@ export function addHistoricalEventsExportCapabilityV2(
         const progressPerDay = 1.0 / allDates.length
 
         let progress = progressPerDay * done.length
+        const toResume: Array<ExportChunkStatus> = []
+
         for (const date of running || []) {
-            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, null)) as ExportDateStatus | null
+            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, null)) as ExportChunkStatus | null
 
             if (dateStatus?.done) {
                 hasChanges = true
@@ -246,7 +262,11 @@ export function addHistoricalEventsExportCapabilityV2(
             } else {
                 progress += progressPerDay * (dateStatus?.progress ?? 0)
             }
-            // :TODO: Check this is 'stuck' for some reason, restart
+
+            if (dateStatus && shouldResume(dateStatus, now)) {
+                hasChanges = true
+                toResume.push(dateStatus)
+            }
         }
 
         const toStartRunning: Array<[ISOTimestamp, ISOTimestamp]> = []
@@ -270,9 +290,23 @@ export function addHistoricalEventsExportCapabilityV2(
             done: Array.from(doneDates.values()),
             running: Array.from(runningDates.values()),
             toStartRunning,
+            toResume,
             progress,
             exportIsDone: doneDates.size === allDates.length,
         }
+    }
+
+    async function startChunk(payload: ExportHistoricalEventsJobPayload, now: number, progress = 0): Promise<void> {
+        // Save for detecting retries
+        await meta.storage.set(payload.statusKey, {
+            ...payload,
+            done: false,
+            progress,
+            statusTime: Date.now(),
+        } as ExportChunkStatus)
+
+        // Start the job
+        await meta.jobs.exportHistoricalEvents(payload).runNow()
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
@@ -296,18 +330,19 @@ export function addHistoricalEventsExportCapabilityV2(
             await meta.storage.set(payload.statusKey, {
                 done: true,
                 progress: 1,
+                statusTime: Date.now(),
                 ...payload,
-            } as ExportDateStatus)
+            } as ExportChunkStatus)
 
             return
         }
 
-        // :TODO: This key system is incompatible with what's done elsewhere.
         await meta.storage.set(payload.statusKey, {
             done: false,
             progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
+            statusTime: Date.now(),
             ...payload,
-        } as ExportDateStatus)
+        } as ExportChunkStatus)
 
         let events: PluginEvent[] = []
 
@@ -344,7 +379,7 @@ export function addHistoricalEventsExportCapabilityV2(
         }
 
         if (exportEventsError instanceof RetryError) {
-            const nextRetrySeconds = 2 ** payload.retriesPerformedSoFar * 3
+            const nextRetrySeconds = retryDelaySeconds(payload.retriesPerformedSoFar)
 
             // "Failed processing events 0-100 from 2021-08-19T12:34:26.061Z to 2021-08-19T12:44:26.061Z. Retrying in 3s"
             createLog(
@@ -416,6 +451,14 @@ export function addHistoricalEventsExportCapabilityV2(
 
             return timestampBoundaries
         }
+    }
+
+    function retryDelaySeconds(retriesPerformedSoFar: number): number {
+        return 2 ** retriesPerformedSoFar * 3
+    }
+
+    function shouldResume(status: ExportChunkStatus, now: number): boolean {
+        return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 
     function nextFetchTimeInterval(payload: ExportHistoricalEventsJobPayload, eventCount: number): number {
