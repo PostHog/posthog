@@ -313,6 +313,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']] as Array<
                         [ISOTimestamp, ISOTimestamp]
                     >,
+                    toResume: [],
                 })
 
                 expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
@@ -326,6 +327,13 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     statusKey: 'EXPORT_DATE_STATUS_2021-11-01T00:00:00.000Z',
                 })
 
+                expect(await storage().get('EXPORT_DATE_STATUS_2021-11-01T00:00:00.000Z', null)).toEqual(
+                    expect.objectContaining({
+                        done: false,
+                        progress: 0,
+                        statusTime: Date.now(),
+                    })
+                )
                 expect(await storage().get('EXPORT_COORDINATION', null)).toEqual({
                     done: ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
                     running: ['2021-11-01T00:00:00.000Z'],
@@ -333,7 +341,46 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 })
             })
 
-            it('handles export being marked as done', async () => {
+            it('resumes tasks and updates coordination if needed', async () => {
+                const toResumePayload = {
+                    done: false,
+                    progress: 0.5,
+                    statusTime: 5_000_000_000,
+                    endTime: 1635742800000,
+                    exportId: 1,
+                    fetchTimeInterval: 600000,
+                    offset: 0,
+                    retriesPerformedSoFar: 0,
+                    startTime: 1635724800000,
+                    timestampCursor: 1635724800000,
+                    statusKey: 'EXPORT_DATE_STATUS_2021-11-01T00:00:00.000Z',
+                }
+
+                await coordinateHistoricExport({
+                    hasChanges: true,
+                    exportIsDone: false,
+                    progress: 0.7553,
+                    done: [
+                        '2021-10-29T00:00:00.000Z',
+                        '2021-10-30T00:00:00.000Z',
+                        '2021-10-31T00:00:00.000Z',
+                    ] as ISOTimestamp[],
+                    running: ['2021-11-01T00:00:00.000Z'] as ISOTimestamp[],
+                    toStartRunning: [],
+                    toResume: [toResumePayload],
+                })
+
+                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith(toResumePayload)
+                expect(await storage().get('EXPORT_DATE_STATUS_2021-11-01T00:00:00.000Z', null)).toEqual(
+                    expect.objectContaining({
+                        done: false,
+                        progress: 0.5,
+                        statusTime: Date.now(),
+                    })
+                )
+            })
+
+            it('handles export being completed', async () => {
                 await coordinateHistoricExport({
                     hasChanges: false,
                     exportIsDone: true,
@@ -341,6 +388,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     done: [],
                     running: [],
                     toStartRunning: [],
+                    toResume: [],
                 })
 
                 expect(hub.db.queuePluginLogEntry).toHaveBeenCalledTimes(1)
