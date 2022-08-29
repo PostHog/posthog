@@ -314,7 +314,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadRecentInsights: async () => {
                 if (props.id && props.id !== 'new' && values.featureFlag.key) {
                     const response = await api.get(
-                        `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}`
+                        `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                     )
                     return response.results
                 }
