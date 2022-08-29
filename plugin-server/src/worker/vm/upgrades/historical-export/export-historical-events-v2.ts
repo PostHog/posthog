@@ -114,7 +114,7 @@ interface CoordinationUpdate {
     exportIsDone: boolean
 }
 
-interface ExportDateStatus {
+interface ExportDateStatus extends ExportHistoricalEventsJobPayload {
     done: boolean
     progress: number
 }
@@ -199,7 +199,7 @@ export function addHistoricalEventsExportCapabilityV2(
         if (update.hasChanges) {
             await Promise.all(
                 update.toStartRunning.map(async ([startDate, endDate]) => {
-                    createLog(f`Starting job to export ${startDate}-${endDate}`)
+                    createLog(`Starting job to export ${startDate}-${endDate}`)
                     await meta.jobs
                         .exportHistoricalEvents({
                             timestampCursor: new Date(startDate).getTime(),
@@ -237,18 +237,15 @@ export function addHistoricalEventsExportCapabilityV2(
 
         let progress = progressPerDay * done.length
         for (const date of running || []) {
-            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, {
-                done: false,
-                progress: 0,
-            })) as ExportDateStatus
+            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, null)) as ExportDateStatus | null
 
-            if (dateStatus.done) {
+            if (dateStatus?.done) {
                 hasChanges = true
                 doneDates.add(date)
                 runningDates.delete(date)
                 progress += progressPerDay
             } else {
-                progress += progressPerDay * dateStatus.progress
+                progress += progressPerDay * (dateStatus?.progress ?? 0)
             }
             // :TODO: Check this is 'stuck' for some reason.
         }
@@ -297,6 +294,7 @@ export function addHistoricalEventsExportCapabilityV2(
             await meta.storage.set(payload.statusKey, {
                 done: true,
                 progress: 1,
+                ...payload,
             } as ExportDateStatus)
 
             return
@@ -306,7 +304,7 @@ export function addHistoricalEventsExportCapabilityV2(
         await meta.storage.set(payload.statusKey, {
             done: false,
             progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
-            // :TODO: Save timestampCursor, exportId, use that to skip on restarts occurring
+            ...payload,
         } as ExportDateStatus)
 
         let events: PluginEvent[] = []
