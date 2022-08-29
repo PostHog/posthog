@@ -61,30 +61,10 @@ describe('sessionRecordingDataLogic', () => {
     })
 
     describe('loading session core', () => {
-        it('is triggered by loadEntireRecording', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.loadEntireRecording()
-            }).toDispatchActions(['loadRecordingMeta', 'loadRecordingSnapshots'])
-        })
-        it('fetch metadata and then snapshots', async () => {
-            const resultAfterMetadataResponse = {
+        it('is triggered by mounting', async () => {
+            const expectedData = {
                 person: recordingMetaJson.person,
                 metadata: parseMetadataResponse(recordingMetaJson.session_recording),
-                snapshotsByWindowId: {},
-                bufferedTo: null,
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: resultAfterMetadataResponse,
-                })
-                .toFinishAllListeners()
-
-            const resultAfterSnapshotResponse = {
-                ...resultAfterMetadataResponse,
                 bufferedTo: {
                     time: 44579,
                     windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
@@ -92,78 +72,28 @@ describe('sessionRecordingDataLogic', () => {
                 next: undefined,
                 snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
             }
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
-            })
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: resultAfterSnapshotResponse,
-                })
-        })
-        it('fetch snapshots and then metadata', async () => {
-            const resultAfterSnapshotResponse = {
-                bufferedTo: null,
-                metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
-                next: undefined,
-                person: null,
-                snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
-            })
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: resultAfterSnapshotResponse,
-                })
-
-            const resultAfterMetadataResponse = {
-                ...resultAfterSnapshotResponse,
-                bufferedTo: {
-                    time: 44579,
-                    windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
-                },
-                person: recordingMetaJson.person,
-                metadata: parseMetadataResponse(recordingMetaJson.session_recording),
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: resultAfterMetadataResponse,
-                })
+            await expectLogic(logic)
+                .toDispatchActions(['loadEntireRecording', 'loadRecordingMetaSuccess', 'loadRecordingSnapshotsSuccess'])
                 .toFinishAllListeners()
+                .toMatchValues({
+                    sessionPlayerData: expectedData,
+                })
         })
+
         it('fetch metadata error and snapshots success', async () => {
+            silenceKeaLoadersErrors()
+            // Unmount and remount the logic to trigger fetching the data again after the mock change
+            logic.unmount()
             useMocks({
                 get: {
                     '/api/projects/:team/session_recordings/:id': () => [500, { status: 0 }],
                 },
             })
+            logic.mount()
 
-            silenceKeaLoadersErrors()
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaFailure'])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        bufferedTo: null,
-                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
-                        next: undefined,
-                        person: null,
-                        snapshotsByWindowId: {},
-                    },
-                })
+            await expectLogic(logic)
+                .toDispatchActions(['loadRecordingMeta', 'loadRecordingSnapshots', 'loadRecordingMetaFailure'])
                 .toFinishAllListeners()
-            resumeKeaLoadersErrors()
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
-            })
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     sessionPlayerData: {
                         bufferedTo: null,
@@ -173,35 +103,28 @@ describe('sessionRecordingDataLogic', () => {
                         snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
                     },
                 })
+            resumeKeaLoadersErrors()
         })
         it('fetch metadata success and snapshots error', async () => {
-            const expected = {
-                person: recordingMetaJson.person,
-                metadata: parseMetadataResponse(recordingMetaJson.session_recording),
-                snapshotsByWindowId: {},
-                bufferedTo: null,
-            }
             silenceKeaLoadersErrors()
+            // Unmount and remount the logic to trigger fetching the data again after the mock change
+            logic.unmount()
             useMocks({
                 get: {
                     '/api/projects/:team/session_recordings/:id/snapshots': () => [500, { status: 0 }],
                 },
             })
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: expected,
-                })
-                .toFinishAllListeners()
+            logic.mount()
 
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingSnapshots()
-            })
+            await expectLogic(logic)
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsFailure'])
                 .toMatchValues({
-                    sessionPlayerData: expected,
+                    sessionPlayerData: {
+                        person: recordingMetaJson.person,
+                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        snapshotsByWindowId: {},
+                        bufferedTo: null,
+                    },
                 })
             resumeKeaLoadersErrors()
         })
@@ -362,10 +285,13 @@ describe('sessionRecordingDataLogic', () => {
                 .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
                 .toMatchValues({
                     sessionPlayerData: {
-                        bufferedTo: null,
-                        metadata: { recordingDurationMs: 0, segments: [], startAndEndTimesByWindowId: {} },
+                        person: recordingMetaJson.person,
+                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        bufferedTo: {
+                            time: 44579,
+                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                        },
                         next: undefined,
-                        person: null,
                         snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
                     },
                 })

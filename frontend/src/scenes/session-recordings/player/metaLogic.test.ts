@@ -66,11 +66,29 @@ describe('metaLogic', () => {
             sessionRecordingsTableLogic().mount()
         })
         it('grabs person data from the recording list until metadata is loaded', async () => {
+            // Make the metadata fetch fail
+            logic.unmount()
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id': () => [500, { status: 0 }],
+                },
+            })
+            logic.mount()
+
             await expectLogic(sessionRecordingsTableLogic, () => {
                 sessionRecordingsTableLogic.actions.getSessionRecordings()
             }).toDispatchActions(['getSessionRecordingsSuccess'])
             // Before recording metadata is loaded, the person data should be from the recording list
             expectLogic(logic).toMatchValues({ sessionPerson: { name: 'John Doe' } })
+
+            // Fix the metadata fetch failure
+            logic.unmount()
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
+                },
+            })
+            logic.mount()
 
             // After recording metadata is loaded, the person data should be from the recording list
             await expectLogic(logic, () => {
@@ -98,11 +116,29 @@ describe('metaLogic', () => {
         })
 
         it('grabs recordingStartTime from the recording list until metadata is loaded', async () => {
+            // Make the metadata fetch fail
+            logic.unmount()
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id': () => [500, { status: 0 }],
+                },
+            })
+            logic.mount()
+
             await expectLogic(sessionRecordingsTableLogic, () => {
                 sessionRecordingsTableLogic.actions.getSessionRecordings()
             }).toDispatchActions(['getSessionRecordingsSuccess'])
             // Before recording metadata is loaded, the person data should be from the recording list
             expectLogic(logic).toMatchValues({ recordingStartTime: 1600000000000 })
+
+            // Fix the metadata fetch failure
+            logic.unmount()
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
+                },
+            })
+            logic.mount()
 
             // After recording metadata is loaded, the startTime should be from the recording list
             await expectLogic(logic, () => {

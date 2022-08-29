@@ -2,7 +2,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import { initKeaTests } from '~/test/init'
-import { sessionRecordingDataLogic } from './player/sessionRecordingDataLogic'
 import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
 
 describe('sessionPlayerDrawerLogic', () => {
@@ -38,13 +37,6 @@ describe('sessionPlayerDrawerLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['openSessionPlayer'])
                 .toMatchValues({ activeSessionRecordingId: 'recording1212' })
-        })
-    })
-    describe('sessionRecordingDataLogic', () => {
-        it('is mounted when a new recording is opened and starts loading', async () => {
-            expectLogic(logic, () => logic.actions.openSessionPlayer('abc', RecordingWatchedSource.RecordingsList))
-                .toMount([sessionRecordingDataLogic({ sessionRecordingId: 'abc' })])
-                .toDispatchActions(['loadEntireRecording'])
         })
     })
 })
