@@ -1,8 +1,8 @@
-import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { ClickHouseEvent, Element, TimestampFormat } from '../../../../types'
+import { Element, RawClickHouseEvent, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
+import { parseRawClickHouseEvent } from '../../../../utils/event'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
 import { HistoricalExportEvent } from './utils'
 
@@ -29,8 +29,8 @@ export const fetchEventsForInterval = async (
         TimestampFormat.ClickHouseSecondPrecision
     )
 
+    // :TODO: Adding tag messes up the return value?
     const fetchEventsQuery = `
-    /* plugin-server:fetchEventsForInterval */
     SELECT
         event,
         uuid,
@@ -48,44 +48,33 @@ export const fetchEventsForInterval = async (
     LIMIT ${eventsPerRun}
     OFFSET ${offset}`
 
-    const clickhouseFetchEventsResult = await db.clickhouseQuery(fetchEventsQuery)
+    const clickhouseFetchEventsResult = await db.clickhouseQuery<RawClickHouseEvent>(fetchEventsQuery)
 
-    return clickhouseFetchEventsResult.data.map((event) =>
-        convertClickhouseEventToPluginEvent({
-            ...(event as ClickHouseEvent),
-            properties: JSON.parse(event.properties || '{}'),
-        })
-    )
+    return clickhouseFetchEventsResult.data.map(convertClickhouseEventToPluginEvent)
 }
 
-const convertClickhouseEventToPluginEvent = (event: ClickHouseEvent): HistoricalExportEvent => {
-    const { event: eventName, properties, timestamp, team_id, distinct_id, created_at, uuid, elements_chain } = event
-    if (eventName === '$autocapture' && elements_chain) {
-        properties['$elements'] = convertDatabaseElementsToRawElements(elements_chain)
-    }
-    properties['$$historical_export_source_db'] = 'clickhouse'
-    let ts: DateTime | string = timestamp
-    try {
-        ts = timestamp.toISO()
-    } catch (e) {
-        Sentry.captureException(e, { extra: { event, timestamp } })
+const convertClickhouseEventToPluginEvent = (event: RawClickHouseEvent): HistoricalExportEvent => {
+    const clickhouseEvent = parseRawClickHouseEvent(event)
+    if (clickhouseEvent.event === '$autocapture' && clickhouseEvent.elements_chain) {
+        clickhouseEvent.properties['$elements'] = convertDatabaseElementsToRawElements(clickhouseEvent.elements_chain)
     }
     const parsedEvent = {
-        uuid,
-        team_id,
-        distinct_id,
-        properties,
-        timestamp: String(ts),
+        uuid: clickhouseEvent.uuid,
+        team_id: clickhouseEvent.team_id,
+        distinct_id: clickhouseEvent.distinct_id,
+        properties: clickhouseEvent.properties,
+        timestamp: clickhouseEvent.timestamp.toISO(),
         now: DateTime.now().toISO(),
-        event: eventName || '',
-        ip: properties?.['$ip'] || '',
+        event: event.event || '',
+        ip: clickhouseEvent.properties['$ip'] || '',
         site_url: '',
-        sent_at: created_at.toISO(),
+        sent_at: clickhouseEvent.created_at.toISO(),
     }
     return addHistoricalExportEventProperties(parsedEvent)
 }
 
 const addHistoricalExportEventProperties = (event: HistoricalExportEvent): HistoricalExportEvent => {
+    event.properties['$$historical_export_source_db'] = 'clickhouse'
     event.properties['$$is_historical_export_event'] = true
     event.properties['$$historical_export_timestamp'] = new Date().toISOString()
     return event
