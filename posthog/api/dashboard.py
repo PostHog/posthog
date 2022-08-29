@@ -43,7 +43,7 @@ class TextTileListSerializer(serializers.ListSerializer):
                 text_tiles.append(new_tile)
             else:
                 for tile in text_tiles:
-                    if tile.id == validated_tile["id"]:
+                    if tile.id == int(validated_tile["id"]):
                         if "body" in validated_tile:
                             tile.body = validated_tile["body"]
                         if "layouts" in validated_tile:
@@ -51,19 +51,17 @@ class TextTileListSerializer(serializers.ListSerializer):
                         if "color" in validated_tile:
                             tile.color = validated_tile["color"]
                         tile.save()
-                    else:
-                        new_tile = DashboardTextTile.objects.create(**validated_tile)
-                        text_tiles.append(new_tile)
 
         return text_tiles
 
 
 class TextTileSerializer(serializers.ModelSerializer):
-    id: serializers.UUIDField = serializers.UUIDField()
+    id: serializers.IntegerField = serializers.IntegerField()
 
     class Meta:
         model = DashboardTextTile
         fields = ["id", "layouts", "color", "body"]
+        read_only_fields = ["id"]
         list_serializer_class = TextTileListSerializer
 
 

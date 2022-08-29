@@ -31,7 +31,6 @@ export const dashboardTextTileModalLogic = kea<dashboardTextTileModalLogicType>(
                 body: !body ? 'A text tile must have text content.' : null,
             }),
             submit: (formValues) => {
-                debugger
                 if (props.dashboard) {
                     const textTiles = props.dashboard.text_tiles
                     actions.updateDashboard({ id: props.dashboard.id, text_tiles: [...textTiles, formValues] })

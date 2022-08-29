@@ -92,6 +92,15 @@ export function DashboardItems(): JSX.Element {
                 }}
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
+                {showTextCards &&
+                    textTiles?.map((textTile: DashboardTextTile) => (
+                        <TextCard
+                            key={`text-tile-${textTile.id}`}
+                            body={textTile.body}
+                            showResizeHandles={dashboardMode === DashboardMode.Edit}
+                            canResizeWidth={canResizeWidth}
+                        />
+                    ))}
                 {items?.map((item: InsightModel) => (
                     <InsightCard
                         key={`insight-tile-${item.id}`}
@@ -120,15 +129,6 @@ export function DashboardItems(): JSX.Element {
                         showDetailsControls={placement != DashboardPlacement.Export}
                     />
                 ))}
-                {showTextCards &&
-                    textTiles?.map((textTile: DashboardTextTile) => (
-                        <TextCard
-                            key={`text-tile-${textTile.id}`}
-                            body={textTile.body}
-                            showResizeHandles={dashboardMode === DashboardMode.Edit}
-                            canResizeWidth={canResizeWidth}
-                        />
-                    ))}
             </ReactGridLayout>
         </div>
     )
