@@ -40,6 +40,7 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagsTabs } from './featureFlagsLogic'
 import { flagActivityDescriber } from './activityDescriptions'
 import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopup/utils'
+import { FeatureFlagInsightsCard } from './FeatureFlagInsightsCard'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -327,9 +328,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <FeatureFlagReleaseConditions readOnly />
                                         </Col>
                                         <Col span={11} className="pl-4">
-                                            <div className="border rounded p-4 mb-4">
-                                                Insights that use this feature
-                                            </div>
+                                            <FeatureFlagInsightsCard />
+                                            <div className="my-4"></div>
                                             <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                                         </Col>
                                     </Row>

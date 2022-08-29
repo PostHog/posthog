@@ -310,6 +310,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
+        recentInsights: {
+            loadRecentInsights: async () => {
+                if (props.id && props.id !== 'new' && values.featureFlag.key) {
+                    const response = await api.get(`api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}`)
+                    return response.results
+                }
+                return []
+            }
+        }
     })),
     listeners(({ actions, values }) => ({
         saveFeatureFlagSuccess: ({ featureFlag }) => {
@@ -336,6 +345,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setMultivariateOptions(null)
             }
         },
+        loadFeatureFlagSuccess: async () => {
+            actions.loadRecentInsights();
+        }
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
