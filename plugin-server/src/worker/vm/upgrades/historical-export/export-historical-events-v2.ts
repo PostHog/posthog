@@ -177,6 +177,108 @@ export function addHistoricalEventsExportCapabilityV2(
         },
     }
 
+    async function coordinateHistoricExport(update?: CoordinationUpdate) {
+        const params = await getExportParameters()
+
+        if (!params) {
+            // No export running!
+            return
+        }
+
+        const { done, running } = (await meta.storage.get(`EXPORT_COORDINATION`, {})) as CoordinationPayload
+        update = update || (await calculateCoordination(params, done || [], running || []))
+
+        if (update.exportIsDone) {
+            await meta.storage.del(EXPORT_RUNNING_KEY)
+            createLog('Done exporting all events!')
+            return
+        }
+
+        createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10})%`)
+
+        if (update.hasChanges) {
+            await Promise.all(
+                update.toStartRunning.map(async ([startDate, endDate]) => {
+                    createLog(f`Starting job to export ${startDate}-${endDate}`)
+                    await meta.jobs
+                        .exportHistoricalEvents({
+                            timestampCursor: new Date(startDate).getTime(),
+                            startTime: new Date(startDate).getTime(),
+                            endTime: new Date(endDate).getTime(),
+                            offset: 0,
+                            retriesPerformedSoFar: 0,
+                            exportId: params.id,
+                            fetchTimeInterval: EVENTS_TIME_INTERVAL,
+                            statusKey: `EXPORT_DATE_STATUS_${startDate}`,
+                        } as ExportHistoricalEventsJobPayload)
+                        .runNow()
+                })
+            )
+
+            await meta.storage.set(`EXPORT_COORDINATION`, {
+                done: update.done,
+                running: update.running,
+                progress: update.progress,
+            })
+        }
+    }
+
+    async function calculateCoordination(
+        params: ExportParams,
+        done: Array<ISOTimestamp>,
+        running: Array<ISOTimestamp>
+    ): Promise<CoordinationUpdate> {
+        const allDates = getExportDateRange(params)
+
+        let hasChanges = false
+        const doneDates = new Set(done)
+        const runningDates = new Set(running)
+        const progressPerDay = 1.0 / allDates.length
+
+        let progress = progressPerDay * done.length
+        for (const date of running || []) {
+            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, {
+                done: false,
+                progress: 0,
+            })) as ExportDateStatus
+
+            if (dateStatus.done) {
+                hasChanges = true
+                doneDates.add(date)
+                runningDates.delete(date)
+                progress += progressPerDay
+            } else {
+                progress += progressPerDay * dateStatus.progress
+            }
+            // :TODO: Check this is 'stuck' for some reason.
+        }
+
+        const toStartRunning: Array<[ISOTimestamp, ISOTimestamp]> = []
+
+        if (runningDates.size < params.parallelism && doneDates.size + runningDates.size < allDates.length) {
+            for (const [startDate, endDate] of allDates) {
+                if (!doneDates.has(startDate) && !runningDates.has(startDate)) {
+                    runningDates.add(startDate)
+                    toStartRunning.push([startDate, endDate])
+                    hasChanges = true
+
+                    if (runningDates.size === params.parallelism) {
+                        break
+                    }
+                }
+            }
+        }
+
+        return {
+            hasChanges,
+            done: Array.from(doneDates.values()),
+            running: Array.from(runningDates.values()),
+            toStartRunning,
+            progress,
+            exportIsDone: doneDates.size === allDates.length,
+        }
+    }
+
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
         if (payload.retriesPerformedSoFar >= 15) {
             // :TODO: Should we cancel the whole export? Notify users?
@@ -323,108 +425,6 @@ export function addHistoricalEventsExportCapabilityV2(
             return Math.max(Math.floor(payload.fetchTimeInterval / 1.2), TEN_MINUTES)
         }
         return payload.fetchTimeInterval
-    }
-
-    async function coordinateHistoricExport(update?: CoordinationUpdate) {
-        const params = await getExportParameters()
-
-        if (!params) {
-            // No export running!
-            return
-        }
-
-        const { done, running } = (await meta.storage.get(`EXPORT_COORDINATION`, {})) as CoordinationPayload
-        update = update || (await calculateCoordination(params, done || [], running || []))
-
-        if (update.exportIsDone) {
-            await meta.storage.del(EXPORT_RUNNING_KEY)
-            createLog('Done exporting all events!')
-            return
-        }
-
-        createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10})%`)
-
-        if (update.hasChanges) {
-            await Promise.all(
-                update.toStartRunning.map(async ([startDate, endDate]) => {
-                    createLog(f`Starting job to export ${startDate}-${endDate}`)
-                    await meta.jobs
-                        .exportHistoricalEvents({
-                            timestampCursor: new Date(startDate).getTime(),
-                            startTime: new Date(startDate).getTime(),
-                            endTime: new Date(endDate).getTime(),
-                            offset: 0,
-                            retriesPerformedSoFar: 0,
-                            exportId: params.id,
-                            fetchTimeInterval: EVENTS_TIME_INTERVAL,
-                            statusKey: `EXPORT_DATE_STATUS_${startDate}`,
-                        } as ExportHistoricalEventsJobPayload)
-                        .runNow()
-                })
-            )
-
-            await meta.storage.set(`EXPORT_COORDINATION`, {
-                done: update.done,
-                running: update.running,
-                progress: update.progress,
-            })
-        }
-    }
-
-    async function calculateCoordination(
-        params: ExportParams,
-        done: Array<ISOTimestamp>,
-        running: Array<ISOTimestamp>
-    ): Promise<CoordinationUpdate> {
-        const allDates = getExportDateRange(params)
-
-        let hasChanges = false
-        const doneDates = new Set(done)
-        const runningDates = new Set(running)
-        const progressPerDay = 1.0 / allDates.length
-
-        let progress = progressPerDay * done.length
-        for (const date of running || []) {
-            const dateStatus = (await meta.storage.get(`EXPORT_DATE_STATUS_${date}`, {
-                done: false,
-                progress: 0,
-            })) as ExportDateStatus
-
-            if (dateStatus.done) {
-                hasChanges = true
-                doneDates.add(date)
-                runningDates.delete(date)
-                progress += progressPerDay
-            } else {
-                progress += progressPerDay * dateStatus.progress
-            }
-            // :TODO: Check this is 'stuck' for some reason.
-        }
-
-        const toStartRunning: Array<[ISOTimestamp, ISOTimestamp]> = []
-
-        if (runningDates.size < params.parallelism && doneDates.size + runningDates.size < allDates.length) {
-            for (const [startDate, endDate] of allDates) {
-                if (!doneDates.has(startDate) && !runningDates.has(startDate)) {
-                    runningDates.add(startDate)
-                    toStartRunning.push([startDate, endDate])
-                    hasChanges = true
-
-                    if (runningDates.size === params.parallelism) {
-                        break
-                    }
-                }
-            }
-        }
-
-        return {
-            hasChanges,
-            done: Array.from(doneDates.values()),
-            running: Array.from(runningDates.values()),
-            toStartRunning,
-            progress,
-            exportIsDone: doneDates.size === allDates.length,
-        }
     }
 
     function getExportDateRange({ dateFrom, dateTo }: ExportParams): Array<[ISOTimestamp, ISOTimestamp]> {
