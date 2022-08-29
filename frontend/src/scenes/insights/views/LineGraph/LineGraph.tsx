@@ -356,6 +356,7 @@ export function LineGraph_({
                                 <>
                                     <InsightTooltip
                                         date={dataset?.days?.[tooltip.dataPoints?.[0]?.dataIndex]}
+                                        timezone={timezone}
                                         seriesData={seriesData}
                                         hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
                                         renderCount={
