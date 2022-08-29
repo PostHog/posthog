@@ -27,7 +27,6 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            insightNumericId={insight.id}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}

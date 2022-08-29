@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import {
     registerables,
     ActiveElement,
@@ -21,11 +21,11 @@ import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, lightenDarkenColor, mapRange } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
-import { AnnotationMarker, Annotations, annotationsLogic } from 'lib/components/Annotations'
+import { AnnotationMarker, Annotations, insightAnnotationsLogic } from 'lib/components/Annotations'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import './LineGraph.scss'
 import { dayjs } from 'lib/dayjs'
-import { AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
+import { AnnotationScope, AnnotationType, GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -33,6 +33,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 //--Chart Style Options--//
 if (registerables) {
@@ -52,7 +53,6 @@ interface LineGraphProps {
     isInProgress?: boolean
     onClick?: (payload: GraphPointPayload) => void
     ['data-attr']: string
-    insightNumericId?: number
     inSharedMode?: boolean
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
@@ -77,9 +77,16 @@ export function ensureTooltipElement(): HTMLElement {
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
+    const { insightProps, insight } = useValues(insightLogic)
+
     return (
         <ErrorBoundary>
-            <LineGraph_ {...props} />
+            <BindLogic
+                logic={insightAnnotationsLogic}
+                props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
+            >
+                <LineGraph_ {...props} />
+            </BindLogic>
         </ErrorBoundary>
     )
 }
@@ -92,7 +99,6 @@ export function LineGraph_({
     isInProgress = false,
     onClick,
     ['data-attr']: dataAttr,
-    insightNumericId,
     inSharedMode = false,
     showPersonsModal = true,
     isCompare = false,
@@ -116,13 +122,13 @@ export function LineGraph_({
     const [labelIndex, setLabelIndex] = useState<number | null>(null)
     const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
-    const { createAnnotation, updateDiffType, createGlobalAnnotation } = !inSharedMode
-        ? useActions(annotationsLogic({ insightNumericId }))
-        : { createAnnotation: noop, updateDiffType: noop, createGlobalAnnotation: noop }
 
-    const { annotationsList, annotationsLoading } = !inSharedMode
-        ? useValues(annotationsLogic({ insightNumericId }))
-        : { annotationsList: [], annotationsLoading: false }
+    // insightAnnotationsLogic must be bound using BindLogic
+    const { createAnnotation } = !inSharedMode ? useActions(insightAnnotationsLogic) : { createAnnotation: noop }
+    const { annotations, annotationsLoading } = !inSharedMode
+        ? useValues(insightAnnotationsLogic)
+        : { annotations: [], annotationsLoading: false }
+
     const [leftExtent, setLeftExtent] = useState(0)
     const [boundaryInterval, setBoundaryInterval] = useState(0)
     const [topExtent, setTopExtent] = useState(0)
@@ -153,7 +159,7 @@ export function LineGraph_({
             myLineChart.current.update()
             calculateBoundaries()
         }
-    }, [annotationsLoading, annotationsCondition, annotationsList, annotationInRange])
+    }, [annotationsLoading, annotationsCondition, annotations, annotationInRange])
 
     useEffect(() => {
         if (annotationsCondition && (datasets?.[0]?.days?.length ?? 0) > 0) {
@@ -161,16 +167,9 @@ export function LineGraph_({
             const end = dayjs(datasets[0].days?.[datasets[0].days.length - 1]).add(2, 'days')
             const checkBetween = (element: AnnotationType): boolean =>
                 dayjs(element.date_marker).isSameOrBefore(end) && dayjs(element.date_marker).isSameOrAfter(begin)
-            setInRange(annotationsList.some(checkBetween))
+            setInRange(annotations.some(checkBetween))
         }
-    }, [datasets, annotationsList, annotationsCondition])
-
-    // recalculate diff if interval type selection changes
-    useEffect(() => {
-        if (annotationsCondition && datasets?.[0]?.days) {
-            updateDiffType(datasets[0].days)
-        }
-    }, [datasets, type, annotationsCondition])
+    }, [datasets, annotations, annotationsCondition])
 
     // update only boundaries when window size changes or chart type changes
     useEffect(() => {
@@ -674,7 +673,6 @@ export function LineGraph_({
                         leftExtent={leftExtent}
                         interval={boundaryInterval}
                         topExtent={topExtent}
-                        insightNumericId={insightNumericId}
                         currentDateMarker={
                             focused || annotationsFocused
                                 ? selectedDayLabel
@@ -695,7 +693,6 @@ export function LineGraph_({
                 )}
                 {annotationsCondition && !annotationsFocused && (enabled || focused) && left >= 0 && (
                     <AnnotationMarker
-                        insightNumericId={insightNumericId}
                         currentDateMarker={
                             focused ? selectedDayLabel : labelIndex ? datasets[0].days?.[labelIndex] : null
                         }
@@ -711,11 +708,11 @@ export function LineGraph_({
                         onCreate={(textInput, applyAll) => {
                             const date = holdLabelIndex ? datasets[0].days?.[holdLabelIndex] : null
                             if (date) {
-                                if (applyAll) {
-                                    createGlobalAnnotation(textInput, date, insightNumericId)
-                                } else {
-                                    createAnnotation(textInput, date)
-                                }
+                                createAnnotation({
+                                    content: textInput,
+                                    date_marker: date,
+                                    scope: applyAll ? AnnotationScope.Project : AnnotationScope.Insight,
+                                })
                             }
                         }}
                         onClose={() => setFocused(false)}

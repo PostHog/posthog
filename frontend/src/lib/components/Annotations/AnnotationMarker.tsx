@@ -4,7 +4,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Popover } from 'antd'
 import { humanFriendlyDetailedTime } from '~/lib/utils'
 import { PlusOutlined, ProjectOutlined, DeploymentUnitOutlined } from '@ant-design/icons'
-import { annotationsLogic } from './annotationsLogic'
+import { insightAnnotationsLogic } from './insightAnnotationsLogic'
 import { useEscapeKey } from 'lib/hooks/useEscapeKey'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -43,7 +43,6 @@ interface AnnotationMarkerProps {
     size?: number
     color: string | null
     accessoryColor: string | null
-    insightNumericId?: number
     currentDateMarker?: string | null
     dynamic?: boolean
     index?: number
@@ -62,7 +61,6 @@ export function AnnotationMarker({
     size = 25,
     color,
     accessoryColor,
-    insightNumericId,
     currentDateMarker,
     onClose,
     dynamic,
@@ -91,7 +89,8 @@ export function AnnotationMarker({
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { diffType, groupedAnnotations } = useValues(annotationsLogic({ insightNumericId }))
+    // insightAnnotationsLogic must be bound using BindLogic
+    const { intervalUnit, groupedAnnotations } = useValues(insightAnnotationsLogic)
 
     function closePopup(): void {
         setFocused(false)
@@ -121,7 +120,7 @@ export function AnnotationMarker({
         dynamic &&
         Object.keys(groupedAnnotations)
             .map((key) => dayjs(key))
-            .some((marker) => marker.isSame(dayjs(currentDateMarker).startOf(diffType as dayjs.OpUnitType)))
+            .some((marker) => marker.isSame(dayjs(currentDateMarker).startOf(intervalUnit)))
     ) {
         return null
     }

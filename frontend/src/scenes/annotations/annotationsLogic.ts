@@ -1,10 +1,8 @@
 import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
-import { toParams, deleteWithUndo } from 'lib/utils'
-import { annotationsModel } from '~/models/annotationsModel'
-import type { annotationsPageLogicType } from './annotationsPageLogicType'
+import { deleteWithUndo } from 'lib/utils'
+import type { annotationsLogicType } from './annotationsLogicType'
 import { AnnotationScope, AnnotationType } from '~/types'
-import { teamLogic } from '../teamLogic'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
@@ -23,33 +21,59 @@ export const annotationScopeToLevel: Record<AnnotationScope, number> = {
     [AnnotationScope.Organization]: 2,
 }
 
-export type AnnotationModalForm = {
+export interface AnnotationModalForm {
     dateMarker: dayjs.Dayjs
     scope: AnnotationType['scope']
     content: AnnotationType['content']
 }
 
-export const annotationsPageLogic = kea<annotationsPageLogicType>([
-    path(['scenes', 'annotations', 'logic']),
+export type AnnotationData = Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+
+export const annotationsLogic = kea<annotationsLogicType>([
+    path(['scenes', 'annotations', 'annotationsPageLogic']),
     actions({
-        deleteAnnotation: (id: AnnotationType['id']) => ({ id }),
-        restoreAnnotation: (id: AnnotationType['id']) => ({ id }),
+        deleteAnnotation: (annotation: AnnotationType) => ({ annotation }),
         loadAnnotationsNext: () => true,
-        setNext: (next: string) => ({ next }),
+        setNext: (next: string | null) => ({ next }),
         appendAnnotations: (annotations: AnnotationType[]) => ({ annotations }),
+        replaceAnnotation: (annotation: AnnotationType) => ({ annotation }),
         openModalToCreateAnnotation: () => true,
         openModalToEditAnnotation: (annotation: AnnotationType) => ({ annotation }),
         closeModal: true,
     }),
-    loaders(({ actions }) => ({
+    loaders(({ values, actions }) => ({
         annotations: {
             __default: [],
             loadAnnotations: async () => {
-                const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/annotations/?${toParams({ order: '-updated_at' })}`
-                )
-                actions.setNext(response.next)
+                const response = await api.annotations.list()
+                actions.setNext(response.next || null)
                 return response.results
+            },
+            createAnnotationGenerically: async (annotationData: AnnotationData) => {
+                const createdAnnotation = await api.annotations.create(annotationData)
+                actions.appendAnnotations([createdAnnotation])
+            },
+            updateAnnotation: async ({
+                annotationId,
+                annotationData,
+            }: {
+                annotationId: AnnotationType['id']
+                annotationData: Omit<AnnotationData, 'insightId'>
+            }) => {
+                const updatedAnnotation = await api.annotations.update(annotationId, annotationData)
+                actions.replaceAnnotation(updatedAnnotation)
+            },
+            deleteAnnotation: async ({ annotation }) => {
+                await deleteWithUndo({
+                    endpoint: api.annotations.determineDeleteEndpoint(),
+                    object: { name: `${annotation.date_marker} annotation`, ...annotation },
+                    callback: (undo, annotation) => {
+                        if (undo) {
+                            actions.appendAnnotations([annotation])
+                        }
+                    },
+                })
+                return values.annotations.filter((a) => a.id !== annotation.id)
             },
         },
     })),
@@ -58,6 +82,12 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
             [] as AnnotationType[],
             {
                 appendAnnotations: (state, { annotations }) => [...state, ...annotations],
+                replaceAnnotation: (state, { annotation }) => {
+                    const copy = state.slice()
+                    const index = copy.findIndex((iterationAnnotation) => iterationAnnotation.id === annotation.id)
+                    copy[index] = annotation
+                    return copy
+                },
             },
         ],
         next: [
@@ -100,17 +130,6 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
         openModalToCreateAnnotation: () => {
             actions.resetAnnotationModal()
         },
-        restoreAnnotation: async ({ id }) => {
-            await api.annotations.restore(id)
-            actions.loadAnnotations()
-        },
-        deleteAnnotation: ({ id }) => {
-            deleteWithUndo({
-                endpoint: api.annotations.determineDeleteEndpoint(),
-                object: { name: 'Annotation', id },
-                callback: () => actions.loadAnnotations(),
-            })
-        },
         loadAnnotationsNext: async () => {
             let results: AnnotationType[] = []
             if (values.next) {
@@ -120,11 +139,7 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
             }
             actions.appendAnnotations(results)
         },
-        [annotationsModel.actionTypes.createGlobalAnnotationSuccess]: () => {
-            actions.loadAnnotations()
-        },
     })),
-    afterMount(({ actions }) => actions.loadAnnotations()),
     forms(({ actions, values }) => ({
         annotationModal: {
             defaults: {
@@ -138,21 +153,25 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
             submit: async (data) => {
                 const { dateMarker, content, scope } = data
                 if (values.existingModalAnnotation) {
-                    await api.annotations.update(values.existingModalAnnotation.id, {
+                    // updateAnnotation inlined so that isAnnotationModalSubmitting works
+                    const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
                         date_marker: dateMarker.toISOString(),
                         content,
                         scope,
                     })
+                    actions.replaceAnnotation(updatedAnnotation)
                 } else {
-                    await api.annotations.create({
+                    // createAnnotationGenerically inlined so that isAnnotationModalSubmitting works
+                    const createdAnnotation = await api.annotations.create({
                         date_marker: dateMarker.toISOString(),
                         content,
                         scope,
                     })
+                    actions.appendAnnotations([createdAnnotation])
                 }
-                actions.loadAnnotations()
                 actions.closeModal()
             },
         },
     })),
+    afterMount(({ actions }) => actions.loadAnnotations()),
 ])
