@@ -1,5 +1,5 @@
-import { actions, kea, reducers, path, listeners, connect } from 'kea'
-import { PlayerPosition, RecordingWindowFilter, SessionRecordingTab } from '~/types'
+import { actions, kea, reducers, path, listeners, connect, props, key } from 'kea'
+import { PlayerPosition, RecordingWindowFilter, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import type { sharedListLogicType } from './sharedListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
@@ -7,7 +7,9 @@ import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/cons
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
 export const sharedListLogic = kea<sharedListLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'sharedListLogic']),
+    path((key) => ['scenes', 'session-recordings', 'player', 'sharedListLogic', key]),
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect({
         logic: [eventUsageLogic],
     }),

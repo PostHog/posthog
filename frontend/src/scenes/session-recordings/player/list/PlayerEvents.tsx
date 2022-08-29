@@ -27,8 +27,8 @@ import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/com
 import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { RecordingEventType } from '~/types'
-import { sessionRecordingLogic } from '../../sessionRecordingLogic'
+import { RecordingEventType, SessionRecordingPlayerProps } from '~/types'
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
@@ -84,7 +84,7 @@ function EventDescription({ description }: { description: string }): JSX.Element
     )
 }
 
-export function PlayerEvents(): JSX.Element {
+export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const listRef = useRef<List>(null)
     const {
         data,
@@ -95,10 +95,11 @@ export function PlayerEvents(): JSX.Element {
         isCurrent,
         isDirectionUp,
         renderedRows,
-    } = useValues(eventsListLogic)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
-    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } =
-        useActions(eventsListLogic)
+    } = useValues(eventsListLogic({ sessionRecordingId, playerKey }))
+    const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } = useActions(
+        eventsListLogic({ sessionRecordingId, playerKey })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 

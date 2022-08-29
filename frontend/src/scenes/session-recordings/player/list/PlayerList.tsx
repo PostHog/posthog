@@ -1,14 +1,14 @@
 import './PlayerList.scss'
 import React, { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { SessionRecordingTab } from '~/types'
+import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import {
     DEFAULT_ROW_HEIGHT,
     listLogic,
     OVERSCANNED_ROW_COUNT,
     RowStatus,
 } from 'scenes/session-recordings/player/list/listLogic'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { List } from 'react-virtualized/dist/es/List'
 import { Empty } from 'antd'
 import clsx from 'clsx'
@@ -31,18 +31,24 @@ interface RowConfig<T extends Record<string, any>> {
     options?: ListRowOptions<T> | ((record: T, index: number) => ListRowOptions<T>)
 }
 
-export interface PlayerListProps<T> {
+export interface PlayerListProps<T> extends SessionRecordingPlayerProps {
     tab: SessionRecordingTab
     expandable?: ExpandableConfig<T>
     row?: RowConfig<T>
 }
 
-export function PlayerList<T extends Record<string, any>>({ tab, expandable, row }: PlayerListProps<T>): JSX.Element {
+export function PlayerList<T extends Record<string, any>>({
+    tab,
+    expandable,
+    row,
+    sessionRecordingId,
+    playerKey,
+}: PlayerListProps<T>): JSX.Element {
     const listRef = useRef<List>(null)
-    const logic = listLogic({ tab })
+    const logic = listLogic({ tab, sessionRecordingId, playerKey })
     const { data, showPositionFinder, isCurrent, isDirectionUp } = useValues(logic)
     const { setRenderedRows, setList, scrollTo, disablePositionFinder, handleRowClick } = useActions(logic)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
+    const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
 
     useEffect(() => {
         if (listRef?.current) {

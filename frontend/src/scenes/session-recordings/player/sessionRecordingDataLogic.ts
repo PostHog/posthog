@@ -1,10 +1,8 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import Fuse from 'fuse.js'
 import api from 'lib/api'
 import { eventToDescription, sum, toParams } from 'lib/utils'
-import type { sessionRecordingLogicType } from './sessionRecordingLogicType'
 import {
     EventType,
     PlayerPosition,
@@ -19,7 +17,6 @@ import {
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from '../teamLogic'
 import { eventWithTime } from 'rrweb/typings/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
@@ -27,7 +24,9 @@ import {
     getPlayerPositionFromEpochTime,
     getPlayerTimeFromPlayerPosition,
     guessPlayerPositionFromEpochTimeWithoutWindowId,
-} from './player/playerUtils'
+} from './playerUtils'
+import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
+import { teamLogic } from 'scenes/teamLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -126,8 +125,14 @@ const makeEventsQueryable = (events: RecordingEventType[]): RecordingEventType[]
     }))
 }
 
-export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
-    path(['scenes', 'session-recordings', 'sessionRecordingLogic']),
+export interface SessionRecordingDataLogicProps {
+    sessionRecordingId: SessionRecordingId | null
+}
+
+export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
+    props({} as SessionRecordingDataLogicProps),
+    key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
         values: [teamLogic, ['currentTeamId']],
@@ -139,9 +144,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
             recordingData,
             loadTime,
         }),
-        loadRecordingMeta: (sessionRecordingId?: string) => ({ sessionRecordingId }),
-        loadRecordingSnapshots: (sessionRecordingId?: string, url?: string) => ({ sessionRecordingId, url }),
-        loadEvents: (url?: string) => ({ url }),
+        loadEntireRecording: true,
+        loadRecordingMeta: true,
+        loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
+        loadEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
     reducers({
         filters: [
@@ -178,6 +184,10 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
         ],
     }),
     listeners(({ values, actions, cache }) => ({
+        loadEntireRecording: () => {
+            actions.loadRecordingMeta()
+            actions.loadRecordingSnapshots()
+        },
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
@@ -186,7 +196,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
             // If there is more data to poll for load the next batch.
             // This will keep calling loadRecording until `next` is empty.
             if (!!values.sessionPlayerData.next) {
-                actions.loadRecordingSnapshots(undefined, values.sessionPlayerData.next)
+                actions.loadRecordingSnapshots(values.sessionPlayerData.next)
             }
             // Finished loading entire recording. Now make it known!
             else {
@@ -236,7 +246,7 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
             )
         },
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         sessionPlayerData: [
             {
                 snapshotsByWindowId: {},
@@ -250,12 +260,15 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                 next: undefined,
             } as SessionPlayerData,
             {
-                loadRecordingMeta: async ({ sessionRecordingId }, breakpoint): Promise<SessionPlayerData> => {
+                loadRecordingMeta: async (_, breakpoint): Promise<SessionPlayerData> => {
+                    if (!props.sessionRecordingId) {
+                        return values.sessionPlayerData
+                    }
                     const params = toParams({
                         save_view: true,
                     })
                     const response = await api.get(
-                        `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}?${params}`
+                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
                     )
                     const unparsedMetadata: UnparsedMetadata | undefined = response.result?.session_recording
                     const metadata = parseMetadataResponse(unparsedMetadata)
@@ -273,12 +286,19 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                         snapshotsByWindowId: { ...values.sessionPlayerData.snapshotsByWindowId } ?? {},
                     }
                 },
-                loadRecordingSnapshots: async ({ sessionRecordingId, url }, breakpoint): Promise<SessionPlayerData> => {
+                loadRecordingSnapshots: async ({ nextUrl }, breakpoint): Promise<SessionPlayerData> => {
+                    if (!props.sessionRecordingId) {
+                        return values.sessionPlayerData
+                    }
                     const apiUrl =
-                        url || `api/projects/${values.currentTeamId}/session_recordings/${sessionRecordingId}/snapshots`
+                        nextUrl ||
+                        `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/snapshots`
                     const response = await api.get(apiUrl)
                     breakpoint()
-                    const snapshotsByWindowId = { ...(values.sessionPlayerData.snapshotsByWindowId ?? {}) }
+                    // If we have a next url, we need to append the new snapshots to the existing ones
+                    const snapshotsByWindowId = {
+                        ...(nextUrl ? values.sessionPlayerData.snapshotsByWindowId ?? {} : {}),
+                    }
                     const incomingSnapshotByWindowId: {
                         [key: string]: eventWithTime[]
                     } = response.result?.snapshot_data_by_window_id
@@ -302,13 +322,13 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
         sessionEventsData: [
             null as null | SessionRecordingEvents,
             {
-                loadEvents: async ({ url }, breakpoint) => {
+                loadEvents: async ({ nextUrl }, breakpoint) => {
                     if (!values.eventsApiParams) {
                         return values.sessionEventsData
                     }
-                    // Use `url` if there is a `next` url to fetch
+                    // Use `nextUrl` if there is a `next` url to fetch
                     const apiUrl =
-                        url || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
+                        nextUrl || `api/projects/${values.currentTeamId}/events?${toParams(values.eventsApiParams)}`
                     const response = await api.get(apiUrl)
                     breakpoint()
 
@@ -369,10 +389,11 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
                             }
                         }
                     })
-                    allEvents = [...(values.sessionEventsData?.events ?? []), ...eventsWithPlayerData].sort(function (
-                        a,
-                        b
-                    ) {
+                    // If we have a next url, we need to append the new events to the existing ones
+                    allEvents = [
+                        ...(nextUrl ? values.sessionEventsData?.events ?? [] : []),
+                        ...eventsWithPlayerData,
+                    ].sort(function (a, b) {
                         return (a.playerTime ?? 0) - (b.playerTime ?? 0)
                     })
 
@@ -425,31 +446,9 @@ export const sessionRecordingLogic = kea<sessionRecordingLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, values, cache }) => {
-        const urlToAction = (
-            _: any,
-            params: {
-                source?: string
-            },
-            hashParams: {
-                sessionRecordingId?: SessionRecordingId
-            }
-        ): void => {
-            const { source } = params
-            const { sessionRecordingId } = hashParams
-            if (source && (Object.values(RecordingWatchedSource) as string[]).includes(source)) {
-                actions.setSource(source as RecordingWatchedSource)
-            }
-            if (values && sessionRecordingId && sessionRecordingId !== values.sessionRecordingId) {
-                cache.startTime = performance.now()
-                actions.loadRecordingMeta(sessionRecordingId)
-                actions.loadRecordingSnapshots(sessionRecordingId)
-            }
-        }
-        // Anytime the URL changes, we check if sessionRecordingId is in the hash params.
-        // If so, load the recording.
-        return {
-            '*': urlToAction,
+    afterMount(({ props, actions }) => {
+        if (props.sessionRecordingId) {
+            actions.loadEntireRecording()
         }
     }),
 ])

@@ -1,6 +1,12 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { PlayerPosition, RecordingEventsFilters, RecordingEventType, RecordingWindowFilter } from '~/types'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { actions, connect, kea, key, listeners, path, reducers, selectors, props } from 'kea'
+import {
+    PlayerPosition,
+    RecordingEventsFilters,
+    RecordingEventType,
+    RecordingWindowFilter,
+    SessionRecordingPlayerProps,
+} from '~/types'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import { clamp, colonDelimitedDuration, findLastIndex, floorMsToClosestSecond, ceilMsToClosestSecond } from 'lib/utils'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -13,16 +19,23 @@ export const OVERSCANNED_ROW_COUNT = 50
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
 export const eventsListLogic = kea<eventsListLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'eventsListLogic']),
-    connect(() => ({
+    path((key) => ['scenes', 'session-recordings', 'player', 'eventsListLogic', key]),
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         logic: [eventUsageLogic],
-        actions: [sessionRecordingLogic, ['setFilters'], sessionRecordingPlayerLogic, ['seek']],
+        actions: [
+            sessionRecordingDataLogic({ sessionRecordingId }),
+            ['setFilters', 'loadEventsSuccess'],
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
+            ['seek'],
+        ],
         values: [
-            sessionRecordingLogic,
+            sessionRecordingDataLogic({ sessionRecordingId }),
             ['eventsToShow', 'sessionEventsDataLoading'],
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerTime'],
-            sharedListLogic,
+            sharedListLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
     })),

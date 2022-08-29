@@ -5,7 +5,7 @@ import {
     DEFAULT_SCROLLING_RESET_TIME_INTERVAL,
     eventsListLogic,
 } from 'scenes/session-recordings/player/list/eventsListLogic'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useMocks } from '~/mocks/jest'
@@ -13,6 +13,8 @@ import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recordin
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+
+const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
 describe('eventsListLogic', () => {
     let logic: ReturnType<typeof eventsListLogic.build>
@@ -26,17 +28,17 @@ describe('eventsListLogic', () => {
             },
         })
         initKeaTests()
-        logic = eventsListLogic()
+        logic = eventsListLogic(playerLogicProps)
         logic.mount()
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
             await expectLogic(logic).toMount([
-                sessionRecordingLogic,
-                sessionRecordingPlayerLogic,
-                eventUsageLogic,
-                sharedListLogic,
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }),
+                sessionRecordingPlayerLogic(playerLogicProps),
+                eventUsageLogic(playerLogicProps),
+                sharedListLogic(playerLogicProps),
             ])
         })
     })
@@ -49,9 +51,13 @@ describe('eventsListLogic', () => {
                 logic.actions.setLocalFilters(filters)
             })
                 .toNotHaveDispatchedActions([
-                    sessionRecordingLogic.actionCreators.setFilters({ query: 'no mini pretzels' }),
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionCreators.setFilters({
+                        query: 'no mini pretzels',
+                    }),
                 ])
-                .toDispatchActions([sessionRecordingLogic.actionCreators.setFilters(filters)])
+                .toDispatchActions([
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionCreators.setFilters(filters),
+                ])
         })
     })
 
@@ -63,7 +69,10 @@ describe('eventsListLogic', () => {
             }
             await expectLogic(logic, () => {
                 logic.actions.handleEventClick(playerPosition)
-            }).toDispatchActions(['handleEventClick', sessionRecordingPlayerLogic.actionCreators.seek(playerPosition)])
+            }).toDispatchActions([
+                'handleEventClick',
+                sessionRecordingPlayerLogic(playerLogicProps).actionCreators.seek(playerPosition),
+            ])
         })
 
         const nanInputs: Record<string, any> = {
@@ -82,7 +91,12 @@ describe('eventsListLogic', () => {
                     })
                 })
                     .toDispatchActions(['handleEventClick'])
-                    .toNotHaveDispatchedActions([sessionRecordingPlayerLogic.actionCreators.seek(value)])
+                    .toNotHaveDispatchedActions([
+                        sessionRecordingPlayerLogic({
+                            sessionRecordingId: '1',
+                            playerKey: 'playlist',
+                        }).actionCreators.seek(value),
+                    ])
             })
         })
     })
@@ -138,13 +152,13 @@ describe('eventsListLogic', () => {
     describe('eventsList', () => {
         it('should load and parse events', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingLogic.actions.loadRecordingMeta('1')
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingLogic.actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingLogic.actionTypes.loadRecordingMetaSuccess,
-                    sessionRecordingLogic.actionTypes.loadEventsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
                 ])
                 .toMatchValues({
                     data: [
@@ -193,15 +207,15 @@ describe('eventsListLogic', () => {
         })
         it('should filter events by specified window id', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingLogic.actions.loadRecordingMeta('1')
-                sharedListLogic.actions.setWindowIdFilter(
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
+                sharedListLogic(playerLogicProps).actions.setWindowIdFilter(
                     '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
                 )
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingLogic.actionTypes.loadEventsSuccess,
-                    sharedListLogic.actionTypes.setWindowIdFilter,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
+                    sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
                     data: [

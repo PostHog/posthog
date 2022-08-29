@@ -1,12 +1,13 @@
 import { kea } from 'kea'
 import type { metaLogicType } from './metaLogicType'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { PersonType, RecordingEventType } from '~/types'
+import { PersonType, RecordingEventType, SessionRecordingPlayerProps } from '~/types'
 import { findLastIndex } from 'lib/utils'
 import { getEpochTimeFromPlayerPosition } from './playerUtils'
 import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
+import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
 
 const getPersonProperties = (person: Partial<PersonType>, keys: string[]): string | null => {
     if (keys.some((k) => !person?.properties?.[k])) {
@@ -23,17 +24,21 @@ const getEventProperties = (event: RecordingEventType, keys: string[]): string |
 }
 
 export const metaLogic = kea<metaLogicType>({
-    path: ['scenes', 'session-recordings', 'player', 'metaLogic'],
-    connect: () => ({
+    path: (key) => ['scenes', 'session-recordings', 'player', 'metaLogic', key],
+    props: {} as SessionRecordingPlayerProps,
+    key: (props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`,
+    connect: ({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         values: [
-            sessionRecordingLogic,
+            sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'eventsToShow'],
-            sessionRecordingPlayerLogic,
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerPosition', 'scale'],
-            eventsListLogic,
+            eventsListLogic({ sessionRecordingId, playerKey }),
             ['currentStartIndex'],
+            sessionRecordingsTableLogic,
+            ['sessionRecordings'],
         ],
-        actions: [sessionRecordingLogic, ['loadRecordingMetaSuccess']],
+        actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['loadRecordingMetaSuccess']],
     }),
     reducers: {
         loading: [
@@ -43,11 +48,18 @@ export const metaLogic = kea<metaLogicType>({
             },
         ],
     },
-    selectors: ({ cache }) => ({
+    selectors: ({ cache, props }) => ({
         sessionPerson: [
-            (selectors) => [selectors.sessionPlayerData],
-            (playerData): PersonType | null => {
-                return playerData?.person ?? null
+            (selectors) => [selectors.sessionPlayerData, selectors.sessionRecordings],
+            (playerData, sessionRecordings): PersonType | null => {
+                if (playerData?.person) {
+                    return playerData?.person
+                }
+                // If the metadata hasn't loaded, then check if the recording is in the recording list
+                return (
+                    sessionRecordings.find((sessionRecording) => sessionRecording.id === props.sessionRecordingId)
+                        ?.person ?? null
+                )
             },
         ],
         description: [
@@ -90,9 +102,17 @@ export const metaLogic = kea<metaLogicType>({
             },
         ],
         recordingStartTime: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
-                return sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
+            (selectors) => [selectors.sessionPlayerData, selectors.sessionRecordings],
+            (sessionPlayerData, sessionRecordings) => {
+                const startTimeFromMeta = sessionPlayerData?.metadata?.segments[0]?.startTimeEpochMs
+                if (startTimeFromMeta) {
+                    return startTimeFromMeta
+                }
+                // If the metadata hasn't loaded, then check if the recording is in the recording list
+                return (
+                    sessionRecordings.find((sessionRecording) => sessionRecording.id === props.sessionRecordingId)
+                        ?.start_time ?? null
+                )
             },
         ],
         windowIds: [

@@ -1,18 +1,19 @@
 import { KeyboardEvent } from 'react'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { Replayer } from 'rrweb'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { PlayerPosition, RecordingSegment, SessionPlayerState } from '~/types'
+import { PlayerPosition, RecordingSegment, SessionPlayerState, SessionRecordingPlayerProps } from '~/types'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     comparePlayerPositions,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
 } from './playerUtils'
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4, 8, 16]
@@ -23,17 +24,28 @@ export interface Player {
 }
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic']),
-    connect({
+    path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionRecordingId', 'sessionPlayerData'], sharedListLogic, ['tab']],
-        actions: [
-            sessionRecordingLogic,
-            ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
-            sharedListLogic,
-            ['setTab'],
+        values: [
+            sessionRecordingDataLogic({ sessionRecordingId }),
+            ['sessionRecordingId', 'sessionPlayerData'],
+            sharedListLogic({ sessionRecordingId, playerKey }),
+            ['tab'],
+            playerSettingsLogic,
+            ['speed', 'skipInactivitySetting'],
         ],
-    }),
+        actions: [
+            sessionRecordingDataLogic({ sessionRecordingId }),
+            ['loadRecordingSnapshotsSuccess', 'loadRecordingMetaSuccess'],
+            sharedListLogic({ sessionRecordingId, playerKey }),
+            ['setTab'],
+            playerSettingsLogic,
+            ['setSpeed', 'setSkipInactivitySetting'],
+        ],
+    })),
     actions({
         tryInitReplayer: () => true,
         setPlayer: (player: Player | null) => ({ player }),
@@ -43,11 +55,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         endBuffer: true,
         startScrub: true,
         endScrub: true,
-        setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSkippingInactivity: (isSkippingInactivity: boolean) => ({ isSkippingInactivity }),
         syncPlayerSpeed: true,
         setCurrentPlayerPosition: (playerPosition: PlayerPosition | null) => ({ playerPosition }),
-        setSpeed: (speed: number) => ({ speed }),
         setScale: (scale: number) => ({ scale }),
         togglePlayPause: true,
         seek: (playerPosition: PlayerPosition | null, forcePlay: boolean = false) => ({ playerPosition, forcePlay }),
@@ -85,20 +95,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             null as RecordingSegment | null,
             {
                 setCurrentSegment: (_, { segment }) => segment,
-            },
-        ],
-        speed: [
-            1,
-            { persist: true },
-            {
-                setSpeed: (_, { speed }) => speed,
-            },
-        ],
-        skipInactivitySetting: [
-            true,
-            { persist: true },
-            {
-                setSkipInactivitySetting: (_, { skipInactivitySetting }) => skipInactivitySetting,
             },
         ],
         isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],

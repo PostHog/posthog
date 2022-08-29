@@ -1,7 +1,6 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { consoleLogsListLogicType } from './consoleLogsListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import {
     YesOrNoResponse,
     RecordingConsoleLog,
@@ -9,6 +8,7 @@ import {
     RecordingTimeMixinType,
     RRWebRecordingConsoleLogPayload,
     RecordingWindowFilter,
+    SessionRecordingPlayerProps,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
 import {
@@ -19,6 +19,7 @@ import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import md5 from 'md5'
 import { parseEntry } from 'scenes/session-recordings/player/list/consoleLogsUtils'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -75,10 +76,17 @@ function parseConsoleLogPayload(
 }
 
 export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
-    path(['scenes', 'session-recordings', 'player', 'consoleLogsListLogic']),
-    connect(() => ({
+    path((key) => ['scenes', 'session-recordings', 'player', 'consoleLogsListLogic', key]),
+    props({} as SessionRecordingPlayerProps),
+    key((props: SessionRecordingPlayerProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect(({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps) => ({
         logic: [eventUsageLogic],
-        values: [sessionRecordingLogic, ['sessionPlayerData'], sharedListLogic, ['windowIdFilter']],
+        values: [
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
+            ['sessionPlayerData'],
+            sharedListLogic({ sessionRecordingId, playerKey }),
+            ['windowIdFilter'],
+        ],
     })),
     actions({
         submitFeedback: (feedback: YesOrNoResponse) => ({ feedback }),

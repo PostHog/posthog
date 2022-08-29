@@ -1,19 +1,19 @@
 import './PlayerConsole.scss'
 import { useActions, useValues } from 'kea'
 import React from 'react'
-import { sessionRecordingLogic } from '../../sessionRecordingLogic'
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { RecordingConsoleLog } from '~/types'
+import { RecordingConsoleLog, SessionRecordingPlayerProps } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { consoleLogsListLogic, FEEDBACK_OPTIONS } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 
-export function PlayerConsole(): JSX.Element | null {
-    const { feedbackSubmitted, data } = useValues(consoleLogsListLogic)
-    const { submitFeedback } = useActions(consoleLogsListLogic)
-    const { sessionPlayerDataLoading } = useValues(sessionRecordingLogic)
-    const { seek } = useActions(sessionRecordingPlayerLogic)
+export function PlayerConsole({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element | null {
+    const { feedbackSubmitted, data } = useValues(consoleLogsListLogic({ sessionRecordingId, playerKey }))
+    const { submitFeedback } = useActions(consoleLogsListLogic({ sessionRecordingId, playerKey }))
+    const { sessionPlayerDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { seek } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
 
     const renderLogLine = (log: RecordingConsoleLog, index: number): JSX.Element => {
         return (

@@ -2024,3 +2024,8 @@ export enum YesOrNoResponse {
     Yes = 'yes',
     No = 'no',
 }
+
+export interface SessionRecordingPlayerProps {
+    sessionRecordingId: SessionRecordingId
+    playerKey: string
+}

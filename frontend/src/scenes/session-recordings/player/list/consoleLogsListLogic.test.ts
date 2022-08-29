@@ -1,6 +1,6 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
@@ -9,6 +9,8 @@ import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recordin
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 import { YesOrNoResponse } from '~/types'
+
+const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
 describe('consoleLogsListLogic', () => {
     let logic: ReturnType<typeof consoleLogsListLogic.build>
@@ -22,13 +24,17 @@ describe('consoleLogsListLogic', () => {
             },
         })
         initKeaTests()
-        logic = consoleLogsListLogic()
+        logic = consoleLogsListLogic(playerLogicProps)
         logic.mount()
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionRecordingLogic, eventUsageLogic, sharedListLogic])
+            await expectLogic(logic).toMount([
+                sessionRecordingDataLogic(playerLogicProps),
+                eventUsageLogic(playerLogicProps),
+                sharedListLogic(playerLogicProps),
+            ])
         })
     })
 
@@ -53,12 +59,12 @@ describe('consoleLogsListLogic', () => {
     describe('console logs', () => {
         it('should load and parse console logs from the snapshot', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingLogic.actions.loadRecordingMeta('1')
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingLogic.actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingLogic.actionTypes.loadRecordingMetaSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
                 ])
                 .toMatchValues({
                     data: [
@@ -118,16 +124,16 @@ describe('consoleLogsListLogic', () => {
 
         it('should filter logs by specified window id', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingLogic.actions.loadRecordingMeta('1')
-                sharedListLogic.actions.setWindowIdFilter(
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
+                sharedListLogic(playerLogicProps).actions.setWindowIdFilter(
                     '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
                 )
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingLogic.actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingLogic.actionTypes.loadRecordingMetaSuccess,
-                    sharedListLogic.actionTypes.setWindowIdFilter,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+                    sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
                     data: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']

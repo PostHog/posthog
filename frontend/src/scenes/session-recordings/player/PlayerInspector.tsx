@@ -8,7 +8,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PlayerConsole } from 'scenes/session-recordings/player/list/PlayerConsole'
 import React from 'react'
-import { SessionRecordingTab } from '~/types'
+import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { interleave } from 'lib/utils'
@@ -17,19 +17,19 @@ import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedLis
 
 const { TabPane } = Tabs
 
-export function PlayerInspectorV2(): JSX.Element {
+export function PlayerInspectorV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tab } = useValues(sharedListLogic)
-    const { setTab } = useActions(sharedListLogic)
+    const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
+    const { setTab } = useActions(sharedListLogic({ sessionRecordingId, playerKey }))
     const sessionConsoleEnabled = featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
     return (
         <Col className="player-sidebar">
             <div className="player-meta">
-                <PlayerMetaV2 />
+                <PlayerMetaV2 sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>
             <div className="player-events">
                 {!sessionConsoleEnabled ? (
-                    <PlayerEvents />
+                    <PlayerEvents sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                 ) : (
                     <Tabs
                         data-attr="event-details"
@@ -41,7 +41,7 @@ export function PlayerInspectorV2(): JSX.Element {
                         }}
                     >
                         <TabPane tab="Events" key={SessionRecordingTab.EVENTS}>
-                            <PlayerEvents />
+                            <PlayerEvents sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                         </TabPane>
                         <TabPane
                             tab={
@@ -56,7 +56,7 @@ export function PlayerInspectorV2(): JSX.Element {
                             }
                             key={SessionRecordingTab.CONSOLE}
                         >
-                            <PlayerConsole />
+                            <PlayerConsole sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
                         </TabPane>
                     </Tabs>
                 )}
@@ -65,9 +65,9 @@ export function PlayerInspectorV2(): JSX.Element {
     )
 }
 
-export function PlayerInspectorV3(): JSX.Element {
+export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tab } = useValues(sharedListLogic)
+    const { tab } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
     const sessionConsoleEnabled = !!featureFlags[FEATURE_FLAGS.SESSION_CONSOLE]
     const currentTab = sessionConsoleEnabled ? tab : SessionRecordingTab.EVENTS
 
@@ -75,6 +75,8 @@ export function PlayerInspectorV3(): JSX.Element {
         <Col className="player-sidebar">
             <div className="player-list">
                 <PlayerList
+                    sessionRecordingId={sessionRecordingId}
+                    playerKey={playerKey}
                     tab={currentTab}
                     row={{
                         status: (record) => {
