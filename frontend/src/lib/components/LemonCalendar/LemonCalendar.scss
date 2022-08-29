@@ -1,0 +1,6 @@
+.LemonCalendar {
+    > tbody > tr > td > .LemonButton > .LemonButton__content {
+        // right-align dates
+        justify-content: end;
+    }
+}

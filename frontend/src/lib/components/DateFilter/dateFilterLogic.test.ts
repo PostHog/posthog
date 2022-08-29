@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
-import { dateFilterLogic, DateFilterLogicPropsType } from './dateFilterLogic'
+import { dateFilterLogic, DateFilterLogicPropsType, DateFilterView } from './dateFilterLogic'
 
 describe('dateFilterLogic', () => {
     let props: DateFilterLogicPropsType
@@ -9,6 +9,8 @@ describe('dateFilterLogic', () => {
     let logic: ReturnType<typeof dateFilterLogic.build>
 
     beforeEach(async () => {
+        dayjs.tz.setDefault('America/New_York')
+
         props = {
             key: 'test',
             defaultValue: '-7d',
@@ -24,20 +26,29 @@ describe('dateFilterLogic', () => {
     })
 
     it('should only open one type of date filter', async () => {
-        await expectLogic(logic).toMount().toMatchValues({
-            isOpen: false,
-            isDateRangeOpen: false,
+        await expectLogic(logic).toMatchValues({
+            isVisible: false,
+            view: DateFilterView.QuickList,
         })
-
         logic.actions.open()
         await expectLogic(logic).toMatchValues({
-            isOpen: true,
-            isDateRangeOpen: false,
+            isVisible: true,
+            view: DateFilterView.QuickList,
         })
-        logic.actions.openDateRange()
+        logic.actions.openFixedRange()
         await expectLogic(logic).toMatchValues({
-            isOpen: false,
-            isDateRangeOpen: true,
+            isVisible: true,
+            view: DateFilterView.FixedRange,
+        })
+        logic.actions.openDateToNow()
+        await expectLogic(logic).toMatchValues({
+            isVisible: true,
+            view: DateFilterView.DateToNow,
+        })
+        logic.actions.close()
+        await expectLogic(logic).toMatchValues({
+            isVisible: false,
+            view: DateFilterView.DateToNow,
         })
     })
 
@@ -45,16 +56,17 @@ describe('dateFilterLogic', () => {
         await expect(logic.values).toMatchObject({
             rangeDateFrom: null,
             rangeDateTo: dayjs().format('YYYY-MM-DD'),
-            isFixedDateRange: false,
-            isRollingDateRange: true,
+            isFixedRange: false,
+            isRollingDateRange: false, // -7d comes from dropdown
         })
 
-        const threeDaysAgo = dayjs().subtract(3, 'd')
-        logic.actions.setRangeDateFrom(threeDaysAgo)
+        const fourDaysAgo = dayjs().subtract(4, 'd').startOf('day')
+        logic.actions.setRangeDateFrom(fourDaysAgo)
+        logic.actions.applyRange()
         await expect(logic.values).toMatchObject({
-            rangeDateFrom: threeDaysAgo,
+            rangeDateFrom: fourDaysAgo.toISOString(),
             rangeDateTo: dayjs().format('YYYY-MM-DD'),
-            isFixedDateRange: false,
+            isFixedRange: false,
             isRollingDateRange: true,
         })
     })
