@@ -45,7 +45,8 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
 export const defaultFilterTestAccounts = (): boolean => {
-    return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+    // Take into account that localStorage is not available in unit tests
+    return localStorage?.getItem('default_filter_test_accounts') === 'true' || false
 }
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
