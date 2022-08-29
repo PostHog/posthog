@@ -436,7 +436,6 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function stopExport(message: string) {
-        // :TODO: This doesn't stop currently running jobs from continuing
         await meta.storage.del(EXPORT_RUNNING_KEY)
         createLog(message)
     }
