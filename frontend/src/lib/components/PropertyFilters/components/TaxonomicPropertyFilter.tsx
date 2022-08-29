@@ -1,14 +1,12 @@
 import './TaxonomicPropertyFilter.scss'
 import React, { useMemo } from 'react'
-import { Button, Col } from 'antd'
+import { Col } from 'antd'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
-import { SelectDownIcon } from 'lib/components/SelectDownIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
-import { Popup } from 'lib/components/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -22,6 +20,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FilterLogicalOperator } from '~/types'
 import { IconPlus } from 'lib/components/icons'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { LemonButtonWithPopup } from '@posthog/lemon-ui'
 
 let uniqueMemoizedIndex = 0
 
@@ -139,36 +138,35 @@ export function TaxonomicPropertyFilter({
                         </Col>
                     )}
 
-                    <Popup
-                        overlay={dropdownOpen ? taxonomicFilter : null}
-                        visible={dropdownOpen}
-                        onClickOutside={closeDropdown}
+                    <LemonButtonWithPopup
+                        popup={{
+                            overlay: dropdownOpen ? taxonomicFilter : null,
+                            visible: dropdownOpen,
+                            placement: 'bottom',
+                            onClickOutside: closeDropdown,
+                        }}
+                        onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                        className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
+                        type="secondary"
+                        data-attr={'property-select-toggle-' + index}
                     >
-                        <Button
-                            data-attr={'property-select-toggle-' + index}
-                            style={!filter?.key && propertyGroupType ? { background: 'none', border: 'none' } : {}}
-                            className={`taxonomic-button${!filter?.type && !filter?.key ? ' add-filter' : ''}`}
-                            onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                        >
-                            {filter?.type === 'cohort' ? (
-                                <div>{selectedCohortName || `Cohort #${filter?.value}`}</div>
-                            ) : filter?.key ? (
-                                <PropertyKeyInfo value={filter.key} disablePopover />
-                            ) : (
-                                <>
-                                    {orFiltering && propertyGroupType ? (
-                                        <div className="text-primary flex items-center">
-                                            <IconPlus className="mr-2" />
-                                            Add filter
-                                        </div>
-                                    ) : (
-                                        <div>Add filter</div>
-                                    )}
-                                </>
-                            )}
-                            {!propertyGroupType && <SelectDownIcon />}
-                        </Button>
-                    </Popup>
+                        {filter?.type === 'cohort' ? (
+                            <div>{selectedCohortName || `Cohort #${filter?.value}`}</div>
+                        ) : filter?.key ? (
+                            <PropertyKeyInfo value={filter.key} disablePopover />
+                        ) : (
+                            <>
+                                {orFiltering && propertyGroupType ? (
+                                    <div className="text-primary flex items-center">
+                                        <IconPlus className="mr-2" />
+                                        Add filter
+                                    </div>
+                                ) : (
+                                    <div>Add filter</div>
+                                )}
+                            </>
+                        )}
+                    </LemonButtonWithPopup>
 
                     {showOperatorValueSelect && (
                         <OperatorValueSelect

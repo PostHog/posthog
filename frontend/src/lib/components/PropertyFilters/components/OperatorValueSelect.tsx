@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
-import { Col, Select, SelectProps } from 'antd'
+import { Col, SelectProps } from 'antd'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -13,6 +13,7 @@ import {
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 import { dayjs } from 'lib/dayjs'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 export interface OperatorValueSelectProps {
     type?: string
@@ -163,27 +164,20 @@ type CustomOptionsType = {
 }
 
 export function OperatorSelect({ operator, operators, onChange, ...props }: OperatorSelectProps): JSX.Element {
+    const operatorOptions = operators.map((op) => ({
+        label: allOperatorsMapping[op || PropertyOperator.Exact],
+        value: op || PropertyOperator.Exact,
+    }))
     return (
-        <Select
-            style={{ width: '100%' }}
-            defaultActiveFirstOption
-            labelInValue
-            value={{
-                value: operator || '=',
-                label: allOperatorsMapping[operator || PropertyOperator.Exact],
-            }}
+        <LemonSelect
+            options={operatorOptions}
+            value={operator || '='}
             placeholder="Property key"
-            onChange={(_value, op) => {
+            onChange={(op) => {
                 const newOperator = op as typeof op & CustomOptionsType
                 onChange(newOperator.value)
             }}
-            {...props}
-        >
-            {operators.map((op) => (
-                <Select.Option key={op} value={op || PropertyOperator.Exact} className={'operator-value-option'}>
-                    {allOperatorsMapping[op || PropertyOperator.Exact]}
-                </Select.Option>
-            ))}
-        </Select>
+            className={props.className}
+        />
     )
 }
