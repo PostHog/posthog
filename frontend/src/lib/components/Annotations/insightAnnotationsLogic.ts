@@ -24,7 +24,8 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
     }),
     listeners(({ actions, props }) => ({
         createAnnotation: async ({ annotationData }) => {
-            actions.createAnnotationGenerically({ ...annotationData, dashboard_item: props.insightNumericId })
+            const insightNumericId = props.insightNumericId !== 'new' ? props.insightNumericId : null
+            actions.createAnnotationGenerically({ ...annotationData, dashboard_item: insightNumericId })
         },
     })),
     selectors(({ props }) => ({
