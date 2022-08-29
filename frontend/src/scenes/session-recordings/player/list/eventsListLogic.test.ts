@@ -8,7 +8,6 @@ import {
 import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { listLogic } from 'scenes/session-recordings/player/list/listLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
@@ -37,7 +36,7 @@ describe('eventsListLogic', () => {
                 sessionRecordingLogic,
                 sessionRecordingPlayerLogic,
                 eventUsageLogic,
-                listLogic,
+                sharedListLogic,
             ])
         })
     })
