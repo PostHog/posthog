@@ -233,7 +233,7 @@ describe('insightAnnotationsLogic', () => {
     describe('groupedAnnotations', () => {
         const EXPECTED_GROUPINGS_BY_INTERVAL_AND_TIMEZONE: Record<
             string,
-            Record<IntervalType, Record<string, AnnotationType[]>>
+            Record<IntervalType, Record<string, AnnotationType[]>> // All IntervalType variants should be covered
         > = {
             UTC: {
                 hour: {

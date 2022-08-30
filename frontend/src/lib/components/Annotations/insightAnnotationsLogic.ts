@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import { kea, path, selectors, key, props, connect, listeners, actions } from 'kea'
 import { groupBy } from 'lib/utils'
-import { AnnotationScope, InsightModel } from '~/types'
+import { AnnotationScope, InsightModel, IntervalType } from '~/types'
 import type { insightAnnotationsLogicType } from './insightAnnotationsLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
