@@ -1306,10 +1306,6 @@ export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }
 
-export function mapRange(value: number, x1: number, y1: number, x2: number, y2: number): number {
-    return Math.floor(((value - x1) * (y2 - x2)) / (y1 - x1) + x2)
-}
-
 export function getEventNamesForAction(actionId: string | number, allActions: ActionType[]): string[] {
     const id = parseInt(String(actionId))
     return allActions
