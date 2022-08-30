@@ -104,6 +104,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         }
 
         beforeEach(async () => {
+            await resetTestDatabase()
             await storage().set(EXPORT_RUNNING_KEY, {
                 id: 1,
                 parallelism: 3,
