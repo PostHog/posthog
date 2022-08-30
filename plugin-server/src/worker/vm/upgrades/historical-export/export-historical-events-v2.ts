@@ -39,7 +39,7 @@ import {
 import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
-import { fetchTimestampBoundariesForTeam, TimestampBoundaries } from '../utils/utils'
+import { TimestampBoundaries } from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
@@ -52,7 +52,7 @@ const INTERFACE_JOB_NAME = 'Export historical events V2'
 
 export interface TestFunctions {
     exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
-    getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => Promise<TimestampBoundaries>
+    getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => TimestampBoundaries
     nextCursor: (payload: ExportHistoricalEventsJobPayload, eventCount: number) => OffsetParams
     coordinateHistoricExport: (update?: CoordinationUpdate) => Promise<void>
     calculateCoordination: (
@@ -101,8 +101,8 @@ type OffsetParams = Pick<ExportHistoricalEventsJobPayload, 'timestampCursor' | '
 export interface ExportHistoricalEventsUIPayload {
     // Only set starting export from UI
     parallelism?: number
-    dateFrom?: string
-    dateTo?: string
+    dateFrom: string
+    dateTo: string
 }
 
 export interface ExportParams {
@@ -166,7 +166,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
             const id = Math.floor(Math.random() * 10000 + 1)
             const parallelism = Number(payload.parallelism ?? 1)
-            const boundaries = await getTimestampBoundaries(payload)
+            const boundaries = getTimestampBoundaries(payload)
 
             await meta.storage.set(EXPORT_RUNNING_KEY, {
                 id,
@@ -440,28 +440,15 @@ export function addHistoricalEventsExportCapabilityV2(
         createLog(message)
     }
 
-    async function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): Promise<TimestampBoundaries> {
-        if (payload && payload.dateFrom && payload.dateTo) {
-            const min = new Date(payload.dateFrom)
-            const max = new Date(payload.dateTo)
+    function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): TimestampBoundaries {
+        const min = new Date(payload.dateFrom)
+        const max = new Date(payload.dateTo)
 
-            if (isNaN(min.getTime()) || isNaN(max.getTime())) {
-                createLog(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
-                throw new Error(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
-            }
-            return { min, max }
-        } else {
-            const timestampBoundaries = await fetchTimestampBoundariesForTeam(hub.db, pluginConfig.team_id, 'timestamp')
-
-            // no timestamp override specified via the payload, default to the first event ever ingested
-            if (!timestampBoundaries) {
-                throw new Error(
-                    `Unable to determine the timestamp bound for the export automatically. Please specify 'dateFrom'/'dateTo' values.`
-                )
-            }
-
-            return timestampBoundaries
+        if (isNaN(min.getTime()) || isNaN(max.getTime())) {
+            createLog(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
+            throw new Error(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
         }
+        return { min, max }
     }
 
     function retryDelaySeconds(retriesPerformedSoFar: number): number {
