@@ -3,7 +3,7 @@ import os
 
 import structlog
 
-from posthog.settings.base_variables import TEST
+from posthog.settings.base_variables import DEBUG, TEST
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
@@ -21,7 +21,7 @@ LOGGING = {
     "formatters": {
         "default": {
             "()": structlog.stdlib.ProcessorFormatter,
-            "processor": structlog.dev.ConsoleRenderer(colors=False),
+            "processor": structlog.dev.ConsoleRenderer(colors=DEBUG),
         },
         "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer(),},
     },
