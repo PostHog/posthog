@@ -1,4 +1,6 @@
+from datetime import datetime
 import json
+from typing import List
 from uuid import uuid4
 
 from freezegun import freeze_time
@@ -171,66 +173,40 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         event_response_next = self.client.get(event_response["next"]).json()
         self.assertEqual(len(event_response_next["results"][0]["people"]), 50)
 
-    def _create_people_interval_events(self):
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
-        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
-        person3 = _create_person(team_id=self.team.pk, distinct_ids=["person3"])
-        person4 = _create_person(team_id=self.team.pk, distinct_ids=["person4"])
-        person5 = _create_person(team_id=self.team.pk, distinct_ids=["person5"])
-        person6 = _create_person(team_id=self.team.pk, distinct_ids=["person6"])
-        person7 = _create_person(team_id=self.team.pk, distinct_ids=["person7"])
+    def _create_people_events_with_timestamps(self, timestamps: List[str]):
+        persons = []
 
-        # solo
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-04T14:10:00Z",
-        )
-        # group by hour
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T16:30:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person3", timestamp="2020-01-04T16:50:00Z",
-        )
-        # group by min
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person4", timestamp="2020-01-04T19:20:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person5", timestamp="2020-01-04T19:20:00Z",
-        )
-        # group by week and month
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person6", timestamp="2019-11-05T16:30:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person7", timestamp="2019-11-07T16:50:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person1", timestamp="2019-11-27T16:50:00Z",
-        )
+        for timestamp in timestamps:
+            id = str(uuid4())
+            person = _create_person(team_id=self.team.pk, distinct_ids=[f"person-{id}"])
+            persons.append(person)
+            _create_event(
+                team=self.team, event="sign up", distinct_id=f"person-{id}", timestamp=timestamp,
+            )
 
         flush_persons_and_events()
-        return person1, person2, person3, person4, person5, person6, person7
+        return persons
 
     def test_hour_interval(self):
-        sign_up_action, person = self._create_events()
+        sign_up_action, _person = self._create_events()
 
-        person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+        people = self._create_people_events_with_timestamps(
+            [
+                # Outside
+                "2020-01-04T13:50:00Z",
+                # Inside
+                "2020-01-04T14:10:00Z",
+                # Outside
+                "2020-01-04T15:50:00Z",
+            ]
+        )
 
-        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T13:50:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-04T15:50:00Z",
-        )
         # check solo hour
         action_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
             data={
-                "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
-                "date_to": "2020-01-04 14:00:00",
+                "date_to": "2020-01-04 15:00:00",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -238,61 +214,66 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         event_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
             data={
-                "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
-                "date_to": "2020-01-04 14:00:00",
+                "date_to": "2020-01-04 15:00:00",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
         ).json()
-        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.uuid))
+        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(people[1].uuid))
         self.assertEqual(len(action_response["results"][0]["people"]), 1)
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
+
+        people = self._create_people_events_with_timestamps(
+            [
+                # Outside
+                "2020-01-05T13:50:00Z",
+                # Inside
+                "2020-01-05T14:10:00Z",
+                "2020-01-05T14:59:59Z",
+                # Outside
+                "2020-01-05T15:50:00Z",
+            ]
+        )
 
         # check grouped hour
         hour_grouped_action_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
             data={
-                "interval": "hour",
-                "date_from": "2020-01-04 16:00:00",
-                "date_to": "2020-01-04 16:00:00",
+                "date_from": "2020-01-05 14:00:00",
+                "date_to": "2020-01-05 15:00:00",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
         ).json()
-        hour_grouped_grevent_response = self.client.get(
+        hour_grouped_event_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
             data={
-                "interval": "hour",
-                "date_from": "2020-01-04 16:00:00",
-                "date_to": "2020-01-04 16:00:00",
+                "date_from": "2020-01-05 14:00:00",
+                "date_to": "2020-01-05 15:00:00",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
         ).json()
         all_people_ids = [str(person["id"]) for person in hour_grouped_action_response["results"][0]["people"]]
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person2.uuid), str(person3.uuid)]))
+        self.assertListEqual(sorted(all_people_ids), sorted([str(people[1].uuid), str(people[2].uuid)]))
         self.assertEqual(len(all_people_ids), 2)
         self.assertEntityResponseEqual(
-            hour_grouped_action_response["results"], hour_grouped_grevent_response["results"], remove=[],
+            hour_grouped_action_response["results"], hour_grouped_event_response["results"], remove=[],
         )
 
-    def test_day_interval(self):
-        sign_up_action, person = self._create_events()
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
-        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-04T12:00:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-05T12:00:00Z",
-        )
-        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-03T13:50:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z",
+    def test_day_range(self):
+        sign_up_action, _person = self._create_events()
+
+        people = self._create_people_events_with_timestamps(
+            [
+                # Outside
+                "2020-01-03T23:50:00Z",
+                # Inside
+                "2020-01-04T02:10:00Z",
+                # Outside
+                "2020-01-05T00:00:00Z",
+            ]
         )
 
         # test people
@@ -302,41 +283,31 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2020-01-04",
                 "date_to": "2020-01-04",
                 ENTITY_TYPE: "actions",
-                "interval": "day",
                 ENTITY_ID: sign_up_action.id,
             },
         ).json()
         event_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
-            data={
-                "date_from": "2020-01-04",
-                "date_to": "2020-01-04",
-                ENTITY_TYPE: "events",
-                ENTITY_ID: "sign up",
-                "interval": "day",
-            },
+            data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
         ).json()
 
         self.assertEqual(len(action_response["results"][0]["people"]), 1)
-        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(person1.uuid))
+        self.assertEqual(str(action_response["results"][0]["people"][0]["id"]), str(people[1].uuid))
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
-    def test_day_interval_cumulative(self):
+    def test_day_range_cumulative(self):
         sign_up_action, person = self._create_events()
-        person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1"])
-        person2 = _create_person(team_id=self.team.pk, distinct_ids=["person2"])
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person1", timestamp="2020-01-03T12:00:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="person2", timestamp="2020-01-04T20:00:00Z",
-        )
-        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-02T13:50:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-01-05T15:50:00Z",
+
+        people = self._create_people_events_with_timestamps(
+            [
+                # Outside
+                "2020-01-02T23:50:00Z",
+                # Inside
+                "2020-01-03T02:10:00Z",
+                "2020-01-04T02:10:00Z",
+                # Outside
+                "2020-01-05T00:00:00Z",
+            ]
         )
 
         # test people
@@ -346,9 +317,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                 "date_from": "2020-01-03",
                 "date_to": "2020-01-04",
                 ENTITY_TYPE: "actions",
-                "interval": "day",
                 ENTITY_ID: sign_up_action.id,
-                "display": TRENDS_CUMULATIVE,
             },
         ).json()
         event_response = self.client.get(
@@ -358,97 +327,90 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                 "date_to": "2020-01-04",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
-                "interval": "day",
                 "display": TRENDS_CUMULATIVE,
             },
         ).json()
         self.assertEqual(len(action_response["results"][0]["people"]), 2)
         self.assertEqual(
             sorted(p["id"] for p in action_response["results"][0]["people"]),
-            sorted([str(person1.uuid), str(person2.uuid)]),
+            sorted([str(people[1].uuid), str(people[2].uuid)]),
         )
         self.assertEntityResponseEqual(action_response["results"], event_response["results"], remove=[])
 
-    def test_week_interval(self):
-        sign_up_action, person = self._create_events()
-
-        person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
-
-        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-10-26T13:50:00Z",
+    def test_week_range(self):
+        sign_up_action, _person = self._create_events()
+        people = self._create_people_events_with_timestamps(
+            [
+                # Outside
+                "2019-10-26T13:50:00Z",
+                # Inside
+                "2019-11-03T02:10:00Z",
+                "2019-11-07T02:10:00Z",
+                # Outside
+                "2020-11-11T15:50:00Z",
+            ]
         )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-11-11T15:50:00Z",
-        )
+
         # check grouped week
         week_grouped_action_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
             data={
-                "interval": "week",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-11-08",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
         ).json()
         week_grouped_grevent_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
-            data={
-                "interval": "week",
-                "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
-                ENTITY_TYPE: "events",
-                ENTITY_ID: "sign up",
-            },
+            data={"date_from": "2019-11-01", "date_to": "2019-11-08", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
         ).json()
 
         self.maxDiff = None
         all_people_ids = [str(person["id"]) for person in week_grouped_action_response["results"][0]["people"]]
         self.assertEqual(len(all_people_ids), 2)
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid)]))
+        self.assertListEqual(sorted(all_people_ids), sorted([str(people[1].uuid), str(people[2].uuid)]))
 
         self.assertEntityResponseEqual(
             week_grouped_action_response["results"], week_grouped_grevent_response["results"], remove=[],
         )
 
-    def test_month_interval(self):
+    def test_month_range(self):
         sign_up_action, person = self._create_events()
 
-        person1, person2, person3, person4, person5, person6, person7 = self._create_people_interval_events()
+        people = self._create_people_events_with_timestamps(
+            [
+                # Outside
+                "2019-10-30T13:50:00Z",
+                # Inside
+                "2019-11-03T02:10:00Z",
+                "2019-11-07T02:10:00Z",
+                "2019-11-30T02:10:00Z",
+                # Outside
+                "2020-12-02T15:50:00Z",
+            ]
+        )
 
-        _create_person(team_id=self.team.pk, distinct_ids=["outside_range"])
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2019-12-01T13:50:00Z",
-        )
-        _create_event(
-            team=self.team, event="sign up", distinct_id="outside_range", timestamp="2020-10-10T15:50:00Z",
-        )
         # check grouped month
         month_group_action_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
             data={
-                "interval": "month",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-11-30",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
         ).json()
         month_group_grevent_response = self.client.get(
             f"/api/projects/{self.team.id}/actions/people/",
-            data={
-                "interval": "month",
-                "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
-                ENTITY_TYPE: "events",
-                ENTITY_ID: "sign up",
-            },
+            data={"date_from": "2019-11-01", "date_to": "2019-12-01", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
         ).json()
 
         all_people_ids = [str(person["id"]) for person in month_group_action_response["results"][0]["people"]]
         self.assertEqual(len(all_people_ids), 3)
-        self.assertListEqual(sorted(all_people_ids), sorted([str(person6.uuid), str(person7.uuid), str(person1.uuid)]))
+        self.assertListEqual(
+            sorted(all_people_ids), sorted([str(people[1].uuid), str(people[2].uuid), str(people[3].uuid)])
+        )
 
         self.assertEntityResponseEqual(
             month_group_action_response["results"], month_group_grevent_response["results"], remove=[],
@@ -759,7 +721,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/actions/people/",
             data={
                 "date_from": "2020-01-10",
-                "date_to": "2020-01-10",
+                "date_to": "2020-01-11",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "$pageview",
                 "breakdown_type": "person",
@@ -773,7 +735,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/actions/people/",
             data={
                 "date_from": "2020-01-10",
-                "date_to": "2020-01-10",
+                "date_to": "2020-01-11",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "$pageview",
                 "breakdown_type": "person",
@@ -894,73 +856,5 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-            ],
-        )
-
-    def _test_interval(self, date_from, interval, timestamps):
-        for index, ts in enumerate(timestamps):
-            _create_person(team_id=self.team.pk, distinct_ids=[f"person{index}"])
-            _create_event(
-                team=self.team,
-                event="watched movie",
-                distinct_id=f"person{index}",
-                timestamp=ts,
-                properties={"event_prop": f"prop{index}"},
-            )
-
-        people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
-            data={"interval": interval, "date_from": date_from, ENTITY_TYPE: "events", ENTITY_ID: "watched movie"},
-        ).json()
-
-        self.assertCountEqual(
-            [person["distinct_ids"][0] for person in people["results"][0]["people"]], ["person1", "person2"]
-        )
-
-    def test_interval_month(self):
-        self._test_interval(
-            date_from="2021-08-01T00:00:00Z",
-            interval="month",
-            timestamps=[
-                "2021-07-31T23:45:00Z",
-                "2021-08-01T00:12:00Z",
-                "2021-08-31T22:40:00Z",
-                "2021-09-01T00:00:10Z",
-            ],
-        )
-
-    def test_interval_week(self):
-        self._test_interval(
-            date_from="2021-09-05T00:00:00Z",
-            interval="week",
-            timestamps=[
-                "2021-09-04T23:45:00Z",
-                "2021-09-05T00:12:00Z",
-                "2021-09-11T22:40:00Z",
-                "2021-09-12T00:00:10Z",
-            ],
-        )
-
-    def test_interval_day(self):
-        self._test_interval(
-            date_from="2021-09-05T00:00:00Z",
-            interval="day",
-            timestamps=[
-                "2021-09-04T23:45:00Z",
-                "2021-09-05T00:12:00Z",
-                "2021-09-05T22:40:00Z",
-                "2021-09-06T00:00:10Z",
-            ],
-        )
-
-    def test_interval_hour(self):
-        self._test_interval(
-            date_from="2021-09-05T16:00:00Z",
-            interval="hour",
-            timestamps=[
-                "2021-09-05T15:45:00Z",
-                "2021-09-05T16:01:12Z",
-                "2021-09-05T16:58:00Z",
-                "2021-09-05T17:00:10Z",
             ],
         )

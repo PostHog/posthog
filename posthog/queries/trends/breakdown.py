@@ -3,7 +3,6 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-import pytz
 from django.forms import ValidationError
 
 from posthog.constants import (

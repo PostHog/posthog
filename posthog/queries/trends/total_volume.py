@@ -2,8 +2,6 @@ import urllib.parse
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
-import pytz
-
 from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.event.sql import NULL_SQL

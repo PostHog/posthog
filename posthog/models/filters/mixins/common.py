@@ -335,13 +335,13 @@ class DateMixin(BaseParamMixin):
     @cached_property
     def date_to(self) -> datetime.datetime:
         if not self._date_to:
-            if self.interval == "hour":  # type: ignore
-                return timezone.now() + relativedelta(minutes=1)
-            return timezone.now().replace(hour=23, minute=59, second=59, microsecond=99999)
+            return timezone.now()
 
         if isinstance(self._date_to, str):
             try:
                 date = datetime.datetime.strptime(self._date_to, "%Y-%m-%d").replace(tzinfo=pytz.UTC)
+                # Simple dates are a special case where we round to the end of the day so that a range of
+                # 2022-01-01 to 2022-01-02 translates to 2022-01-01T00:00:00 to 2022-01-02T23:59:59
                 return date.replace(hour=23, minute=59, second=59, microsecond=99999)
             except ValueError:
                 try:
