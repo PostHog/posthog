@@ -172,24 +172,3 @@ def start_of_week_fix(filter: Filter) -> str:
     """
     return "0," if filter.interval == "week" else ""
 
-
-# TODO: Improve the typing here
-def filter_with_search_properties(filter: Any) -> Any:
-    search = getattr(filter, "search", None)
-    if not search:
-        return filter
-
-    new_group = {
-        "type": "OR",
-        "values": [
-            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-        ],
-    }
-    prop_group = (
-        {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
-        if filter.property_groups.to_dict()
-        else new_group
-    )
-    return filter.with_data({"properties": prop_group})

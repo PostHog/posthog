@@ -318,7 +318,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     const funnelParams = toParams(cleanedParams)
                     let includeRecordingsParam = ''
                     if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = 'include_recordings=true&'
+                        includeRecordingsParam = '&include_recordings=true'
                     }
                     actors = await api.create(
                         `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
@@ -329,7 +329,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
 
                     let includeRecordingsParam = ''
                     if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = 'include_recordings=true&'
+                        includeRecordingsParam = '&include_recordings=true'
                     }
                     actors = await api.create(
                         `api/person/path/?${includeRecordingsParam}${searchTermParam}`,
