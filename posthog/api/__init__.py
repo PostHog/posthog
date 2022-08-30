@@ -41,7 +41,6 @@ def api_not_found(request):
 router = DefaultRouterPlusPlus()
 
 # Legacy endpoints shared (to be removed eventually)
-router.register(r"annotation", annotation.LegacyAnnotationsViewSet)  # Should be completely unused now
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet)  # Should be completely unused now
 router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be deleted - unified into insight viewset
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)

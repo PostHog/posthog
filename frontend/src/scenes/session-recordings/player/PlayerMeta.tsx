@@ -11,9 +11,12 @@ import { percentage, truncate } from 'lib/utils'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { SessionRecordingPlayerProps } from '~/types'
 
-export function PlayerMetaV2(): JSX.Element {
-    const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(metaLogic)
+export function PlayerMetaV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+    const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(
+        metaLogic({ sessionRecordingId, playerKey })
+    )
 
     return (
         <Col className="player-meta-container-v2">
@@ -72,7 +75,7 @@ export function PlayerMetaV2(): JSX.Element {
     )
 }
 
-export function PlayerMetaV3(): JSX.Element {
+export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const {
         sessionPerson,
         description,
@@ -82,12 +85,12 @@ export function PlayerMetaV3(): JSX.Element {
         currentWindowIndex,
         recordingStartTime,
         loading,
-    } = useValues(metaLogic)
+    } = useValues(metaLogic({ sessionRecordingId, playerKey }))
     return (
         <div className="player-meta-container-v3">
             <Row className="player-meta-user-section">
                 <Col className="player-meta-avatar">
-                    {loading ? (
+                    {!sessionPerson ? (
                         <Skeleton.Avatar active size={48} shape="circle" />
                     ) : (
                         <ProfilePicture
@@ -99,7 +102,7 @@ export function PlayerMetaV3(): JSX.Element {
                 </Col>
                 <Col className="player-meta-details">
                     <Row className="player-meta-details-top">
-                        {loading ? (
+                        {!sessionPerson || !recordingStartTime ? (
                             <Skeleton title={false} active paragraph={{ rows: 1, width: 250 }} />
                         ) : (
                             <Space size={4}>
