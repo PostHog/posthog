@@ -278,7 +278,7 @@ test('capture new person', async () => {
         $os: 'Mac OS X',
         $browser_version: '95',
         $referring_domain: 'https://google.com',
-        $referrer_url: 'https://google.com/?q=posthog',
+        $referrer: 'https://google.com/?q=posthog',
         utm_medium: 'twitter',
         gclid: 'GOOGLE ADS ID',
         $elements: [
@@ -312,6 +312,8 @@ test('capture new person', async () => {
         utm_medium: 'twitter',
         $initial_gclid: 'GOOGLE ADS ID',
         gclid: 'GOOGLE ADS ID',
+        $initial_referrer: 'https://google.com/?q=posthog',
+        $initial_referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -336,7 +338,7 @@ test('capture new person', async () => {
             $initial_current_url: 'https://test.com',
             $initial_browser_version: '95',
             $initial_gclid: 'GOOGLE ADS ID',
-            $initial_referrer_url: 'https://google.com/?q=posthog',
+            $initial_referrer: 'https://google.com/?q=posthog',
             $initial_referring_domain: 'https://google.com',
         },
         utm_medium: 'twitter',
@@ -344,7 +346,7 @@ test('capture new person', async () => {
         $current_url: 'https://test.com',
         $browser_version: '95',
         gclid: 'GOOGLE ADS ID',
-        $referrer_url: 'https://google.com/?q=posthog',
+        $referrer: 'https://google.com/?q=posthog',
         $referring_domain: 'https://google.com',
     })
 
@@ -388,6 +390,8 @@ test('capture new person', async () => {
         utm_medium: 'instagram',
         $initial_gclid: 'GOOGLE ADS ID',
         gclid: 'GOOGLE ADS ID',
+        $initial_referrer: 'https://google.com/?q=posthog',
+        $initial_referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -555,7 +559,7 @@ test('capture new person', async () => {
         {
             id: expect.any(String),
             is_numerical: false,
-            name: '$referrer_url',
+            name: '$referrer',
             property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
