@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import { kea, path, selectors, key, props, connect, listeners, actions } from 'kea'
 import { groupBy } from 'lib/utils'
-import { AnnotationScope, InsightModel, IntervalType } from '~/types'
+import { AnnotationScope, InsightModel } from '~/types'
 import type { insightAnnotationsLogicType } from './insightAnnotationsLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
@@ -54,9 +54,13 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
             (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
             (annotations, intervalUnit, timezone) => {
                 const format = INTERVAL_UNIT_TO_DAYJS_FORMAT[intervalUnit]
-                return groupBy(annotations, (annotation) =>
-                    dayjs.utc(annotation['date_marker']).tz(timezone, true).startOf(intervalUnit).format(format)
-                )
+                return groupBy(annotations, (annotation) => {
+                    let datetime = dayjs.utc(annotation['date_marker'])
+                    if (timezone !== 'UTC') {
+                        datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
+                    }
+                    return datetime.startOf(intervalUnit).format(format)
+                })
             },
         ],
     })),
