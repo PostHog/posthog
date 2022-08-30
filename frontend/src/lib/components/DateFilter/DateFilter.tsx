@@ -52,7 +52,7 @@ export function DateFilter({
     }
     const { open, openFixedRange, openDateToNow, close, setRangeDateFrom, setRangeDateTo, setDate, applyRange } =
         useActions(dateFilterLogic(logicProps))
-    const { isVisible, view, rangeDateFrom, rangeDateTo, value, isFixedRange, isDateToNow, isRollingDateRange } =
+    const { isVisible, view, rangeDateFrom, rangeDateTo, label, isFixedRange, isDateToNow, isRollingDateRange } =
         useValues(dateFilterLogic(logicProps))
 
     const optionsRef = useRef<HTMLDivElement | null>(null)
@@ -87,7 +87,7 @@ export function DateFilter({
                         return null
                     }
 
-                    if (inactive && value !== key) {
+                    if (inactive && label !== key) {
                         return null
                     }
 
@@ -160,7 +160,7 @@ export function DateFilter({
             }}
             icon={<IconCalendar />}
         >
-            {value}
+            {label}
         </LemonButtonWithPopup>
     )
 }

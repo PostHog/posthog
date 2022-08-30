@@ -1,7 +1,7 @@
 import { actions, props, kea, listeners, path, reducers, selectors, key } from 'kea'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import type { dateFilterLogicType } from './dateFilterLogicType'
-import { isDate, dateFilterToText, dateStringToDayJs } from 'lib/utils'
+import { isDate, dateFilterToText, dateStringToDayJs, formatDateRange, formatDate } from 'lib/utils'
 import { DateMappingOption } from '~/types'
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
@@ -83,14 +83,14 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         (option.values[1] ?? null) === (dateTo ?? null)
                 ),
         ],
-        value: [
+        label: [
             (s) => [s.dateFrom, s.dateTo, s.isFixedRange, s.isDateToNow, s.dateOptions],
             (dateFrom, dateTo, isFixedRange, isDateToNow, dateOptions) =>
                 isFixedRange
-                    ? `${dateFrom} - ${dateTo}`
+                    ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
-                    ? `${dateFrom} to Now`
-                    : dateFilterToText(dateFrom, dateTo, 'No date selected', dateOptions, true),
+                    ? `${formatDate(dayjs(dateFrom))} to Now`
+                    : dateFilterToText(dateFrom, dateTo, 'Custom', dateOptions, false),
         ],
     }),
     listeners(({ actions, values, props }) => ({
