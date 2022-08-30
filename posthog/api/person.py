@@ -124,10 +124,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         return representation
 
 
-def should_paginate(results, limit: Union[str, int]) -> bool:
-    return len(results) > int(limit) - 1
-
-
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: Type[ActorBaseQuery]
 
@@ -204,7 +200,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
 
-        _should_paginate = should_paginate(actor_ids, filter.limit)
+        _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
