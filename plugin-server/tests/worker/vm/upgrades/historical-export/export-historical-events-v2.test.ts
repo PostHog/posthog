@@ -69,7 +69,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 storage: storage(),
                 utils: createUtils(hub, pluginConfig39.id),
                 jobs: {
-                    exportHistoricalEvents: jest.fn().mockReturnValue({ runNow, runIn }),
+                    exportHistoricalEventsV2: jest.fn().mockReturnValue({ runNow, runIn }),
                 },
                 global: {},
             },
@@ -208,7 +208,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+            expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                 ...defaultPayload,
                 retriesPerformedSoFar: 1,
             })
@@ -230,7 +230,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+            expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                 ...defaultPayload,
                 retriesPerformedSoFar: 6,
             })
@@ -245,7 +245,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
             await exportHistoricalEvents(defaultPayload)
 
-            expect(vm.meta.jobs.exportHistoricalEvents).not.toHaveBeenCalled()
+            expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
@@ -294,7 +294,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
                 await exportHistoricalEvents(defaultPayload)
 
-                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     ...defaultPayload,
                     timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval * 1.2,
                     offset: 0,
@@ -307,7 +307,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
                 await exportHistoricalEvents(defaultPayload)
 
-                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     ...defaultPayload,
                     timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                     offset: 0,
@@ -320,7 +320,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
                 await exportHistoricalEvents(defaultPayload)
 
-                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     ...defaultPayload,
                     timestampCursor: defaultPayload.timestampCursor,
                     offset: 500,
@@ -336,7 +336,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     retriesPerformedSoFar: 10,
                 })
 
-                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     ...defaultPayload,
                     timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                     offset: 0,
@@ -352,7 +352,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     timestampCursor: defaultPayload.endTime - 100,
                 })
 
-                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     ...defaultPayload,
                     timestampCursor: defaultPayload.endTime,
                 })
@@ -404,7 +404,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     })
                 )
 
-                expect(vm.meta.jobs.exportHistoricalEvents).not.toHaveBeenCalled()
+                expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
                 expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(params)
             })
 
@@ -425,7 +425,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     toResume: [],
                 })
 
-                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith({
+                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     endTime: 1635742800000,
                     exportId: 1,
                     fetchTimeInterval: 600000,
@@ -479,7 +479,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     toResume: [toResumePayload],
                 })
 
-                expect(vm.meta.jobs.exportHistoricalEvents).toHaveBeenCalledWith(toResumePayload)
+                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith(toResumePayload)
                 expect(await storage().get('EXPORT_DATE_STATUS_2021-11-01T00:00:00.000Z', null)).toEqual(
                     expect.objectContaining({
                         done: false,

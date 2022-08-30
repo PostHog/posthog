@@ -177,9 +177,8 @@ export function addHistoricalEventsExportCapabilityV2(
         },
     } as unknown as PluginTask // :KLUDGE: Work around typing limitations
 
-    // :TODO: Rename this to avoid conflicts
-    tasks.job['exportHistoricalEvents'] = {
-        name: 'exportHistoricalEvents',
+    tasks.job['exportHistoricalEventsV2'] = {
+        name: 'exportHistoricalEventsV2',
         type: PluginTaskType.Job,
         exec: (payload) => exportHistoricalEvents(payload as ExportHistoricalEventsJobPayload),
     }
@@ -318,7 +317,7 @@ export function addHistoricalEventsExportCapabilityV2(
         } as ExportChunkStatus)
 
         // Start the job
-        await meta.jobs.exportHistoricalEvents(payload).runNow()
+        await meta.jobs.exportHistoricalEventsV2(payload).runNow()
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
@@ -402,7 +401,7 @@ export function addHistoricalEventsExportCapabilityV2(
             )
 
             await meta.jobs
-                .exportHistoricalEvents({
+                .exportHistoricalEventsV2({
                     ...payload,
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
                 } as ExportHistoricalEventsJobPayload)
@@ -417,7 +416,7 @@ export function addHistoricalEventsExportCapabilityV2(
             const incrementedTimeCursor = Math.min(payload.endTime, payload.timestampCursor + fetchTimeInterval)
 
             await meta.jobs
-                .exportHistoricalEvents({
+                .exportHistoricalEventsV2({
                     ...payload,
                     retriesPerformedSoFar: 0,
                     timestampCursor: incrementCursor ? incrementedTimeCursor : payload.timestampCursor,
