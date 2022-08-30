@@ -3,8 +3,9 @@ Historical exports (v2) work the following way:
 
 - User triggers a `Export historical events V2` job from the UI.
   This saves the time range as the running export with parallelism options.
-- `runEveryMinute` acts as a coordinator: It takes the time range job runs on, splits it into pieces,
+- `runEveryMinute` acts as a coordinator: It takes the time range job runs on, splits it into chunks,
   ensures that enough pieces are running, reports progress and finalizes the export.
+    - If a certain running chunk hasn't reported progress in a while, it is also restarted.
 - `exportHistoricalEvents` job is responsible for exporting data between particular start and end points (chunk)
     - It tracks its progress under `statusKey`
     - It dynamically resizes the time window we fetch data to minimize waiting.
