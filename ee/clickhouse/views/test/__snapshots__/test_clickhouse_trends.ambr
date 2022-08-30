@@ -8,7 +8,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59') ) events
+       AND timestamp <= toDateTime('2012-01-15 04:01:34') ) events
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
@@ -31,7 +31,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+       AND timestamp <= toDateTime('2012-01-15 04:01:34') )
   GROUP BY actor_id
   LIMIT 200
   OFFSET 0
@@ -47,8 +47,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(DISTINCT person_id) as data,
@@ -67,7 +67,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+             AND timestamp <= toDateTime('2012-01-15 04:01:34') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -109,8 +109,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(*) as data,
@@ -122,7 +122,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59')
+             AND timestamp <= toDateTime('2012-01-15 04:01:34')
              AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY date)
      group by day_start
@@ -167,8 +167,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(*) as data,
@@ -179,7 +179,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+             AND timestamp <= toDateTime('2012-01-15 04:01:34') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -222,7 +222,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-01 00:00:00')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59')
+       AND timestamp <= toDateTime('2012-01-15 04:01:34')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -246,7 +246,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 04:01:34', 'UTC') - number * 86400) as day_start
               FROM numbers(15)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -278,7 +278,7 @@
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-15 04:01:34')
                    AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -330,8 +330,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(DISTINCT person_id) as data,
@@ -353,7 +353,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-                AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+                AND timestamp <= toDateTime('2012-01-15 04:01:34') )
            GROUP BY person_id)
         GROUP BY date)
      group by day_start
@@ -397,7 +397,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-01 00:00:00')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59')
+       AND timestamp <= toDateTime('2012-01-15 04:01:34')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -421,7 +421,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 04:01:34', 'UTC') - number * 86400) as day_start
               FROM numbers(15)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -438,7 +438,7 @@
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59')
+             AND timestamp <= toDateTime('2012-01-15 04:01:34')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
            GROUP BY day_start,
                     breakdown_value))
@@ -504,7 +504,7 @@
      WHERE team_id = 2
        AND event = '$pageview'
        AND timestamp >= toDateTime('2012-01-01 00:00:00')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59')
+       AND timestamp <= toDateTime('2012-01-15 04:01:34')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -528,7 +528,7 @@
                   ticks.day_start as day_start,
                   breakdown_value
            FROM
-             (SELECT toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - number * 86400) as day_start
+             (SELECT toStartOfDay(toDateTime('2012-01-15 04:01:34', 'UTC') - number * 86400) as day_start
               FROM numbers(15)
               UNION ALL SELECT toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')) as day_start) as ticks
            CROSS JOIN
@@ -550,7 +550,7 @@
                  FROM events e
                  WHERE team_id = 2
                    AND timestamp >= '2011-12-25 00:00:00'
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-15 04:01:34')
                  GROUP BY timestamp) d
               CROSS JOIN
                 (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
@@ -575,7 +575,7 @@
                  WHERE e.team_id = 2
                    AND event = '$pageview'
                    AND timestamp >= '2011-12-25 00:00:00'
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
+                   AND timestamp <= toDateTime('2012-01-15 04:01:34')
                  GROUP BY timestamp,
                           person_id,
                           breakdown_value) e
@@ -586,7 +586,7 @@
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') ))
+             AND timestamp <= toDateTime('2012-01-15 04:01:34') ))
      GROUP BY day_start,
               breakdown_value
      ORDER BY breakdown_value,
@@ -641,8 +641,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
         UNION ALL SELECT count(DISTINCT person_id) as data,
@@ -661,7 +661,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+             AND timestamp <= toDateTime('2012-01-15 04:01:34') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -677,8 +677,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 00:00:00'), 'UTC'), toDateTime('2012-01-15 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-14 00:00:00'), 'UTC')
         UNION ALL SELECT count(DISTINCT person_id) as data,
@@ -697,7 +697,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toDateTime('2012-01-14 00:00:00')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+             AND timestamp <= toDateTime('2012-01-15 04:01:34') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -713,8 +713,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-14 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00'), 'UTC'), toDateTime('2012-01-14 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-14 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00'), 'UTC'), toDateTime('2012-01-14 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2011-12-31 00:00:00'), 'UTC')
         UNION ALL SELECT count(DISTINCT person_id) as data,
@@ -733,7 +733,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+             AND timestamp <= toDateTime('2012-01-14 04:01:34') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
@@ -749,8 +749,8 @@
             day_start
      from
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-16 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 00:00:00'), 'UTC'), toDateTime('2012-01-16 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-16 04:01:34') - toIntervalDay(number), 'UTC') AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 00:00:00'), 'UTC'), toDateTime('2012-01-16 04:01:34'), 'UTC'))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2012-01-02 00:00:00'), 'UTC')
         UNION ALL SELECT count(DISTINCT person_id) as data,
@@ -769,7 +769,7 @@
            WHERE team_id = 2
              AND event = '$pageview'
              AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-16 23:59:59') )
+             AND timestamp <= toDateTime('2012-01-16 04:01:34') )
         GROUP BY date)
      group by day_start
      order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
