@@ -13,7 +13,6 @@ import { LemonCalendarRange } from 'lib/components/LemonCalendar/LemonCalendarRa
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export interface DateFilterProps {
-    defaultValue: string
     showCustom?: boolean
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
@@ -30,7 +29,6 @@ interface RawDateFilterProps extends DateFilterProps {
 }
 
 export function DateFilter({
-    defaultValue,
     showCustom,
     showRollingRangePicker = true,
     className,
@@ -49,7 +47,6 @@ export function DateFilter({
         dateFrom,
         dateTo,
         onChange,
-        defaultValue,
         dateOptions,
         isDateFormatted,
     }
@@ -94,8 +91,15 @@ export function DateFilter({
                         return null
                     }
 
-                    const isActive = dateFrom === values[0] && dateTo === values[1]
-                    const dateValue = dateFilterToText(values[0], values[1], defaultValue, dateOptions, isDateFormatted)
+                    const isActive =
+                        (dateFrom ?? null) === (values[0] ?? null) && (dateTo ?? null) === (values[1] ?? null)
+                    const dateValue = dateFilterToText(
+                        values[0],
+                        values[1],
+                        'No date selected',
+                        dateOptions,
+                        isDateFormatted
+                    )
 
                     return (
                         <Tooltip key={key} title={makeLabel ? makeLabel(dateValue) : undefined}>

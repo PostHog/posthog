@@ -386,7 +386,6 @@ export function SavedInsights(): JSX.Element {
                             <div className="flex items-center gap-2">
                                 <span>Last modified:</span>
                                 <DateFilter
-                                    defaultValue="All time"
                                     disabled={false}
                                     dateFrom={dateFrom}
                                     dateTo={dateTo}

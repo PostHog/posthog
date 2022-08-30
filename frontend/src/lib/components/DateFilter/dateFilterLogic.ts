@@ -7,7 +7,7 @@ import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/
 
 export const dateFilterLogic = kea<dateFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'DateFilterLogic']),
-    props({ defaultValue: 'Custom' } as DateFilterLogicProps),
+    props({} as DateFilterLogicProps),
     key(({ key }) => key),
     actions({
         open: true,
@@ -60,7 +60,6 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
     selectors({
         dateFrom: [() => [(_, props) => props.dateFrom], (dateFrom) => dateFrom ?? null],
         dateTo: [() => [(_, props) => props.dateTo], (dateTo) => dateTo ?? null],
-        defaultValue: [() => [(_, props) => props.defaultValue], (defaultValue) => defaultValue],
         dateOptions: [
             () => [(_, props) => props.dateOptions],
             (dateOptions): DateMappingOption[] | undefined => dateOptions,
@@ -85,13 +84,13 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 ),
         ],
         value: [
-            (s) => [s.dateFrom, s.dateTo, s.isFixedRange, s.isDateToNow, s.defaultValue, s.dateOptions],
-            (dateFrom, dateTo, isFixedRange, isDateToNow, defaultValue, dateOptions) =>
+            (s) => [s.dateFrom, s.dateTo, s.isFixedRange, s.isDateToNow, s.dateOptions],
+            (dateFrom, dateTo, isFixedRange, isDateToNow, dateOptions) =>
                 isFixedRange
                     ? `${dateFrom} - ${dateTo}`
                     : isDateToNow
                     ? `${dateFrom} to Now`
-                    : dateFilterToText(dateFrom, dateTo, defaultValue, dateOptions, true),
+                    : dateFilterToText(dateFrom, dateTo, 'No date selected', dateOptions, true),
         ],
     }),
     listeners(({ actions, values, props }) => ({
