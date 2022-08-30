@@ -977,8 +977,8 @@ export interface AnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: InsightModel['short_id']
-    insight_name?: InsightModel['name']
+    insight_short_id?: InsightModel['short_id'] | null
+    insight_name?: InsightModel['name'] | null
     deleted?: boolean
     creation_type?: string
 }

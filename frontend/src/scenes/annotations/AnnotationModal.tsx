@@ -29,7 +29,7 @@ export function AnnotationModal(): JSX.Element {
                                 type="secondary"
                                 status="danger"
                                 onClick={() => {
-                                    deleteAnnotation(existingModalAnnotation.id)
+                                    deleteAnnotation(existingModalAnnotation)
                                     closeModal()
                                 }}
                                 data-attr="delete-annotation"
