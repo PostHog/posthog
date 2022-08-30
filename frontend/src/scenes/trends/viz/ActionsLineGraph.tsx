@@ -10,6 +10,7 @@ import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { openPersonsModal } from '../persons-modal/PersonsModalV2'
 import { dateTitle, urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -97,10 +98,12 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                                   url: selectedUrl,
                               })
 
-                              openPersonsModal({
-                                  urls,
-                                  url: selectedUrl,
-                                  title: (label) => (
+                              const title =
+                                  filters.shown_as === 'Stickiness' ? (
+                                      <>
+                                          <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                                      </>
+                                  ) : (
                                       <>
                                           {label} on{' '}
                                           <DateDisplay
@@ -108,7 +111,12 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                                               date={day?.toString() || ''}
                                           />
                                       </>
-                                  ),
+                                  )
+
+                              openPersonsModal({
+                                  urls,
+                                  url: selectedUrl,
+                                  title,
                               })
                           } else {
                               loadPeople(params)
