@@ -1391,7 +1391,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(len(response_data["results"]), 2)
         self.assertEqual(response_data["results"][0]["id"], insight.id)
         self.assertEqual(response_data["results"][1]["id"], insight2.id)
-        self.assertNotContains(response, insight3.id)
+        self.assertNotContains(response, f"{insight3.id}")
 
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(self):
         dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
