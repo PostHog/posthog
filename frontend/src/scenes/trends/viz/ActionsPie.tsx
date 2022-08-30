@@ -9,6 +9,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { openPersonsModal } from '../persons-modal/PersonsModalV2'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
 export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
@@ -16,7 +18,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { indexedResults, labelGroupType, hiddenLegendKeys, aggregationTargetLabel } = useValues(logic)
+    const { indexedResults, labelGroupType, hiddenLegendKeys } = useValues(logic)
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -68,7 +70,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                             !showPersonsModal || insight.filters?.formula
                                 ? undefined
                                 : (payload) => {
-                                      const { points, index, seriesId } = payload
+                                      const { points, index, seriesId, crossDataset } = payload
                                       const dataset = points.referencePoint.dataset
                                       const action = dataset.actions?.[index]
                                       const label = dataset.labels?.[index]
@@ -87,18 +89,21 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                           breakdown_value: breakdown_value ?? '',
                                       }
 
-                                      const personsUrl =
-                                          dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url
+                                      const urls = urlsForDatasets(crossDataset, index)
+                                      const selectedUrl =
+                                          urls[crossDataset?.findIndex((x) => x.id === dataset.id) || 0]?.value
 
-                                      if (personsUrl) {
+                                      console.log({ payload })
+
+                                      if (selectedUrl) {
                                           loadPeopleFromUrl({
                                               ...params,
-                                              url: personsUrl,
+                                              url: selectedUrl,
                                           })
                                           openPersonsModal({
-                                              url: personsUrl,
-                                              aggregationTargetLabel,
-                                              title: label ?? '',
+                                              urls,
+                                              url: selectedUrl,
+                                              title: <PropertyKeyInfo value={label || ''} disablePopover />,
                                           })
                                       } else {
                                           loadPeople(params)

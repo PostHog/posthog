@@ -83,7 +83,6 @@ function useBoldNumberTooltip({
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
     const { insight, filters, insightProps } = useValues(insightLogic)
-    const { aggregationTargetLabel } = useValues(trendsLogic(insightProps))
     const { loadPeople } = useActions(personsModalLogic)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
@@ -104,7 +103,6 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                   if (resultSeries.persons?.url) {
                                       openPersonsModal({
                                           url: resultSeries.persons?.url,
-                                          aggregationTargetLabel,
                                           title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
                                       })
                                   }

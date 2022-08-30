@@ -4,7 +4,7 @@ import { DownloadOutlined } from '@ant-design/icons'
 import { ActorType, ExporterFormat } from '~/types'
 import { personsModalLogic } from './personsModalV2Logic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
@@ -37,11 +37,10 @@ export interface PersonsModalProps {
         label: string | JSX.Element
         value: string
     }[]
-    title: React.ReactNode
-    aggregationTargetLabel: { singular: string; plural: string }
+    title: JSX.Element | string | ((actorLabel: string) => JSX.Element | string)
 }
 
-function PersonsModalV2({ url, urls, title, onAfterClose, aggregationTargetLabel }: PersonsModalProps): JSX.Element {
+function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {
     const [chosenUrl, setChosenUrl] = useState(url)
     const [isOpen, setIsOpen] = useState(true)
     const [cohortModalOpen, setCohortModalOpen] = useState(false)
@@ -53,22 +52,14 @@ function PersonsModalV2({ url, urls, title, onAfterClose, aggregationTargetLabel
         },
     })
 
-    const { allPeople, peopleLoading, people: peopleRes, searchTerm } = useValues(logic)
-    const { loadPeople, setSearchTerm, saveCohortWithUrl } = useActions(logic)
+    const { actors, actorsResponseLoading, actorsResponse, searchTerm, actorLabel } = useValues(logic)
+    const { loadActors, setSearchTerm, saveCohortWithUrl } = useActions(logic)
     const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
-
-    const onOpenRecording = (id: string): void => {
-        openSessionPlayer(id, RecordingWatchedSource.PersonModal)
-    }
-
-    const onCloseRecording = (): void => {
-        closeSessionPlayer()
-    }
 
     return (
         <>
             <LemonModal
-                title={title}
+                title={typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel)) : title}
                 isOpen={isOpen}
                 onClose={() => setIsOpen(false)}
                 onAfterClose={onAfterClose}
@@ -95,18 +86,18 @@ function PersonsModalV2({ url, urls, title, onAfterClose, aggregationTargetLabel
                         />
 
                         <div className="flex items-center gap-2 text-muted">
-                            {peopleLoading ? (
+                            {actorsResponseLoading ? (
                                 <>
                                     <Spinner />
-                                    <span>Loading {aggregationTargetLabel.plural}...</span>
+                                    <span>Loading {actorLabel}...</span>
                                 </>
                             ) : (
                                 <>
                                     <IconPersonFilled className="text-xl" />
                                     <span>
-                                        This list contains {peopleRes?.next ? 'more than ' : ''}
+                                        This list contains {actorsResponse?.next ? 'more than ' : ''}
                                         <b>
-                                            {peopleRes?.results.length} unique {aggregationTargetLabel.plural}
+                                            {actorsResponse?.total_count} unique {actorLabel}
                                         </b>
                                     </span>
                                 </>
@@ -122,6 +113,7 @@ function PersonsModalV2({ url, urls, title, onAfterClose, aggregationTargetLabel
                                 icon={<IconSave />}
                                 type="secondary"
                                 data-attr="person-modal-save-as-cohort"
+                                disabled={actorsResponse?.total_count === 0}
                             >
                                 Save as cohort
                             </LemonButton>
@@ -138,7 +130,7 @@ function PersonsModalV2({ url, urls, title, onAfterClose, aggregationTargetLabel
                                 })
                             }}
                             data-attr="person-modal-download-csv"
-                            disabled={peopleRes?.total_count === 0}
+                            disabled={actorsResponse?.total_count === 0}
                         >
                             Download CSV
                         </LemonButton>
@@ -147,76 +139,41 @@ function PersonsModalV2({ url, urls, title, onAfterClose, aggregationTargetLabel
                 width={600}
             >
                 <div className="relative min-h-20 space-y-2">
-                    {allPeople && allPeople.length > 0 ? (
+                    {actors && actors.length > 0 ? (
                         <>
-                            {allPeople.map((x) => (
-                                <ActorRow key={x.id} actor={x} onOpenRecording={onOpenRecording} />
+                            {actors.map((x) => (
+                                <ActorRow
+                                    key={x.id}
+                                    actor={x}
+                                    onOpenRecording={(id) => openSessionPlayer(id, RecordingWatchedSource.PersonModal)}
+                                />
                             ))}
                         </>
-                    ) : peopleRes ? (
+                    ) : actorsResponse ? (
                         <div className="text-center">
-                            We couldn't find any matching {aggregationTargetLabel.plural} for this data point.
+                            We couldn't find any matching {actorLabel} for this data point.
                         </div>
                     ) : null}
                 </div>
 
-                {peopleRes?.next && (
+                {actorsResponse?.next && (
                     <div className="m-4 flex justify-center">
                         <LemonButton
                             type="primary"
-                            onClick={() => peopleRes?.next && loadPeople({ url: peopleRes?.next })}
-                            loading={peopleLoading}
+                            onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
+                            loading={actorsResponseLoading}
                         >
-                            Load more {aggregationTargetLabel.plural}
+                            Load more {actorLabel}
                         </LemonButton>
                     </div>
                 )}
-
-                {/* {isInitialLoad ? (
-                    <div className="p-4">
-                        <Skeleton active />
-                    </div>
-                ) : (
-                    <>
-                        {people && (
-                            <>
-                                {!!people.crossDataset?.length && people.seriesId !== undefined && (
-                                    <LemonSelect
-                                        fullWidth
-                                        className="mb-2"
-                                        value={String(people.seriesId)}
-                                        onChange={(_id) =>
-                                            typeof _id === 'string' ? switchToDataPoint(parseInt(_id, 10)) : null
-                                        }
-                                        options={people.crossDataset.map((dataPoint) => ({
-                                            value: `${dataPoint.id}`,
-                                            label: (
-                                                <InsightLabel
-                                                    seriesColor={getSeriesColor(dataPoint.id)}
-                                                    action={dataPoint.action}
-                                                    breakdownValue={
-                                                        dataPoint.breakdown_value === ''
-                                                            ? 'None'
-                                                            : dataPoint.breakdown_value?.toString()
-                                                    }
-                                                    showCountedByTag={showCountedByTag}
-                                                    hasMultipleSeries={hasMultipleSeries}
-                                                />
-                                            ),
-                                        }))}
-                                    />
-                                )}
-                            </>
-                        )}
-                    </>
-                )} */}
             </LemonModal>
             <SaveCohortModal
                 onSave={(title) => saveCohortWithUrl(title)}
                 onCancel={() => setCohortModalOpen(false)}
                 isOpen={cohortModalOpen}
             />
-            <SessionPlayerDrawer onClose={() => onCloseRecording()} />
+            <SessionPlayerDrawer onClose={() => closeSessionPlayer()} />
         </>
     )
 }

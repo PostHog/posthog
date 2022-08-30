@@ -2,8 +2,6 @@ import { kea, connect, path, key, props, reducers, actions, selectors, listeners
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { ActorType } from '~/types'
 import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
 import { router, urlToAction } from 'kea-router'
@@ -26,34 +24,29 @@ export const personsModalLogic = kea<personsModalLogicType>([
     actions({
         setSearchTerm: (search: string) => ({ search }),
         saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
+        resetActors: () => true,
     }),
     connect({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     }),
 
     loaders(({ values }) => ({
-        people: [
+        actorsResponse: [
             null as CountedPaginatedResponse<ActorType> | null,
             {
-                loadPeople: async ({ url, search, clear }: { url: string; search?: string; clear?: boolean }) => {
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        url += '&include_recordings=true'
-                    }
+                loadActors: async ({ url }: { url: string }) => {
+                    url += '&include_recordings=true'
 
-                    if (search) {
-                        url += `&search=${search}`
+                    if (values.searchTerm) {
+                        url += `&search=${values.searchTerm}`
                     }
 
                     const res = await api.get(url)
 
-                    const peopleList = clear
-                        ? res?.results[0]?.people
-                        : [...(values.people?.results || []), ...res?.results[0]?.people]
-
                     const payload: CountedPaginatedResponse<ActorType> = {
                         total_count: res?.results[0]?.count || 0,
-                        results: peopleList,
+                        results: res?.results[0]?.people,
                         next: res?.next,
                     }
 
@@ -64,6 +57,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     reducers(() => ({
+        actors: [
+            [] as ActorType[],
+            {
+                loadActorsSuccess: (state, { actorsResponse }) => {
+                    console.log({ actorsResponse })
+                    return [...state, ...(actorsResponse?.results || [])]
+                },
+                resetActors: () => [],
+            },
+        ],
         searchTerm: [
             '',
             {
@@ -73,9 +76,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     listeners(({ actions, props }) => ({
-        setSearchTerm: async ({ search }, breakpoint) => {
+        setSearchTerm: async ({}, breakpoint) => {
             await breakpoint(500)
-            actions.loadPeople({ url: props.url, search, clear: true })
+            actions.resetActors()
+            actions.loadActors({ url: props.url })
         },
         saveCohortWithUrl: async ({ cohortName }) => {
             const cohortParams = {
@@ -100,17 +104,17 @@ export const personsModalLogic = kea<personsModalLogicType>([
     })),
 
     selectors({
-        allPeople: [(s) => [s.people], (res: CountedPaginatedResponse<ActorType> | null) => res?.results],
-        isGroupType: [(s) => [s.people], (people) => people?.results?.[0] && isGroupType(people?.results[0])],
         actorLabel: [
-            (s) => [s.people, s.isGroupType, s.groupTypes, s.aggregationLabel],
-            (result, _isGroupType, groupTypes, aggregationLabel) => {
-                if (_isGroupType) {
-                    return 'groups'
-                    // return result?.action?.math_group_type_index != undefined &&
-                    //     groupTypes.length > result?.action.math_group_type_index
-                    //     ? aggregationLabel(result?.action.math_group_type_index).plural
-                    //     : ''
+            (s) => [s.actors, s.aggregationLabel],
+            (actors, aggregationLabel) => {
+                console.log({ actors })
+                const firstResult = actors[0]
+
+                if (!firstResult) {
+                    return 'results'
+                }
+                if (isGroupType(firstResult)) {
+                    return aggregationLabel(firstResult.group_type_index).plural
                 } else {
                     return 'persons'
                 }
@@ -119,7 +123,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
 
     afterMount(({ actions, props }) => {
-        actions.loadPeople({ url: props.url, clear: true })
+        actions.loadActors({ url: props.url })
     }),
 
     urlToAction(({ props, cache }) => ({

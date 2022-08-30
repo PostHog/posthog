@@ -1,6 +1,6 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, toParams } from 'lib/utils'
+import { convertPropertiesToPropertyGroup, toParams } from 'lib/utils'
 import React from 'react'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
@@ -11,10 +11,8 @@ import {
     FunnelVizType,
     GraphDataset,
     InsightType,
-    IntervalType,
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { DateDisplay } from 'lib/components/DateDisplay'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { getSeriesColor } from 'lib/colors'
 
@@ -42,26 +40,32 @@ export const pathsTitle = (props: { isDropOff: boolean; label: string }): React.
     )
 }
 
-export const dateTitle = (
-    interval?: IntervalType,
-    date?: string,
-    aggregationTargetLabel?: { singular: string; plural: string }
-): React.ReactNode => {
-    // TODO: Make this work for orgs
-    return (
-        <>
-            {capitalizeFirstLetter(aggregationTargetLabel?.plural || 'persons')} on{' '}
-            <DateDisplay interval={interval || 'day'} date={date?.toString() || ''} />
-        </>
-    )
-}
-
 export const urlsForDatasets = (
     crossDataset: GraphDataset[] | undefined,
     index: number
 ): { value: string; label: JSX.Element }[] => {
     const showCountedByTag = !!crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     const hasMultipleSeries = !!crossDataset?.find(({ action }) => action?.order)
+
+    if (crossDataset?.length === 1 && crossDataset[0].actions) {
+        const dataset = crossDataset[0]
+        return (
+            dataset.actions?.map((action, i) => ({
+                value: dataset?.personsValues?.[i]?.url || '',
+                label: (
+                    <InsightLabel
+                        seriesColor={getSeriesColor(action.order)}
+                        action={action}
+                        breakdownValue={
+                            dataset.breakdownValues?.[i] === '' ? 'None' : dataset.breakdownValues?.[i]?.toString()
+                        }
+                        showCountedByTag={showCountedByTag}
+                        hasMultipleSeries={hasMultipleSeries}
+                    />
+                ),
+            })) || []
+        )
+    }
 
     return (
         crossDataset?.map((dataset) => ({

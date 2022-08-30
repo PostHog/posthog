@@ -1261,7 +1261,6 @@ export const funnelLogic = kea<funnelLogicType>({
 
             openPersonsModal({
                 url: converted ? step.converted_people_url : step.dropped_people_url,
-                aggregationTargetLabel: values.aggregationTargetLabel,
                 title: funnelTitle({
                     step: converted ? step.order : -step.order,
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
@@ -1286,7 +1285,6 @@ export const funnelLogic = kea<funnelLogicType>({
             const breakdownValues = getBreakdownStepValues(series, series.order)
             openPersonsModal({
                 url: converted ? series.converted_people_url : series.dropped_people_url,
-                aggregationTargetLabel: values.aggregationTargetLabel,
                 title: funnelTitle({
                     step: converted ? step.order + 1 : -(step.order + 1),
                     breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
@@ -1311,7 +1309,6 @@ export const funnelLogic = kea<funnelLogicType>({
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 openPersonsModal({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    aggregationTargetLabel: values.aggregationTargetLabel,
                     title: funnelTitle({
                         step: success ? values.stepsWithCount.length : -2,
                         breakdown_value,
@@ -1338,7 +1335,6 @@ export const funnelLogic = kea<funnelLogicType>({
 
                 openPersonsModal({
                     url: success ? correlation.success_people_url : correlation.failure_people_url,
-                    aggregationTargetLabel: values.aggregationTargetLabel,
                     title: funnelTitle({
                         step: success ? values.stepsWithCount.length : -2,
                         label: name,

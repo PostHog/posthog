@@ -81,7 +81,6 @@ export function FunnelLineGraph({
                                   title: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} converted on ${dayjs(
                                       label
                                   ).format('MMMM Do YYYY')}`,
-                                  aggregationTargetLabel,
                               })
                           }
 

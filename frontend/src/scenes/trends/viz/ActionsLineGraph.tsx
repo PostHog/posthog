@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { openPersonsModal } from '../persons-modal/PersonsModalV2'
 import { dateTitle, urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { DateDisplay } from 'lib/components/DateDisplay'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -97,10 +98,17 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                               })
 
                               openPersonsModal({
-                                  url: selectedUrl,
-                                  title: dateTitle(filters.interval, day, aggregationTargetLabel),
                                   urls,
-                                  aggregationTargetLabel,
+                                  url: selectedUrl,
+                                  title: (label) => (
+                                      <>
+                                          {label} on{' '}
+                                          <DateDisplay
+                                              interval={filters.interval || 'day'}
+                                              date={day?.toString() || ''}
+                                          />
+                                      </>
+                                  ),
                               })
                           } else {
                               loadPeople(params)

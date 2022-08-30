@@ -18,7 +18,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { TrendActors } from 'scenes/trends/types'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
@@ -316,21 +315,15 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
-                    let includeRecordingsParam = ''
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = '&include_recordings=true'
-                    }
+                    const includeRecordingsParam = '&include_recordings=true'
+
                     actors = await api.get(
                         `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
                     )
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)
-
-                    let includeRecordingsParam = ''
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = '&include_recordings=true'
-                    }
+                    const includeRecordingsParam = '&include_recordings=true'
 
                     actors = await api.get(`api/person/path/?${includeRecordingsParam}${pathParams}${searchTermParam}`)
 
@@ -388,11 +381,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 crossDataset,
                 seriesId,
             }) => {
-                if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                    // A bit hacky (doesn't account for hash params),
-                    // but it works and only needed while we have this feature flag
-                    url += '&include_recordings=true'
-                }
+                url += '&include_recordings=true'
                 const people = await api.get(url)
                 return {
                     people: people?.results[0]?.people,

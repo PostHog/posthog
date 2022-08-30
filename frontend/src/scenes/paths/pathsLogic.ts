@@ -87,7 +87,6 @@ export const pathsLogic = kea<pathsLogicType>({
             if (personsUrl) {
                 openPersonsModal({
                     url: personsUrl,
-                    aggregationTargetLabel: values.aggregationTargetLabel,
                     title: pathsTitle({
                         label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                         isDropOff: Boolean(path_dropoff_key),
