@@ -10,12 +10,8 @@ import {
     PluginTask,
     PluginTaskType,
 } from '../../../../types'
-import {
-    ExportEventsJobPayload,
-    ExportHistoricalEventsUpgrade,
-    fetchEventsForInterval,
-    fetchTimestampBoundariesForTeam,
-} from '../utils/utils'
+import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
+import { ExportEventsJobPayload, ExportHistoricalEventsUpgrade, fetchTimestampBoundariesForTeam } from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const EVENTS_TIME_INTERVAL = TEN_MINUTES

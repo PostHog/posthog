@@ -7,7 +7,7 @@ import './LemonSelect.scss'
 import clsx from 'clsx'
 
 export interface LemonSelectOption<T> {
-    value: T
+    value?: T
     label: string | JSX.Element
     icon?: React.ReactElement
     sideIcon?: React.ReactElement
@@ -55,7 +55,7 @@ export const isLemonSelectSection = <T extends any>(
  * To simplify the implementation we box the options so that the code only deals with sections
  * and also generate a single list of options since selection is separate from display structure
  * */
-const boxToSections = <T,>(
+export const boxToSections = <T,>(
     sectionsAndOptions: LemonSelectSection<T>[] | LemonSelectOption<T>[]
 ): [LemonSelectSection<T>[], LemonSelectOption<T>[]] => {
     let allOptions: LemonSelectOption<T>[] = []
@@ -129,7 +129,7 @@ export function LemonSelect<T>({
                                     tooltip={option.tooltip}
                                     onClick={() => {
                                         if (option.value != localValue) {
-                                            onChange?.(option.value)
+                                            onChange?.(option.value ?? null)
                                             setLocalValue(option.value)
                                         }
                                     }}
