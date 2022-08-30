@@ -165,6 +165,10 @@ describe('insightAnnotationsLogic', () => {
         initKeaTests()
     })
 
+    afterEach(() => {
+        logic.unmount()
+    })
+
     it('loads annotations on mount', async () => {
         useInsightMock()
 
@@ -186,6 +190,9 @@ describe('insightAnnotationsLogic', () => {
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
+                'loadInsightSuccess',
+            ])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // The annotation scoped to insight 3 should be omitted
@@ -206,6 +213,9 @@ describe('insightAnnotationsLogic', () => {
             logic = insightAnnotationsLogic({ dashboardItemId: 'new', insightNumericId: 'new' })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
+                'loadInsightSuccess',
+            ])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // The annotation scoped to insight 3 should be omitted
