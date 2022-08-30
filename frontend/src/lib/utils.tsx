@@ -886,7 +886,7 @@ export function dateFilterToText(
     return defaultValue
 }
 
-/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs()` */
+/** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
 export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
@@ -922,6 +922,7 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
         } else if (clip === 'End') {
             return response.endOf(unit)
         }
+        return response.startOf('day')
     }
     return response
 }
