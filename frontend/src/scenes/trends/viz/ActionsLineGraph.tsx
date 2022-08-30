@@ -13,7 +13,14 @@ import { dateTitle, urlsForDatasets } from '../persons-modal/persons-modal-utils
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
+    const {
+        filters,
+        indexedResults,
+        incompletenessOffsetFromEnd,
+        hiddenLegendKeys,
+        labelGroupType,
+        aggregationTargetLabel,
+    } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
@@ -91,9 +98,9 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
 
                               openPersonsModal({
                                   url: selectedUrl,
-                                  title: dateTitle(filters.interval, day),
+                                  title: dateTitle(filters.interval, day, aggregationTargetLabel),
                                   urls,
-                                  actorType: 'person',
+                                  aggregationTargetLabel,
                               })
                           } else {
                               loadPeople(params)

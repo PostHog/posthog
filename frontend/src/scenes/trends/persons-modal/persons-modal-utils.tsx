@@ -42,11 +42,15 @@ export const pathsTitle = (props: { isDropOff: boolean; label: string }): React.
     )
 }
 
-export const dateTitle = (interval?: IntervalType, date?: string): React.ReactNode => {
+export const dateTitle = (
+    interval?: IntervalType,
+    date?: string,
+    aggregationTargetLabel?: { singular: string; plural: string }
+): React.ReactNode => {
     // TODO: Make this work for orgs
     return (
         <>
-            {capitalizeFirstLetter('persons')} on{' '}
+            {capitalizeFirstLetter(aggregationTargetLabel?.plural || 'persons')} on{' '}
             <DateDisplay interval={interval || 'day'} date={date?.toString() || ''} />
         </>
     )

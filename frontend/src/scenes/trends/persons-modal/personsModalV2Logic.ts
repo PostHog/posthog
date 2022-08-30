@@ -11,7 +11,8 @@ import { urls } from 'scenes/urls'
 
 import type { personsModalLogicType } from './personsModalV2LogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { fromParamsGivenUrl } from 'lib/utils'
+import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
+import { groupsModel } from '~/models/groupsModel'
 
 export interface PersonModalLogicProps {
     url: string
@@ -27,7 +28,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
     }),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     }),
 
@@ -100,6 +101,21 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
     selectors({
         allPeople: [(s) => [s.people], (res: CountedPaginatedResponse<ActorType> | null) => res?.results],
+        isGroupType: [(s) => [s.people], (people) => people?.results?.[0] && isGroupType(people?.results[0])],
+        actorLabel: [
+            (s) => [s.people, s.isGroupType, s.groupTypes, s.aggregationLabel],
+            (result, _isGroupType, groupTypes, aggregationLabel) => {
+                if (_isGroupType) {
+                    return 'groups'
+                    // return result?.action?.math_group_type_index != undefined &&
+                    //     groupTypes.length > result?.action.math_group_type_index
+                    //     ? aggregationLabel(result?.action.math_group_type_index).plural
+                    //     : ''
+                } else {
+                    return 'persons'
+                }
+            },
+        ],
     }),
 
     afterMount(({ actions, props }) => {

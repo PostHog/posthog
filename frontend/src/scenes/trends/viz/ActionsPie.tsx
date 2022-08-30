@@ -16,7 +16,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { indexedResults, labelGroupType, hiddenLegendKeys } = useValues(logic)
+    const { indexedResults, labelGroupType, hiddenLegendKeys, aggregationTargetLabel } = useValues(logic)
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
@@ -97,6 +97,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                           })
                                           openPersonsModal({
                                               url: personsUrl,
+                                              aggregationTargetLabel,
                                               title: label ?? '',
                                           })
                                       } else {

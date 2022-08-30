@@ -20,7 +20,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
-    const { indexedResults, labelGroupType } = useValues(logic)
+    const { indexedResults, labelGroupType, aggregationTargetLabel } = useValues(logic)
 
     function updateData(): void {
         const _data = [...indexedResults]
@@ -118,6 +118,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
 
                               openPersonsModal({
                                   url: personsUrl,
+                                  aggregationTargetLabel,
                                   title: <PropertyKeyInfo value={label || ''} disablePopover />,
                               })
                           } else {

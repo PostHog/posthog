@@ -21,6 +21,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import './BoldNumber.scss'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -81,7 +82,8 @@ function useBoldNumberTooltip({
 }
 
 export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Element {
-    const { insight, filters } = useValues(insightLogic)
+    const { insight, filters, insightProps } = useValues(insightLogic)
+    const { aggregationTargetLabel } = useValues(trendsLogic(insightProps))
     const { loadPeople } = useActions(personsModalLogic)
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
@@ -102,6 +104,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                                   if (resultSeries.persons?.url) {
                                       openPersonsModal({
                                           url: resultSeries.persons?.url,
+                                          aggregationTargetLabel,
                                           title: <PropertyKeyInfo value={resultSeries.label} disablePopover />,
                                       })
                                   }

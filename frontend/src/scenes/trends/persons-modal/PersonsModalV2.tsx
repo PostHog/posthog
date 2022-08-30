@@ -38,10 +38,10 @@ export interface PersonsModalProps {
         value: string
     }[]
     title: React.ReactNode
-    actorType: ActorType['type']
+    aggregationTargetLabel: { singular: string; plural: string }
 }
 
-function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {
+function PersonsModalV2({ url, urls, title, onAfterClose, aggregationTargetLabel }: PersonsModalProps): JSX.Element {
     const [chosenUrl, setChosenUrl] = useState(url)
     const [isOpen, setIsOpen] = useState(true)
     const [cohortModalOpen, setCohortModalOpen] = useState(false)
@@ -98,14 +98,16 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                             {peopleLoading ? (
                                 <>
                                     <Spinner />
-                                    <span>Loading...</span>
+                                    <span>Loading {aggregationTargetLabel.plural}...</span>
                                 </>
                             ) : (
                                 <>
                                     <IconPersonFilled className="text-xl" />
                                     <span>
                                         This list contains {peopleRes?.next ? 'more than ' : ''}
-                                        <b>{peopleRes?.results.length} unique results</b>
+                                        <b>
+                                            {peopleRes?.results.length} unique {aggregationTargetLabel.plural}
+                                        </b>
                                     </span>
                                 </>
                             )}
@@ -136,6 +138,7 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                                 })
                             }}
                             data-attr="person-modal-download-csv"
+                            disabled={peopleRes?.total_count === 0}
                         >
                             Download CSV
                         </LemonButton>
@@ -151,7 +154,9 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                             ))}
                         </>
                     ) : peopleRes ? (
-                        <div className="text-center">We couldn't find any matching results for this data point.</div>
+                        <div className="text-center">
+                            We couldn't find any matching {aggregationTargetLabel.plural} for this data point.
+                        </div>
                     ) : null}
                 </div>
 
@@ -162,7 +167,7 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                             onClick={() => peopleRes?.next && loadPeople({ url: peopleRes?.next })}
                             loading={peopleLoading}
                         >
-                            Load more
+                            Load more {aggregationTargetLabel.plural}
                         </LemonButton>
                     </div>
                 )}

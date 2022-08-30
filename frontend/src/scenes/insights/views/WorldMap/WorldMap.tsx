@@ -160,7 +160,6 @@ const WorldMapSVG = React.memo(
                                     if (countrySeries.persons?.url) {
                                         openPersonsModal({
                                             url: countrySeries.persons?.url,
-
                                             title: (
                                                 <>
                                                     Persons

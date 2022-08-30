@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
 import { buildFunnelPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -45,7 +46,12 @@ export const pathsLogic = kea<pathsLogicType>({
 
     connect: (props: InsightLogicProps) => ({
         logic: [personsModalLogic],
-        values: [insightLogic(props), ['filters as filter', 'insight', 'insightLoading']],
+        values: [
+            insightLogic(props),
+            ['filters as filter', 'insight', 'insightLoading'],
+            trendsLogic(props),
+            ['aggregationTargetLabel'],
+        ],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
 
@@ -81,6 +87,7 @@ export const pathsLogic = kea<pathsLogicType>({
             if (personsUrl) {
                 openPersonsModal({
                     url: personsUrl,
+                    aggregationTargetLabel: values.aggregationTargetLabel,
                     title: pathsTitle({
                         label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                         isDropOff: Boolean(path_dropoff_key),
