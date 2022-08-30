@@ -11,6 +11,7 @@ from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -494,7 +495,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             len(self._get_actors_for_property(filter, [("$browser", "Negative", "person", None)], False)), 10
         )
 
-    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    # TODO: Delete this test when moved to person-on-events
+    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False)
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -649,6 +651,172 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             self.assertAlmostEqual(odds, expected_odds)
 
         self.assertEqual(new_result, result)
+
+    @test_with_materialized_columns(
+        event_properties=[],
+        person_properties=["$browser"],
+        group_properties=[(0, "industry")],
+        verify_no_jsonextract=False,
+    )
+    @snapshot_clickhouse_queries
+    def test_funnel_correlation_with_properties_and_groups_person_on_events(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": "positive"}
+            )
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"$group_0": f"org:{i}"},
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+                properties={"$group_0": f"org:{i}"},
+            )
+
+        for i in range(10, 20):
+            create_group(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": "negative"}
+            )
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Negative"})
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+                properties={"$group_0": f"org:{i}"},
+            )
+            if i % 2 == 0:
+                _create_event(
+                    team=self.team,
+                    event="negatively_related",
+                    distinct_id=f"user_{i}",
+                    timestamp="2020-01-03T14:00:00Z",
+                    properties={"$group_0": f"org:{i}"},
+                )
+
+        # One Positive with failure
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key=f"org:fail", properties={"industry": "positive"}
+        )
+        _create_person(distinct_ids=[f"user_fail"], team_id=self.team.pk, properties={"$browser": "Positive"})
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_fail",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={"$group_0": f"org:fail"},
+        )
+
+        # One Negative with success
+        create_group(
+            team_id=self.team.pk, group_type_index=0, group_key=f"org:succ", properties={"industry": "negative"}
+        )
+        _create_person(distinct_ids=[f"user_succ"], team_id=self.team.pk, properties={"$browser": "Negative"})
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id=f"user_succ",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={"$group_0": f"org:succ"},
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id=f"user_succ",
+            timestamp="2020-01-04T14:00:00Z",
+            properties={"$group_0": f"org:succ"},
+        )
+
+        filters = {
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+            ],
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-14",
+            "funnel_correlation_type": "properties",
+            "funnel_correlation_names": ["industry"],
+            "aggregation_group_type_index": 0,
+        }
+
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
+            filter = Filter(data=filters)
+            correlation = FunnelCorrelation(filter, self.team)
+            result = correlation._run()[0]
+
+            odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
+
+            # Success Total = 11, Failure Total = 11
+            #
+            # Industry::Positive
+            # Success: 10
+            # Failure: 1
+
+            # Industry::Negative
+            # Success: 1
+            # Failure: 10
+
+            prior_count = 1
+            expected_odds_ratios = [
+                ((10 + prior_count) / (1 + prior_count)) * ((11 - 1 + prior_count) / (11 - 10 + prior_count)),
+                ((1 + prior_count) / (10 + prior_count)) * ((11 - 10 + prior_count) / (11 - 1 + prior_count)),
+            ]
+
+            for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+                self.assertAlmostEqual(odds, expected_odds)
+
+            self.assertEqual(
+                result,
+                [
+                    {
+                        "event": "industry::positive",
+                        "success_count": 10,
+                        "failure_count": 1,
+                        # "odds_ratio": 121/4,
+                        "correlation_type": "success",
+                    },
+                    {
+                        "event": "industry::negative",
+                        "success_count": 1,
+                        "failure_count": 10,
+                        # "odds_ratio": 4/121,
+                        "correlation_type": "failure",
+                    },
+                ],
+            )
+
+            self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])), 10)
+            self.assertEqual(
+                len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)), 1
+            )
+            self.assertEqual(len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)])), 1)
+            self.assertEqual(
+                len(self._get_actors_for_property(filter, [("industry", "negative", "group", 0)], False)), 10
+            )
+
+            # test with `$all` as property
+            # _run property correlation with filter on all properties
+            filter = filter.with_data({"funnel_correlation_names": ["$all"]})
+            correlation = FunnelCorrelation(filter, self.team)
+
+            new_result = correlation._run()[0]
+
+            odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
+
+            for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
+                self.assertAlmostEqual(odds, expected_odds)
+
+            self.assertEqual(new_result, result)
 
     def test_no_divide_by_zero_errors(self):
         filters = {

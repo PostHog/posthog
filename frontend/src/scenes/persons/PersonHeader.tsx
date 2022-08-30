@@ -16,7 +16,7 @@ export interface PersonHeaderProps {
     noEllipsis?: boolean
 }
 
-export function asDisplay(person: PersonType | PersonActorType | null | undefined): string {
+export function asDisplay(person: PersonType | PersonActorType | null | undefined, maxLength?: number): string {
     if (!person) {
         return 'Unknown'
     }
@@ -31,7 +31,7 @@ export function asDisplay(person: PersonType | PersonActorType | null | undefine
 
     const display: string | undefined = (customIdentifier || person.distinct_ids?.[0])?.trim()
 
-    return display ? midEllipsis(display, 40) : 'Person without ID'
+    return display ? midEllipsis(display, maxLength || 40) : 'Person without ID'
 }
 
 export const asLink = (person: Partial<PersonType> | null | undefined): string | undefined =>
