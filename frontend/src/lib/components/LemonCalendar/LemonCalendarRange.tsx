@@ -51,13 +51,11 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
 
     // What months exactly are shown on the calendar
     const shownMonths = months ?? autoMonthCount
-    const firstMonthForRange =
-        rangeStart && rangeEnd && dayjs(rangeStart).isSame(dayjs(rangeEnd), 'month')
-            ? dayjs(rangeStart)
-                  .subtract(shownMonths - 1, 'month')
-                  .startOf('month')
-                  .format('YYYY-MM-DD')
-            : rangeStart
+    const rangeMonthDiff = rangeStart && rangeEnd ? dayjs(rangeEnd).diff(rangeStart, 'month') : 0
+    const firstMonthForRange = dayjs(rangeStart ?? rangeEnd ?? undefined)
+        .subtract(Math.max(0, shownMonths - 1 - rangeMonthDiff), 'month')
+        .startOf('month')
+        .format('YYYY-MM-DD')
     const [firstMonth, setFirstMonth] = useState(firstMonthForRange)
 
     // If the range changes via props and is not in view, update the first month
