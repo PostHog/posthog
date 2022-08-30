@@ -161,7 +161,7 @@ describe('eventsListLogic', () => {
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
                 ])
                 .toMatchValues({
-                    data: [
+                    eventListData: [
                         expect.objectContaining({
                             playerPosition: {
                                 time: 0,
@@ -218,7 +218,7 @@ describe('eventsListLogic', () => {
                     sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
-                    data: [
+                    eventListData: [
                         expect.objectContaining({
                             playerPosition: {
                                 time: 99000,

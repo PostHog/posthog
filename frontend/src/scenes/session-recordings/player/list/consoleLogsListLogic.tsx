@@ -102,14 +102,14 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
     listeners(({ values }) => ({
         submitFeedback: ({ feedback }) => {
             eventUsageLogic.actions.reportRecordingConsoleFeedback(
-                values.data.length,
+                values.consoleListData.length,
                 feedback,
                 'Are you finding the console log feature useful?'
             )
         },
     })),
     selectors({
-        data: [
+        consoleListData: [
             (s) => [s.sessionPlayerData, s.windowIdFilter],
             (sessionPlayerData, windowIdFilter): RecordingConsoleLog[] => {
                 const logs: RecordingConsoleLog[] = []

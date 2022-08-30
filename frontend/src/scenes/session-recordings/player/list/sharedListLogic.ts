@@ -37,7 +37,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 eventUsageLogic
                     .findMounted()
                     ?.actions?.reportRecordingConsoleViewed(
-                        consoleLogsListLogic.findMounted()?.values?.data?.length ?? 0
+                        consoleLogsListLogic.findMounted()?.values?.consoleListData?.length ?? 0
                     )
             }
         },

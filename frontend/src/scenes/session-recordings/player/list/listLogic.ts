@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, Logic, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { PlayerPosition, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -13,10 +13,6 @@ export enum RowStatus {
     Error = 'error',
     Information = 'information',
     Match = 'match',
-}
-export const TAB_TO_LOGIC: Record<SessionRecordingTab, Logic> = {
-    [SessionRecordingTab.EVENTS]: eventsListLogic,
-    [SessionRecordingTab.CONSOLE]: consoleLogsListLogic,
 }
 export const DEFAULT_ROW_HEIGHT = 40 + 4 // Default height + padding
 export const OVERSCANNED_ROW_COUNT = 25
@@ -34,7 +30,14 @@ export const listLogic = kea<listLogicType>([
     connect(({ sessionRecordingId, playerKey }: ListLogicProps) => ({
         logic: [eventUsageLogic],
         actions: [sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }), ['seek']],
-        values: [sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }), ['currentPlayerTime']],
+        values: [
+            sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
+            ['currentPlayerTime'],
+            eventsListLogic({ sessionRecordingId, playerKey }),
+            ['eventListData'],
+            consoleLogsListLogic({ sessionRecordingId, playerKey }),
+            ['consoleListData'],
+        ],
     })),
     actions(() => ({
         setList: (list: List) => ({ list }),
@@ -91,8 +94,9 @@ export const listLogic = kea<listLogicType>([
     })),
     selectors(({ props }) => ({
         data: [
-            () => [TAB_TO_LOGIC[props.tab]?.selectors.data],
-            (data: Record<string, any>[]): Record<string, any>[] => data ?? [],
+            (selectors) => [selectors.eventListData, selectors.consoleListData],
+            (eventListData, consoleListData): Record<string, any>[] =>
+                props.tab === SessionRecordingTab.CONSOLE ? consoleListData : eventListData,
         ],
         currentStartIndex: [
             (selectors) => [selectors.data, selectors.currentPlayerTime],

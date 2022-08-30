@@ -10,7 +10,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { consoleLogsListLogic, FEEDBACK_OPTIONS } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 
 export function PlayerConsole({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element | null {
-    const { feedbackSubmitted, data } = useValues(consoleLogsListLogic({ sessionRecordingId, playerKey }))
+    const { feedbackSubmitted, consoleListData } = useValues(consoleLogsListLogic({ sessionRecordingId, playerKey }))
     const { submitFeedback } = useActions(consoleLogsListLogic({ sessionRecordingId, playerKey }))
     const { sessionPlayerDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
     const { seek } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
@@ -37,14 +37,14 @@ export function PlayerConsole({ sessionRecordingId, playerKey }: SessionRecordin
                     <div style={{ display: 'flex', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
                         <Spinner className="text-4xl" />
                     </div>
-                ) : data.length > 0 ? (
+                ) : consoleListData.length > 0 ? (
                     <AutoSizer>
                         {({ height, width }: { height: number; width: number }) => (
                             <div style={{ height: height, width: width, overflowY: 'scroll', paddingBottom: 5 }}>
                                 {/* Only display the first 150 logs because the list ins't virtualized */}
-                                {data.slice(0, 150).map((log, index) => renderLogLine(log, index))}
+                                {consoleListData.slice(0, 150).map((log, index) => renderLogLine(log, index))}
                                 <div>
-                                    {data.length > 150 && (
+                                    {consoleListData.length > 150 && (
                                         <div className="more-logs-available">
                                             While console logs are in beta, only 150 logs are displayed.
                                         </div>

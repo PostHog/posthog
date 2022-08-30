@@ -67,7 +67,7 @@ describe('consoleLogsListLogic', () => {
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
                 ])
                 .toMatchValues({
-                    data: [
+                    consoleListData: [
                         '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                         '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                     ]
@@ -136,7 +136,7 @@ describe('consoleLogsListLogic', () => {
                     sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
-                    data: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']
+                    consoleListData: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']
                         .map((windowId) => [
                             // Empty payload object
                             expect.objectContaining({
