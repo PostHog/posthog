@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.db import models
 from django.utils import timezone
 
@@ -28,6 +30,14 @@ class Annotation(models.Model):
 
     # DEPRECATED: replaced by scope
     apply_all: models.BooleanField = models.BooleanField(null=True)
+
+    @property
+    def insight_short_id(self) -> Optional[str]:
+        return self.dashboard_item.short_id if self.dashboard_item is not None else None
+
+    @property
+    def insight_name(self) -> Optional[str]:
+        return self.dashboard_item.name if self.dashboard_item is not None else None
 
     def get_analytics_metadata(self):
         return {"scope": str(self.scope), "date_marker": self.date_marker}

@@ -12,15 +12,14 @@ import {
     ExportHistoricalEventsUpgradeV2,
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
-import {
-    fetchEventsForInterval,
-    fetchTimestampBoundariesForTeam,
-} from '../../../../../src/worker/vm/upgrades/utils/utils'
+import { fetchEventsForInterval } from '../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval'
+import { fetchTimestampBoundariesForTeam } from '../../../../../src/worker/vm/upgrades/utils/utils'
 import { pluginConfig39 } from '../../../../helpers/plugins'
 import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/worker/vm/upgrades/utils/utils')
+jest.mock('../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval')
 
 const ONE_HOUR = 1000 * 60 * 60
 

@@ -429,8 +429,11 @@ export interface RRWebRecordingConsoleLogPayload {
 
 export interface RecordingConsoleLog extends RecordingTimeMixinType {
     parsedPayload: string
-    parsedTraceURL?: string
-    parsedTraceString?: string
+    hash?: string // md5() on parsedPayload. Used for deduping console logs.
+    count?: number // Number of duplicate console logs
+    previewContent?: React.ReactNode // Content to show in first line
+    fullContent?: React.ReactNode // Full content to show when item is expanded
+    traceContent?: React.ReactNode // Url content to show on right side
     level: LogLevel
 }
 
@@ -706,11 +709,11 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
     colonTimestamp?: string
+    isOutOfBand?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
-    isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }
 
 export interface EventsTableRowItem {
@@ -966,14 +969,16 @@ export enum AnnotationScope {
 }
 
 export interface AnnotationType {
-    id: string
+    id: number
     scope: AnnotationScope
     content: string
     date_marker: string
     created_by?: UserBasicType | null
     created_at: string
     updated_at: string
-    dashboard_item?: number
+    dashboard_item?: number | null
+    insight_short_id?: InsightModel['short_id']
+    insight_name?: InsightModel['name']
     deleted?: boolean
     creation_type?: string
 }
@@ -1964,8 +1969,10 @@ export type CombinedEvent = EventDefinition | ActionType
 
 export enum CombinedEventType {
     All = 'all',
-    Event = 'event',
     ActionEvent = 'action_event',
+    Event = 'event',
+    EventCustom = 'event_custom',
+    EventPostHog = 'event_posthog',
 }
 
 export interface IntegrationType {
@@ -2016,4 +2023,9 @@ export interface ExportedAssetType {
 export enum YesOrNoResponse {
     Yes = 'yes',
     No = 'no',
+}
+
+export interface SessionRecordingPlayerProps {
+    sessionRecordingId: SessionRecordingId
+    playerKey: string
 }

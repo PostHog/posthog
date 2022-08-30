@@ -1,17 +1,13 @@
-import { clamp, delay } from 'lib/utils'
-import api from 'lib/api'
+import { clamp } from 'lib/utils'
 import {
     FilterType,
     FunnelStepRangeEntityFilter,
     FunnelRequestParams,
-    FunnelResult,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
-    FunnelsTimeConversionBins,
     FunnelAPIResponse,
     FunnelStepReference,
-    TeamType,
     FlattenedFunnelStepByBreakdown,
     FunnelConversionWindow,
 } from '~/types'
@@ -156,28 +152,6 @@ export function getVisibilityIndex(step: FunnelStep, key?: BreakdownKeyType): st
 }
 
 export const SECONDS_TO_POLL = 3 * 60
-
-export async function pollFunnel<T = FunnelStep[] | FunnelsTimeConversionBins>(
-    teamId: TeamType['id'],
-    apiParams: FunnelRequestParams
-): Promise<FunnelResult<T>> {
-    // Tricky: This API endpoint has wildly different return types depending on parameters.
-    const { refresh, ...bodyParams } = apiParams
-    let result = await api.create(
-        `api/projects/${teamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`,
-        bodyParams
-    )
-    const start = window.performance.now()
-    while (result.result?.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
-        await delay(1000)
-        result = await api.create(`api/projects/${teamId}/insights/funnel`, bodyParams)
-    }
-    // if endpoint is still loading after 3 minutes just return default
-    if (result.loading) {
-        throw { status: 0, statusText: 'Funnel timeout' }
-    }
-    return result
-}
 
 interface BreakdownStepValues {
     rowKey: string

@@ -460,7 +460,7 @@ export function SavedInsights(): JSX.Element {
                                     columns={columns}
                                     dataSource={insights.results}
                                     pagination={pagination}
-                                    disableSortingCancellation
+                                    noSortingCancellation
                                     sorting={sorting}
                                     onSort={(newSorting) =>
                                         setSavedInsightsFilters({

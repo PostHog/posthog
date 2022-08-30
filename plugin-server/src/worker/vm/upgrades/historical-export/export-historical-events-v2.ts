@@ -38,7 +38,8 @@ import {
 } from '../../../../types'
 import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
-import { fetchEventsForInterval, fetchTimestampBoundariesForTeam, TimestampBoundaries } from '../utils/utils'
+import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
+import { fetchTimestampBoundariesForTeam, TimestampBoundaries } from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12

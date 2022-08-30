@@ -3,6 +3,7 @@ import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLo
 import {
     ActionType,
     ActorType,
+    AnnotationType,
     CohortType,
     CombinedEventType,
     DashboardCollaboratorType,
@@ -241,6 +242,15 @@ class ApiRequest {
             return this.person(id).addPathComponent('activity')
         }
         return this.persons().addPathComponent('activity')
+    }
+
+    // # Annotations
+    public annotations(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('annotations')
+    }
+
+    public annotation(id: AnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.annotations(teamId).addPathComponent(id)
     }
 
     // # Feature flags
@@ -729,6 +739,32 @@ const api = {
         },
     },
 
+    annotations: {
+        async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).get()
+        },
+        async update(
+            annotationId: AnnotationType['id'],
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).update({ data })
+        },
+        async restore(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).update({ data: { deleted: false } })
+        },
+        async list(): Promise<PaginatedResponse<AnnotationType>> {
+            return await new ApiRequest().annotations().get()
+        },
+        async create(
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotations().create({ data })
+        },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().annotations().assembleEndpointUrl()
+        },
+    },
+
     licenses: {
         async get(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).get()
@@ -841,7 +877,7 @@ const api = {
         return await getJSONOrThrow(response)
     },
 
-    async create(url: string, data?: any): Promise<any> {
+    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -853,6 +889,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+            signal,
         })
 
         if (!response.ok) {

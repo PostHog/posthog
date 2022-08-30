@@ -64,6 +64,8 @@ export enum RecordingWatchedSource {
     Unknown = 'unknown',
     RecordingsList = 'recordings_list',
     ProjectHomepage = 'project_homepage',
+    WebPerformance = 'web_performance',
+    PersonModal = 'person_modal',
 }
 
 export enum GraphSeriesAddedSource {
@@ -464,8 +466,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             loadingMilliseconds,
             dashboardId,
         }),
+        reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
     },
     listeners: ({ values }) => ({
+        reportInstanceSettingChange: ({ name, value }) => {
+            posthog.capture('instance setting change', { name, value })
+        },
         reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
             posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
         },

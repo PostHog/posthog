@@ -10,10 +10,10 @@ import {
     PluginTask,
     PluginTaskType,
 } from '../../../../types'
+import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 import {
     ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgrade,
-    fetchEventsForInterval,
     fetchTimestampBoundariesForTeam,
 } from '../utils/utils'
 

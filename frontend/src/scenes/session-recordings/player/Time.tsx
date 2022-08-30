@@ -5,10 +5,17 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { seekbarLogic } from './seekbarLogic'
+import { SessionRecordingPlayerProps } from '~/types'
 
-export function Timestamp({ style }: { style?: CSSProperties }): JSX.Element {
-    const { currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic)
+interface TimeControlProps extends SessionRecordingPlayerProps {
+    style?: CSSProperties
+}
+
+export function Timestamp({ style, sessionRecordingId, playerKey }: TimeControlProps): JSX.Element {
+    const { currentPlayerTime, sessionPlayerData } = useValues(
+        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
+    )
+    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
 
     return (
         <div className="rrweb-timestamp" style={style}>
@@ -18,9 +25,9 @@ export function Timestamp({ style }: { style?: CSSProperties }): JSX.Element {
     )
 }
 
-export function SeekBack({ style }: { style?: CSSProperties }): JSX.Element {
-    const { seekBackward } = useActions(sessionRecordingPlayerLogic)
-    const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic)
+export function SeekBack({ style, sessionRecordingId, playerKey }: TimeControlProps): JSX.Element {
+    const { seekBackward } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     return (
         <Tooltip
             placement="top"
@@ -34,9 +41,9 @@ export function SeekBack({ style }: { style?: CSSProperties }): JSX.Element {
     )
 }
 
-export function SeekForward({ style }: { style?: CSSProperties }): JSX.Element {
-    const { seekForward } = useActions(sessionRecordingPlayerLogic)
-    const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic)
+export function SeekForward({ style, sessionRecordingId, playerKey }: TimeControlProps): JSX.Element {
+    const { seekForward } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
+    const { jumpTimeMs } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     return (
         <Tooltip
             placement="top"
