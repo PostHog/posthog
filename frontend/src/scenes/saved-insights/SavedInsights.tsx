@@ -391,7 +391,7 @@ export function SavedInsights(): JSX.Element {
                                     dateFrom={dateFrom}
                                     dateTo={dateTo}
                                     onChange={(fromDate, toDate) =>
-                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate })
+                                        setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })
                                     }
                                     makeLabel={(key) => (
                                         <>

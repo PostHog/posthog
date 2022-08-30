@@ -101,9 +101,7 @@ export function DateFilter({
                         <Tooltip key={key} title={makeLabel ? makeLabel(dateValue) : undefined}>
                             <LemonButton
                                 key={key}
-                                onClick={() => {
-                                    setDate(values[0], values[1])
-                                }}
+                                onClick={() => setDate(values[0], values[1])}
                                 active={isActive}
                                 status="stealth"
                                 fullWidth

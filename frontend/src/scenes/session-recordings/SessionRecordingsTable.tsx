@@ -183,7 +183,7 @@ export function SessionRecordingsTable({ personUUID, isPersonPage = false }: Ses
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)
-                                setDateRange(changedDateFrom, changedDateTo)
+                                setDateRange(changedDateFrom, changedDateTo ?? undefined)
                             }}
                             dateOptions={[
                                 { key: 'Custom', values: [] },

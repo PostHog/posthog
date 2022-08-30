@@ -15,7 +15,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         openDateToNow: true,
         close: true,
         applyRange: true,
-        setDate: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDate: (dateFrom: string, dateTo: string | null) => ({ dateFrom, dateTo }),
         setRangeDateFrom: (range: Dayjs | null) => ({ range }),
         setRangeDateTo: (range: Dayjs | null) => ({ range }),
     }),
@@ -44,7 +44,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 : null) as Dayjs | null,
             {
                 setRangeDateFrom: (_, { range }) => (range ? dayjs(range) : null),
-                setDate: (_, { dateFrom }) => (dateFrom ? dateStringToDayJs(dateFrom) : null),
+                setDate: (_, { dateFrom }) => dateStringToDayJs(dateFrom),
             },
         ],
         rangeDateTo: [
@@ -96,13 +96,17 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         applyRange: () => {
-            actions.setDate(
-                values.rangeDateFrom ? dayjs(values.rangeDateFrom).format('YYYY-MM-DD') : null,
-                values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DD') : null
-            )
+            if (values.rangeDateFrom) {
+                actions.setDate(
+                    dayjs(values.rangeDateFrom).format('YYYY-MM-DD'),
+                    dayjs(values.rangeDateTo).format('YYYY-MM-DD')
+                )
+            }
         },
         setDate: ({ dateFrom, dateTo }) => {
-            props.onChange?.(dateFrom, dateTo)
+            if (dateFrom) {
+                props.onChange?.(dateFrom, dateTo)
+            }
         },
     })),
 ])
