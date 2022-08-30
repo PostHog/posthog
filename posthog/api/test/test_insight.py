@@ -1372,12 +1372,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             "events": [{"id": "$pageview"}],
             "properties": [{"key": "$active_feature_flag", "value": "insight-with-flag-used"}],
         }
+        filter_dict3 = {"events": [{"id": "$pageview"}], "breakdown": "email"}
 
         insight = Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="11223344"
         )
         insight2 = Insight.objects.create(
             filters=Filter(data=filter_dict2).to_dict(), team=self.team, short_id="44332211"
+        )
+        insight3 = Insight.objects.create(
+            filters=Filter(data=filter_dict3).to_dict(), team=self.team, short_id="00992281"
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=insight-with-flag-used")
