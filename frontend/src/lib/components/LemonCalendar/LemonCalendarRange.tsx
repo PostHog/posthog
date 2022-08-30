@@ -90,7 +90,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
             </div>
             <div className="p-2">
                 <LemonCalendar
-                    onClick={(date) => {
+                    onDateClick={(date) => {
                         if (!rangeStart && !rangeEnd) {
                             setRange([date, date])
                         } else if (rangeStart && !rangeEnd) {

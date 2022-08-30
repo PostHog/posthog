@@ -8,12 +8,12 @@ import clsx from 'clsx'
 
 export interface LemonCalendarProps {
     /** Fired if a calendar cell is clicked */
-    onClick?: (date: string) => void
-    /** YYYY-MM(-DD) for month that is shown, derived from "value" if absent */
+    onDateClick?: (date: string) => void
+    /** YYYY-MM-xx to specify the month that is shown */
     firstMonth?: string | null
     /** Called if the user changed the month in the calendar */
     onFirstMonthChanged?: (date: string) => void
-    /** Return the classnames for a date */
+    /** Use custom LemonButton properties for each date */
     getLemonButtonProps?: (date: string, month: string, defaultProps: LemonButtonProps) => LemonButtonProps
     /** Number of months */
     months?: number
@@ -34,7 +34,7 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
     }, [props.firstMonth])
 
     return (
-        <div className="LemonCalendar">
+        <div className="LemonCalendar flex items-start gap-4">
             {range(0, months).map((month) => {
                 const startOfMonth = (firstMonth ? dayjs(firstMonth) : dayjs()).add(month, 'month').startOf('month')
                 const endOfMonth = (firstMonth ? dayjs(firstMonth) : dayjs()).add(month, 'month').endOf('month')
@@ -122,7 +122,7 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                                     fullWidth
                                                     center
                                                     status="stealth"
-                                                    onClick={() => props.onClick?.(stringDate)}
+                                                    onClick={() => props.onDateClick?.(stringDate)}
                                                     {...buttonProps}
                                                 >
                                                     {date.date()}

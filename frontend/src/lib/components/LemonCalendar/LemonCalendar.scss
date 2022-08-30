@@ -1,8 +1,4 @@
 .LemonCalendar {
-    display: flex;
-    align-items: start;
-    column-gap: 0.5rem;
-
     .LemonCalendar__today {
         position: relative;
         &:after {

@@ -32,7 +32,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
             </div>
             <div className="p-2">
                 <LemonCalendar
-                    onClick={setSelectValue}
+                    onDateClick={setSelectValue}
                     firstMonth={selectValue}
                     months={months}
                     getLemonButtonProps={(date, _, defaultProps) => {
