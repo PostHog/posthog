@@ -3,33 +3,76 @@ import React, { useEffect, useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
-import { dateFilterToText } from 'lib/utils'
+import { formatDateRange } from 'lib/utils'
 
-interface LemonCalendarRangeProps {
-    value?: [string | null, string | null]
-    onChange: (date: [string | null, string | null]) => void
+export interface LemonCalendarRangeProps {
+    value?: (string | null)[]
+    onChange: (date: string[]) => void
     months?: number
     getLemonButtonProps?: LemonCalendarProps['getLemonButtonProps']
     onClose?: () => void
 }
 
 export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCalendarRangeProps): JSX.Element {
-    const [valueStart, valueEnd] = value ?? [null, null]
-    const [storedValues, setStoredValues] = useState([valueStart, valueEnd])
-    const [storedStart, storedEnd] = storedValues
-    const [startMovedLast, setStartMovedLast] = useState(false)
+    // Keep a sanitised and cached copy of the selected range
+    const [valueStart, valueEnd] = [
+        value?.[0] ? dayjs(value[0]).format('YYYY-MM-DD') : null,
+        value?.[1] ? dayjs(value[1]).format('YYYY-MM-DD') : null,
+    ]
+    const [[rangeStart, rangeEnd], setRange] = useState([valueStart, valueEnd])
+
+    // Track if the last change was on the range's start or end
+    const [lastChanged, setLastChanged] = useState('end' as 'start' | 'end')
     useEffect(() => {
-        if (valueStart !== storedStart) {
-            setStartMovedLast(true)
+        console.log({ valueStart, rangeStart, valueEnd, rangeEnd })
+        if (valueStart !== rangeStart) {
+            setLastChanged('start')
         }
-    }, [valueStart, storedStart])
+        if (valueEnd !== rangeEnd) {
+            setLastChanged('end')
+        }
+    }, [valueStart, rangeStart, valueEnd, rangeEnd])
+
+    // How many months fit on the screen, capped between 1..2
+    function getMaxMonthCount(): number {
+        const width = typeof window === undefined ? 1024 : window.innerWidth
+        return Math.min(Math.max(1, Math.floor(width / 300)), 2)
+    }
+    const [autoMonthCount, setAutoMonthCount] = useState(getMaxMonthCount())
     useEffect(() => {
-        if (valueEnd !== storedEnd) {
-            setStartMovedLast(false)
+        const listener = (): void => {
+            if (autoMonthCount !== getMaxMonthCount()) {
+                setAutoMonthCount(getMaxMonthCount())
+            }
         }
-    }, [valueEnd, storedEnd])
-    const rangeStart = storedStart ? dayjs(storedStart).format('YYYY-MM-DD') : undefined
-    const rangeEnd = storedEnd ? dayjs(storedEnd).format('YYYY-MM-DD') : undefined
+        window.addEventListener('resize', listener)
+        return () => window.removeEventListener('resize', listener)
+    }, [autoMonthCount])
+
+    // What months exactly are shown on the calendar
+    const shownMonths = months ?? autoMonthCount
+    const firstMonthForRange =
+        rangeStart && rangeEnd && dayjs(rangeStart).isSame(dayjs(rangeEnd), 'month')
+            ? dayjs(rangeStart)
+                  .subtract(shownMonths - 1, 'month')
+                  .startOf('month')
+                  .format('YYYY-MM-DD')
+            : rangeStart
+    const [firstMonth, setFirstMonth] = useState(firstMonthForRange)
+
+    // If the range changes via props and is not in view, update the first month
+    useEffect(() => {
+        const lastMonthForRange = dayjs(firstMonthForRange)
+            .add(shownMonths - 1, 'month')
+            .endOf('month')
+        if (
+            rangeStart &&
+            rangeEnd &&
+            (dayjs(rangeStart).isAfter(lastMonthForRange) || dayjs(rangeEnd).isBefore(dayjs(firstMonthForRange)))
+        ) {
+            setFirstMonth(firstMonthForRange)
+        }
+    }, [rangeStart, rangeEnd])
 
     return (
         <div className="LemonCalendarRange">
@@ -49,27 +92,28 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                 <LemonCalendar
                     onClick={(date) => {
                         if (!rangeStart && !rangeEnd) {
-                            setStoredValues([date, date])
+                            setRange([date, date])
                         } else if (rangeStart && !rangeEnd) {
-                            setStoredValues(date < rangeStart ? [date, rangeStart] : [rangeStart, date])
+                            setRange(date < rangeStart ? [date, rangeStart] : [rangeStart, date])
                         } else if (rangeEnd && !rangeStart) {
-                            setStoredValues(date < rangeEnd ? [date, rangeEnd] : [rangeEnd, date])
+                            setRange(date < rangeEnd ? [date, rangeEnd] : [rangeEnd, date])
                         } else if (rangeStart && rangeEnd) {
                             if (date === rangeStart || date === rangeEnd) {
-                                setStoredValues([date, date])
+                                setRange([date, date])
                             } else if (date < rangeStart) {
-                                setStoredValues([date, rangeEnd])
+                                setRange([date, rangeEnd])
                             } else if (date > rangeEnd) {
-                                setStoredValues([rangeStart, date])
-                            } else if (startMovedLast) {
-                                setStoredValues([date, rangeEnd])
+                                setRange([rangeStart, date])
+                            } else if (lastChanged === 'start') {
+                                setRange([rangeStart, date])
                             } else {
-                                setStoredValues([rangeStart, date])
+                                setRange([date, rangeEnd])
                             }
                         }
                     }}
-                    firstMonth={rangeStart}
-                    months={months}
+                    firstMonth={firstMonth}
+                    onFirstMonthChanged={setFirstMonth}
+                    months={shownMonths}
                     getLemonButtonProps={(date, _, defaultProps) => {
                         if (date === rangeStart || date === rangeEnd) {
                             return { ...defaultProps, status: 'primary', type: 'primary' }
@@ -81,17 +125,19 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                 />
             </div>
             <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
-                <div className="flex-1">
-                    <span className="text-muted">Selected period:</span>{' '}
-                    <span>{dateFilterToText(storedStart, storedEnd, '')}</span>
-                </div>
+                {shownMonths > 1 && rangeStart && rangeEnd && (
+                    <div className="flex-1">
+                        <span className="text-muted">Selected period:</span>{' '}
+                        <span>{formatDateRange(dayjs(rangeStart), dayjs(rangeEnd))}</span>
+                    </div>
+                )}
                 <LemonButton type="secondary" onClick={onClose}>
                     Cancel
                 </LemonButton>
                 <LemonButton
                     type="primary"
                     disabled={!rangeStart || !rangeEnd}
-                    onClick={() => onChange([storedStart, storedEnd])}
+                    onClick={rangeStart && rangeEnd ? () => onChange([rangeStart, rangeEnd]) : undefined}
                 >
                     Apply
                 </LemonButton>

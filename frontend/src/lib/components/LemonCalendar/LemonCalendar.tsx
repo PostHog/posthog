@@ -10,7 +10,7 @@ export interface LemonCalendarProps {
     /** Fired if a calendar cell is clicked */
     onClick?: (date: string) => void
     /** YYYY-MM(-DD) for month that is shown, derived from "value" if absent */
-    firstMonth?: string
+    firstMonth?: string | null
     /** Called if the user changed the month in the calendar */
     onFirstMonthChanged?: (date: string) => void
     /** Return the classnames for a date */
@@ -110,7 +110,7 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                         const defaultProps: LemonButtonProps = {
                                             className: clsx('flex-col', {
                                                 'opacity-25': date.isBefore(startOfMonth) || date.isAfter(endOfMonth),
-                                                LemonCalendar__today: date.isSame(today),
+                                                LemonCalendar__today: date.isSame(today, 'd'),
                                             }),
                                         }
                                         const buttonProps =

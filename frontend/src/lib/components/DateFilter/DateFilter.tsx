@@ -10,7 +10,7 @@ import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-
 import { IconCalendar } from '../icons'
 import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/components/LemonCalendar/LemonCalendarRange'
-import { DateFilterView } from 'lib/components/DateFilter/types'
+import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 
 export interface DateFilterProps {
     defaultValue: string
@@ -18,7 +18,7 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     className?: string
-    onChange?: (fromDate: string, toDate: string) => void
+    onChange?: (fromDate: string, toDate: string | null) => void
     disabled?: boolean
     getPopupContainer?: () => HTMLElement
     dateOptions?: DateMappingOption[]
@@ -44,7 +44,15 @@ export function DateFilter({
     isDateFormatted = true,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
-    const logicProps = { key, dateFrom, dateTo, onChange, defaultValue, dateOptions, isDateFormatted }
+    const logicProps: DateFilterLogicProps = {
+        key,
+        dateFrom,
+        dateTo,
+        onChange,
+        defaultValue,
+        dateOptions,
+        isDateFormatted,
+    }
     const { open, openFixedRange, openDateToNow, close, setRangeDateFrom, setRangeDateTo, setDate, applyRange } =
         useActions(dateFilterLogic(logicProps))
     const { isVisible, view, rangeDateFrom, rangeDateTo, value, isFixedRange, isDateToNow, isRollingDateRange } =
@@ -73,6 +81,7 @@ export function DateFilter({
                     setRangeDateTo(null)
                     applyRange()
                 }}
+                onClose={open}
             />
         ) : (
             <div ref={optionsRef} onClick={(e) => e.stopPropagation()}>

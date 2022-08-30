@@ -22,9 +22,9 @@ const BasicTemplate: ComponentStory<typeof LemonCalendar> = (props: LemonCalenda
 export const Default = BasicTemplate.bind({})
 Default.args = {}
 
-export const TwoMonths = BasicTemplate.bind({})
-TwoMonths.args = {
-    months: 2,
+export const MultipleMonths = BasicTemplate.bind({})
+MultipleMonths.args = {
+    months: 3,
 }
 
 export const CustomStyles = BasicTemplate.bind({})
