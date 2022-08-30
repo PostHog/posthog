@@ -33,7 +33,7 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 export interface PersonsModalProps {
     onAfterClose?: () => void
     url: string
-    urls: {
+    urls?: {
         label: string | JSX.Element
         value: string
     }[]
@@ -74,16 +74,18 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                             className="my-2"
                         />
 
-                        <LemonSelect
-                            fullWidth
-                            className="mb-2"
-                            value={chosenUrl}
-                            onChange={(v) => v && setChosenUrl(v)}
-                            options={(urls || []).map((url) => ({
-                                value: url.value,
-                                label: url.label,
-                            }))}
-                        />
+                        {urls ? (
+                            <LemonSelect
+                                fullWidth
+                                className="mb-2"
+                                value={chosenUrl}
+                                onChange={(v) => v && setChosenUrl(v)}
+                                options={(urls || []).map((url) => ({
+                                    value: url.value,
+                                    label: url.label,
+                                }))}
+                            />
+                        ) : null}
 
                         <div className="flex items-center gap-2 text-muted">
                             {actorsResponseLoading ? (
