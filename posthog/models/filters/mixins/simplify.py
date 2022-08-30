@@ -37,7 +37,6 @@ class SimplifyFilterMixin:
         result: Any = self.with_data({"is_simplified": True})  # type: ignore
 
         if getattr(result, "filter_test_accounts", False):
-
             new_group = {"type": "AND", "values": team.test_account_filters}
             prop_group = (
                 {"type": "AND", "values": [new_group, result.property_groups.to_dict()]}
@@ -45,6 +44,8 @@ class SimplifyFilterMixin:
                 else new_group
             )
             result = result.with_data({"properties": prop_group, "filter_test_accounts": False,})
+
+        result = simplify_search(result)
 
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
@@ -136,3 +137,27 @@ class SimplifyFilterMixin:
     @property
     def is_simplified(self) -> bool:
         return self._data.get("is_simplified", False)  # type: ignore
+
+
+def simplify_search(result: Any) -> Any:
+    search = getattr(result, "search")
+
+    if not search:
+        return result
+
+    new_group = {
+        "type": "OR",
+        "values": [
+            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
+            {"key": "name", "type": "person", "value": search, "operator": "icontains"},
+            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+        ],
+    }
+    prop_group = (
+        {"type": "AND", "values": [new_group, result.property_groups.to_dict()]}
+        if result.property_groups.to_dict()
+        else new_group
+    )
+    result = result.with_data({"properties": prop_group, "search": None})
+
+    return result
