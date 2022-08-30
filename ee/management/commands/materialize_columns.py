@@ -3,7 +3,6 @@ import logging
 from django.core.management.base import BaseCommand
 
 from ee.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
-from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 from posthog.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
@@ -23,11 +22,6 @@ class Command(BaseCommand):
             "--property-table", type=str, default="events", choices=["events", "person"], help="Table of --property"
         )
         parser.add_argument(
-            "--table-column",
-            help="The column to which --property should be materialised from.",
-            default=DEFAULT_TABLE_COLUMN,
-        )
-        parser.add_argument(
             "--backfill-period",
             type=int,
             default=MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
@@ -38,7 +32,7 @@ class Command(BaseCommand):
             "--min-query-time",
             type=int,
             default=MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
-            help="Minimum query time (ms)9 before a query if considered for optimization. Same as MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME env variable.",
+            help="Minimum query time (ms) before a query if considered for optimization. Same as MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME env variable.",
         )
         parser.add_argument(
             "--analyze-period",
@@ -63,7 +57,7 @@ class Command(BaseCommand):
             logger.info(f"Materializing column. table={options['property_table']}, property_name={options['property']}")
 
             materialize_properties_task(
-                columns_to_materialize=[(options["property_table"], options["table_column"], options["property"], 0)],
+                columns_to_materialize=[(options["property_table"], options["property"], 0)],
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
             )

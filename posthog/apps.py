@@ -39,7 +39,7 @@ class PostHogConfig(AppConfig):
 
             local_api_key = get_self_capture_api_token(None)
             if SELF_CAPTURE and local_api_key:
-                posthoganalytics.api_key = local_api_key
+                posthoganalytics.api_key = 'phc_gtWmTq3Pgl06u4sZY3TRcoQfp42yfuXHKoe8ZVSR6Kh'
                 posthoganalytics.host = settings.SITE_URL
             else:
                 posthoganalytics.disabled = True
