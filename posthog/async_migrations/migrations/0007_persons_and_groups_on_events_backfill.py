@@ -125,7 +125,16 @@ class Migration(AsyncMigrationDefinition):
                 # See https://github.com/PostHog/posthog/issues/10616 for details on choice of codec
                 fn=lambda query_id: self._update_properties_column_compression_codec(query_id, "ZSTD(3)"),
                 rollback_fn=lambda query_id: self._update_properties_column_compression_codec(query_id, "LZ4"),
-            ),
+            )] + self.get_tmp_table_creation_ops() [
+            AsyncMigrationOperation(fn=self._create_dictionaries, rollback_fn=self._clear_temporary_tables),
+            AsyncMigrationOperation(fn=self._run_backfill_mutation),
+            AsyncMigrationOperation(fn=self._wait_for_mutation_done),
+            AsyncMigrationOperation(fn=lambda query_id: self._postcheck(query_id)),
+            AsyncMigrationOperation(fn=self._clear_temporary_tables),
+        ]
+
+    def get_tmp_table_creation_ops(self):
+        return [
             AsyncMigrationOperationSQL(
                 sql=f"""
                     CREATE TABLE {settings.CLICKHOUSE_DATABASE}.{TEMPORARY_PERSONS_TABLE_NAME} {{on_cluster_clause}}
@@ -233,11 +242,7 @@ class Migration(AsyncMigrationDefinition):
                 rollback=None,
                 per_shard=True,
             ),
-            AsyncMigrationOperation(fn=self._create_dictionaries, rollback_fn=self._clear_temporary_tables),
-            AsyncMigrationOperation(fn=self._run_backfill_mutation),
-            AsyncMigrationOperation(fn=self._wait_for_mutation_done),
-            AsyncMigrationOperation(fn=lambda query_id: self._postcheck(query_id)),
-            AsyncMigrationOperation(fn=self._clear_temporary_tables),
+
         ]
 
     def _dictionary_connection_string(self):
