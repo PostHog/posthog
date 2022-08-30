@@ -23,6 +23,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
+from posthog.queries.util import filter_with_search_properties
 
 
 class EventInfoForRecording(TypedDict):
@@ -73,7 +74,7 @@ class ActorBaseQuery:
     ):
         self._team = team
         self.entity = entity
-        self._filter = filter
+        self._filter = filter_with_search_properties(filter)
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
