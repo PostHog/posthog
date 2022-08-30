@@ -300,12 +300,7 @@ export const sessionRecordingsTableLogic = kea<sessionRecordingsTableLogicType>(
     },
 
     urlToAction: ({ actions, values, props }) => {
-        const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
-            const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-            if (nulledSessionRecordingId !== values.activeSessionRecordingId) {
-                actions.openSessionPlayer(nulledSessionRecordingId, RecordingWatchedSource.Direct)
-            }
-
+        const urlToAction = (_: any, params: Params): void => {
             const filters = params.filters
             if (filters) {
                 if (
