@@ -25,7 +25,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { Tabs } from 'antd'
+import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
@@ -149,11 +149,13 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                                 />
                             ))}
                         </>
-                    ) : actorsResponse ? (
+                    ) : actorsResponseLoading ? (
+                        <Skeleton />
+                    ) : (
                         <div className="text-center">
                             We couldn't find any matching {actorLabel} for this data point.
                         </div>
-                    ) : null}
+                    )}
                 </div>
 
                 {actorsResponse?.next && (
