@@ -10,6 +10,8 @@ import { router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import type { personsModalLogicType } from './personsModalV2LogicType'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { fromParamsGivenUrl } from 'lib/utils'
 
 export interface PersonModalLogicProps {
     url: string
@@ -26,6 +28,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags']],
+        actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     }),
 
     loaders(({ values }) => ({
@@ -90,8 +93,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 },
             })
 
-            // const filters = fromParamsGivenUrl('?' + qs) // this function expects the question mark to be included
-            // actions.reportCohortCreatedFromPersonsModal(filters)
+            const filters = fromParamsGivenUrl('?' + qs)
+            actions.reportCohortCreatedFromPersonsModal(filters)
         },
     })),
 
