@@ -429,8 +429,11 @@ export interface RRWebRecordingConsoleLogPayload {
 
 export interface RecordingConsoleLog extends RecordingTimeMixinType {
     parsedPayload: string
-    parsedTraceURL?: string
-    parsedTraceString?: string
+    hash?: string // md5() on parsedPayload. Used for deduping console logs.
+    count?: number // Number of duplicate console logs
+    previewContent?: React.ReactNode // Content to show in first line
+    fullContent?: React.ReactNode // Full content to show when item is expanded
+    traceContent?: React.ReactNode // Url content to show on right side
     level: LogLevel
 }
 
@@ -706,11 +709,11 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
     colonTimestamp?: string
+    isOutOfBand?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
-    isOutOfBandEvent: boolean // Did the event not originate from the same client library as the recording
 }
 
 export interface EventsTableRowItem {
@@ -2020,4 +2023,9 @@ export interface ExportedAssetType {
 export enum YesOrNoResponse {
     Yes = 'yes',
     No = 'no',
+}
+
+export interface SessionRecordingPlayerProps {
+    sessionRecordingId: SessionRecordingId
+    playerKey: string
 }

@@ -2,16 +2,16 @@ import React from 'react'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { useActions, useValues } from 'kea'
 import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
-import { RecordingWindowFilter } from '~/types'
+import { RecordingWindowFilter, SessionRecordingPlayerProps } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/sharedListLogic'
 import { IconInfo } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/list/sharedListLogic'
 
-export function PlayerFilter(): JSX.Element {
-    const { windowIdFilter } = useValues(sharedListLogic)
-    const { setWindowIdFilter } = useActions(sharedListLogic)
-    const { windowIds } = useValues(metaLogic)
+export function PlayerFilter({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+    const { windowIdFilter } = useValues(sharedListLogic({ sessionRecordingId, playerKey }))
+    const { setWindowIdFilter } = useActions(sharedListLogic({ sessionRecordingId, playerKey }))
+    const { windowIds } = useValues(metaLogic({ sessionRecordingId, playerKey }))
 
     return (
         <>
