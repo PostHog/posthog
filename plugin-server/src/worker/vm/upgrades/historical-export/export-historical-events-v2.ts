@@ -151,7 +151,6 @@ export function addHistoricalEventsExportCapabilityV2(
     tasks.job[INTERFACE_JOB_NAME] = {
         name: INTERFACE_JOB_NAME,
         type: PluginTaskType.Job,
-        // TODO: Accept timestamp as payload
         exec: async (payload: ExportHistoricalEventsUIPayload) => {
             // only let one export run at a time
             const alreadyRunningExport = await getExportParameters()
@@ -330,13 +329,12 @@ export function addHistoricalEventsExportCapabilityV2(
         }
 
         if (payload.retriesPerformedSoFar >= 15) {
-            await stopExport(
-                `Exporting events from ${dateRange(
-                    payload.startTime,
-                    payload.endTime
-                )} failed after 15 retries. Stopping export.`
-            )
-            // :TODO: processError
+            const message = `Exporting events from ${dateRange(
+                payload.startTime,
+                payload.endTime
+            )} failed after 15 retries. Stopping export.`
+            await stopExport(message)
+            await processError(hub, pluginConfig, message)
             return
         }
 
