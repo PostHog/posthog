@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { BindLogic, useValues } from 'kea'
 import {
@@ -31,8 +31,9 @@ import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { formatAggregationAxisValue, AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { dayjs } from 'lib/dayjs'
 
-//--Chart Style Options--//
 if (registerables) {
     // required for storybook to work, not found in esbuild
     Chart.register(...registerables)
@@ -40,9 +41,7 @@ if (registerables) {
 Chart.register(CrosshairPlugin)
 Chart.defaults.animation['duration'] = 0
 
-//--Chart Style Options--//
-
-interface LineGraphProps {
+export interface LineGraphProps {
     datasets: GraphDataset[]
     hiddenLegendKeys?: Record<string | number, boolean | undefined>
     labels: string[]
@@ -57,6 +56,12 @@ interface LineGraphProps {
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
     aggregationAxisFormat?: AggregationAxisFormat
+}
+
+interface LineGraphCSSProperties extends React.CSSProperties {
+    '--chart-left-px': number
+    '--chart-height-px': number
+    '--chart-interval-px': number
 }
 
 export function ensureTooltipElement(): HTMLElement {
@@ -114,6 +119,8 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
 
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
+
     useEffect(() => {
         buildChart()
     }, [datasets, hiddenLegendKeys])
@@ -125,6 +132,26 @@ export function LineGraph_({
             tooltipEl?.remove()
         }
     }, [])
+
+    // Calculate chart content coordinates for annotations overlay positioning
+    const [chartLeftPx, chartHeightPx, chartIntervalPx] = useMemo<[number, number, number]>(() => {
+        if (myLineChart.current) {
+            let boundaryLeftExtent = myLineChart.current.scales.x.left
+            const boundaryRightExtent = myLineChart.current.scales.x.right
+            const boundaryTicks = myLineChart.current.scales.x.ticks.length
+            const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
+            let boundaryInterval = boundaryDelta / (boundaryTicks - 1)
+            if (type === GraphType.Bar) {
+                // When displaying a bar graph, we want the annotations to be in the middle of the bar (on the X axis)
+                boundaryInterval = boundaryDelta / boundaryTicks
+                boundaryLeftExtent += boundaryInterval / 2
+            }
+            const boundaryTopExtent = myLineChart.current.scales.x.top
+            return [boundaryLeftExtent, boundaryTopExtent, boundaryInterval]
+        } else {
+            return [0, 0, 0]
+        }
+    }, [myLineChart.current, chartWidth, chartHeight])
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
@@ -461,7 +488,7 @@ export function LineGraph_({
                         display: true,
                         drawOnChartArea: false,
                         borderColor: colors.axisLine as string,
-                        tickLength: 8,
+                        tickLength: 12,
                     },
                 },
                 y: {
@@ -550,9 +577,20 @@ export function LineGraph_({
     }
 
     return (
-        <div className="LineGraph" data-attr={dataAttr}>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div
+            className="LineGraph"
+            data-attr={dataAttr}
+            style={
+                {
+                    '--chart-left-px': chartLeftPx,
+                    '--chart-height-px': chartHeightPx,
+                    '--chart-interval-px': chartIntervalPx,
+                } as LineGraphCSSProperties
+            }
+        >
             <canvas ref={chartRef} />
-            <AnnotationsOverlay />
+            <AnnotationsOverlay dates={datasets[0]?.days?.map((day) => dayjs(day))} />
         </div>
     )
 }

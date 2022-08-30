@@ -11,7 +11,8 @@ export interface InsightAnnotationsLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
 }
 
-const INTERVAL_UNIT_TO_DAYJS_FORMAT_INTERNAL: Record<IntervalType, string> = {
+/** Internal format for grouping annotations. */
+export const ANNOTATIONS_INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
     hour: 'YYYY-MM-DD HH',
     day: 'YYYY-MM-DD',
     week: 'YYYY-MM-DD',
@@ -53,7 +54,7 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
         groupedAnnotations: [
             (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
             (annotations, intervalUnit, timezone) => {
-                const format = INTERVAL_UNIT_TO_DAYJS_FORMAT_INTERNAL[intervalUnit]
+                const format = ANNOTATIONS_INTERVAL_UNIT_TO_DAYJS_FORMAT[intervalUnit]
                 return groupBy(annotations, (annotation) => {
                     let datetime = dayjs.utc(annotation['date_marker'])
                     if (timezone !== 'UTC') {

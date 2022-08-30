@@ -1,5 +1,19 @@
 .AnnotationsOverlay {
     position: absolute;
-    top: 0;
-    left: 0;
+    top: calc(var(--chart-height-px) * 1px);
+    left: calc(var(--chart-left-px) * 1px);
+}
+
+.AnnotationsBadge {
+    position: absolute;
+    margin-left: calc(var(--chart-interval-px) * var(--annotation-badge-index) * 1px);
+    transform: translate(-50%, -50%);
+    cursor: pointer;
+
+    > .LemonBubble {
+        transition: transform 150ms ease-out; // Same as LemonBubble's transition
+        // Override .LemonBubble--position-self-centered
+        transform: scale(var(--annotation-badge-scale));
+        transform-origin: center;
+    }
 }
