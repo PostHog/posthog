@@ -3,6 +3,7 @@ import { parsePeopleParams, PeopleParamType } from 'scenes/trends/persons-modal/
 import {
     ActionType,
     ActorType,
+    AnnotationType,
     CohortType,
     CombinedEventType,
     DashboardCollaboratorType,
@@ -15,6 +16,7 @@ import {
     InsightModel,
     IntegrationType,
     LicenseType,
+    OrganizationType,
     PersonListParams,
     PersonProperty,
     PersonType,
@@ -26,7 +28,7 @@ import {
     TeamType,
     UserType,
 } from '~/types'
-import { getCurrentTeamId } from './utils/logics'
+import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
@@ -116,16 +118,18 @@ class ApiRequest {
 
     // API-aware endpoint composition
 
-    // # Organizations
+    // # Utils
+    public current(): ApiRequest {
+        return this.addPathComponent('@current')
+    }
 
+    // # Organizations
     public organizations(): ApiRequest {
         return this.addPathComponent('organizations')
     }
 
-    // # Current
-
-    public current(): ApiRequest {
-        return this.addPathComponent('@current')
+    public organizationsDetail(id: OrganizationType['id'] = getCurrentOrganizationId()): ApiRequest {
+        return this.organizations().addPathComponent(id)
     }
 
     // # Projects
@@ -137,6 +141,23 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    // # Insights
+    public insights(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insights')
+    }
+
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent(id)
+    }
+
+    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('activity')
+    }
+
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('sharing')
+    }
+
     // # Plugins
     public plugins(): ApiRequest {
         return this.addPathComponent('plugins')
@@ -144,6 +165,10 @@ class ApiRequest {
 
     public pluginLogs(pluginConfigId: number): ApiRequest {
         return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
+    }
+
+    public pluginsActivity(): ApiRequest {
+        return this.organizations().current().plugins().addPathComponent('activity')
     }
 
     // # Actions
@@ -245,6 +270,15 @@ class ApiRequest {
         return this.persons().addPathComponent('activity')
     }
 
+    // # Annotations
+    public annotations(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('annotations')
+    }
+
+    public annotation(id: AnnotationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.annotations(teamId).addPathComponent(id)
+    }
+
     // # Feature flags
     public featureFlags(teamId: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('feature_flags')
@@ -271,26 +305,6 @@ class ApiRequest {
 
     public license(id: LicenseType['id']): ApiRequest {
         return this.licenses().addPathComponent(id)
-    }
-
-    public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insights')
-    }
-
-    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
-        return this.insights(teamId).addPathComponent('activity')
-    }
-
-    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insights(teamId).addPathComponent(id)
-    }
-
-    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insight(id, teamId).addPathComponent('sharing')
-    }
-
-    public pluginsActivity(): ApiRequest {
-        return this.organizations().current().plugins().addPathComponent('activity')
     }
 
     // # Subscriptions
@@ -741,6 +755,29 @@ const api = {
         },
     },
 
+    annotations: {
+        async get(annotationId: AnnotationType['id']): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).get()
+        },
+        async update(
+            annotationId: AnnotationType['id'],
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotation(annotationId).update({ data })
+        },
+        async list(): Promise<PaginatedResponse<AnnotationType>> {
+            return await new ApiRequest().annotations().get()
+        },
+        async create(
+            data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item'>
+        ): Promise<AnnotationType> {
+            return await new ApiRequest().annotations().create({ data })
+        },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().annotations().assembleEndpointUrl()
+        },
+    },
+
     licenses: {
         async get(licenseId: LicenseType['id']): Promise<LicenseType> {
             return await new ApiRequest().license(licenseId).get()
@@ -853,7 +890,7 @@ const api = {
         return await getJSONOrThrow(response)
     },
 
-    async create(url: string, data?: any): Promise<any> {
+    async create(url: string, data?: any, signal?: AbortSignal): Promise<any> {
         url = normalizeUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
@@ -865,6 +902,7 @@ const api = {
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             },
             body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+            signal,
         })
 
         if (!response.ok) {

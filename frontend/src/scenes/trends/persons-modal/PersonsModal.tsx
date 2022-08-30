@@ -22,6 +22,8 @@ import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingBu
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 import api from 'lib/api'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 
@@ -42,16 +44,8 @@ export function PersonsModal({
     showModalActions = true,
     aggregationTargetLabel,
 }: PersonsModalProps): JSX.Element {
-    const {
-        people,
-        loadingMorePeople,
-        firstLoadedPeople,
-        searchTerm,
-        isInitialLoad,
-        peopleParams,
-        actorLabel,
-        sessionRecordingId,
-    } = useValues(personsModalLogic)
+    const { people, loadingMorePeople, firstLoadedPeople, searchTerm, isInitialLoad, peopleParams, actorLabel } =
+        useValues(personsModalLogic)
     const {
         hidePeople,
         loadMorePeople,
@@ -59,9 +53,8 @@ export function PersonsModal({
         setPersonsModalFilters,
         setSearchTerm,
         switchToDataPoint,
-        openRecordingModal,
-        closeRecordingModal,
     } = useActions(personsModalLogic)
+    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const title = useMemo(
@@ -126,7 +119,6 @@ export function PersonsModal({
 
     return (
         <>
-            {!!sessionRecordingId && <SessionPlayerDrawer onClose={closeRecordingModal} />}
             <LemonModal
                 title={title}
                 isOpen={isOpen}
@@ -269,7 +261,10 @@ export function PersonsModal({
                                                                 <MultiRecordingButton
                                                                     sessionRecordings={actor.matched_recordings}
                                                                     onOpenRecording={(sessionRecording) => {
-                                                                        openRecordingModal(sessionRecording.session_id)
+                                                                        openSessionPlayer(
+                                                                            sessionRecording.session_id,
+                                                                            RecordingWatchedSource.PersonModal
+                                                                        )
                                                                     }}
                                                                 />
                                                             )
@@ -317,6 +312,7 @@ export function PersonsModal({
                     </>
                 )}
             </LemonModal>
+            <SessionPlayerDrawer onClose={closeSessionPlayer} />
         </>
     )
 }

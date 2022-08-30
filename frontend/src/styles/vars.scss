@@ -91,6 +91,7 @@ $colors: (
     'border-light': rgba(0, 0, 0, 0.08),
     'border-dark': rgba(0, 0, 0, 0.24),
     'border-active': rgba(0, 0, 0, 0.36),
+    'transparent': transparent,
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.

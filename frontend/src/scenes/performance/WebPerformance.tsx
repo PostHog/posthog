@@ -75,7 +75,6 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                         },
                     },
                 ]}
-                data-tooltip="web-performance-table"
             />
         </>
     )

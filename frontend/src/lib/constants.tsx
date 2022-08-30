@@ -99,7 +99,6 @@ export const FEATURE_FLAGS = {
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
     NPS_PROMPT: '4562-nps', // owner: @marcushyett-ph
     // Experiments / beta features
-    NEW_PATHS_UI_EDGE_WEIGHTS: 'new-paths-ui-edge-weights', // owner: @neilkakkar
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
     RETENTION_BREAKDOWN: 'retention-breakdown', // owner: @hazzadous
@@ -115,16 +114,17 @@ export const FEATURE_FLAGS = {
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
     INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     FRONTEND_APPS: '9618-frontend-apps', // owner: @mariusandra
-    BREAKDOWN_ATTRIBUTION: 'breakdown-attribution', // owner: @neilkakkar
     SIMPLIFY_ACTIONS: 'simplify-actions', // owner: @alexkim205,
     TOOLBAR_LAUNCH_SIDE_ACTION: 'toolbar-launch-side-action', // owner: @pauldambra,
-    FEATURE_FLAG_EXPERIENCE_CONTINUITY: 'feature-flag-experience-continuity', // owner: @neilkakkar
     // Re-enable person modal CSV downloads when frontend can support new entity properties
     PERSON_MODAL_EXPORTS: 'person-modal-exports', // hot potato see https://github.com/PostHog/posthog/pull/10824
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
+    CANCEL_RUNNING_QUERIES: 'cancel-running-queries', // owner @timgl
     IN_APP_PROMPTS_EXPERIMENT: 'IN_APP_PROMPTS_EXPERIMENT', // owner: @kappa90
     SESSION_RECORDINGS_PLAYER_V3: 'session-recording-player-v3', // owner: @alexkim205
     SESSION_RECORDINGS_PLAYER_V3_FILTERING: 'session-recording-player-v3-filtering', // owner: @alexkim205
+    SESSION_RECORDINGS_PLAYLIST: 'session-recording-playlist', // owner @rcmarron
+    ALLOW_CSV_EXPORT_COLUMN_CHOICE: 'allow-csv-export-column-choice', //owner: @pauldambra
     PERSONS_MODAL_V2: 'persons-modal-v2', // owner: @benjackwhite
 }
 

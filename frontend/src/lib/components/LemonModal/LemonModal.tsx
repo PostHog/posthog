@@ -110,6 +110,7 @@ export function LemonModal({
                     width: width,
                 },
             }}
+            appElement={document.getElementById('root') as HTMLElement}
         >
             {modalContent}
         </Modal>

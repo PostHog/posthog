@@ -22,13 +22,13 @@ import {
     eventsListLogic,
     OVERSCANNED_ROW_COUNT,
     DEFAULT_ROW_HEIGHT,
-} from 'scenes/session-recordings/player/eventsListLogic'
+} from 'scenes/session-recordings/player/list/eventsListLogic'
 import { IconAutocapture, IconEvent, IconPageleave, IconPageview } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { capitalizeFirstLetter, eventToDescription, isEllipsisActive } from 'lib/utils'
 import { getKeyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { RecordingEventType } from '~/types'
-import { sessionRecordingLogic } from '../sessionRecordingLogic'
+import { RecordingEventType, SessionRecordingPlayerProps } from '~/types'
+import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
@@ -84,10 +84,10 @@ function EventDescription({ description }: { description: string }): JSX.Element
     )
 }
 
-export function PlayerEvents(): JSX.Element {
+export function PlayerEvents({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
     const listRef = useRef<List>(null)
     const {
-        listEvents,
+        eventListData,
         localFilters,
         currentBoxSizeAndPosition,
         showPositionFinder,
@@ -95,10 +95,11 @@ export function PlayerEvents(): JSX.Element {
         isCurrent,
         isDirectionUp,
         renderedRows,
-    } = useValues(eventsListLogic)
-    const { sessionEventsDataLoading } = useValues(sessionRecordingLogic)
-    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } =
-        useActions(eventsListLogic)
+    } = useValues(eventsListLogic({ sessionRecordingId, playerKey }))
+    const { sessionEventsDataLoading } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
+    const { setLocalFilters, setRenderedRows, setList, scrollTo, disablePositionFinder, handleEventClick } = useActions(
+        eventsListLogic({ sessionRecordingId, playerKey })
+    )
     const { featureFlags } = useValues(featureFlagLogic)
     const isSessionRecordingsPlayerV3 = !!featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3]
 
@@ -110,7 +111,7 @@ export function PlayerEvents(): JSX.Element {
 
     const rowRenderer = useCallback(
         function _rowRenderer({ index, style, key }: ListRowProps): JSX.Element {
-            const event = listEvents[index]
+            const event = eventListData[index]
             const hasDescription = getKeyMapping(event.event, 'event')
             const isEventCurrent = isCurrent(index)
 
@@ -119,11 +120,11 @@ export function PlayerEvents(): JSX.Element {
                     key={key}
                     className={clsx('event-list-item', { 'current-event': isEventCurrent })}
                     align="top"
-                    style={{ ...style, zIndex: listEvents.length - index }}
+                    style={{ ...style, zIndex: eventListData.length - index }}
                     onClick={() => {
                         event.playerPosition && handleEventClick(event.playerPosition)
                     }}
-                    data-tooltip="recording-event-list"
+                    data-attr="recording-event-list"
                 >
                     <Col className="event-item-icon">
                         <div className="event-item-icon-wrapper">{renderIcon(event)}</div>
@@ -131,7 +132,7 @@ export function PlayerEvents(): JSX.Element {
                     <Col
                         className={clsx('event-item-content', {
                             rendering: !isRowIndexRendered(index),
-                            'out-of-band-event': event.isOutOfBandEvent,
+                            'out-of-band-event': event.isOutOfBand,
                         })}
                     >
                         <Row className="event-item-content-top-row">
@@ -144,7 +145,7 @@ export function PlayerEvents(): JSX.Element {
                                     ellipsis={true}
                                     style={{ maxWidth: 150 }}
                                 />
-                                {event.isOutOfBandEvent && (
+                                {event.isOutOfBand && (
                                     <Tooltip
                                         className="out-of-band-event-tooltip"
                                         title={
@@ -173,7 +174,7 @@ export function PlayerEvents(): JSX.Element {
             )
         },
         [
-            listEvents.length,
+            eventListData.length,
             renderedRows.startIndex,
             renderedRows.stopIndex,
             currentBoxSizeAndPosition.top,
@@ -184,7 +185,7 @@ export function PlayerEvents(): JSX.Element {
     const cellRangeRenderer = useCallback(
         function _cellRangeRenderer(props: GridCellRangeProps): React.ReactNode[] {
             const children = defaultCellRangeRenderer(props)
-            if (listEvents.length > 0) {
+            if (eventListData.length > 0) {
                 children.push(
                     <div
                         key="highlight-box"
@@ -198,7 +199,12 @@ export function PlayerEvents(): JSX.Element {
             }
             return children
         },
-        [currentBoxSizeAndPosition.top, currentBoxSizeAndPosition.height, sessionEventsDataLoading, listEvents.length]
+        [
+            currentBoxSizeAndPosition.top,
+            currentBoxSizeAndPosition.height,
+            sessionEventsDataLoading,
+            eventListData.length,
+        ]
     )
 
     return (
@@ -251,7 +257,7 @@ export function PlayerEvents(): JSX.Element {
                                         cellRangeRenderer={cellRangeRenderer}
                                         overscanRowCount={OVERSCANNED_ROW_COUNT} // in case autoscrolling scrolls faster than we render.
                                         overscanIndicesGetter={overscanIndicesGetter}
-                                        rowCount={listEvents.length}
+                                        rowCount={eventListData.length}
                                         rowRenderer={rowRenderer}
                                         rowHeight={DEFAULT_ROW_HEIGHT}
                                     />

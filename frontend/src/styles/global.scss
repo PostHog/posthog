@@ -630,6 +630,23 @@ body {
         box-shadow: var(--shadow-elevation);
     }
 
+    .ant-modal-mask {
+        z-index: var(--z-ant-modal-mask);
+    }
+    .ant-modal-wrap {
+        z-index: var(--z-ant-modal-wrap);
+    }
+    .ant-message {
+        z-index: var(--z-ant-message);
+    }
+    .ant-select-dropdown {
+        z-index: var(--z-ant-select-dropdown);
+    }
+
+    .ant-picker-dropdown {
+        z-index: var(--z-ant-select-dropdown);
+    }
+
     .ant-form-item-label {
         > label {
             font-weight: 600;

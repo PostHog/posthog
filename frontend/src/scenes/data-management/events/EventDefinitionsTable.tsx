@@ -21,7 +21,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { teamLogic } from 'scenes/teamLogic'
-import { ActionEvent, IconWebhook, UnverifiedEvent } from 'lib/components/icons'
+import { IconWebhook } from 'lib/components/icons'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { TZLabel } from 'lib/components/TimezoneAware'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -33,25 +33,16 @@ const eventTypeOptions: LemonSelectOptions<CombinedEventType> = [
     {
         value: CombinedEventType.ActionEvent,
         label: 'Calculated events',
-        icon: <ActionEvent />,
         'data-attr': 'event-type-option-action-event',
     },
     {
-        value: CombinedEventType.Event,
-        label: 'Events',
-        icon: <UnverifiedEvent />,
-        'data-attr': 'event-type-option-event',
-    },
-    {
         value: CombinedEventType.EventCustom,
-        label: 'Events / Custom',
-        icon: <UnverifiedEvent />,
+        label: 'Custom events',
         'data-attr': 'event-type-option-event-custom',
     },
     {
         value: CombinedEventType.EventPostHog,
-        label: 'Events / PostHog',
-        icon: <UnverifiedEvent />,
+        label: 'PostHog events',
         'data-attr': 'event-type-option-event-posthog',
     },
 ]
@@ -256,7 +247,6 @@ export function EventDefinitionsTable(): JSX.Element {
                 columns={columns}
                 className="events-definition-table"
                 data-attr="events-definition-table"
-                data-tooltip="data-management-table"
                 loading={eventDefinitionsLoading}
                 rowKey="id"
                 pagination={{

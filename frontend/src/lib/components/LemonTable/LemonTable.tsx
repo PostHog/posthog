@@ -55,7 +55,7 @@ export interface LemonTableProps<T extends Record<string, any>> {
     /**
      * By default sorting goes: 0. unsorted > 1. ascending > 2. descending > GOTO 0 (loop).
      * With sorting cancellation disabled, GOTO 0 is replaced by GOTO 1. */
-    disableSortingCancellation?: boolean
+    noSortingCancellation?: boolean
     /** Sorting order to start with. */
     defaultSorting?: Sorting | null
     /** Controlled sort order. */
@@ -73,7 +73,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
-    'data-tooltip'?: string
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -92,7 +91,7 @@ export function LemonTable<T extends Record<string, any>>({
     expandable,
     showHeader = true,
     uppercaseHeader = true,
-    disableSortingCancellation = false,
+    noSortingCancellation: disableSortingCancellation = false,
     defaultSorting = null,
     sorting,
     onSort,
@@ -103,7 +102,6 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
-    'data-tooltip': dataTooltip,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -203,7 +201,6 @@ export function LemonTable<T extends Record<string, any>>({
             )}
             style={style}
             data-attr={dataAttr}
-            data-tooltip={dataTooltip}
         >
             <div className="scrollable__inner" ref={scrollRef}>
                 <div className="LemonTable__content">

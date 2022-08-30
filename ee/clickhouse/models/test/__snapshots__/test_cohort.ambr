@@ -11,6 +11,12 @@
     (SELECT id
      FROM person
      WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))
+                  AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$another_prop'), '^"|"$', '')))))) )
      GROUP BY id
      HAVING max(is_deleted) = 0
      AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), '$some_prop'), '^"|"$', ''))))

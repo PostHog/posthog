@@ -1,14 +1,16 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { sessionRecordingLogic } from 'scenes/session-recordings/sessionRecordingLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/consoleLogsListLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/sharedListLogic'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 import { YesOrNoResponse } from '~/types'
+
+const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
 describe('consoleLogsListLogic', () => {
     let logic: ReturnType<typeof consoleLogsListLogic.build>
@@ -22,13 +24,17 @@ describe('consoleLogsListLogic', () => {
             },
         })
         initKeaTests()
-        logic = consoleLogsListLogic()
+        logic = consoleLogsListLogic(playerLogicProps)
         logic.mount()
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([sessionRecordingLogic, eventUsageLogic, sharedListLogic])
+            await expectLogic(logic).toMount([
+                sessionRecordingDataLogic(playerLogicProps),
+                eventUsageLogic(playerLogicProps),
+                sharedListLogic(playerLogicProps),
+            ])
         })
     })
 
@@ -53,15 +59,15 @@ describe('consoleLogsListLogic', () => {
     describe('console logs', () => {
         it('should load and parse console logs from the snapshot', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingLogic.actions.loadRecordingMeta('1')
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingLogic.actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingLogic.actionTypes.loadRecordingMetaSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
                 ])
                 .toMatchValues({
-                    consoleLogs: [
+                    consoleListData: [
                         '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
                         '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                     ]
@@ -69,9 +75,7 @@ describe('consoleLogsListLogic', () => {
                             // Empty payload object
                             expect.objectContaining({
                                 level: undefined,
-                                parsedPayload: undefined,
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -81,8 +85,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -92,8 +94,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -103,8 +103,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'warn',
                                 parsedPayload: 'A big deal And a huge deal',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -113,9 +111,7 @@ describe('consoleLogsListLogic', () => {
                             // Bad data trace and payload
                             expect.objectContaining({
                                 level: 'error',
-                                parsedPayload: undefined,
-                                parsedTraceString: ':adcfvertyu$rf3423',
-                                parsedTraceURL: '',
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -128,26 +124,24 @@ describe('consoleLogsListLogic', () => {
 
         it('should filter logs by specified window id', async () => {
             await expectLogic(logic, () => {
-                sessionRecordingLogic.actions.loadRecordingSnapshots('1')
-                sessionRecordingLogic.actions.loadRecordingMeta('1')
-                sharedListLogic.actions.setWindowIdFilter(
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
+                sharedListLogic(playerLogicProps).actions.setWindowIdFilter(
                     '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
                 )
             })
                 .toDispatchActionsInAnyOrder([
-                    sessionRecordingLogic.actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingLogic.actionTypes.loadRecordingMetaSuccess,
-                    sharedListLogic.actionTypes.setWindowIdFilter,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
+                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+                    sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
-                    consoleLogs: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']
+                    consoleListData: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']
                         .map((windowId) => [
                             // Empty payload object
                             expect.objectContaining({
                                 level: undefined,
-                                parsedPayload: undefined,
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -157,8 +151,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: undefined,
-                                parsedTraceURL: undefined,
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -168,8 +160,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'log',
                                 parsedPayload: '',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -179,8 +169,6 @@ describe('consoleLogsListLogic', () => {
                             expect.objectContaining({
                                 level: 'warn',
                                 parsedPayload: 'A big deal And a huge deal',
-                                parsedTraceString: 'file.js:123:456',
-                                parsedTraceURL: 'https://example.com/path/to/file.js',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,
@@ -189,9 +177,7 @@ describe('consoleLogsListLogic', () => {
                             // Bad data trace and payload
                             expect.objectContaining({
                                 level: 'error',
-                                parsedPayload: undefined,
-                                parsedTraceString: ':adcfvertyu$rf3423',
-                                parsedTraceURL: '',
+                                parsedPayload: '',
                                 playerPosition: {
                                     time: 167777,
                                     windowId,

@@ -27,6 +27,8 @@ import { SaveCohortModal } from './SaveCohortModal'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { Tabs } from 'antd'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
+import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -43,7 +45,6 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
     const [chosenUrl, setChosenUrl] = useState(url)
     const [isOpen, setIsOpen] = useState(true)
     const [cohortModalOpen, setCohortModalOpen] = useState(false)
-    const [sessionId, setSessionId] = useState<string | undefined>(undefined)
     const logic = personsModalLogic({
         url: chosenUrl,
         closeModal: () => {
@@ -54,19 +55,22 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
 
     const { allPeople, peopleLoading, people: peopleRes, searchTerm } = useValues(logic)
     const { loadPeople, setSearchTerm, saveCohortWithUrl } = useActions(logic)
+    const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     // const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
     // const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
 
     // TODO: Maybe move this to the logic...
     const onOpenRecording = (id: string): void => {
-        setSessionId(id)
-        window.location.hash = '#sessionRecordingId=' + id
+        openSessionPlayer(id, RecordingWatchedSource.PersonModal)
+        // setSessionId(id)
+        // window.location.hash = '#sessionRecordingId=' + id
     }
 
     const onCloseRecording = (): void => {
-        setSessionId(undefined)
-        window.location.hash = ''
+        closeSessionPlayer()
+        // setSessionId(undefined)
+        // window.location.hash = ''
     }
 
     return (
@@ -215,7 +219,7 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                 onCancel={() => setCohortModalOpen(false)}
                 isOpen={cohortModalOpen}
             />
-            {sessionId && <SessionPlayerDrawer onClose={() => onCloseRecording()} />}
+            <SessionPlayerDrawer onClose={() => onCloseRecording()} />
         </>
     )
 }
