@@ -57,20 +57,12 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
     const { loadPeople, setSearchTerm, saveCohortWithUrl } = useActions(logic)
     const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
-    // const showCountedByTag = !!people?.crossDataset?.find(({ action }) => action?.math && action.math !== 'total')
-    // const hasMultipleSeries = !!people?.crossDataset?.find(({ action }) => action?.order)
-
-    // TODO: Maybe move this to the logic...
     const onOpenRecording = (id: string): void => {
         openSessionPlayer(id, RecordingWatchedSource.PersonModal)
-        // setSessionId(id)
-        // window.location.hash = '#sessionRecordingId=' + id
     }
 
     const onCloseRecording = (): void => {
         closeSessionPlayer()
-        // setSessionId(undefined)
-        // window.location.hash = ''
     }
 
     return (
