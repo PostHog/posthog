@@ -263,20 +263,31 @@ class Property:
 
             cohort_id = int(cast(Union[str, int], value))
 
-            cohort = Cohort.objects.only("version").filter(pk=cohort_id)
-            return Q(
-                Exists(
-                    CohortPeople.objects.annotate(cohort_version=Subquery(cohort.values("version")[:1]))
-                    .filter(cohort_id=cohort_id, person_id=OuterRef("id"), cohort__id=cohort_id)
-                    .filter(
-                        # bit of a hack. if cohort_version is NULL, the query is still `version = cohort_version`, which doesn't match
-                        # So just explicitly ask if cohort_version is null
-                        Q(cohort_version=F("version"))
-                        | Q(cohort_version__isnull=True)
+            cohort_set = Cohort.objects.only("version").filter(pk=cohort_id)
+            cohort = cohort_set.get()
+            if cohort.is_static:
+                return Q(
+                    Exists(
+                        CohortPeople.objects.filter(
+                            cohort_id=cohort_id, person_id=OuterRef("id"), cohort__id=cohort_id
+                        ).only("id")
                     )
-                    .only("id")
                 )
-            )
+            else:
+
+                return Q(
+                    Exists(
+                        CohortPeople.objects.annotate(cohort_version=Subquery(cohort_set.values("version")[:1]))
+                        .filter(cohort_id=cohort_id, person_id=OuterRef("id"))
+                        .filter(
+                            # bit of a hack. if cohort_version is NULL, the query is still `version = cohort_version`, which doesn't match
+                            # So just explicitly ask if cohort_version is null
+                            Q(cohort_version=F("version"))
+                            | Q(cohort_version__isnull=True)
+                        )
+                        .only("id")
+                    )
+                )
 
         column = "group_properties" if self.type == "group" else "properties"
 

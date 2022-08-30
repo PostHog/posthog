@@ -139,8 +139,6 @@ export const personsModalLogic = kea<personsModalLogicType>({
         }),
         saveFirstLoadedActors: (people: TrendActors) => ({ people }),
         setFirstLoadedActors: (firstLoadedPeople: TrendActors | null) => ({ firstLoadedPeople }),
-        openRecordingModal: (sessionRecordingId: string) => ({ sessionRecordingId }),
-        closeRecordingModal: () => true,
     }),
     connect: {
         values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
@@ -523,19 +521,6 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     })
                 }
             }
-        },
-    }),
-    actionToUrl: () => ({
-        openRecordingModal: ({ sessionRecordingId }) => {
-            return [
-                router.values.location.pathname,
-                { ...router.values.searchParams },
-                { ...router.values.hashParams, sessionRecordingId },
-            ]
-        },
-        closeRecordingModal: () => {
-            delete router.values.hashParams.sessionRecordingId
-            return [router.values.location.pathname, { ...router.values.searchParams }, { ...router.values.hashParams }]
         },
     }),
 })
