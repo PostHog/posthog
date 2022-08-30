@@ -31,6 +31,7 @@ import {
     ISOTimestamp,
     PluginConfig,
     PluginConfigVMInternalResponse,
+    PluginLogEntry,
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginTask,
@@ -157,7 +158,9 @@ export function addHistoricalEventsExportCapabilityV2(
             // only let one export run at a time
             const alreadyRunningExport = await getExportParameters()
             if (!!alreadyRunningExport) {
-                createLog('Export already running, not starting another.')
+                createLog('Export already running, not starting another.', {
+                    type: PluginLogEntryType.Warn,
+                })
                 return
             }
 
@@ -174,6 +177,13 @@ export function addHistoricalEventsExportCapabilityV2(
                 dateFrom: boundaries.min.toISOString(),
                 dateTo: boundaries.max.toISOString(),
             } as ExportParams)
+
+            createLog(
+                `Starting export ${boundaries.min.toISOString()} - ${boundaries.max.toISOString()}. id=${id}, parallelism=${parallelism}`,
+                {
+                    type: PluginLogEntryType.Info,
+                }
+            )
 
             await coordinateHistoricExport()
         },
@@ -205,17 +215,19 @@ export function addHistoricalEventsExportCapabilityV2(
         const { done, running } = (await meta.storage.get(`EXPORT_COORDINATION`, {})) as CoordinationPayload
         update = update || (await calculateCoordination(params, done || [], running || []))
 
+        createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10}%)`, {
+            type: PluginLogEntryType.Info,
+        })
+
         if (update.exportIsDone) {
-            await stopExport('Done exporting all events!')
+            await stopExport('Export has finished! 💯', { type: PluginLogEntryType.Info })
             return
         }
-
-        createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10}%)`)
 
         if (update.hasChanges) {
             await Promise.all(
                 update.toStartRunning.map(async ([startDate, endDate]) => {
-                    createLog(`Starting job to export ${startDate} to ${endDate}`)
+                    createLog(`Starting job to export ${startDate} to ${endDate}`, { type: PluginLogEntryType.Debug })
 
                     const payload: ExportHistoricalEventsJobPayload = {
                         timestampCursor: new Date(startDate).getTime(),
@@ -234,7 +246,11 @@ export function addHistoricalEventsExportCapabilityV2(
             await Promise.all(
                 update.toResume.map(async (payload: ExportChunkStatus) => {
                     createLog(
-                        `Export chunk from ${dateRange(payload.startTime, payload.endTime)} seems inactive, restarting!`
+                        `Export chunk from ${dateRange(
+                            payload.startTime,
+                            payload.endTime
+                        )} seems inactive, restarting!`,
+                        { type: PluginLogEntryType.Debug }
                     )
                     await startChunk(payload, payload.progress)
                 })
@@ -330,17 +346,19 @@ export function addHistoricalEventsExportCapabilityV2(
         }
 
         if (payload.retriesPerformedSoFar >= 15) {
-            const message = `Exporting events from ${dateRange(
+            const message = `Exporting chunk ${dateRange(
                 payload.startTime,
                 payload.endTime
             )} failed after 15 retries. Stopping export.`
-            await stopExport(message)
+            await stopExport(message, { type: PluginLogEntryType.Error })
             await processError(hub, pluginConfig, message)
             return
         }
 
         if (payload.timestampCursor >= payload.endTime) {
-            createLog(`Finished processing events from ${dateRange(payload.startTime, payload.endTime)}`)
+            createLog(`Finished exporting chunk from ${dateRange(payload.startTime, payload.endTime)}`, {
+                type: PluginLogEntryType.Debug,
+            })
             await meta.storage.set(payload.statusKey, {
                 done: true,
                 progress: 1,
@@ -379,7 +397,9 @@ export function addHistoricalEventsExportCapabilityV2(
 
         if (fetchEventsError) {
             await processError(hub, pluginConfig, fetchEventsError)
-            await stopExport('Failed fetching events. Stopping export - please try again later.')
+            await stopExport('Failed fetching events. Stopping export - please try again later.', {
+                type: PluginLogEntryType.Error,
+            })
             return
         } else {
             if (events.length > 0) {
@@ -398,7 +418,10 @@ export function addHistoricalEventsExportCapabilityV2(
                 `Failed processing events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
                     payload.timestampCursor,
                     payload.timestampCursor + payload.fetchTimeInterval
-                )}. Retrying in ${nextRetrySeconds}s`
+                )}. Retrying in ${nextRetrySeconds}s`,
+                {
+                    type: PluginLogEntryType.Warn,
+                }
             )
 
             await meta.jobs
@@ -430,14 +453,15 @@ export function addHistoricalEventsExportCapabilityV2(
                 `Successfully processed events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
                     payload.timestampCursor,
                     payload.timestampCursor + payload.fetchTimeInterval
-                )}.`
+                )}.`,
+                { type: PluginLogEntryType.Debug }
             )
         }
     }
 
-    async function stopExport(message: string) {
+    async function stopExport(message: string, logOverrides: Partial<PluginLogEntry> = {}) {
         await meta.storage.del(EXPORT_RUNNING_KEY)
-        createLog(message)
+        createLog(message, logOverrides)
     }
 
     function getTimestampBoundaries(payload: ExportHistoricalEventsUIPayload): TimestampBoundaries {
@@ -445,7 +469,9 @@ export function addHistoricalEventsExportCapabilityV2(
         const max = new Date(payload.dateTo)
 
         if (isNaN(min.getTime()) || isNaN(max.getTime())) {
-            createLog(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
+            createLog(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`, {
+                type: PluginLogEntryType.Error,
+            })
             throw new Error(`'dateFrom' and 'dateTo' should be timestamps in ISO string format.`)
         }
         return { min, max }
@@ -526,14 +552,15 @@ export function addHistoricalEventsExportCapabilityV2(
         return (await meta.storage.get(EXPORT_RUNNING_KEY, null)) as ExportParams | null
     }
 
-    function createLog(message: string, type: PluginLogEntryType = PluginLogEntryType.Log) {
+    function createLog(message: string, overrides: Partial<PluginLogEntry> = {}) {
         hub.promiseManager.trackPromise(
             hub.db.queuePluginLogEntry({
                 pluginConfig,
-                message: `(${hub.instanceId}) ${message}`,
+                message: message,
                 source: PluginLogEntrySource.System,
-                type: type,
+                type: PluginLogEntryType.Log,
                 instanceId: hub.instanceId,
+                ...overrides,
             })
         )
     }
