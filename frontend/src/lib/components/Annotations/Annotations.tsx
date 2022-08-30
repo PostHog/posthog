@@ -30,7 +30,7 @@ export function Annotations({
     currentDateMarker,
     timezone,
 }: AnnotationsProps): JSX.Element {
-    // insightAnnotationsLogic must be bound using BindLogic
+    // insightAnnotationsLogic's props must be bound using BindLogic - this is so that we can avoid prop drilling here
     const { intervalUnit, groupedAnnotations } = useValues(insightAnnotationsLogic)
     const { createAnnotation, deleteAnnotation } = useActions(insightAnnotationsLogic)
 

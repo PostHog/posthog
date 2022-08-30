@@ -124,7 +124,7 @@ export function LineGraph_({
     const [holdLabelIndex, setHoldLabelIndex] = useState<number | null>(null)
     const [selectedDayLabel, setSelectedDayLabel] = useState<string | null>(null)
 
-    // insightAnnotationsLogic must be bound using BindLogic
+    // insightAnnotationsLogic's props must be bound using BindLogic - this is so that we can avoid prop drilling here
     const { createAnnotation } = !inSharedMode ? useActions(insightAnnotationsLogic) : { createAnnotation: noop }
     const { annotations, annotationsLoading } = !inSharedMode
         ? useValues(insightAnnotationsLogic)

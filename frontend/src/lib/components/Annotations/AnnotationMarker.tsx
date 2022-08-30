@@ -89,7 +89,7 @@ export function AnnotationMarker({
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    // insightAnnotationsLogic must be bound using BindLogic
+    // insightAnnotationsLogic's props must be bound using BindLogic - this is so that we can avoid prop drilling here
     const { intervalUnit, groupedAnnotations } = useValues(insightAnnotationsLogic)
 
     function closePopup(): void {
