@@ -4,6 +4,7 @@ import {
     AnyPropertyFilter,
     Breadcrumb,
     FeatureFlagType,
+    InsightModel,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     PropertyFilter,
@@ -310,17 +311,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
         },
-        recentInsights: {
-            loadRecentInsights: async () => {
-                if (props.id && props.id !== 'new' && values.featureFlag.key) {
-                    const response = await api.get(
-                        `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
-                    )
-                    return response.results
-                }
-                return []
+        recentInsights: [
+            [] as InsightModel[],
+            {
+                loadRecentInsights: async () => {
+                    if (props.id && props.id !== 'new' && values.featureFlag.key) {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                        )
+                        return response.results
+                    }
+                    return []
+                },
             },
-        },
+        ],
     })),
     listeners(({ actions, values }) => ({
         saveFeatureFlagSuccess: ({ featureFlag }) => {

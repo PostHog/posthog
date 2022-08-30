@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { InsightModel } from '~/types'
 import { featureFlagLogic } from './featureFlagLogic'
 
-export function FeatureFlagInsightsCard(): JSX.Element {
+export function RecentFeatureFlagInsights(): JSX.Element {
     const { recentInsights, recentInsightsLoading, featureFlag } = useValues(featureFlagLogic)
     return (
         <CompactList
@@ -22,7 +22,7 @@ export function FeatureFlagInsightsCard(): JSX.Element {
                     breakdown: `$feature/${featureFlag.key}`,
                 }),
             }}
-            items={(recentInsights || []).slice(0, 5)}
+            items={recentInsights.slice(0, 5)}
             renderRow={(insight: InsightModel, index) => <InsightRow key={index} insight={insight} />}
         />
     )

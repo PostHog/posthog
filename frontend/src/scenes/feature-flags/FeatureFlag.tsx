@@ -40,7 +40,7 @@ import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagsTabs } from './featureFlagsLogic'
 import { flagActivityDescriber } from './activityDescriptions'
 import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopup/utils'
-import { FeatureFlagInsightsCard } from './FeatureFlagInsightsCard'
+import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -328,7 +328,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <FeatureFlagReleaseConditions readOnly />
                                         </Col>
                                         <Col span={11} className="pl-4">
-                                            <FeatureFlagInsightsCard />
+                                            <RecentFeatureFlagInsights />
                                             <div className="my-4" />
                                             <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                                         </Col>
