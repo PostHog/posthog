@@ -296,7 +296,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
                 expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
                     ...defaultPayload,
-                    timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval * 1.2,
+                    timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                     offset: 0,
                     fetchTimeInterval: defaultPayload.fetchTimeInterval * 1.2,
                 })
@@ -341,20 +341,6 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                     offset: 0,
                     retriesPerformedSoFar: 0,
-                })
-            })
-
-            it('does not cross endTime when bumping time window', async () => {
-                jest.mocked(fetchEventsForInterval).mockResolvedValue(new Array(300))
-
-                await exportHistoricalEvents({
-                    ...defaultPayload,
-                    timestampCursor: defaultPayload.endTime - 100,
-                })
-
-                expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
-                    ...defaultPayload,
-                    timestampCursor: defaultPayload.endTime,
                 })
             })
         })
@@ -645,13 +631,13 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
     })
 
-    describe('nextFetchTimeInterval()', () => {
-        const nextFetchTimeInterval = getTestMethod('nextFetchTimeInterval')
+    describe('nextCursor()', () => {
+        const nextCursor = getTestMethod('nextCursor')
 
         const defaultPayload: ExportHistoricalEventsJobPayload = {
             timestampCursor: 0,
             startTime: 0,
-            endTime: 1000,
+            endTime: 1_000_000_000,
             offset: 0,
             retriesPerformedSoFar: 0,
             exportId: 0,
@@ -659,26 +645,85 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             statusKey: 'abc',
         }
 
-        it('returns existing fetchTimeInterval if more in current time range', () => {
-            expect(nextFetchTimeInterval(defaultPayload, EVENTS_PER_RUN)).toEqual(ONE_HOUR)
+        it('increases only offset if more in current time range', () => {
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN)).toEqual({
+                timestampCursor: defaultPayload.timestampCursor,
+                fetchTimeInterval: ONE_HOUR,
+                offset: EVENTS_PER_RUN,
+            })
         })
-
-        it('returns existing fetchTimeInterval if more in current time range on a late page', () => {
-            expect(nextFetchTimeInterval({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, EVENTS_PER_RUN)).toEqual(
-                ONE_HOUR
-            )
+        it('increases only offset if more in current time range on a late page', () => {
+            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, EVENTS_PER_RUN)).toEqual({
+                timestampCursor: defaultPayload.timestampCursor,
+                fetchTimeInterval: ONE_HOUR,
+                offset: 6 * EVENTS_PER_RUN,
+            })
         })
 
         it('returns existing fetchTimeInterval if time range mostly full', () => {
-            expect(nextFetchTimeInterval(defaultPayload, EVENTS_PER_RUN * 0.9)).toEqual(ONE_HOUR)
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN * 0.9)).toEqual({
+                timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
+                fetchTimeInterval: ONE_HOUR,
+                offset: 0,
+            })
         })
 
         it('increases fetchTimeInterval if time range mostly empty', () => {
-            expect(nextFetchTimeInterval(defaultPayload, EVENTS_PER_RUN * 0.1)).toEqual(ONE_HOUR * 1.2)
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN * 0.1)).toEqual({
+                timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
+                fetchTimeInterval: ONE_HOUR * 1.2,
+                offset: 0,
+            })
+        })
+
+        it('does not increase fetchTimeInterval beyond 12 hours', () => {
+            const payload = {
+                ...defaultPayload,
+                fetchTimeInterval: 11.5 * 60 * 60 * 1000, // 11.5 hours
+            }
+            expect(nextCursor(payload, EVENTS_PER_RUN * 0.1)).toEqual({
+                timestampCursor: payload.timestampCursor + payload.fetchTimeInterval,
+                fetchTimeInterval: 12 * 60 * 60 * 1000,
+                offset: 0,
+            })
         })
 
         it('decreases fetchTimeInterval if on a late page and no more to fetch', () => {
-            expect(nextFetchTimeInterval({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, 10)).toEqual(ONE_HOUR / 1.2)
+            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, 10)).toEqual({
+                timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
+                fetchTimeInterval: ONE_HOUR / 1.2,
+                offset: 0,
+            })
+        })
+
+        it('does not decrease fetchTimeInterval below 10 minutes', () => {
+            const payload = {
+                ...defaultPayload,
+                offset: 5 * EVENTS_PER_RUN,
+                fetchTimeInterval: 10.5 * 60 * 1000, // 10.5 minutes
+            }
+
+            expect(nextCursor(payload, 10)).toEqual({
+                timestampCursor: payload.timestampCursor + payload.fetchTimeInterval,
+                fetchTimeInterval: 10 * 60 * 1000,
+                offset: 0,
+            })
+        })
+
+        it('reduces fetchTimeInterval if it would result going beyond endTime', () => {
+            const payload = {
+                ...defaultPayload,
+                endTime: 6_500_000,
+                timestampCursor: 5_000_000,
+                fetchTimeInterval: 1_000_000,
+                offset: 0,
+            }
+
+            expect(nextCursor(payload, 10)).toEqual({
+                timestampCursor: 6_000_000,
+                fetchTimeInterval: 500_000,
+                offset: 0,
+            })
         })
     })
 

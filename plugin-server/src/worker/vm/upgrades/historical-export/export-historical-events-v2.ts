@@ -53,7 +53,7 @@ const INTERFACE_JOB_NAME = 'Export historical events V2'
 export interface TestFunctions {
     exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
     getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => Promise<TimestampBoundaries>
-    nextFetchTimeInterval: (payload: ExportHistoricalEventsJobPayload, eventCount: number) => number
+    nextCursor: (payload: ExportHistoricalEventsJobPayload, eventCount: number) => OffsetParams
     coordinateHistoricExport: (update?: CoordinationUpdate) => Promise<void>
     calculateCoordination: (
         params: ExportParams,
@@ -95,6 +95,8 @@ export interface ExportHistoricalEventsJobPayload {
     // Key to report export status to
     statusKey: string
 }
+
+type OffsetParams = Pick<ExportHistoricalEventsJobPayload, 'timestampCursor' | 'fetchTimeInterval' | 'offset'>
 
 export interface ExportHistoricalEventsUIPayload {
     // Only set starting export from UI
@@ -392,7 +394,6 @@ export function addHistoricalEventsExportCapabilityV2(
         if (exportEventsError instanceof RetryError) {
             const nextRetrySeconds = retryDelaySeconds(payload.retriesPerformedSoFar)
 
-            // "Failed processing events 0-100 from 2021-08-19T12:34:26.061Z to 2021-08-19T12:44:26.061Z. Retrying in 3s"
             createLog(
                 `Failed processing events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
                     payload.timestampCursor,
@@ -411,16 +412,14 @@ export function addHistoricalEventsExportCapabilityV2(
             await stopExport(`exportEvents returned unknown error, stopping export. error=${exportEventsError}`)
             return
         } else {
-            const incrementCursor = events.length < EVENTS_PER_RUN
-            const fetchTimeInterval = nextFetchTimeInterval(payload, events.length)
-            const incrementedTimeCursor = Math.min(payload.endTime, payload.timestampCursor + fetchTimeInterval)
+            const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
 
             await meta.jobs
                 .exportHistoricalEventsV2({
                     ...payload,
                     retriesPerformedSoFar: 0,
-                    timestampCursor: incrementCursor ? incrementedTimeCursor : payload.timestampCursor,
-                    offset: incrementCursor ? 0 : payload.offset + EVENTS_PER_RUN,
+                    timestampCursor,
+                    offset,
                     fetchTimeInterval,
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(1, 'seconds')
@@ -473,19 +472,35 @@ export function addHistoricalEventsExportCapabilityV2(
         return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 
-    function nextFetchTimeInterval(payload: ExportHistoricalEventsJobPayload, eventCount: number): number {
+    function nextCursor(payload: ExportHistoricalEventsJobPayload, eventCount: number): OffsetParams {
         if (eventCount === EVENTS_PER_RUN) {
-            return payload.fetchTimeInterval
+            return {
+                timestampCursor: payload.timestampCursor,
+                fetchTimeInterval: payload.fetchTimeInterval,
+                offset: payload.offset + EVENTS_PER_RUN,
+            }
         }
+
+        const nextCursor = payload.timestampCursor + payload.fetchTimeInterval
+        let nextFetchInterval = payload.fetchTimeInterval
         // If we're fetching too small of a window at a time, increase window to fetch
         if (payload.offset === 0 && eventCount < EVENTS_PER_RUN * 0.5) {
-            return Math.min(Math.floor(payload.fetchTimeInterval * 1.2), TWELVE_HOURS)
+            nextFetchInterval = Math.min(Math.floor(payload.fetchTimeInterval * 1.2), TWELVE_HOURS)
         }
         // If time window seems too large, reduce it
         if (payload.offset > 2 * EVENTS_PER_RUN) {
-            return Math.max(Math.floor(payload.fetchTimeInterval / 1.2), TEN_MINUTES)
+            nextFetchInterval = Math.max(Math.floor(payload.fetchTimeInterval / 1.2), TEN_MINUTES)
         }
-        return payload.fetchTimeInterval
+
+        if (nextCursor + nextFetchInterval > payload.endTime) {
+            nextFetchInterval = payload.endTime - nextCursor
+        }
+
+        return {
+            timestampCursor: nextCursor,
+            fetchTimeInterval: nextFetchInterval,
+            offset: 0,
+        }
     }
 
     function getExportDateRange({ dateFrom, dateTo }: ExportParams): Array<[ISOTimestamp, ISOTimestamp]> {
@@ -540,7 +555,7 @@ export function addHistoricalEventsExportCapabilityV2(
         meta.global._testFunctions = {
             exportHistoricalEvents,
             getTimestampBoundaries,
-            nextFetchTimeInterval,
+            nextCursor,
             coordinateHistoricExport,
             calculateCoordination,
             getExportDateRange,
