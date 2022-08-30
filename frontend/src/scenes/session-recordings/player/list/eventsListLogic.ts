@@ -104,9 +104,9 @@ export const eventsListLogic = kea<eventsListLogicType>([
         },
     })),
     selectors(() => ({
-        data: [
+        eventListData: [
             (selectors) => [selectors.eventsToShow, selectors.windowIdFilter],
-            (events: RecordingEventType[], windowIdFilter): RecordingEventType[] => {
+            (events, windowIdFilter): RecordingEventType[] => {
                 return events
                     .filter(
                         (e) =>
@@ -120,43 +120,51 @@ export const eventsListLogic = kea<eventsListLogicType>([
             },
         ],
         currentStartIndex: [
-            (selectors) => [selectors.data, selectors.currentPlayerTime],
-            (events, currentPlayerTime): number => {
-                return events.findIndex((e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0))
+            (selectors) => [selectors.eventListData, selectors.currentPlayerTime],
+            (eventListData, currentPlayerTime): number => {
+                return eventListData.findIndex(
+                    (e) => (e.playerTime ?? 0) >= ceilMsToClosestSecond(currentPlayerTime ?? 0)
+                )
             },
         ],
         currentTimeRange: [
-            (selectors) => [selectors.currentStartIndex, selectors.data, selectors.currentPlayerTime],
-            (startIndex, events, currentPlayerTime) => {
-                if (events.length < 1) {
+            (selectors) => [selectors.currentStartIndex, selectors.eventListData, selectors.currentPlayerTime],
+            (startIndex, eventListData, currentPlayerTime) => {
+                if (eventListData.length < 1) {
                     return { start: 0, end: 0 }
                 }
                 const end = Math.max(ceilMsToClosestSecond(currentPlayerTime ?? 0), 1000)
                 const start = floorMsToClosestSecond(
-                    events[clamp(startIndex === -1 ? events.length - 1 : startIndex - 1, 0, events.length - 1)]
-                        .playerTime ?? 0
+                    eventListData[
+                        clamp(
+                            startIndex === -1 ? eventListData.length - 1 : startIndex - 1,
+                            0,
+                            eventListData.length - 1
+                        )
+                    ].playerTime ?? 0
                 )
 
                 return { start, end }
             },
         ],
         isCurrent: [
-            (selectors) => [selectors.currentTimeRange, selectors.data],
-            (indices, events) => (index: number) =>
-                (events?.[index]?.playerTime ?? 0) >= indices.start && (events?.[index]?.playerTime ?? 0) < indices.end,
+            (selectors) => [selectors.currentTimeRange, selectors.eventListData],
+            (indices, eventListData) => (index: number) =>
+                (eventListData?.[index]?.playerTime ?? 0) >= indices.start &&
+                (eventListData?.[index]?.playerTime ?? 0) < indices.end,
         ],
         currentIndices: [
-            (selectors) => [selectors.data, selectors.isCurrent],
-            (events, isCurrent) => ({
+            (selectors) => [selectors.eventListData, selectors.isCurrent],
+            (eventListData, isCurrent) => ({
                 startIndex: clamp(
-                    events.findIndex((_, i) => isCurrent(i)),
+                    eventListData.findIndex((_, i) => isCurrent(i)),
                     0,
-                    events.length - 1
+                    eventListData.length - 1
                 ),
                 stopIndex: clamp(
-                    findLastIndex(events, (_, i) => isCurrent(i)),
+                    findLastIndex(eventListData, (_, i) => isCurrent(i)),
                     0,
-                    events.length - 1
+                    eventListData.length - 1
                 ),
             }),
         ],
