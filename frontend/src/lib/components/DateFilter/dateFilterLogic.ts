@@ -21,7 +21,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
     }),
     reducers(({ props }) => ({
         view: [
-            DateFilterView.QuickList,
+            DateFilterView.QuickList as DateFilterView,
             {
                 open: () => DateFilterView.QuickList,
                 openFixedRange: () => DateFilterView.FixedRange,
