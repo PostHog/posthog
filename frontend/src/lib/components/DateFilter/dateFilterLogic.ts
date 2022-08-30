@@ -53,7 +53,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 : dayjs()) as Dayjs | null,
             {
                 setRangeDateTo: (_, { range }) => (range ? dayjs(range) : null),
-                setDate: (_, { dateTo }) => (dateTo ? dateStringToDayJs(dateTo) : dayjs()),
+                setDate: (_, { dateTo }) => (dateTo ? dateStringToDayJs(dateTo) : null),
             },
         ],
     })),
@@ -99,7 +99,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             if (values.rangeDateFrom) {
                 actions.setDate(
                     dayjs(values.rangeDateFrom).format('YYYY-MM-DD'),
-                    dayjs(values.rangeDateTo).format('YYYY-MM-DD')
+                    values.rangeDateTo ? dayjs(values.rangeDateTo).format('YYYY-MM-DD') : null
                 )
             }
         },

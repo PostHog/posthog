@@ -51,7 +51,8 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
 
     // What months exactly are shown on the calendar
     const shownMonths = months ?? autoMonthCount
-    const rangeMonthDiff = rangeStart && rangeEnd ? dayjs(rangeEnd).diff(rangeStart, 'month') : 0
+    const rangeMonthDiff =
+        rangeStart && rangeEnd ? dayjs(rangeEnd).startOf('month').diff(dayjs(rangeStart).startOf('month'), 'month') : 0
     const firstMonthForRange = dayjs(rangeStart ?? rangeEnd ?? undefined)
         .subtract(Math.max(0, shownMonths - 1 - rangeMonthDiff), 'month')
         .startOf('month')

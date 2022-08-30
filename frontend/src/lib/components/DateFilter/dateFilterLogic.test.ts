@@ -14,7 +14,7 @@ describe('dateFilterLogic', () => {
 
         props = {
             key: 'test',
-            defaultValue: '-7d',
+            defaultValue: 'Last 7 days',
             onChange,
             dateFrom: null,
             dateTo: null,
