@@ -9,7 +9,6 @@ import {
     InsightModel,
     InsightShortId,
     InsightType,
-    IntervalType,
     PathType,
     StepOrderValue,
 } from '~/types'
@@ -368,11 +367,4 @@ export function formatBreakdownLabel(
     } else {
         return ''
     }
-}
-
-export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
-    hour: 'MMMM DD, YYYY h A',
-    day: 'MMMM DD, YYYY',
-    week: 'MMMM DD, YYYY',
-    month: 'MMMM YYYY',
 }

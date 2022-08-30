@@ -36,11 +36,8 @@
     min-height: 0;
     width: 100%;
     overflow: auto;
-    .graph-container {
+    .LineGraph {
         padding: 1rem;
-        .annotations-root {
-            margin: 1rem;
-        }
     }
     .insight-empty-state {
         padding-top: 0;

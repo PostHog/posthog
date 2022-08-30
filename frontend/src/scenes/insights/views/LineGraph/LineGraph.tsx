@@ -108,7 +108,6 @@ export function LineGraph_({
 
     const chartRef = useRef<HTMLCanvasElement | null>(null)
     const myLineChart = useRef<Chart<ChartType, any, string>>()
-    const annotationsRoot = useRef<HTMLDivElement | null>(null)
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -459,9 +458,10 @@ export function LineGraph_({
                     display: true,
                     ticks: tickOptions,
                     grid: {
-                        display: false,
+                        display: true,
+                        drawOnChartArea: false,
                         borderColor: colors.axisLine as string,
-                        tickLength: 10,
+                        tickLength: 8,
                     },
                 },
                 y: {
@@ -550,11 +550,9 @@ export function LineGraph_({
     }
 
     return (
-        <div className="graph-container" data-attr={dataAttr}>
+        <div className="LineGraph" data-attr={dataAttr}>
             <canvas ref={chartRef} />
-            <div className="annotations-root" ref={annotationsRoot}>
-                <AnnotationsOverlay />
-            </div>
+            <AnnotationsOverlay />
         </div>
     )
 }
