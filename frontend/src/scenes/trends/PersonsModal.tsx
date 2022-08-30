@@ -185,7 +185,7 @@ export function PersonsModal({
                             ? `${aggregationTargetLabel.plural} are`
                             : `${aggregationTargetLabel.singular} is`}{' '}
                         not shown because they've been lost.{' '}
-                        <a href="https://posthog.com/docs/user-guides/ingestion#data-loss">
+                        <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
                             Read more here for when this can happen
                         </a>
                         .
