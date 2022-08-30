@@ -3,8 +3,8 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { instrument } from '../../utils/metrics'
+import { runRetriableFunction } from '../../utils/retries'
 import { IllegalOperationError } from '../../utils/utils'
-import { runRetriableFunction } from '../retries'
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, event.team_id, 'onEvent')
@@ -21,9 +21,17 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
                         tag: pluginConfig.plugin?.name || '?',
                     },
                     () =>
-                        runRetriableFunction('on_event', hub, pluginConfig, {
+                        runRetriableFunction({
+                            hub,
+                            metricPrefix: 'plugin',
+                            metricName: 'on_event',
+                            metricTags: {
+                                plugin: pluginConfig.plugin?.name ?? '?',
+                                teamId: event.team_id.toString(),
+                            },
                             tryFn: async () => await onEvent!(event),
-                            event,
+                            catchFn: async (error) => await processError(hub, pluginConfig, error, event),
+                            payload: event,
                         })
                 )
             )
@@ -45,9 +53,17 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
                         tag: pluginConfig.plugin?.name || '?',
                     },
                     () =>
-                        runRetriableFunction('on_snapshot', hub, pluginConfig, {
+                        runRetriableFunction({
+                            hub,
+                            metricPrefix: 'plugin',
+                            metricName: 'on_snapshot',
+                            metricTags: {
+                                plugin: pluginConfig.plugin?.name ?? '?',
+                                teamId: event.team_id.toString(),
+                            },
                             tryFn: async () => await onSnapshot!(event),
-                            event,
+                            catchFn: async (error) => await processError(hub, pluginConfig, error, event),
+                            payload: event,
                         })
                 )
             )

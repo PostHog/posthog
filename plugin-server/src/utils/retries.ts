@@ -1,0 +1,112 @@
+import { RetryError } from '@posthog/plugin-scaffold'
+
+import { runInTransaction } from '../sentry'
+import { Hub } from '../types'
+
+export function getNextRetryMs(baseMs: number, multiplier: number, attempt: number): number {
+    if (attempt < 1) {
+        throw new Error('Attempts are indexed starting with 1')
+    }
+    return baseMs * multiplier ** (attempt - 1)
+}
+
+export interface RetriableFunctionDefinition {
+    payload: Record<string, any>
+    tryFn: () => void | Promise<void>
+    catchFn?: (error: Error | RetryError) => void | Promise<void>
+    finallyFn?: (attempts: number) => void | Promise<void>
+}
+
+export interface RetryParams {
+    maxAttempts: number
+    retryBaseMs: number
+    retryMultiplier: number
+}
+
+export interface MetricsDefinition {
+    metricPrefix: string
+    metricName: string
+    metricTags?: Record<string, string>
+}
+
+export type RetriableFunctionPayload = RetriableFunctionDefinition &
+    Partial<RetryParams> &
+    MetricsDefinition & { hub: Hub }
+
+function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, attempt = 1): Promise<void> {
+    const {
+        metricPrefix,
+        metricName,
+        metricTags = {},
+        hub,
+        payload,
+        tryFn,
+        catchFn,
+        finallyFn,
+        maxAttempts = 5,
+        retryBaseMs = 5000,
+        retryMultiplier = 2,
+    } = retriableFunctionPayload
+    return runInTransaction(
+        {
+            name: 'retryLoop',
+            op: metricName,
+            description: metricTags.plugin || '?',
+            data: {
+                metricName,
+                payload,
+                attempt,
+            },
+        },
+        async () => {
+            let nextIterationPromise: Promise<void> | undefined
+            try {
+                await tryFn()
+            } catch (error) {
+                if (error instanceof RetryError) {
+                    error._attempt = attempt
+                    error._maxAttempts = maxAttempts
+                }
+                if (error instanceof RetryError && attempt < maxAttempts) {
+                    const nextRetryMs = getNextRetryMs(retryBaseMs, retryMultiplier, attempt)
+                    hub.statsd?.increment(`${metricPrefix}.${metricName}.RETRY`, {
+                        ...metricTags,
+                        attempt: attempt.toString(),
+                    })
+                    nextIterationPromise = new Promise((resolve, reject) =>
+                        setTimeout(() => {
+                            // This is not awaited directly so that attempts beyond the first one don't stall the payload queue
+                            iterateRetryLoop(retriableFunctionPayload, attempt + 1)
+                                .then(resolve)
+                                .catch(reject)
+                        }, nextRetryMs)
+                    )
+                    hub.promiseManager.trackPromise(nextIterationPromise)
+                    await hub.promiseManager.awaitPromisesIfNeeded()
+                } else {
+                    await catchFn?.(error)
+                    hub.statsd?.increment(`${metricPrefix}.${metricName}.ERROR`, {
+                        ...metricTags,
+                        attempt: attempt.toString(),
+                    })
+                }
+            }
+            if (!nextIterationPromise) {
+                await finallyFn?.(attempt)
+            }
+        }
+    )
+}
+
+/** Run function with `RetryError` handling. */
+export async function runRetriableFunction(retriableFunctionPayload: RetriableFunctionPayload): Promise<void> {
+    const timer = new Date()
+    const { hub, finallyFn, metricPrefix, metricName, metricTags = {} } = retriableFunctionPayload
+    await iterateRetryLoop({
+        ...retriableFunctionPayload,
+        finallyFn: async (attempts) => {
+            await finallyFn?.(attempts)
+            hub.statsd?.timing(`${metricPrefix}.${metricName}`, timer, metricTags)
+        },
+    })
+}

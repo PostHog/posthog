@@ -1,10 +1,9 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub } from '../../src/types'
+import { getNextRetryMs, runRetriableFunction } from '../../src/utils/retries'
 import { UUID } from '../../src/utils/utils'
-import { getNextRetryMs, runRetriableFunction } from '../../src/worker/retries'
 import { PromiseManager } from '../../src/worker/vm/promise-manager'
-import { pluginConfig39 } from '../helpers/plugins'
 
 jest.useFakeTimers()
 jest.spyOn(global, 'setTimeout')
@@ -56,8 +55,11 @@ describe('runRetriableFunction', () => {
 
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
-            void runRetriableFunction('on_foo', mockHub, pluginConfig39, {
-                event: testEvent,
+            void runRetriableFunction({
+                metricPrefix: 'plugin',
+                metricName: 'on_foo',
+                hub: mockHub,
+                payload: testEvent,
                 tryFn,
                 catchFn,
                 finallyFn,
@@ -83,8 +85,11 @@ describe('runRetriableFunction', () => {
 
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
-            void runRetriableFunction('on_foo', mockHub, pluginConfig39, {
-                event: testEvent,
+            void runRetriableFunction({
+                metricPrefix: 'plugin',
+                metricName: 'on_foo',
+                hub: mockHub,
+                payload: testEvent,
                 tryFn,
                 catchFn,
                 finallyFn,
@@ -109,8 +114,11 @@ describe('runRetriableFunction', () => {
 
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
-            void runRetriableFunction('on_foo', mockHub, pluginConfig39, {
-                event: testEvent,
+            void runRetriableFunction({
+                metricPrefix: 'plugin',
+                metricName: 'on_foo',
+                hub: mockHub,
+                payload: testEvent,
                 tryFn,
                 catchFn,
                 finallyFn,
@@ -150,8 +158,11 @@ describe('runRetriableFunction', () => {
 
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
-            void runRetriableFunction('on_foo', mockHub, pluginConfig39, {
-                event: testEvent,
+            void runRetriableFunction({
+                metricPrefix: 'plugin',
+                metricName: 'on_foo',
+                hub: mockHub,
+                payload: testEvent,
                 tryFn,
                 catchFn,
                 finallyFn,
