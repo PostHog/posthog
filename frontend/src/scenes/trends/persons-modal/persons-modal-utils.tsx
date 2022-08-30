@@ -68,18 +68,25 @@ export const urlsForDatasets = (
     }
 
     return (
-        crossDataset?.map((dataset) => ({
-            value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',
-            label: (
-                <InsightLabel
-                    seriesColor={getSeriesColor(dataset.id)}
-                    action={dataset.action}
-                    breakdownValue={dataset.breakdown_value === '' ? 'None' : dataset.breakdown_value?.toString()}
-                    showCountedByTag={showCountedByTag}
-                    hasMultipleSeries={hasMultipleSeries}
-                />
-            ),
-        })) || []
+        crossDataset
+            ?.map((dataset) => ({
+                value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',
+                label: (
+                    <>
+                        <InsightLabel
+                            seriesColor={getSeriesColor(dataset.id)}
+                            action={dataset.action}
+                            breakdownValue={
+                                dataset.breakdown_value === '' ? 'None' : dataset.breakdown_value?.toString()
+                            }
+                            showCountedByTag={showCountedByTag}
+                            hasMultipleSeries={hasMultipleSeries}
+                        />
+                        {/* {dataset.action.status} */}
+                    </>
+                ),
+            }))
+            .filter((x) => x.value) || []
     )
 }
 

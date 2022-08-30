@@ -93,8 +93,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                       const selectedUrl =
                                           urls[crossDataset?.findIndex((x) => x.id === dataset.id) || 0]?.value
 
-                                      console.log({ payload })
-
                                       if (selectedUrl) {
                                           loadPeopleFromUrl({
                                               ...params,

@@ -8,21 +8,14 @@ import { personsModalLogic } from '../persons-modal/personsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { openPersonsModal } from '../persons-modal/PersonsModalV2'
-import { dateTitle, urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const {
-        filters,
-        indexedResults,
-        incompletenessOffsetFromEnd,
-        hiddenLegendKeys,
-        labelGroupType,
-        aggregationTargetLabel,
-    } = useValues(logic)
+    const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
 
     return indexedResults &&
@@ -104,18 +97,20 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                                           <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
                                       </>
                                   ) : (
-                                      <>
-                                          {label} on{' '}
-                                          <DateDisplay
-                                              interval={filters.interval || 'day'}
-                                              date={day?.toString() || ''}
-                                          />
-                                      </>
+                                      (label: string) => (
+                                          <>
+                                              {label} on{' '}
+                                              <DateDisplay
+                                                  interval={filters.interval || 'day'}
+                                                  date={day?.toString() || ''}
+                                              />
+                                          </>
+                                      )
                                   )
 
                               openPersonsModal({
                                   urls,
-                                  url: selectedUrl,
+                                  urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
                                   title,
                               })
                           } else {

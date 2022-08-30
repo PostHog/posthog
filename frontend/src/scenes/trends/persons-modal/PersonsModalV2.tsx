@@ -32,7 +32,8 @@ import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
-    url: string
+    url?: string
+    urlsIndex?: number
     urls?: {
         label: string | JSX.Element
         value: string
@@ -40,12 +41,14 @@ export interface PersonsModalProps {
     title: JSX.Element | string | ((actorLabel: string) => JSX.Element | string)
 }
 
-function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {
-    const [chosenUrl, setChosenUrl] = useState(url)
+function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {
+    const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const [isOpen, setIsOpen] = useState(true)
     const [cohortModalOpen, setCohortModalOpen] = useState(false)
+    const originalUrl = (urls || [])[selectedUrlIndex].value || _url || ''
+
     const logic = personsModalLogic({
-        url: chosenUrl,
+        url: originalUrl,
         closeModal: () => {
             setIsOpen(false)
             setCohortModalOpen(false)
@@ -78,10 +81,10 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                             <LemonSelect
                                 fullWidth
                                 className="mb-2"
-                                value={chosenUrl}
-                                onChange={(v) => v && setChosenUrl(v)}
-                                options={(urls || []).map((url) => ({
-                                    value: url.value,
+                                value={selectedUrlIndex}
+                                onChange={(v) => v && setSelectedUrlIndex(v)}
+                                options={(urls || []).map((url, index) => ({
+                                    value: index,
                                     label: url.label,
                                 }))}
                             />
@@ -127,7 +130,7 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                                 triggerExport({
                                     export_format: ExporterFormat.CSV,
                                     export_context: {
-                                        path: url,
+                                        path: originalUrl,
                                     },
                                 })
                             }}
@@ -152,7 +155,7 @@ function PersonsModalV2({ url, urls, title, onAfterClose }: PersonsModalProps): 
                             ))}
                         </>
                     ) : actorsResponseLoading ? (
-                        <Skeleton />
+                        <Skeleton title={false} />
                     ) : (
                         <div className="text-center">
                             We couldn't find any matching {actorLabel} for this data point.
