@@ -31,7 +31,7 @@ class AllowIPMiddleware:
         self.get_response = get_response
 
     def get_client_ip(self, request: HttpRequest):
-        proxy_trusted_ips = [] if settings.TRUST_ALL_PROXIES else self.trusted_proxies
+        proxy_trusted_ips = self.trusted_proxies if settings.TRUSTED_PROXIES else []
         client_ip_address, _ = ipware.ip.get_client_ip(request, proxy_trusted_ips=proxy_trusted_ips,)
         return client_ip_address
 
