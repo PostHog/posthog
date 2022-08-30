@@ -6,7 +6,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_trends import trend_test_factory
-from posthog.queries.trends.person import TrendsActors
+from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import _create_event, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for

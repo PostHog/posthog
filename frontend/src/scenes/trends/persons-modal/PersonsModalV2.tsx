@@ -45,7 +45,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
     const [isOpen, setIsOpen] = useState(true)
     const [cohortModalOpen, setCohortModalOpen] = useState(false)
-    const originalUrl = (urls || [])[selectedUrlIndex].value || _url || ''
+    const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
 
     const logic = personsModalLogic({
         url: originalUrl,
