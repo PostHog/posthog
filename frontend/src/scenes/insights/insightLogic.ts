@@ -842,6 +842,7 @@ export const insightLogic = kea<insightLogicType>({
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
+            savedInsightsLogic.findMounted()?.actions.loadInsights()
             dashboardsModel.actions.updateDashboardItem(savedInsight)
 
             if (redirectToViewMode) {
@@ -855,8 +856,6 @@ export const insightLogic = kea<insightLogicType>({
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
             }
-
-            savedInsightsLogic.findMounted()?.actions.loadInsights()
         },
         saveAs: async () => {
             prompt({ key: `save-as-insight` }).actions.prompt({
