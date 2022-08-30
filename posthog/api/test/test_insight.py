@@ -1366,6 +1366,33 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response_data["results"]), 0)
 
+    def test_get_recent_insights_with_feature_flag(self):
+        filter_dict = {"events": [{"id": "$pageview"}], "breakdown": "$feature/insight-with-flag-used"}
+        filter_dict2 = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$active_feature_flag", "value": "insight-with-flag-used"}],
+        }
+        filter_dict3 = {"events": [{"id": "$pageview"}], "breakdown": "email"}
+
+        insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="11223344"
+        )
+        insight2 = Insight.objects.create(
+            filters=Filter(data=filter_dict2).to_dict(), team=self.team, short_id="44332211"
+        )
+        insight3 = Insight.objects.create(
+            filters=Filter(data=filter_dict3).to_dict(), team=self.team, short_id="00992281"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=insight-with-flag-used")
+        response_data = response.json()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_data["results"]), 2)
+        self.assertEqual(response_data["results"][0]["id"], insight.id)
+        self.assertEqual(response_data["results"][1]["id"], insight2.id)
+        self.assertNotContains(response, insight3.id)
+
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(self):
         dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
         another_team = Team.objects.create(organization=self.organization)
