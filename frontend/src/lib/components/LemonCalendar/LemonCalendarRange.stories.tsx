@@ -15,7 +15,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCa
     const [value, setValue] = useState([
         dayjs().subtract(10, 'day').format('YYYY-MM-DD'),
         dayjs().subtract(4, 'day').format('YYYY-MM-DD'),
-    ] as (string | null)[])
+    ] as [string, string] | null)
     const [visible, setVisible] = useState(true)
 
     return (
@@ -38,7 +38,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCa
                 onClickOutside={() => setVisible(false)}
             >
                 <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                    {formatDateRange(dayjs(value[0]), dayjs(value[1]))}
+                    {value ? formatDateRange(dayjs(value[0]), dayjs(value[1])) : ''}
                 </LemonButton>
             </Popup>
         </div>

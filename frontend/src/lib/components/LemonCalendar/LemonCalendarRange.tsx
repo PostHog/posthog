@@ -6,8 +6,8 @@ import { IconClose } from 'lib/components/icons'
 import { formatDateRange } from 'lib/utils'
 
 export interface LemonCalendarRangeProps {
-    value?: (string | null)[]
-    onChange: (date: string[]) => void
+    value?: [string, string] | null
+    onChange: (date: [string, string]) => void
     months?: number
     onClose?: () => void
 }

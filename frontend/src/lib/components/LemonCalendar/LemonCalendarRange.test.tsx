@@ -10,7 +10,7 @@ describe('LemonCalendarRange', () => {
         const onChange = jest.fn()
 
         function TestRange(): JSX.Element {
-            const [value, setValue] = useState(['2022-02-10', '2022-02-28'])
+            const [value, setValue] = useState(['2022-02-10', '2022-02-28'] as [string, string])
             return (
                 <LemonCalendarRange
                     months={1}
