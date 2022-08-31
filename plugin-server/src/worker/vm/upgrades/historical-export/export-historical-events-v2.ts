@@ -484,6 +484,8 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     function shouldResume(status: ExportChunkStatus, now: number): boolean {
+        // When a export hasn't updated in 10 minutes plus whatever time is spent on retries, it's likely already timed out or died
+        // Note that status updates happen every time the export makes _any_ progress
         return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 
