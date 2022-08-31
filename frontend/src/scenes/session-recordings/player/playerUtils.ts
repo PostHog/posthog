@@ -1,5 +1,6 @@
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { PlayerPosition, RecordingSegment, RecordingStartAndEndTime } from '~/types'
+import { ExpandableConfig } from 'lib/components/LemonTable'
 
 export const THUMB_SIZE = 15
 export const THUMB_OFFSET = THUMB_SIZE / 2
@@ -175,4 +176,18 @@ export const convertPlayerPositionToX = (
 ): number => {
     const playerTime = getPlayerTimeFromPlayerPosition(playerPosition, segments)
     return ((playerTime ?? 0) / durationMs) * containerWidth
+}
+
+export function getRowExpandedState<T extends Record<string, any>>(
+    record: T,
+    recordIndex: number,
+    expandable?: ExpandableConfig<T>,
+    isRowExpandedLocal: boolean = false
+): boolean {
+    return (
+        Number(!!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))) > 0 &&
+        (!expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
+            ? isRowExpandedLocal
+            : !!expandable?.isRowExpanded?.(record, recordIndex))
+    )
 }

@@ -1,4 +1,4 @@
-import React, { CSSProperties, ReactNode, useMemo, useState } from 'react'
+import React, { CSSProperties, ReactNode, useMemo } from 'react'
 import { ExpandableConfig } from 'lib/components/LemonTable'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import clsx from 'clsx'
@@ -30,12 +30,15 @@ export interface PlayerListRowProps<T extends Record<string, any>> {
     keyDetermined: string | null | undefined
     classNameDetermined: string | null | undefined
     statusDetermined: RowStatus | null | undefined
+    expandedDetermined: boolean | null | undefined
     /** If row is current, row will be highlighted with border and prominent ribbon */
     currentDetermined: boolean
     contentDetermined: ReactNode
     sideContentDetermined: ReactNode
     onClick: (record: T) => void
     optionsDetermined: ListRowOptions<T>
+    /** Used to pause any interactions while player list is still loading **/
+    loading?: boolean
 }
 
 function PlayerListRowRaw<T extends Record<string, any>>({
@@ -48,25 +51,19 @@ function PlayerListRowRaw<T extends Record<string, any>>({
     statusDetermined,
     currentDetermined,
     contentDetermined,
+    expandedDetermined,
     sideContentDetermined,
     optionsDetermined,
     onClick,
+    loading,
 }: PlayerListRowProps<T>): JSX.Element {
-    const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const [sections, allOptions] = useMemo(() => boxToSections(optionsDetermined), [optionsDetermined])
-    const rowExpandable: number = Number(
-        !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record))
-    )
-    const isRowExpanded =
-        !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record) === -1
-            ? isRowExpandedLocal
-            : !!expandable?.isRowExpanded?.(record)
 
     return (
         <div
             key={keyDetermined}
             data-attr={`player-list-item-${recordIndex}`}
-            className={clsx('PlayerList__item', classNameDetermined)}
+            className={clsx('PlayerList__item', 'flex flex-col justify-start', classNameDetermined)}
             style={style}
             onClick={() => {
                 record.playerPosition && onClick(record)
@@ -76,84 +73,98 @@ function PlayerListRowRaw<T extends Record<string, any>>({
             <div
                 className={clsx(
                     'PlayerList__item__content',
-                    'cursor-pointer h-full rounded flex flex-row gap-3 items-center justify-between border px-2',
-                    {
-                        'bg-light': statusDetermined === RowStatus.Information,
-                        'text-warning-dark bg-warning-highlight': statusDetermined === RowStatus.Warning,
-                        'text-danger-dark bg-danger-highlight': statusDetermined === RowStatus.Error,
-                        'text-indigo bg-purple-light': statusDetermined === RowStatus.Match,
-                    },
+                    'flex flex-col h-full rounded border overflow-hidden',
                     currentDetermined ? 'PlayerList__item__content--current border-primary' : 'border-border'
                 )}
             >
-                <div className="flex flex-row items-center">
-                    {!!expandable && rowExpandable >= 0 ? (
-                        <LemonButton
-                            noPadding
-                            className="shrink-0"
-                            icon={isRowExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                            size="small"
-                            active={isRowExpanded}
-                            status="stealth"
-                            onClick={(event) => {
-                                event.stopPropagation()
-                                setIsRowExpanded(!isRowExpanded)
-                                if (isRowExpanded) {
-                                    expandable?.onRowCollapse?.(record)
-                                } else {
-                                    expandable?.onRowExpand?.(record)
-                                }
-                            }}
-                            title={isRowExpanded ? 'Show less' : 'Show more'}
-                        />
-                    ) : (
-                        <LemonButton size="small" />
+                <div
+                    className={clsx(
+                        'PlayerList__item__content__header',
+                        'cursor-pointer h-10 shrink-0 flex flex-row gap-3 items-center justify-between px-2 bg-light',
+                        {
+                            'text-warning-dark bg-warning-highlight': statusDetermined === RowStatus.Warning,
+                            'text-danger-dark bg-danger-highlight': statusDetermined === RowStatus.Error,
+                            'text-indigo bg-purple-light': statusDetermined === RowStatus.Match,
+                        }
                     )}
-                    <div>
-                        <IconWindow value="1" className="text-muted shrink-0" />
+                >
+                    <div className="flex flex-row items-center">
+                        {!!expandable ? (
+                            <LemonButton
+                                noPadding
+                                disabled={!!loading}
+                                className="shrink-0 mr-1"
+                                icon={expandedDetermined ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                size="small"
+                                active={!!expandedDetermined}
+                                status="stealth"
+                                onClick={(event) => {
+                                    event.stopPropagation()
+                                    if (expandedDetermined) {
+                                        expandable?.onRowCollapse?.(record, recordIndex)
+                                    } else {
+                                        expandable?.onRowExpand?.(record, recordIndex)
+                                    }
+                                }}
+                                title={expandedDetermined ? 'Show less' : 'Show more'}
+                            />
+                        ) : (
+                            <LemonButton size="small" />
+                        )}
+                        <div>
+                            <IconWindow value="1" className="text-muted shrink-0" />
+                        </div>
+                    </div>
+                    <div className="grow overflow-hidden">{contentDetermined}</div>
+                    <div className="flex shrink-0 flex-row gap-3 items-center text-muted">
+                        {sideContentDetermined}
+                        <div style={{ fontSize: 11 }}>{record.colonTimestamp}</div>
+                        {allOptions.length > 0 && (
+                            <LemonButtonWithPopup
+                                data-attr="player-list-item-menu"
+                                id="player-list-item-menu"
+                                icon={<IconEllipsis />}
+                                size="small"
+                                status="muted"
+                                onClick={(event) => {
+                                    event.stopPropagation()
+                                }}
+                                popup={{
+                                    placement: 'bottom-end',
+                                    overlay: sections.map((section, i) => (
+                                        <React.Fragment key={i}>
+                                            {section.options.map((option: ListRowOption<T>, index) => (
+                                                <LemonButton
+                                                    key={index}
+                                                    tooltip={option.tooltip}
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        option?.onClick?.(record)
+                                                    }}
+                                                    status="stealth"
+                                                    disabled={option.disabled}
+                                                    fullWidth
+                                                    data-attr={option['data-attr']}
+                                                >
+                                                    {option.label}
+                                                </LemonButton>
+                                            ))}
+                                            {i < sections.length - 1 ? <LemonDivider /> : null}
+                                        </React.Fragment>
+                                    )),
+                                }}
+                            />
+                        )}
                     </div>
                 </div>
-                <div className="grow overflow-hidden">{contentDetermined}</div>
-                <div className="flex shrink-0 flex-row gap-3 items-center text-muted">
-                    {sideContentDetermined}
-                    <div style={{ fontSize: 11 }}>{record.colonTimestamp}</div>
-                    {allOptions.length > 0 && (
-                        <LemonButtonWithPopup
-                            data-attr="player-list-item-menu"
-                            id="player-list-item-menu"
-                            icon={<IconEllipsis />}
-                            size="small"
-                            status="muted"
-                            onClick={(event) => {
-                                event.stopPropagation()
-                            }}
-                            popup={{
-                                placement: 'bottom-end',
-                                overlay: sections.map((section, i) => (
-                                    <React.Fragment key={i}>
-                                        {section.options.map((option: ListRowOption<T>, index) => (
-                                            <LemonButton
-                                                key={index}
-                                                tooltip={option.tooltip}
-                                                onClick={(event) => {
-                                                    event.stopPropagation()
-                                                    option?.onClick?.(record)
-                                                }}
-                                                status="stealth"
-                                                disabled={option.disabled}
-                                                fullWidth
-                                                data-attr={option['data-attr']}
-                                            >
-                                                {option.label}
-                                            </LemonButton>
-                                        ))}
-                                        {i < sections.length - 1 ? <LemonDivider /> : null}
-                                    </React.Fragment>
-                                )),
-                            }}
-                        />
-                    )}
-                </div>
+                {expandable && expandedDetermined && (
+                    <>
+                        <LemonDivider className="my-0" />
+                        <div className={clsx('PlayerList__item__content__expandable', 'overflow-y-scroll px-6')}>
+                            {expandable.expandedRowRender(record, recordIndex)}
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     )

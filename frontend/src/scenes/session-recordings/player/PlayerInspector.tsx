@@ -8,12 +8,13 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PlayerConsole } from 'scenes/session-recordings/player/list/PlayerConsole'
 import React from 'react'
-import { SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
+import { EventType, SessionRecordingPlayerProps, SessionRecordingTab } from '~/types'
 import { PlayerList } from 'scenes/session-recordings/player/list/PlayerList'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { interleave } from 'lib/utils'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { EventDetails } from 'scenes/events'
 
 const { TabPane } = Tabs
 
@@ -128,6 +129,15 @@ export function PlayerInspectorV3({ sessionRecordingId, playerKey }: SessionReco
                             return null
                         },
                     }}
+                    expandable={
+                        currentTab === SessionRecordingTab.CONSOLE
+                            ? undefined
+                            : {
+                                  expandedRowRender: function renderExpand(record) {
+                                      return record && <EventDetails event={record as EventType} />
+                                  },
+                              }
+                    }
                 />
             </div>
         </Col>
