@@ -25,6 +25,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 timestamp="2021-05-01 00:00:00",
                 properties={"$browser": "Chrome"},
+                person_id=person.uuid,
             )
             if i % 2 == 0:
                 _create_event(
@@ -33,6 +34,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     timestamp="2021-05-01 00:10:00",
                     properties={"$browser": "Chrome"},
+                    person_id=person.uuid,
                 )
             _create_event(
                 event="step three",
@@ -40,6 +42,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 timestamp="2021-05-01 00:20:00",
                 properties={"$browser": "Chrome"},
+                person_id=person.uuid,
             )
             if delete:
                 person.delete()
@@ -169,7 +172,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             "limit": 15,
         }
 
-        response = self.client.get("/api/person/path/", data=request_data)
+        response = self.client.get(f"/api/person/path/", data=request_data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         j = response.json()
         people = j["results"][0]["people"]
