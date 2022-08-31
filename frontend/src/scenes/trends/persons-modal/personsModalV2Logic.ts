@@ -31,11 +31,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal']],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         actorsResponse: [
             null as CountedPaginatedResponse<ActorType> | null,
             {
-                loadActors: async ({ url }: { url: string }) => {
+                loadActors: async ({ url, clear = false }: { url: string; clear?: boolean }) => {
                     url += '&include_recordings=true'
 
                     if (values.searchTerm) {
@@ -50,6 +50,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         next: res?.next,
                     }
 
+                    if (clear) {
+                        actions.resetActors()
+                    }
                     return payload
                 },
             },
@@ -78,8 +81,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
     listeners(({ actions, props }) => ({
         setSearchTerm: async ({}, breakpoint) => {
             await breakpoint(500)
-            actions.resetActors()
-            actions.loadActors({ url: props.url })
+            actions.loadActors({ url: props.url, clear: true })
         },
         saveCohortWithUrl: async ({ cohortName }) => {
             const cohortParams = {

@@ -283,7 +283,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
                                         </LemonButton>
                                     ))
                                 ) : (
-                                    <p>No recordings</p>
+                                    <div className="text-center m-2">No recordings</div>
                                 )}
                             </div>
                         </Tabs.TabPane>
