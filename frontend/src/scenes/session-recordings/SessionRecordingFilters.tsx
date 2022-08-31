@@ -124,7 +124,7 @@ export function SessionRecordingsFilters({
                                     <span> {key}</span>
                                 </>
                             )}
-                            dateFrom={fromDate ?? '-7d' ?? undefined}
+                            dateFrom={fromDate ?? '-7d'}
                             dateTo={toDate ?? undefined}
                             onChange={(changedDateFrom, changedDateTo) => {
                                 reportRecordingsListFilterAdded(SessionRecordingFilterType.DateRange)

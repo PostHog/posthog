@@ -1,14 +1,16 @@
 .LemonCalendar {
     .LemonCalendar__today {
+        --lemon-calendar-today-radius: 2px;
+
         position: relative;
-        &:after {
+        &::after {
             position: absolute;
             bottom: 5px;
-            left: calc(50% - 2px);
+            left: calc(50% - var(--lemon-calendar-today-radius));
             content: '';
             border-radius: 100%;
-            width: 4px;
-            height: 4px;
+            width: calc(var(--lemon-calendar-today-radius) * 2);
+            height: calc(var(--lemon-calendar-today-radius) * 2);
             background: currentcolor;
         }
     }
