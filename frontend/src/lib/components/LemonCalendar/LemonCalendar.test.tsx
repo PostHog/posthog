@@ -2,15 +2,10 @@ import React from 'react'
 import { LemonCalendar } from './LemonCalendar'
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { initKeaTests } from '~/test/init'
 import { getAllByDataAttr, getByDataAttr } from '~/test/byDataAttr'
 import { dayjs } from 'lib/dayjs'
 
 describe('LemonCalendar', () => {
-    beforeEach(() => {
-        initKeaTests()
-    })
-
     test('click and move between months with one month showing', async () => {
         const onLeftmostMonthChanged = jest.fn()
         const onDateClick = jest.fn()

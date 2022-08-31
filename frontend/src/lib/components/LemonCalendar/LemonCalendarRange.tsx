@@ -23,19 +23,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
         value?.[0] ? dayjs(value[0]).format('YYYY-MM-DD') : null,
         value?.[1] ? dayjs(value[1]).format('YYYY-MM-DD') : null,
     ]
-    const [[rangeStart, rangeEnd], setRange] = useState([valueStart, valueEnd])
-
-    // Track if the last change was on the range's start or end
-    const [lastChanged, setLastChanged] = useState('end' as 'start' | 'end')
-    useEffect(() => {
-        console.log({ valueStart, rangeStart, valueEnd, rangeEnd })
-        if (valueStart !== rangeStart) {
-            setLastChanged('start')
-        }
-        if (valueEnd !== rangeEnd) {
-            setLastChanged('end')
-        }
-    }, [valueStart, rangeStart, valueEnd, rangeEnd])
+    const [[rangeStart, rangeEnd, lastChanged], setRange] = useState([valueStart, valueEnd, 'end' as 'start' | 'end'])
 
     // How many months fit on the screen, capped between 1..2
     function getMonthCount(): number {
@@ -96,22 +84,22 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                 <LemonCalendar
                     onDateClick={(date) => {
                         if (!rangeStart && !rangeEnd) {
-                            setRange([date, date])
+                            setRange([date, date, 'start'])
                         } else if (rangeStart && !rangeEnd) {
-                            setRange(date < rangeStart ? [date, rangeStart] : [rangeStart, date])
+                            setRange(date < rangeStart ? [date, rangeStart, 'start'] : [rangeStart, date, 'end'])
                         } else if (rangeEnd && !rangeStart) {
-                            setRange(date < rangeEnd ? [date, rangeEnd] : [rangeEnd, date])
+                            setRange(date < rangeEnd ? [date, rangeEnd, 'start'] : [rangeEnd, date, 'end'])
                         } else if (rangeStart && rangeEnd) {
                             if (date === rangeStart || date === rangeEnd) {
-                                setRange([date, date])
+                                setRange([date, date, 'start'])
                             } else if (date < rangeStart) {
-                                setRange([date, rangeEnd])
+                                setRange([date, rangeEnd, 'start'])
                             } else if (date > rangeEnd) {
-                                setRange([rangeStart, date])
+                                setRange([rangeStart, date, 'end'])
                             } else if (lastChanged === 'start') {
-                                setRange([rangeStart, date])
+                                setRange([rangeStart, date, 'end'])
                             } else {
-                                setRange([date, rangeEnd])
+                                setRange([date, rangeEnd, 'start'])
                             }
                         }
                     }}
