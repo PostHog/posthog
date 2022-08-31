@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs } from 'antd'
+import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -264,80 +264,94 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </Form>
                     ) : (
                         <>
-                            <PageHeader
-                                title={
-                                    <div className="flex items-center gap-2 mb-2">
-                                        {featureFlag.key || 'Untitled'}
-                                        <CopyToClipboardInline
-                                            explicitValue={featureFlag.key}
-                                            iconStyle={{ color: 'var(--muted-alt)' }}
-                                        />
-                                        <div className="flex">
-                                            {featureFlag.active ? (
-                                                <LemonTag type="success">Enabled</LemonTag>
-                                            ) : (
-                                                <LemonTag type="default">Disabled</LemonTag>
-                                            )}
-                                        </div>
-                                    </div>
-                                }
-                                description={
-                                    <>
-                                        {featureFlag.name ? (
-                                            <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
-                                        ) : (
-                                            'There is no description for this feature flag.'
+                            {featureFlagLoading ? (
+                                <Skeleton active />
+                            ) : (
+                                <>
+                                    <PageHeader
+                                        title={
+                                            <div className="flex items-center gap-2 mb-2">
+                                                {featureFlag.key || 'Untitled'}
+                                                <CopyToClipboardInline
+                                                    explicitValue={featureFlag.key}
+                                                    iconStyle={{ color: 'var(--muted-alt)' }}
+                                                />
+                                                <div className="flex">
+                                                    {featureFlag.active ? (
+                                                        <LemonTag type="success">Enabled</LemonTag>
+                                                    ) : (
+                                                        <LemonTag type="default">Disabled</LemonTag>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        }
+                                        description={
+                                            <>
+                                                {featureFlag.name ? (
+                                                    <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
+                                                ) : (
+                                                    'There is no description for this feature flag.'
+                                                )}
+                                            </>
+                                        }
+                                        buttons={
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <LemonButton
+                                                    data-attr="delete-feature-flag"
+                                                    status="danger"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        deleteFeatureFlag(featureFlag)
+                                                    }}
+                                                    disabled={featureFlagLoading}
+                                                >
+                                                    Delete feature flag
+                                                </LemonButton>
+                                                <LemonButton
+                                                    data-attr="edit-feature-flag"
+                                                    type="secondary"
+                                                    onClick={() => {
+                                                        editFeatureFlag(true)
+                                                    }}
+                                                    disabled={featureFlagLoading}
+                                                >
+                                                    Edit
+                                                </LemonButton>
+                                            </div>
+                                        }
+                                    />
+                                    <Tabs
+                                        activeKey={activeTab}
+                                        destroyInactiveTabPane
+                                        onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                                    >
+                                        <Tabs.TabPane tab="Overview" key="overview">
+                                            <Row>
+                                                <Col span={13}>
+                                                    <FeatureFlagRollout readOnly />
+                                                    <FeatureFlagReleaseConditions readOnly />
+                                                </Col>
+                                                <Col span={11} className="pl-4">
+                                                    <RecentFeatureFlagInsights />
+                                                    <div className="my-4" />
+                                                    <FeatureFlagInstructions
+                                                        featureFlagKey={featureFlag.key || 'my-flag'}
+                                                    />
+                                                </Col>
+                                            </Row>
+                                        </Tabs.TabPane>
+                                        {featureFlag.id && (
+                                            <Tabs.TabPane tab="History" key="history">
+                                                <ActivityLog
+                                                    scope={ActivityScope.FEATURE_FLAG}
+                                                    describer={flagActivityDescriber}
+                                                    id={featureFlag.id}
+                                                />
+                                            </Tabs.TabPane>
                                         )}
-                                    </>
-                                }
-                                buttons={
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <LemonButton
-                                            data-attr="delete-feature-flag"
-                                            status="danger"
-                                            type="secondary"
-                                            onClick={() => {
-                                                deleteFeatureFlag(featureFlag)
-                                            }}
-                                            disabled={featureFlagLoading}
-                                        >
-                                            Delete feature flag
-                                        </LemonButton>
-                                        <LemonButton
-                                            data-attr="edit-feature-flag"
-                                            type="secondary"
-                                            onClick={() => {
-                                                editFeatureFlag(true)
-                                            }}
-                                            disabled={featureFlagLoading}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    </div>
-                                }
-                            />
-                            <Tabs
-                                activeKey={activeTab}
-                                destroyInactiveTabPane
-                                onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
-                            >
-                                <Tabs.TabPane tab="Overview" key="overview">
-                                    <Row>
-                                        <Col span={13}>
-                                            <FeatureFlagRollout readOnly />
-                                            <FeatureFlagReleaseConditions readOnly />
-                                        </Col>
-                                        <Col span={11} className="pl-4">
-                                            <RecentFeatureFlagInsights />
-                                            <div className="my-4" />
-                                            <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                        </Col>
-                                    </Row>
-                                </Tabs.TabPane>
-                                <Tabs.TabPane tab="History" key="history">
-                                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} describer={flagActivityDescriber} />
-                                </Tabs.TabPane>
-                            </Tabs>
+                                    </Tabs>
+                                </>
+                            )}
                         </>
                     )}
                 </div>
