@@ -4,7 +4,7 @@ import { LemonCalendar, LemonCalendarProps } from './LemonCalendar'
 import { dayjs } from 'lib/dayjs'
 
 export default {
-    title: 'Lemon UI/Lemon Calendar',
+    title: 'Lemon UI/Lemon Calendar/Lemon Calendar',
     component: LemonCalendar,
     argTypes: {
         onClick: {
