@@ -18,7 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
@@ -190,6 +190,9 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request, team=self.team)
+        if not filter.limit:
+            filter = filter.with_data({LIMIT: 200})
+
         entity = get_target_entity(filter)
 
         actors, serialized_actors = TrendsActors(team, entity, filter).get_actors()
