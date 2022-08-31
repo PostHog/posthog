@@ -1,4 +1,7 @@
 .LemonCalendar {
+    .LemonCalendar__month > tbody > tr > td {
+        width: 40px;
+    }
     .LemonCalendar__today {
         --lemon-calendar-today-radius: 2px;
 
