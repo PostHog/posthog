@@ -346,15 +346,15 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
     })
 
-    describe('coordinateHistoricExport()', () => {
-        const coordinateHistoricExport = getTestMethod('coordinateHistoricExport')
+    describe('coordinateHistoricalExport()', () => {
+        const coordinateHistoricalExport = getTestMethod('coordinateHistoricalExport')
 
         beforeEach(async () => {
             await resetTestDatabase()
         })
 
         it('does nothing if export isnt running / is done', async () => {
-            await coordinateHistoricExport()
+            await coordinateHistoricalExport()
 
             expect(await storage().get(EXPORT_COORDINATION_KEY, null)).toEqual(null)
             expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
@@ -373,7 +373,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
 
             it('logs progress of the export and does not start excessive jobs', async () => {
-                await coordinateHistoricExport({
+                await coordinateHistoricalExport({
                     hasChanges: false,
                     exportIsDone: false,
                     progress: 0.7553,
@@ -395,7 +395,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
 
             it('starts up new jobs and updates coordination data if needed', async () => {
-                await coordinateHistoricExport({
+                await coordinateHistoricalExport({
                     hasChanges: true,
                     exportIsDone: false,
                     progress: 0.7553,
@@ -451,7 +451,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     statusKey: 'EXPORT_DATE_STATUS_2021-11-01T00:00:00.000Z',
                 }
 
-                await coordinateHistoricExport({
+                await coordinateHistoricalExport({
                     hasChanges: true,
                     exportIsDone: false,
                     progress: 0.7553,
@@ -476,7 +476,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
 
             it('handles export being completed', async () => {
-                await coordinateHistoricExport({
+                await coordinateHistoricalExport({
                     hasChanges: false,
                     exportIsDone: true,
                     progress: 1,

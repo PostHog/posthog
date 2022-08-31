@@ -57,7 +57,7 @@ export interface TestFunctions {
     exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
     getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => TimestampBoundaries
     nextCursor: (payload: ExportHistoricalEventsJobPayload, eventCount: number) => OffsetParams
-    coordinateHistoricExport: (update?: CoordinationUpdate) => Promise<void>
+    coordinateHistoricalExport: (update?: CoordinationUpdate) => Promise<void>
     calculateCoordination: (
         params: ExportParams,
         done: Array<ISOTimestamp>,
@@ -187,7 +187,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 }
             )
 
-            await coordinateHistoricExport()
+            await coordinateHistoricalExport()
         },
     } as unknown as PluginTask // :KLUDGE: Work around typing limitations
 
@@ -202,11 +202,11 @@ export function addHistoricalEventsExportCapabilityV2(
         type: PluginTaskType.Schedule,
         exec: async () => {
             await oldRunEveryMinute?.()
-            await coordinateHistoricExport()
+            await coordinateHistoricalExport()
         },
     }
 
-    async function coordinateHistoricExport(update?: CoordinationUpdate) {
+    async function coordinateHistoricalExport(update?: CoordinationUpdate) {
         const params = await getExportParameters()
 
         if (!params) {
@@ -574,7 +574,7 @@ export function addHistoricalEventsExportCapabilityV2(
             exportHistoricalEvents,
             getTimestampBoundaries,
             nextCursor,
-            coordinateHistoricExport,
+            coordinateHistoricalExport,
             calculateCoordination,
             getExportDateRange,
             progressBar,
