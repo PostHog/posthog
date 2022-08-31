@@ -55,6 +55,7 @@ export function NewActionButton(): JSX.Element {
                             size="large"
                             fullWidth
                             center
+                            data-attr="new-action-inspect"
                         >
                             Inspect element on your site
                         </LemonButton>
@@ -67,6 +68,7 @@ export function NewActionButton(): JSX.Element {
                             size="large"
                             fullWidth
                             center
+                            data-attr="new-action-pageview"
                         >
                             From event or pageview
                         </LemonButton>
