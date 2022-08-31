@@ -48,7 +48,8 @@ const TWELVE_HOURS = 1000 * 60 * 60 * 12
 const EVENTS_TIME_INTERVAL = TEN_MINUTES
 export const EVENTS_PER_RUN = 500
 
-export const EXPORT_RUNNING_KEY = 'export_running'
+export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
+export const EXPORT_COORDINATION_KEY = 'EXPORT_COORDINATION'
 
 const INTERFACE_JOB_NAME = 'Export historical events V2'
 
@@ -166,13 +167,13 @@ export function addHistoricalEventsExportCapabilityV2(
             }
 
             // Clear old (conflicting) storage
-            await meta.storage.del('EXPORT_COORDINATION')
+            await meta.storage.del(EXPORT_COORDINATION_KEY)
 
             const id = Math.floor(Math.random() * 10000 + 1)
             const parallelism = Number(payload.parallelism ?? 1)
             const boundaries = getTimestampBoundaries(payload)
 
-            await meta.storage.set(EXPORT_RUNNING_KEY, {
+            await meta.storage.set(EXPORT_PARAMETERS_KEY, {
                 id,
                 parallelism,
                 dateFrom: boundaries.min.toISOString(),
@@ -213,7 +214,7 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
-        const { done, running } = (await meta.storage.get(`EXPORT_COORDINATION`, {})) as CoordinationPayload
+        const { done, running } = (await meta.storage.get(EXPORT_COORDINATION_KEY, {})) as CoordinationPayload
         update = update || (await calculateCoordination(params, done || [], running || []))
 
         createLog(`Export progress: ${progressBar(update.progress)} (${Math.round(1000 * update.progress) / 10}%)`, {
@@ -461,7 +462,7 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function stopExport(message: string, logOverrides: Partial<PluginLogEntry> = {}) {
-        await meta.storage.del(EXPORT_RUNNING_KEY)
+        await meta.storage.del(EXPORT_PARAMETERS_KEY)
         createLog(message, logOverrides)
     }
 
@@ -550,7 +551,7 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function getExportParameters(): Promise<ExportParams | null> {
-        return (await meta.storage.get(EXPORT_RUNNING_KEY, null)) as ExportParams | null
+        return (await meta.storage.get(EXPORT_PARAMETERS_KEY, null)) as ExportParams | null
     }
 
     function createLog(message: string, overrides: Partial<PluginLogEntry> = {}) {

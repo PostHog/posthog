@@ -7,7 +7,8 @@ import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
 import {
     addHistoricalEventsExportCapabilityV2,
     EVENTS_PER_RUN,
-    EXPORT_RUNNING_KEY,
+    EXPORT_COORDINATION_KEY,
+    EXPORT_PARAMETERS_KEY,
     ExportHistoricalEventsJobPayload,
     ExportHistoricalEventsUpgradeV2,
     TestFunctions,
@@ -105,7 +106,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
         beforeEach(async () => {
             await resetTestDatabase()
-            await storage().set(EXPORT_RUNNING_KEY, {
+            await storage().set(EXPORT_PARAMETERS_KEY, {
                 id: 1,
                 parallelism: 3,
                 dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
@@ -134,7 +135,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
-                        'Finished processing events from 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z'
+                        'Finished exporting chunk from 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z'
                     ),
                 })
             )
@@ -173,7 +174,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
         it('stops export if events fetch fails', async () => {
             jest.mocked(fetchEventsForInterval).mockRejectedValue(new Error('Fetch failed'))
-            await storage().set(EXPORT_RUNNING_KEY, {
+            await storage().set(EXPORT_PARAMETERS_KEY, {
                 id: 1,
                 parallelism: 3,
                 dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
@@ -189,7 +190,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+            expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
 
         it('schedules a retry if exportEvents raises a RetryError', async () => {
@@ -253,7 +254,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 })
             )
 
-            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+            expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
 
         it('stops processing after 15 retries', async () => {
@@ -263,16 +264,16 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
-                        'Exporting events from 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z failed after 15 retries. Stopping export.'
+                        'Exporting chunk 2021-11-01T00:00:00.000Z to 2021-11-01T05:00:00.000Z failed after 15 retries. Stopping export.'
                     ),
                 })
             )
 
-            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+            expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
 
         it('does nothing if no export is running', async () => {
-            await storage().del(EXPORT_RUNNING_KEY)
+            await storage().del(EXPORT_PARAMETERS_KEY)
 
             await exportHistoricalEvents(defaultPayload)
 
@@ -355,7 +356,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('does nothing if export isnt running / is done', async () => {
             await coordinateHistoricExport()
 
-            expect(await storage().get('EXPORT_COORDINATION', null)).toEqual(null)
+            expect(await storage().get(EXPORT_COORDINATION_KEY, null)).toEqual(null)
             expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
         })
 
@@ -368,7 +369,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             }
 
             beforeEach(async () => {
-                await storage().set(EXPORT_RUNNING_KEY, params)
+                await storage().set(EXPORT_PARAMETERS_KEY, params)
             })
 
             it('logs progress of the export and does not start excessive jobs', async () => {
@@ -390,7 +391,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 )
 
                 expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
-                expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(params)
+                expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(params)
             })
 
             it('starts up new jobs and updates coordination data if needed', async () => {
@@ -428,7 +429,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                         statusTime: Date.now(),
                     })
                 )
-                expect(await storage().get('EXPORT_COORDINATION', null)).toEqual({
+                expect(await storage().get(EXPORT_COORDINATION_KEY, null)).toEqual({
                     done: ['2021-10-29T00:00:00.000Z', '2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z'],
                     running: ['2021-11-01T00:00:00.000Z'],
                     progress: 0.7553,
@@ -485,13 +486,12 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     toResume: [],
                 })
 
-                expect(hub.db.queuePluginLogEntry).toHaveBeenCalledTimes(1)
                 expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                     expect.objectContaining({
-                        message: expect.stringContaining('Done exporting all events!'),
+                        message: expect.stringContaining('Export has finished!'),
                     })
                 )
-                expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+                expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
             })
         })
     })
@@ -810,8 +810,8 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('stopExport()', () => {
         const stopExport = getTestMethod('stopExport')
 
-        it('unsets EXPORT_RUNNING_KEY', async () => {
-            await storage().set(EXPORT_RUNNING_KEY, {
+        it('unsets EXPORT_PARAMETERS_KEY', async () => {
+            await storage().set(EXPORT_PARAMETERS_KEY, {
                 id: 1,
                 parallelism: 3,
                 dateFrom: '2021-10-29T00:00:00.000Z' as ISOTimestamp,
@@ -820,7 +820,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
             await stopExport('')
 
-            expect(await storage().get(EXPORT_RUNNING_KEY, null)).toEqual(null)
+            expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
     })
 
