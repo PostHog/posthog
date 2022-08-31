@@ -154,6 +154,32 @@ function OverViewTab(): JSX.Element {
                         onChange={setSearchTerm}
                         value={searchTerm}
                     />
+                    <div>
+                        <span>Status</span>
+                        <LemonSelect
+                            onChange={(status) => {
+                                if (status === "all") {
+                                    const { active, ...restFilters } = filters
+                                    setFeatureFlagsFilters(restFilters, true)
+                                } else {
+                                    setFeatureFlagsFilters({ active: status })
+                                }
+                            }}
+                            options={[{ label: "All", value: "all" }, { label: "Enabled", value: true }, { label: "Disabled", value: false }]}
+                            value="all"
+                        />
+                        <span>Created by</span>
+                        <LemonSelect
+                            onChange={(user) => {
+                                if (user === "all") {
+                                    const { created_by, ...restFilters } = filters
+                                    setFeatureFlagsFilters(restFilters, true)
+                                } else {
+                                    setFeatureFlagsFilters({ created_by: user })
+                                }
+                            }}
+                            options={uniqueCreators} />
+                    </div>
                 </div>
             </div>
             <LemonTable

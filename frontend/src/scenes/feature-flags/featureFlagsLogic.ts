@@ -6,6 +6,7 @@ import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
+import { toParams } from 'lib/utils'
 
 export enum FeatureFlagsTabs {
     OVERVIEW = 'overview',
@@ -22,12 +23,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setActiveTab: (tabKey: FeatureFlagsTabs) => ({ tabKey }),
+        setFeatureFlagsFilters: (filters, replace?: boolean) => ({ filters, replace }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
-                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/`)
+                const params = values.filters
+                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/?${toParams(params)}`)
                 return response.results as FeatureFlagType[]
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
@@ -60,6 +63,26 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 },
             ],
         ],
+        uniqueCreators: [
+            (selectors) => [selectors.featureFlags],
+            (featureFlags) => {
+                const creators = {}
+                featureFlags.forEach((flag: FeatureFlagType) => {
+                    if (flag.created_by) {
+                        if (!creators[flag.created_by.email]) {
+                            creators[flag.created_by.email] = flag.created_by.first_name
+                        }
+                    }
+                })
+                const response = [
+                    { label: "Any user", value: "all" }
+                ]
+                for (const [email, first_name] of Object.entries(creators)) {
+                    response.push({ label: first_name, value: email })
+                }
+                return response
+            }
+        ],
     },
     reducers: {
         searchTerm: {
@@ -82,7 +105,30 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     Object.values<string>(FeatureFlagsTabs).includes(tabKey) ? tabKey : state,
             },
         ],
+        filters: [
+            // null as Partial<SavedInsightFilters> | null,
+            null,
+            {
+                setFeatureFlagsFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
+                    return { ...state, ...filters }
+                }
+                // cleanFilters({
+                //     ...(merge ? state || {} : {}),
+                //     ...filters,
+                //     // Reset page on filter change EXCEPT if it's page or view that's being updated
+                //     ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
+                // }),
+            },
+        ],
     },
+    listeners: ({ actions }) => ({
+        setFeatureFlagsFilters: () => {
+            actions.loadFeatureFlags()
+        }
+    }),
     actionToUrl: ({ values }) => ({
         setActiveTab: () => {
             const searchParams = {
