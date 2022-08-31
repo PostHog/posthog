@@ -6,7 +6,7 @@ import structlog
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
-logger = structlog.get_logger(__file__)
+logger = structlog.get_logger(__name__)
 
 # Early exit to avoid issues with cloud not being properly included
 if get_from_env("MULTI_TENANCY", False, type_cast=str_to_bool):
