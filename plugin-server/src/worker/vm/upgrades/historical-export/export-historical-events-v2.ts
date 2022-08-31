@@ -241,7 +241,7 @@ export function addHistoricalEventsExportCapabilityV2(
                         fetchTimeInterval: EVENTS_TIME_INTERVAL,
                         statusKey: `EXPORT_DATE_STATUS_${startDate}`,
                     }
-                    await startChunk(payload)
+                    await startChunk(payload, 0)
                 })
             )
 
@@ -327,7 +327,7 @@ export function addHistoricalEventsExportCapabilityV2(
         }
     }
 
-    async function startChunk(payload: ExportHistoricalEventsJobPayload, progress = 0): Promise<void> {
+    async function startChunk(payload: ExportHistoricalEventsJobPayload, progress: number): Promise<void> {
         // Save for detecting retries
         await meta.storage.set(payload.statusKey, {
             ...payload,
