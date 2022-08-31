@@ -8,10 +8,8 @@ import json
 import os
 import re
 import secrets
-import shutil
 import string
 import subprocess
-import sys
 import time
 import uuid
 import zlib
@@ -24,7 +22,6 @@ from typing import (
     List,
     Mapping,
     Optional,
-    Sequence,
     Tuple,
     Union,
     cast,
@@ -33,6 +30,7 @@ from urllib.parse import urljoin, urlparse
 
 import lzstring
 import pytz
+import structlog
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
@@ -63,6 +61,9 @@ DATERANGE_MAP = {
 ANONYMOUS_REGEX = r"^([a-z0-9]+\-){4}([a-z0-9]+)$"
 
 DEFAULT_DATE_FROM_DAYS = 7
+
+
+logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -899,12 +900,8 @@ def str_to_bool(value: Any) -> bool:
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
 
 
-def print_warning(warning_lines: Sequence[str], *, top_emoji="🔻", bottom_emoji="🔺"):
-    highlight_length = min(max(map(len, warning_lines)) // 2, shutil.get_terminal_size().columns)
-    print(
-        "\n".join(("", top_emoji * highlight_length, *warning_lines, bottom_emoji * highlight_length, "",)),
-        file=sys.stderr,
-    )
+def print_warning(warning_lines: List[str]):
+    logger.warning("\n".join(warning_lines))
 
 
 def get_helm_info_env() -> dict:
