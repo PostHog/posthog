@@ -17,7 +17,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
     const [selectValue, setSelectValue] = useState(parsedValue)
 
     return (
-        <div className="LemonCalendarSelect">
+        <div className="LemonCalendarSelect" data-attr="lemon-calendar-select">
             <div className="flex justify-between border-b p-2 pb-4">
                 <h3 className="mb-0">Select a date</h3>
                 {onClose && (
@@ -44,13 +44,14 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                 />
             </div>
             <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
-                <LemonButton type="secondary" onClick={onClose}>
+                <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
                     Cancel
                 </LemonButton>
                 <LemonButton
                     type="primary"
                     disabled={!selectValue}
                     onClick={() => selectValue && onChange(selectValue)}
+                    data-attr="lemon-calendar-select-apply"
                 >
                     Apply
                 </LemonButton>

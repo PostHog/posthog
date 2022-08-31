@@ -74,7 +74,7 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
     }, [rangeStart, rangeEnd])
 
     return (
-        <div className="LemonCalendarRange">
+        <div className="LemonCalendarRange" data-attr="lemon-calendar-range">
             <div className="flex justify-between border-b p-2 pb-4">
                 <h3 className="mb-0">Select a fixed time period</h3>
                 {onClose && (
@@ -130,13 +130,14 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                         <span>{formatDateRange(dayjs(rangeStart), dayjs(rangeEnd))}</span>
                     </div>
                 )}
-                <LemonButton type="secondary" onClick={onClose}>
+                <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-range-cancel">
                     Cancel
                 </LemonButton>
                 <LemonButton
                     type="primary"
                     disabled={!rangeStart || !rangeEnd}
                     onClick={rangeStart && rangeEnd ? () => onChange([rangeStart, rangeEnd]) : undefined}
+                    data-attr="lemon-calendar-range-apply"
                 >
                     Apply
                 </LemonButton>
