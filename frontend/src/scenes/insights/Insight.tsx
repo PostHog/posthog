@@ -39,6 +39,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { useDebouncedCallback } from 'use-debounce'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -84,6 +85,18 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         return <InsightSkeleton />
     }
 
+    const debouncedDescriptionUpdate = useDebouncedCallback((value) => {
+        if (canEditInsight && insightMode === ItemMode.Edit) {
+            setInsightMetadata({ description: value })
+        }
+    }, 250)
+
+    const debouncedTitleUpdate = useDebouncedCallback((value) => {
+        if (canEditInsight && insightMode === ItemMode.Edit) {
+            setInsightMetadata({ name: value })
+        }
+    }, 250)
+
     const insightScene = (
         <div className={'insights-page'}>
             {insightId !== 'new' && (
@@ -114,10 +127,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         // lock into edit without buttons when insight is editing
                         mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
                         onChange={(value) => {
-                            if (canEditInsight && insightMode === ItemMode.Edit) {
-                                // in edit mode will save when insight saves
-                                setInsightMetadata({ name: value })
-                            }
+                            debouncedTitleUpdate(value)
                         }}
                         data-attr="insight-name"
                         notice={
@@ -257,10 +267,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 // lock into edit without buttons when insight is editing
                                 mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
                                 onChange={(value) => {
-                                    if (canEditInsight && insightMode === ItemMode.Edit) {
-                                        // in edit mode will save when insight saves
-                                        setInsightMetadata({ description: value })
-                                    }
+                                    debouncedDescriptionUpdate(value)
                                 }}
                                 data-attr="insight-description"
                                 compactButtons
