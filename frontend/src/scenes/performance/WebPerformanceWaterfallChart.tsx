@@ -18,7 +18,6 @@ import './WebPerformance.scss'
 import Text from 'antd/lib/typography/Text'
 import { getSeriesColor } from 'lib/colors'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -272,10 +271,7 @@ function WaterfallChart(): JSX.Element {
                                 <MultiRecordingButton
                                     sessionRecordings={sessionRecording}
                                     onOpenRecording={(matchedRecording) => {
-                                        openSessionPlayer(
-                                            matchedRecording.session_id,
-                                            RecordingWatchedSource.WebPerformance
-                                        )
+                                        openSessionPlayer(matchedRecording.session_id)
                                     }}
                                 />
                             </div>

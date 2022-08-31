@@ -5,7 +5,7 @@ import {
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { eventUsageLogic, RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
@@ -55,7 +55,6 @@ describe('sessionRecordingDataLogic', () => {
                 filters: {},
                 chunkPaginationIndex: 0,
                 sessionEventsDataLoading: false,
-                source: RecordingWatchedSource.Unknown,
             })
         })
     })
