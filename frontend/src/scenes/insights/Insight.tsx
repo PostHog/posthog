@@ -85,15 +85,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         return <InsightSkeleton />
     }
 
-    const debouncedDescriptionUpdate = useDebouncedCallback((value) => {
+    const debouncedOnChange = useDebouncedCallback((insightMetadata) => {
         if (canEditInsight && insightMode === ItemMode.Edit) {
-            setInsightMetadata({ description: value })
-        }
-    }, 250)
-
-    const debouncedTitleUpdate = useDebouncedCallback((value) => {
-        if (canEditInsight && insightMode === ItemMode.Edit) {
-            setInsightMetadata({ name: value })
+            setInsightMetadata(insightMetadata)
         }
     }, 250)
 
@@ -127,7 +121,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         // lock into edit without buttons when insight is editing
                         mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
                         onChange={(value) => {
-                            debouncedTitleUpdate(value)
+                            debouncedOnChange({ name: value })
                         }}
                         data-attr="insight-name"
                         notice={
@@ -267,7 +261,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 // lock into edit without buttons when insight is editing
                                 mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
                                 onChange={(value) => {
-                                    debouncedDescriptionUpdate(value)
+                                    debouncedOnChange({ description: value })
                                 }}
                                 data-attr="insight-description"
                                 compactButtons
