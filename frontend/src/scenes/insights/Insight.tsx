@@ -76,7 +76,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
-    // const screens = useBreakpoint()
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     // Show the skeleton if loading an insight for which we only know the id
@@ -86,7 +85,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }
 
     const debouncedOnChange = useDebouncedCallback((insightMetadata) => {
-        if (canEditInsight && insightMode === ItemMode.Edit) {
+        if (insightMode === ItemMode.Edit) {
             setInsightMetadata(insightMetadata)
         }
     }, 250)
@@ -133,6 +132,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                   }
                                 : undefined
                         }
+                        // Don't autofocus when we enter edit mode - this field is not of prime concern then
+                        autoFocus={insightMode !== ItemMode.Edit}
                     />
                 }
                 buttons={
@@ -266,6 +267,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 data-attr="insight-description"
                                 compactButtons
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}
+                                // Don't autofocus when we enter edit mode - this field is not of prime concern then
+                                autoFocus={insightMode !== ItemMode.Edit}
                             />
                         )}
                         {canEditInsight ? (
