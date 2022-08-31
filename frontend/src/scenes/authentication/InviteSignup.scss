@@ -3,6 +3,7 @@
 .InviteSignupSummary {
     margin-bottom: 2rem;
     @include screen($md) {
+        // Positions the notice just above the Hedgehog (center positioned with negative top offset)
         opacity: 0.8;
         position: absolute;
         top: 50%;
