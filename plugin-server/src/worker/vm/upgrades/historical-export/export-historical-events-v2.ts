@@ -62,14 +62,13 @@ const JOB_SPEC: JobSpec = {
             required: true,
         },
         dateTo: {
-            title: 'Export end date (not inclusive)',
+            title: 'Export end date',
             type: 'date',
             required: true,
         },
         parallelism: {
             title: 'Parallelism',
             type: 'number',
-            required: true,
             default: 1,
             staff_only: true,
         },
