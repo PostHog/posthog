@@ -70,7 +70,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(35, len(serialized_results))
 
     def test_second_step(self):
@@ -89,7 +89,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(10, len(serialized_results))
 
     def test_second_step_dropoff(self):
@@ -108,7 +108,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(25, len(serialized_results))
 
     def test_third_step(self):
@@ -127,7 +127,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         }
         filter = Filter(data=data)
-        _, serialized_results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, serialized_results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(0, len(serialized_results))
 
     @snapshot_clickhouse_queries
@@ -185,7 +185,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(results[0]["matched_recordings"], [])
 
@@ -206,7 +206,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
             results[0]["matched_recordings"],
@@ -241,7 +241,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, results = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelStrictActors(filter, self.team).get_actors()
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
             results[0]["matched_recordings"],
