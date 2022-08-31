@@ -78,17 +78,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
-    // Show the skeleton if loading an insight for which we only know the id
-    // This helps with the UX flickering and showing placeholder "name" text.
-    if (insightId !== 'new' && insightLoading && !filtersKnown) {
-        return <InsightSkeleton />
-    }
-
     const debouncedOnChange = useDebouncedCallback((insightMetadata) => {
         if (insightMode === ItemMode.Edit) {
             setInsightMetadata(insightMetadata)
         }
     }, 250)
+
+    // Show the skeleton if loading an insight for which we only know the id
+    // This helps with the UX flickering and showing placeholder "name" text.
+    if (insightId !== 'new' && insightLoading && !filtersKnown) {
+        return <InsightSkeleton />
+    }
 
     const insightScene = (
         <div className={'insights-page'}>
