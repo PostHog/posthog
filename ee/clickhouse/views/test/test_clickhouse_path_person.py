@@ -18,6 +18,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
             if delete:
                 person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
             else:
+                person = None
                 _create_person(distinct_ids=[f"user_{i}"], team=self.team)
             _create_event(
                 event="step one",
@@ -25,7 +26,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 timestamp="2021-05-01 00:00:00",
                 properties={"$browser": "Chrome"},
-                person_id=person.uuid,
+                person_id=person.uuid if person else None,
             )
             if i % 2 == 0:
                 _create_event(
@@ -34,7 +35,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     timestamp="2021-05-01 00:10:00",
                     properties={"$browser": "Chrome"},
-                    person_id=person.uuid,
+                    person_id=person.uuid if person else None,
                 )
             _create_event(
                 event="step three",
@@ -42,7 +43,7 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 timestamp="2021-05-01 00:20:00",
                 properties={"$browser": "Chrome"},
-                person_id=person.uuid,
+                person_id=person.uuid if person else None,
             )
             if delete:
                 person.delete()
