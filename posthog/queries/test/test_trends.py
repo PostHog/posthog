@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
@@ -157,6 +158,69 @@ def trend_test_factory(trends):
             self.assertEqual(response[0]["data"][4], 3.0)
             self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
             self.assertEqual(response[0]["data"][5], 1.0)
+
+        def test_trend_actors_person_on_events_pagination_with_alias_inconsistencies(self):
+            with freeze_time("2020-01-04T13:00:01Z"):
+                all_distinct_ids = []
+                for i in range(10):
+                    distinct_id = f"blabla_{i}"
+                    last_uuid = uuid.uuid4()
+                    _create_event(
+                        team=self.team,
+                        event="sign up",
+                        distinct_id=distinct_id,
+                        properties={"$some_property": "value", "$bool_prop": True},
+                        person_id=last_uuid,  # different person_ids, but in the end aliased to be the same person
+                    )
+                    all_distinct_ids.append(distinct_id)
+
+                person = _create_person(
+                    team_id=self.team.pk,
+                    distinct_ids=all_distinct_ids,
+                    properties={"$some_prop": "some_val"},
+                    uuid=last_uuid,
+                )
+
+                data = {"date_from": "-7d", "events": [{"id": "sign up", "math": "dau"}], "limit": 5}
+
+                with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
+                    from posthog.models.team import util
+
+                    util.can_enable_person_on_events = True
+
+                    response = trends().run(Filter(data=data), self.team,)
+                    self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0])
+
+                    url = response[0]["persons_urls"][7]["url"]
+                    people_response = self.client.get(f"/{url}").json()
+
+                    # pagination works, no matter how few ids in people_response
+                    self.assertIsNotNone(people_response["next"])
+                    self.assertTrue(people_response["missing_persons"] >= 4)
+
+                    next_url = people_response["next"]
+                    second_people_response = self.client.get(f"{next_url}").json()
+
+                    self.assertIsNotNone(second_people_response["next"])
+                    self.assertTrue(second_people_response["missing_persons"] >= 4)
+                    self.assertTrue(second_people_response["missing_persons"] + people_response["missing_persons"] == 9)
+
+                    first_load_ids = sorted(str(person["id"]) for person in people_response["results"][0]["people"])
+                    second_load_ids = sorted(
+                        str(person["id"]) for person in second_people_response["results"][0]["people"]
+                    )
+
+                    self.assertEqual(len(first_load_ids + second_load_ids), 1)
+                    self.assertEqual(first_load_ids + second_load_ids, [str(person.uuid)])
+
+                    third_people_response = self.client.get(f"/{second_people_response['next']}").json()
+                    self.assertIsNone(third_people_response["next"])
+                    self.assertFalse(third_people_response["missing_persons"])
+
+                    third_load_ids = sorted(
+                        str(person["id"]) for person in third_people_response["results"][0]["people"]
+                    )
+                    self.assertEqual(third_load_ids, [])
 
         # just make sure this doesn't error
         def test_no_props(self):
@@ -2332,20 +2396,52 @@ def trend_test_factory(trends):
 
             journey = {
                 "person1": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"order": "1", "name": "1"},
+                    },
                 ],
                 "person2": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"order": "1", "name": "2"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 2, 12),
+                        "properties": {"order": "2", "name": "2"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 2, 12),
+                        "properties": {"order": "2", "name": "2"},
+                    },
                 ],
                 "person3": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 1, 12), "properties": {"order": "1"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 2, 12), "properties": {"order": "2"},},
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 3, 12), "properties": {"order": "2"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 1, 12),
+                        "properties": {"order": "1", "name": "3"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 2, 12),
+                        "properties": {"order": "2", "name": "3"},
+                    },
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 3, 12),
+                        "properties": {"order": "2", "name": "3"},
+                    },
                 ],
                 "person4": [
-                    {"event": "watched movie", "timestamp": datetime(2020, 1, 5, 12), "properties": {"order": "1"},},
+                    {
+                        "event": "watched movie",
+                        "timestamp": datetime(2020, 1, 5, 12),
+                        "properties": {"order": "1", "name": "4"},
+                    },
                 ],
             }
 
@@ -2362,6 +2458,44 @@ def trend_test_factory(trends):
                     Filter(
                         data={
                             "properties": [{"key": "name", "value": "person1", "type": "person",}],
+                            "events": [{"id": "watched movie"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+            self.assertEqual(response[0]["data"][5], 0)
+
+        @test_with_materialized_columns(["name"], person_properties=["name"])
+        @snapshot_clickhouse_queries
+        def test_person_property_filtering_clashing_with_event_property(self):
+            # This test needs to choose the right materialised column for it to pass.
+            # For resiliency, we reverse the filter as well.
+            self._create_multiple_people()
+            with freeze_time("2020-01-04"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "properties": [{"key": "name", "value": "person1", "type": "person",}],
+                            "events": [{"id": "watched movie"}],
+                        }
+                    ),
+                    self.team,
+                )
+
+            self.assertEqual(response[0]["labels"][4], "1-Jan-2020")
+            self.assertEqual(response[0]["data"][4], 1.0)
+            self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
+            self.assertEqual(response[0]["data"][5], 0)
+
+            with freeze_time("2020-01-04"):
+                response = trends().run(
+                    Filter(
+                        data={
+                            "properties": [{"key": "name", "value": "1", "type": "event",}],
                             "events": [{"id": "watched movie"}],
                         }
                     ),

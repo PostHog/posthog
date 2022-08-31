@@ -169,36 +169,35 @@ export function percentage(
     })
 }
 
-export function deleteWithUndo({
+export async function deleteWithUndo<T extends Record<string, any>>({
     undo = false,
     ...props
 }: {
     undo?: boolean
     endpoint: string
-    object: Record<string, any>
-    callback?: () => void
-}): void {
-    api.update(`api/${props.endpoint}/${props.object.id}`, {
+    object: T
+    callback?: (undo: boolean, object: T) => void
+}): Promise<void> {
+    await api.update(`api/${props.endpoint}/${props.object.id}`, {
         ...props.object,
         deleted: !undo,
-    }).then(() => {
-        props.callback?.()
-        lemonToast[undo ? 'success' : 'info'](
-            <>
-                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
-                {undo ? 'restored' : 'deleted'}
-            </>,
-            {
-                toastId: `delete-item-${props.object.id}-${undo}`,
-                button: undo
-                    ? undefined
-                    : {
-                          label: 'Undo',
-                          action: () => deleteWithUndo({ undo: true, ...props }),
-                      },
-            }
-        )
     })
+    props.callback?.(undo, props.object)
+    lemonToast[undo ? 'success' : 'info'](
+        <>
+            <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+            {undo ? 'restored' : 'deleted'}
+        </>,
+        {
+            toastId: `delete-item-${props.object.id}-${undo}`,
+            button: undo
+                ? undefined
+                : {
+                      label: 'Undo',
+                      action: () => deleteWithUndo({ undo: true, ...props }),
+                  },
+        }
+    )
 }
 
 export function DeleteWithUndo(

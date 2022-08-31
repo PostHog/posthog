@@ -7,8 +7,6 @@ from django.test import TestCase
 from django.utils import timezone
 from freezegun import freeze_time
 
-from ee.clickhouse.queries.paths import ClickhousePaths as Paths
-from ee.clickhouse.queries.paths import ClickhousePathsActors as PathsActors
 from posthog.constants import (
     FUNNEL_PATH_AFTER_STEP,
     FUNNEL_PATH_BEFORE_STEP,
@@ -18,7 +16,9 @@ from posthog.constants import (
 from posthog.models.filters import Filter, PathFilter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.session_recording_event.util import create_session_recording_event
+from posthog.queries.paths import Paths, PathsActors
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.test.test_paths import paths_test_factory
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries, test_with_materialized_columns
@@ -61,7 +61,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         person_filter = filter.with_data(
             {"path_start_key": path_start, "path_end_key": path_end, "path_dropoff_key": path_dropoff}
         )
-        _, serialized_actors = PathsActors(person_filter, self.team, funnel_filter).get_actors()
+        _, serialized_actors, _ = PathsActors(person_filter, self.team, funnel_filter).get_actors()
         return [row["id"] for row in serialized_actors]
 
     def test_step_limit(self):
@@ -2641,7 +2641,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
             ],
         )
 
-    @snapshot_clickhouse_queries
+    # TODO: Delete this test when moved to person-on-events
     def test_path_groups_filtering(self):
         self._create_groups()
         # P1 for pageview event, org:5
@@ -2769,6 +2769,152 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
             ],
         )
 
+    @test_with_materialized_columns(
+        ["$current_url", "$screen_name"], group_properties=[(0, "industry"), (1, "industry")]
+    )
+    @snapshot_clickhouse_queries
+    def test_path_groups_filtering_person_on_events(self):
+        from posthog.models.team import util
+
+        util.can_enable_person_on_events = True
+
+        self._create_groups()
+        # P1 for pageview event, org:5
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        p1 = [
+            _create_event(
+                properties={"$current_url": "/1", "$group_0": "org:5"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+            ),
+            _create_event(
+                properties={"$current_url": "/2/", "$group_0": "org:5"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+            ),
+            _create_event(
+                properties={"$current_url": "/3", "$group_0": "org:5"},
+                distinct_id="p1",
+                event="$pageview",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+            ),
+        ]
+
+        # P2 for screen event, org:6
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        p2 = [
+            _create_event(
+                properties={"$screen_name": "/screen1", "$group_0": "org:6"},
+                distinct_id="p2",
+                event="$screen",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+            ),
+            _create_event(
+                properties={"$screen_name": "/screen2", "$group_0": "org:6"},
+                distinct_id="p2",
+                event="$screen",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+            ),
+            _create_event(
+                properties={"$screen_name": "/screen3", "$group_0": "org:6"},
+                distinct_id="p2",
+                event="$screen",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+            ),
+        ]
+
+        # P3 for custom event, group_0 doesnt' exist, group_1 = company:1
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"])
+        p3 = [
+            _create_event(
+                distinct_id="p3",
+                event="/custom1",
+                team=self.team,
+                timestamp="2012-01-01 03:21:34",
+                properties={"$group_1": "company:1"},
+            ),
+            _create_event(
+                distinct_id="p3",
+                event="/custom2",
+                team=self.team,
+                timestamp="2012-01-01 03:22:34",
+                properties={"$group_1": "company:1"},
+            ),
+            _create_event(
+                distinct_id="p3",
+                event="/custom3",
+                team=self.team,
+                timestamp="2012-01-01 03:24:34",
+                properties={"$group_1": "company:1"},
+            ),
+        ]
+
+        _ = [*p1, *p2, *p3]
+
+        filter = PathFilter(
+            data={
+                "step_limit": 4,
+                "date_from": "2012-01-01",
+                "date_to": "2012-02-01",
+                "include_event_types": ["$pageview", "$screen", "custom_event"],
+                "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
+            }
+        )
+        with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
+            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+            self.assertEqual(
+                response,
+                [
+                    {"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                    {"source": "2_/2", "target": "3_/3", "value": 1, "average_conversion_time": 2 * ONE_MINUTE},
+                ],
+            )
+
+            filter = filter.with_data(
+                {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
+            )
+            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+            self.assertEqual(
+                response,
+                [
+                    {"source": "1_/screen1", "target": "2_/screen2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                    {
+                        "source": "2_/screen2",
+                        "target": "3_/screen3",
+                        "value": 1,
+                        "average_conversion_time": 2 * ONE_MINUTE,
+                    },
+                ],
+            )
+
+            filter = filter.with_data(
+                {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 1}]}
+            )
+            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+
+            self.assertEqual(
+                response,
+                [
+                    {"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE},
+                    {
+                        "source": "2_/custom2",
+                        "target": "3_/custom3",
+                        "value": 1,
+                        "average_conversion_time": 2 * ONE_MINUTE,
+                    },
+                ],
+            )
+
     # Note: not using `@snapshot_clickhouse_queries` here because the ordering of the session_ids in the recording
     # query is not guaranteed, so adding it would lead to a flaky test.
     @freeze_time("2012-01-01T03:21:34.000Z")
@@ -2842,7 +2988,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
@@ -2904,7 +3050,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [[]], [actor["matched_recordings"] for actor in serialized_actors],
@@ -2953,7 +3099,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [
@@ -3015,7 +3161,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [], [actor["matched_recordings"] for actor in serialized_actors],
@@ -3031,7 +3177,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [

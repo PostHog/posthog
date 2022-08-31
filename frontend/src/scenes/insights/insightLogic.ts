@@ -562,6 +562,8 @@ export const insightLogic = kea<insightLogicType>({
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
+        intervalUnit: [(s) => [s.filters], (filters) => filters?.interval || 'day'],
+        timezone: [(s) => [s.insight], (insight) => insight?.timezone || 'UTC'],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (

@@ -89,6 +89,18 @@
     }
 }
 
+.space-y-px {
+    & > * + * {
+        margin-top: 1px;
+    }
+}
+
+.space-x-px {
+    & > * + * {
+        margin-left: 1px;
+    }
+}
+
 // Margins/padding
 @each $kind in ('margin', 'padding') {
     $char: str-slice($kind, 0, 1);
