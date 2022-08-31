@@ -8,6 +8,7 @@ from typing import (
     Optional,
     Tuple,
     Type,
+    TypeVar,
     Union,
     cast,
 )
@@ -63,10 +64,14 @@ from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
+from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
+
+DEFAULT_PAGE_LIMIT = 100
+MAX_PAGE_LIMIT = 250
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -195,7 +200,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         if is_csv_request:
             filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
+            filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
@@ -247,49 +252,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
 
-    @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        results_package = self.calculate_funnel_persons(request)
-
-        if not results_package:
-            return response.Response(data=[])
-
-        people, next_url, initial_url = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": people, "count": len(people)}],
-                "next": next_url,
-                "initial": initial_url,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-            }
-        )
-
-    @cached_function
-    def calculate_funnel_persons(
-        self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
-        if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
-
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        if not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
-
-        funnel_actor_class = get_funnel_actor_class(filter)
-
-        actors, serialized_actors = funnel_actor_class(filter, self.team).get_actors()
-        _should_paginate = should_paginate(actors, filter.limit)
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
-
     @action(methods=["GET"], detail=False)
     def properties(self, request: request.Request, **kwargs) -> response.Response:
         result = self.get_properties(request)
@@ -299,53 +261,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     def get_properties(self, request: request.Request):
         rows = sync_execute(GET_PERSON_PROPERTIES_COUNT, {"team_id": self.team.pk})
         return [{"name": name, "count": count} for name, count in rows]
-
-    @action(methods=["GET", "POST"], detail=False)
-    def path(self, request: request.Request, **kwargs) -> response.Response:
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        results_package = self.calculate_path_persons(request)
-
-        if not results_package:
-            return response.Response(data=[])
-
-        people, next_url, initial_url = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": people, "count": len(people)}],
-                "next": next_url,
-                "initial": initial_url,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-            }
-        )
-
-    @cached_function
-    def calculate_path_persons(self, request: request.Request) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
-        if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
-
-        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
-        if not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
-
-        funnel_filter = None
-        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
-        if funnel_filter_data:
-            if isinstance(funnel_filter_data, str):
-                funnel_filter_data = json.loads(funnel_filter_data)
-            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
-
-        people, serialized_actors = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
-        _should_paginate = should_paginate(people, filter.limit)
-
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
@@ -471,82 +386,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return response.Response({"success": True}, status=201)
 
     @action(methods=["GET"], detail=False)
-    def lifecycle(self, request: request.Request) -> response.Response:
-
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
-                status=400,
-            )
-
-        filter = Filter(request=request, team=self.team)
-        target_date = request.GET.get("target_date", None)
-        if target_date is None:
-            return response.Response(
-                {"message": "Missing parameter", "detail": "Must include specified date"}, status=400
-            )
-        target_date_parsed = relative_date_parse(target_date)
-        lifecycle_type = request.GET.get("lifecycle_type", None)
-        if lifecycle_type is None:
-            return response.Response(
-                {"message": "Missing parameter", "detail": "Must include lifecycle type"}, status=400
-            )
-
-        limit = int(request.GET.get("limit", 100))
-        next_url: Optional[str] = request.get_full_path()
-        people = self.lifecycle_class().get_people(
-            target_date=target_date_parsed,
-            filter=filter,
-            team=team,
-            lifecycle_type=lifecycle_type,
-            request=request,
-            limit=limit,
-        )
-        next_url = paginated_result(people, request, filter.offset)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
-
-    @action(methods=["GET"], detail=False)
-    def retention(self, request: request.Request) -> response.Response:
-
-        display = request.GET.get("display", None)
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
-                status=400,
-            )
-        filter = RetentionFilter(request=request, team=team)
-        base_uri = request.build_absolute_uri("/")
-
-        if display == TRENDS_TABLE:
-            people = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
-        else:
-            people = self.retention_class(base_uri=base_uri).actors(filter, team)
-
-        next_url = paginated_result(people, request, filter.offset)
-
-        return response.Response({"result": people, "next": next_url})
-
-    @action(methods=["GET"], detail=False)
-    def stickiness(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
-                status=400,
-            )
-        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
-        if not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
-
-        target_entity = get_target_entity(filter)
-
-        people = self.stickiness_class().people(target_entity, filter, team, request)
-        next_url = paginated_result(people, request, filter.offset)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
-
-    @action(methods=["GET"], detail=False)
     def cohorts(self, request: request.Request) -> response.Response:
         from posthog.api.cohort import CohortSerializer
 
@@ -613,11 +452,207 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         return Response(status=204)
 
+    # PRAGMA: Methods for getting Persons via clickhouse queries
+    @action(methods=["GET", "POST"], detail=False)
+    def funnel(self, request: request.Request, **kwargs) -> response.Response:
+        if request.user.is_anonymous or not self.team:
+            return response.Response(data=[])
+
+        results_package = self.calculate_funnel_persons(request)
+
+        if not results_package:
+            return response.Response(data=[])
+
+        people, next_url, initial_url = results_package["result"]
+
+        return response.Response(
+            data={
+                "results": [{"people": people, "count": len(people)}],
+                "next": next_url,
+                "initial": initial_url,
+                "is_cached": results_package.get("is_cached"),
+                "last_refresh": results_package.get("last_refresh"),
+            }
+        )
+
+    @cached_function
+    def calculate_funnel_persons(
+        self, request: request.Request
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
+        if request.user.is_anonymous or not self.team:
+            return {"result": ([], None, None)}
+
+        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
+        filter = prepare_actor_query_filter(filter)
+
+        funnel_actor_class = get_funnel_actor_class(filter)
+
+        actors, serialized_actors = funnel_actor_class(filter, self.team).get_actors()
+        initial_url = format_query_params_absolute_url(request, 0)
+        next_url = paginated_result(actors, request, filter.offset, filter.limit)
+
+        # cached_function expects a dict with the key result
+        return {"result": (serialized_actors, next_url, initial_url)}
+
+    @action(methods=["GET", "POST"], detail=False)
+    def path(self, request: request.Request, **kwargs) -> response.Response:
+        if request.user.is_anonymous or not self.team:
+            return response.Response(data=[])
+
+        results_package = self.calculate_path_persons(request)
+
+        if not results_package:
+            return response.Response(data=[])
+
+        people, next_url, initial_url = results_package["result"]
+
+        return response.Response(
+            data={
+                "results": [{"people": people, "count": len(people)}],
+                "next": next_url,
+                "initial": initial_url,
+                "is_cached": results_package.get("is_cached"),
+                "last_refresh": results_package.get("last_refresh"),
+            }
+        )
+
+    @cached_function
+    def calculate_path_persons(self, request: request.Request) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
+        if request.user.is_anonymous or not self.team:
+            return {"result": ([], None, None)}
+
+        filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
+        filter = prepare_actor_query_filter(filter)
+
+        funnel_filter = None
+        funnel_filter_data = request.GET.get("funnel_filter") or request.data.get("funnel_filter")
+        if funnel_filter_data:
+            if isinstance(funnel_filter_data, str):
+                funnel_filter_data = json.loads(funnel_filter_data)
+            funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
+
+        people, serialized_actors = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        next_url = paginated_result(serialized_actors, request, filter.offset, filter.limit)
+        initial_url = format_query_params_absolute_url(request, 0)
+
+        # cached_function expects a dict with the key result
+        return {"result": (serialized_actors, next_url, initial_url)}
+
+    @action(methods=["GET"], detail=False)
+    def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        filter = Filter(request=request, team=self.team)
+        filter = prepare_actor_query_filter(filter)
+
+        entity = get_target_entity(filter)
+
+        actors, serialized_actors = TrendsActors(team, entity, filter).get_actors()
+        next_url = paginated_result(serialized_actors, request, filter.offset, filter.limit)
+
+        return response.Response({"results": [{"people": serialized_actors, "count": len(actors)}], "next": next_url})
+
+    @action(methods=["GET"], detail=False)
+    def lifecycle(self, request: request.Request) -> response.Response:
+        team = cast(User, request.user).team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+
+        filter = Filter(request=request, team=self.team)
+        filter = prepare_actor_query_filter(filter)
+
+        target_date = request.GET.get("target_date", None)
+        if target_date is None:
+            return response.Response(
+                {"message": "Missing parameter", "detail": "Must include specified date"}, status=400
+            )
+        target_date_parsed = relative_date_parse(target_date)
+        lifecycle_type = request.GET.get("lifecycle_type", None)
+        if lifecycle_type is None:
+            return response.Response(
+                {"message": "Missing parameter", "detail": "Must include lifecycle type"}, status=400
+            )
+
+        people = self.lifecycle_class().get_people(
+            target_date=target_date_parsed, filter=filter, team=team, lifecycle_type=lifecycle_type,
+        )
+        next_url = paginated_result(people, request, filter.offset, filter.limit)
+        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+
+    @action(methods=["GET"], detail=False)
+    def retention(self, request: request.Request) -> response.Response:
+        display = request.GET.get("display", None)
+        team = cast(User, request.user).team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+        filter = RetentionFilter(request=request, team=team)
+        filter = prepare_actor_query_filter(filter)
+        base_uri = request.build_absolute_uri("/")
+
+        if display == TRENDS_TABLE:
+            people = self.retention_class(base_uri=base_uri).actors_in_period(filter, team)
+        else:
+            people = self.retention_class(base_uri=base_uri).actors(filter, team)
+
+        next_url = paginated_result(people, request, filter.offset, filter.limit)
+
+        return response.Response({"result": people, "next": next_url})
+
+    @action(methods=["GET"], detail=False)
+    def stickiness(self, request: request.Request) -> response.Response:
+        team = cast(User, request.user).team
+        if not team:
+            return response.Response(
+                {"message": "Could not retrieve team", "detail": "Could not validate team associated with user"},
+                status=400,
+            )
+        filter = StickinessFilter(request=request, team=team, get_earliest_timestamp=get_earliest_timestamp)
+        filter = prepare_actor_query_filter(filter)
+
+        target_entity = get_target_entity(filter)
+
+        people = self.stickiness_class().people(target_entity, filter, team, request)
+        next_url = paginated_result(people, request, filter.offset, filter.limit)
+        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+
 
 def paginated_result(
-    entites: Union[List[Dict[str, Any]], ReturnDict], request: request.Request, offset: int = 0,
+    entites: Union[List[Any], ReturnDict], request: request.Request, offset: int = 0, limit: int = DEFAULT_PAGE_LIMIT,
 ) -> Optional[str]:
-    return format_paginated_url(request, offset, 100) if len(entites) > 99 else None
+    return format_paginated_url(request, offset, limit) if len(entites) >= limit else None
+
+
+T = TypeVar("T", Filter, PathFilter, RetentionFilter, StickinessFilter)
+
+
+def prepare_actor_query_filter(filter: T) -> T:
+    if not filter.limit or filter.limit > MAX_PAGE_LIMIT:
+        filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
+
+    search = getattr(filter, "search", None)
+    if not search:
+        return filter
+
+    new_group = {
+        "type": "OR",
+        "values": [
+            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
+            {"key": "name", "type": "person", "value": search, "operator": "icontains"},
+            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+        ],
+    }
+    prop_group = (
+        {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
+        if filter.property_groups.to_dict()
+        else new_group
+    )
+
+    return filter.with_data({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):

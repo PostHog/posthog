@@ -27,11 +27,6 @@ class PathsActors(Paths, ActorBaseQuery):  # type: ignore
         other path item between start and end key.
     """
 
-    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
-        super().__init__(filter, team, funnel_filter)
-        # ActorBaseQuery.__init__ is overridden so we need to extend the search filters here
-        self.extend_filter_with_search()
-
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()
         person_path_filter = self.get_person_path_filter()

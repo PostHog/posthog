@@ -115,7 +115,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                 )
 
         event_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-31",
@@ -129,7 +129,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-31 00:06:34"):
             event_response = self.client.get(
-                f"/api/projects/{self.team.id}/actions/people/",
+                f"/api/projects/{self.team.id}/persons/trends/",
                 data={
                     "date_from": "-30d",
                     "date_to": "2020-01-31",
@@ -163,7 +163,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             )
 
         event_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={"date_from": "2020-01-04", "date_to": "2020-01-04", ENTITY_TYPE: "events", ENTITY_ID: "sign up",},
         ).json()
 
@@ -226,7 +226,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         )
         # check solo hour
         action_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
@@ -236,7 +236,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         event_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
@@ -251,7 +251,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         # check grouped hour
         hour_grouped_action_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 16:00:00",
@@ -261,7 +261,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         hour_grouped_grevent_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 16:00:00",
@@ -297,7 +297,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         # test people
         action_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-04",
                 "date_to": "2020-01-04",
@@ -307,7 +307,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         event_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-04",
                 "date_to": "2020-01-04",
@@ -341,7 +341,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         # test people
         action_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-03",
                 "date_to": "2020-01-04",
@@ -352,7 +352,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         event_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-03",
                 "date_to": "2020-01-04",
@@ -383,7 +383,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         )
         # check grouped week
         week_grouped_action_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "week",
                 "date_from": "2019-11-01",
@@ -393,7 +393,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         week_grouped_grevent_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "week",
                 "date_from": "2019-11-01",
@@ -426,7 +426,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         )
         # check grouped month
         month_group_action_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "month",
                 "date_from": "2019-11-01",
@@ -436,7 +436,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             },
         ).json()
         month_group_grevent_response = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "interval": "month",
                 "date_from": "2019-11-01",
@@ -561,7 +561,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         _create_action(name="watched movie", team=self.team)
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-07",
@@ -580,7 +580,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
 
         # all people
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-07",
@@ -602,7 +602,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         _create_action(name="watched movie", team=self.team)
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-07",
@@ -622,7 +622,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         _create_action(name="watched movie", team=self.team)
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-07",
@@ -643,7 +643,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         person1, person2, person3, person4 = self._create_multiple_people()
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-01",
                 "date_to": "2020-01-07",
@@ -697,7 +697,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         )
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-10",
                 "date_to": "2020-01-10",
@@ -756,7 +756,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         )
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-10",
                 "date_to": "2020-01-10",
@@ -770,7 +770,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(people["results"][0]["people"]), 1)
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-10",
                 "date_to": "2020-01-10",
@@ -820,7 +820,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         )
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-8",
                 "date_to": "2020-01-12",
@@ -835,7 +835,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(people["results"][0]["people"]), 2)
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-08",
                 "date_to": "2020-01-12",
@@ -868,7 +868,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
         )
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-08",
                 "date_to": "2020-01-12",
@@ -909,7 +909,7 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
             )
 
         people = self.client.get(
-            f"/api/projects/{self.team.id}/actions/people/",
+            f"/api/projects/{self.team.id}/persons/trends/",
             data={"interval": interval, "date_from": date_from, ENTITY_TYPE: "events", ENTITY_ID: "watched movie"},
         ).json()
 
