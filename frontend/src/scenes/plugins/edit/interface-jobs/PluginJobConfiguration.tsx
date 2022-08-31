@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
 import { Tooltip, Form, Input, Radio, InputNumber, DatePicker } from 'antd'
 import Modal from 'antd/lib/modal/Modal'
@@ -52,9 +52,11 @@ export function PluginJobConfiguration({
             : `Configure and run job`
         : `You already ran this job recently.`
 
-    const shownFields = Object.entries(jobSpec.payload || {}).filter(
-        ([, options]) => !options.staff_only || user?.is_staff || user?.is_impersonated
-    )
+    const shownFields = useMemo(() => {
+        return Object.entries(jobSpec.payload || {})
+            .filter(([, options]) => !options.staff_only || user?.is_staff || user?.is_impersonated)
+            .sort((a, b) => a[0].localeCompare(b[0]))
+    }, [jobSpec, user])
 
     return (
         <>
