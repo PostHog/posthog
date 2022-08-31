@@ -42,7 +42,6 @@ class StickinessFilter(
     ShownAsMixin,
     InsightMixin,
     SimplifyFilterMixin,
-    SearchMixin,
     LimitMixin,
     ClientQueryIdMixin,
     BaseFilter,

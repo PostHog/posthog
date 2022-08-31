@@ -12,7 +12,6 @@ from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import PropertyName
 from posthog.queries.paths.paths_event_query import PathEventQuery
 from posthog.queries.paths.sql import PATH_ARRAY_QUERY
-from posthog.queries.util import filter_with_search_properties
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT = 1800000  # milliseconds to 30 minutes
@@ -39,7 +38,7 @@ class Paths:
     _extra_event_properties: List[PropertyName]
 
     def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
-        self._filter = filter_with_search_properties(filter)
+        self._filter = filter
         self._team = team
         self.params = {
             "team_id": self._team.pk,
