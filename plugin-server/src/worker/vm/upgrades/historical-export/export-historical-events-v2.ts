@@ -8,7 +8,7 @@ Historical exports (v2) work the following way:
     - If a certain running chunk hasn't reported progress in a while, it is also restarted.
 - `exportHistoricalEvents` job is responsible for exporting data between particular start and end points (chunk)
     - It tracks its progress under `statusKey`
-    - It dynamically resizes the time window we fetch data to minimize waiting.
+    - It dynamically resizes the time window we fetch data to minimize jobs that need to be scheduled and clickhouse queries
     - It calls plugins `exportEvents` with each batch of events it finds
     - It handles retries by retrying RetryErrors up to 15 times
 
