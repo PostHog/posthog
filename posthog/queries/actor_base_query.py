@@ -174,7 +174,7 @@ class ActorBaseQuery:
 
         return actors, serialized_actors
 
-    def extend_filter_with_search(self) -> Any:
+    def extend_filter_with_search(self) -> None:
         search = getattr(self._filter, "search", None)
         if not search:
             return
