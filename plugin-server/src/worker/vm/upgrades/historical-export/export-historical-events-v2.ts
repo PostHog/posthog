@@ -411,6 +411,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 )
             } catch (error) {
                 await handleExportError(error, payload, events.length)
+                return
             }
         }
 
