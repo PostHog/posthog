@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Callable, Dict, List, Tuple
 
 from django.db.models.query import Prefetch
-from rest_framework.request import Request
 
 from posthog.client import sync_execute
 from posthog.models.entity import Entity
