@@ -180,7 +180,8 @@
     }
 
     .player-sidebar {
-        height: 20rem;
+        min-height: 20rem;
+        height: 100%;
         width: 100%;
         padding: 0;
         border: none;

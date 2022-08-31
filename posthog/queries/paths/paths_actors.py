@@ -1,6 +1,8 @@
 from typing import Dict, Optional, Tuple, cast
 
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
+from posthog.models.team.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.paths.paths import Paths
 
@@ -24,6 +26,11 @@ class PathsActors(Paths, ActorBaseQuery):  # type: ignore
         Persons are calculated only between direct paths. There should not be any
         other path item between start and end key.
     """
+
+    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None,) -> None:
+        super().__init__(filter, team, funnel_filter)
+        # ActorBaseQuery.__init__ is overridden so we need to extend the search filters here
+        self.extend_filter_with_search()
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         paths_per_person_query = self.get_paths_per_person_query()

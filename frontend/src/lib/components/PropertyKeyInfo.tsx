@@ -93,16 +93,6 @@ export const keyMapping: KeyMappingInterface = {
             description: 'Version of the library used to send the event. Used in combination with Library.',
             examples: ['1.0.3'],
         },
-        $initial_referrer: {
-            label: 'Initial Referrer URL',
-            description: 'URL of where the user initially came from (first-touch).',
-            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
-        },
-        $initial_referring_domain: {
-            label: 'Initial Referring Domain',
-            description: 'Domain of where the user initially came from (first-touch).',
-            examples: ['google.com', 'facebook.com'],
-        },
         $referrer: {
             label: 'Referrer URL',
             description: 'URL of where the user came from most recently (last-touch).',

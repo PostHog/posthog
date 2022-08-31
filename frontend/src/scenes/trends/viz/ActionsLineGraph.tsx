@@ -13,7 +13,7 @@ import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 
 export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true }: ChartParams): JSX.Element | null {
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { filters, indexedResults, incompletenessOffsetFromEnd, hiddenLegendKeys, labelGroupType } = useValues(logic)
     const { loadPeople, loadPeopleFromUrl } = useActions(personsModalLogic)
@@ -31,7 +31,6 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
             labels={(indexedResults[0] && indexedResults[0].labels) || []}
-            insightNumericId={insight.id}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
@@ -50,7 +49,6 @@ export function ActionsLineGraph({ inSharedMode = false, showPersonsModal = true
                     : undefined
             }
             isCompare={!!filters.compare}
-            timezone={insight.timezone}
             isInProgress={filters.insight !== InsightType.STICKINESS && incompletenessOffsetFromEnd < 0}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             onClick={

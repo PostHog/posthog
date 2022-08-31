@@ -135,4 +135,3 @@ class SimplifyFilterMixin:
     @property
     def is_simplified(self) -> bool:
         return self._data.get("is_simplified", False)  # type: ignore
-

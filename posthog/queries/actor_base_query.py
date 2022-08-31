@@ -23,7 +23,6 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
-from posthog.queries.util import filter_with_search_properties
 
 
 class EventInfoForRecording(TypedDict):
@@ -74,7 +73,10 @@ class ActorBaseQuery:
     ):
         self._team = team
         self.entity = entity
-        self._filter = filter_with_search_properties(filter)
+        self._filter = filter
+
+        # This makes sense as a default but must be individually called if __init__ is overridden
+        self.extend_filter_with_search()
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         """ Implemented by subclasses. Must provide query and params. The query must return list of uuids. Can be group uuids (group_key) or person uuids """
@@ -171,6 +173,26 @@ class ActorBaseQuery:
             actors, serialized_actors = get_people(self._team.pk, actor_ids)
 
         return actors, serialized_actors
+
+    def extend_filter_with_search(self) -> Any:
+        search = getattr(self._filter, "search", None)
+        if not search:
+            return
+
+        new_group = {
+            "type": "OR",
+            "values": [
+                {"key": "email", "type": "person", "value": search, "operator": "icontains"},
+                {"key": "name", "type": "person", "value": search, "operator": "icontains"},
+                {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
+            ],
+        }
+        prop_group = (
+            {"type": "AND", "values": [new_group, self._filter.property_groups.to_dict()]}
+            if self._filter.property_groups.to_dict()
+            else new_group
+        )
+        self._filter = self._filter.with_data({"properties": prop_group})
 
 
 def get_groups(

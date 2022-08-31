@@ -63,7 +63,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                         labels={data[0].labels}
                         labelGroupType={labelGroupType}
                         inSharedMode={!!inSharedMode}
-                        insightNumericId={insight.id}
                         showPersonsModal={showPersonsModal}
                         aggregationAxisFormat={insight.filters?.aggregation_axis_format}
                         onClick={

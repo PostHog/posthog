@@ -104,53 +104,6 @@ class TestFilter(BaseTest):
             },
         )
 
-    def test_simplify_search(self):
-        data = {"properties": [{"key": "attr", "value": "some_val"},], "search": "my-query"}
-
-        filter = Filter(data=data, team=self.team)
-
-        print(filter.properties_to_dict())
-        self.assertEqual(
-            filter.properties_to_dict(),
-            {
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {"key": "email", "operator": "icontains", "type": "person", "value": "my-query"}
-                                    ],
-                                },
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {"key": "name", "operator": "icontains", "type": "person", "value": "my-query"}
-                                    ],
-                                },
-                                {
-                                    "type": "AND",
-                                    "values": [
-                                        {
-                                            "key": "distinct_id",
-                                            "operator": "icontains",
-                                            "type": "event",
-                                            "value": "my-query",
-                                        }
-                                    ],
-                                },
-                            ],
-                        },
-                        {"type": "AND", "values": [{"key": "attr", "type": "event", "value": "some_val"}]},
-                    ],
-                }
-            },
-        )
-        self.assertTrue(filter.is_simplified)
-
 
 def property_to_Q_test_factory(filter_persons: Callable, person_factory):
     class TestPropertiesToQ(BaseTest):
