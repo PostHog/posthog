@@ -2,6 +2,7 @@ from rest_framework.throttling import UserRateThrottle
 from sentry_sdk.api import capture_exception
 
 from posthog.internal_metrics import incr
+from posthog.models.instance_setting import get_instance_setting
 
 
 class PassThroughThrottle(UserRateThrottle):
@@ -27,7 +28,7 @@ class PassThroughSustainedRateThrottle(PassThroughThrottle):
 
 
 class DestroyClickhouseModelThrottle(UserRateThrottle):
-    rate = "10/hour"
+    rate = get_instance_setting("DESTROY_CLICKHOUSE_MODEL_THROTTLE_RATE")
 
     def allow_request(self, request, view):
         # Only throttle DELETE requests
