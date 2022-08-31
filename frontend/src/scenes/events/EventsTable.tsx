@@ -119,7 +119,7 @@ export function EventsTable({
     const logic = eventsTableLogic({
         fixedFilters,
         key: pageKey,
-        sceneUrl: sceneUrl || urls.events(),
+        sceneUrl: sceneUrl ? decodeURI(sceneUrl) : urls.events(),
         fetchMonths,
     })
     const {
