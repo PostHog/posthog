@@ -60,7 +60,7 @@ export interface LineGraphProps {
 
 interface LineGraphCSSProperties extends React.CSSProperties {
     '--line-graph-area-left-px': number
-    '--line-graph-area-eight-px': number
+    '--line-graph-area-height-px': number
     '--line-graph-area-interval-px': number
 }
 
@@ -76,16 +76,9 @@ export function ensureTooltipElement(): HTMLElement {
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
-    const { insightProps, insight } = useValues(insightLogic)
-
     return (
         <ErrorBoundary>
-            <BindLogic
-                logic={insightAnnotationsLogic}
-                props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
-            >
-                <LineGraph_ {...props} />
-            </BindLogic>
+            <LineGraph_ {...props} />
         </ErrorBoundary>
     )
 }
@@ -108,7 +101,7 @@ export function LineGraph_({
     let datasets = _datasets
 
     const { createTooltipData } = useValues(lineGraphLogic)
-    const { timezone } = useValues(insightLogic)
+    const { insightProps, insight, timezone } = useValues(insightLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     const chartRef = useRef<HTMLCanvasElement | null>(null)
@@ -577,10 +570,10 @@ export function LineGraph_({
     }
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
         <div
             className="LineGraph"
             data-attr={dataAttr}
+            // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
                     '--line-graph-area-left-px': graphAreaLeft,
@@ -590,7 +583,12 @@ export function LineGraph_({
             }
         >
             <canvas ref={chartRef} />
-            <AnnotationsOverlay dates={datasets[0]?.days?.map((day) => dayjs(day))} />
+            <BindLogic
+                logic={insightAnnotationsLogic}
+                props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
+            >
+                <AnnotationsOverlay dates={datasets[0]?.days?.map((day) => dayjs(day))} />
+            </BindLogic>
         </div>
     )
 }
