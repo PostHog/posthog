@@ -133,8 +133,6 @@ def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
         {"since": since_hours_ago, "min_query_time": min_query_time},
     )
 
-    print("************ FOUND QUERIES ************")
-    print([Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries])
     return [Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries]
 
 
@@ -155,11 +153,6 @@ def _analyze(queries: List[Query]) -> List[Suggestion]:
         for table, table_column, property in query.properties(team_manager):
             costs[(table, table_column, property)] += query.cost
 
-    print('************************* QUERY COSTS *********************')
-    print([
-        (table, table_column, property_name, cost)
-        for (table, table_column, property_name), cost in sorted(costs.items(), key=lambda kv: -kv[1])
-    ])
     return [
         (table, table_column, property_name, cost)
         for (table, table_column, property_name), cost in sorted(costs.items(), key=lambda kv: -kv[1])
@@ -177,9 +170,6 @@ def materialize_properties_task(
     """
     Creates materialized columns for event and person properties based off of slow queries
     """
-
-    print("************ STARTING MATERIALIZE COLUMNS TASK ************")
-    print('defaults: ', MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS, MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME)
 
     if columns_to_materialize is None:
         columns_to_materialize = _analyze(_get_queries(time_to_analyze_hours, min_query_time))
