@@ -69,7 +69,6 @@ from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
 DEFAULT_PAGE_LIMIT = 100
-MAX_PAGE_LIMIT = 250
 
 
 class PersonLimitOffsetPagination(LimitOffsetPagination):
@@ -635,7 +634,7 @@ T = TypeVar("T", Filter, PathFilter, RetentionFilter, StickinessFilter)
 
 
 def prepare_actor_query_filter(filter: T) -> T:
-    if not filter.limit or filter.limit > MAX_PAGE_LIMIT:
+    if not filter.limit:
         filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
 
     search = getattr(filter, "search", None)
