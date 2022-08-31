@@ -189,7 +189,7 @@ pre_chain = [
 ]
 
 
-# This is a copy the default logging config for gunicorn but wtith additions to:
+# This is a copy the default logging config for gunicorn but with additions to:
 #
 #  1. non propagate loggers to the root handlers (otherwise we get duplicate log
 #     lines)
