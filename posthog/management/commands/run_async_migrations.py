@@ -15,7 +15,6 @@ from posthog.models.async_migration import (
     is_async_migration_complete,
 )
 from posthog.models.instance_setting import get_instance_setting
-from posthog.utils import print_warning
 
 logger = structlog.get_logger(__name__)
 
@@ -117,9 +116,9 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
     if not necessary_migrations:
         logger.info("Async migrations up to date!")
     else:
-        print_warning(
-            [
-                f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:",
-                *(f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations),
-            ]
+        logger.warning(
+            (
+                f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:\n"
+                "\n".join((f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations))
+            )
         )

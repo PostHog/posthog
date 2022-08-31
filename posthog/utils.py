@@ -722,7 +722,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
             if license is not None and AvailableFeature.ZAPIER in license.available_features:
                 return True
             else:
-                print_warning(["You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!"])
+                logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
 
     return False
 
@@ -755,7 +755,7 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
         if bypass_license or (license is not None and AvailableFeature.GOOGLE_LOGIN in license.available_features):
             output["google-oauth2"] = True
         else:
-            print_warning(["You have Google login set up, but not the required license!"])
+            logger.warning("You have Google login set up, but not the required license!")
 
     return output
 
@@ -898,10 +898,6 @@ def str_to_bool(value: Any) -> bool:
     if not value:
         return False
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
-
-
-def print_warning(warning_lines: List[str]):
-    logger.warning("\n".join(warning_lines))
 
 
 def get_helm_info_env() -> dict:

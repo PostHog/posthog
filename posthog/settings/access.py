@@ -7,7 +7,7 @@ import structlog
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
-logger = structlog.get_logger(__file__)
+logger = structlog.get_logger(__name__)
 
 # SSL & cookie defaults
 if os.getenv("SECURE_COOKIES", None) is None:
