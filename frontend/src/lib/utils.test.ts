@@ -337,7 +337,7 @@ describe('dateFilterToText()', () => {
 
 describe('dateStringToDayJs', () => {
     beforeEach(() => {
-        tk.freeze(1330688329321)
+        tk.freeze(1330688329321) // randomly chosen time on the 22nd of February 2022
     })
     afterEach(() => {
         tk.reset()
