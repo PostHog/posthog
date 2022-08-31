@@ -65,7 +65,7 @@ class Lifecycle:
                 "status": lifecycle_type,
                 "target_date": target_date,
                 "offset": filter.offset,
-                "limit": filter.limit,
+                "limit": filter.limit or 100,
             },
         )
         people = get_persons_by_uuids(team=team, uuids=[p[0] for p in result])

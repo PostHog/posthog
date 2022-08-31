@@ -137,7 +137,7 @@ class TrendsActors(ActorBaseQuery):
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",
             ),
-            {**params, "offset": self._filter.offset, "limit": self._filter.limit},
+            {**params, "offset": self._filter.offset, "limit": self._filter.limit or 200},
         )
 
     @cached_property

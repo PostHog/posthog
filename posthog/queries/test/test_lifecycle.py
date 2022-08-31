@@ -554,9 +554,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 ],
             )
 
-            request_factory = APIRequestFactory()
-            request = request_factory.get("/person/lifecycle")
-
             trends().get_people(
                 Filter(
                     data={
@@ -571,7 +568,6 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
                 relative_date_parse("2020-01-13T00:00:00Z"),
                 "dormant",
-                request,
             )
 
         def assertLifecycleResults(self, results, expected):
