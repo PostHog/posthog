@@ -12,14 +12,14 @@ describe('LemonCalendar', () => {
     })
 
     test('click and move between months with one month showing', async () => {
-        const onFirstMonthChanged = jest.fn()
+        const onLeftmostMonthChanged = jest.fn()
         const onDateClick = jest.fn()
 
         const { container } = render(
             <LemonCalendar
-                firstMonth="2020-02-01"
+                leftmostMonth="2020-02-01"
                 months={1}
-                onFirstMonthChanged={onFirstMonthChanged}
+                onLeftmostMonthChanged={onLeftmostMonthChanged}
                 onDateClick={onDateClick}
             />
         )
@@ -39,7 +39,7 @@ describe('LemonCalendar', () => {
         // go to January 2020
         const previousMonth = getByDataAttr(container, 'lemon-calendar-month-previous')
         userEvent.click(previousMonth)
-        expect(onFirstMonthChanged).toHaveBeenCalledWith('2020-01-01')
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith('2020-01-01')
         expect(await within(calendar).findByText('January 2020')).toBeDefined()
 
         // click on 15
@@ -51,8 +51,8 @@ describe('LemonCalendar', () => {
         const nextMonth = getByDataAttr(container, 'lemon-calendar-month-next')
         userEvent.click(nextMonth)
         userEvent.click(nextMonth)
-        expect(onFirstMonthChanged).toHaveBeenCalledWith('2020-02-01')
-        expect(onFirstMonthChanged).toHaveBeenCalledWith('2020-03-01')
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith('2020-02-01')
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith('2020-03-01')
         expect(await within(calendar).findByText('March 2020')).toBeDefined()
 
         // click on 15
@@ -62,14 +62,14 @@ describe('LemonCalendar', () => {
     })
 
     test('click and move between months with two months showing', async () => {
-        const onFirstMonthChanged = jest.fn()
+        const onLeftmostMonthChanged = jest.fn()
         const onDateClick = jest.fn()
 
         const { container } = render(
             <LemonCalendar
-                firstMonth="2020-02-01"
+                leftmostMonth="2020-02-01"
                 months={2}
-                onFirstMonthChanged={onFirstMonthChanged}
+                onLeftmostMonthChanged={onLeftmostMonthChanged}
                 onDateClick={onDateClick}
             />
         )
@@ -86,7 +86,7 @@ describe('LemonCalendar', () => {
         // go to January 2020
         const previousMonth = getByDataAttr(container, 'lemon-calendar-month-previous')
         userEvent.click(previousMonth)
-        expect(onFirstMonthChanged).toHaveBeenCalledWith('2020-01-01')
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith('2020-01-01')
         expect(await within(cal1).findByText('January 2020')).toBeDefined()
         expect(await within(cal2).findByText('February 2020')).toBeDefined()
 
@@ -99,8 +99,8 @@ describe('LemonCalendar', () => {
         const nextMonth = getByDataAttr(container, 'lemon-calendar-month-next')
         userEvent.click(nextMonth)
         userEvent.click(nextMonth)
-        expect(onFirstMonthChanged).toHaveBeenCalledWith('2020-02-01')
-        expect(onFirstMonthChanged).toHaveBeenCalledWith('2020-03-01')
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith('2020-02-01')
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith('2020-03-01')
         expect(await within(cal1).findByText('March 2020')).toBeDefined()
         expect(await within(cal2).findByText('April 2020')).toBeDefined()
 
@@ -110,12 +110,6 @@ describe('LemonCalendar', () => {
         expect(onDateClick).toHaveBeenCalledWith('2020-03-15', '2020-03-01')
     })
 
-    test('renders many weeks', async () => {
-        const { container } = render(<LemonCalendar weeks={10} />)
-        const lemonCalendarWeeks = getAllByDataAttr(container, 'lemon-calendar-week')
-        expect(lemonCalendarWeeks.length).toBe(10)
-    })
-
     test('renders many months', async () => {
         const { container } = render(<LemonCalendar months={10} />)
         const lemonCalendarMonths = getAllByDataAttr(container, 'lemon-calendar-month')
@@ -123,11 +117,11 @@ describe('LemonCalendar', () => {
     })
 
     test('renders the current month by default', async () => {
-        const onFirstMonthChanged = jest.fn()
+        const onLeftmostMonthChanged = jest.fn()
         const onDateClick = jest.fn()
 
         const { container } = render(
-            <LemonCalendar onFirstMonthChanged={onFirstMonthChanged} onDateClick={onDateClick} />
+            <LemonCalendar onLeftmostMonthChanged={onLeftmostMonthChanged} onDateClick={onDateClick} />
         )
 
         const calendar = getByDataAttr(container, 'lemon-calendar')
@@ -139,7 +133,7 @@ describe('LemonCalendar', () => {
         const calls: any = []
         const { container } = render(
             <LemonCalendar
-                firstMonth="2020-02-20"
+                leftmostMonth="2020-02-20"
                 getLemonButtonProps={(date, month, defaultProps) => {
                     const props = { ...defaultProps }
                     if (date === '2020-02-14') {

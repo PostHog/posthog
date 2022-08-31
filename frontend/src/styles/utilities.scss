@@ -294,6 +294,18 @@
     position: absolute;
 }
 
+.absolute-left {
+    position: absolute !important;
+    bottom: 0;
+    left: 0;
+}
+
+.absolute-right {
+    position: absolute !important;
+    bottom: 0;
+    right: 0;
+}
+
 // Flex
 .flex {
     display: flex;

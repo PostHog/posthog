@@ -53,23 +53,23 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
     const shownMonths = months ?? autoMonthCount
     const rangeMonthDiff =
         rangeStart && rangeEnd ? dayjs(rangeEnd).startOf('month').diff(dayjs(rangeStart).startOf('month'), 'month') : 0
-    const firstMonthForRange = dayjs(rangeStart ?? rangeEnd ?? undefined)
+    const leftmostMonthForRange = dayjs(rangeStart ?? rangeEnd ?? undefined)
         .subtract(Math.max(0, shownMonths - 1 - rangeMonthDiff), 'month')
         .startOf('month')
         .format('YYYY-MM-DD')
-    const [firstMonth, setFirstMonth] = useState(firstMonthForRange)
+    const [leftmostMonth, setLeftmostMonth] = useState(leftmostMonthForRange)
 
     // If the range changes via props and is not in view, update the first month
     useEffect(() => {
-        const lastMonthForRange = dayjs(firstMonthForRange)
+        const lastMonthForRange = dayjs(leftmostMonthForRange)
             .add(shownMonths - 1, 'month')
             .endOf('month')
         if (
             rangeStart &&
             rangeEnd &&
-            (dayjs(rangeStart).isAfter(lastMonthForRange) || dayjs(rangeEnd).isBefore(dayjs(firstMonthForRange)))
+            (dayjs(rangeStart).isAfter(lastMonthForRange) || dayjs(rangeEnd).isBefore(dayjs(leftmostMonthForRange)))
         ) {
-            setFirstMonth(firstMonthForRange)
+            setLeftmostMonth(leftmostMonthForRange)
         }
     }, [rangeStart, rangeEnd])
 
@@ -110,8 +110,8 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                             }
                         }
                     }}
-                    firstMonth={firstMonth}
-                    onFirstMonthChanged={setFirstMonth}
+                    leftmostMonth={leftmostMonth}
+                    onLeftmostMonthChanged={setLeftmostMonth}
                     months={shownMonths}
                     getLemonButtonProps={(date, _, defaultProps) => {
                         if (date === rangeStart || date === rangeEnd) {

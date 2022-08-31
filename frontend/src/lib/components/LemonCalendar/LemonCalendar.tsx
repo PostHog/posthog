@@ -10,15 +10,13 @@ export interface LemonCalendarProps {
     /** Fired if a calendar cell is clicked */
     onDateClick?: (date: string, month: string) => void
     /** YYYY-MM-xx to specify the month that is shown */
-    firstMonth?: string | null
+    leftmostMonth?: string | null
     /** Called if the user changed the month in the calendar */
-    onFirstMonthChanged?: (date: string) => void
+    onLeftmostMonthChanged?: (date: string) => void
     /** Use custom LemonButton properties for each date */
     getLemonButtonProps?: (date: string, month: string, defaultProps: LemonButtonProps) => LemonButtonProps
     /** Number of months */
     months?: number
-    /** Number of weeks in each month */
-    weeks?: number
 }
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
@@ -26,23 +24,25 @@ const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
 export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
     const months = Math.max(props.months ?? 1, 1)
     const today = dayjs().startOf('day')
-    const [firstMonth, setFirstMonth] = useState(props.firstMonth ?? dayjs().format('YYYY-MM-DD'))
+    const [leftmostMonth, setLeftmostMonth] = useState(props.leftmostMonth ?? dayjs().format('YYYY-MM-DD'))
     useEffect(() => {
-        if (props.firstMonth && props.firstMonth !== firstMonth) {
-            setFirstMonth(props.firstMonth)
+        if (props.leftmostMonth && props.leftmostMonth !== leftmostMonth) {
+            setLeftmostMonth(props.leftmostMonth)
         }
-    }, [props.firstMonth])
+    }, [props.leftmostMonth])
 
     return (
         <div className="LemonCalendar flex items-start gap-4" data-attr="lemon-calendar">
             {range(0, months).map((month) => {
-                const startOfMonth = (firstMonth ? dayjs(firstMonth) : dayjs()).add(month, 'month').startOf('month')
-                const endOfMonth = (firstMonth ? dayjs(firstMonth) : dayjs()).add(month, 'month').endOf('month')
+                const startOfMonth = (leftmostMonth ? dayjs(leftmostMonth) : dayjs())
+                    .add(month, 'month')
+                    .startOf('month')
+                const endOfMonth = (leftmostMonth ? dayjs(leftmostMonth) : dayjs()).add(month, 'month').endOf('month')
                 const stringMonth = startOfMonth.format('YYYY-MM-DD')
                 // TODO: support the easier US Sunday-first format as well
                 const firstDay = startOfMonth.subtract(startOfMonth.day() === 0 ? 6 : startOfMonth.day() - 1, 'days')
                 const lastDay = endOfMonth.add(endOfMonth.day() === 0 ? 0 : 7 - endOfMonth.day(), 'days')
-                const weeks = props.weeks ?? lastDay.diff(firstDay, 'week') + 1
+                const weeks = lastDay.diff(firstDay, 'week') + 1
                 const showLeftMonth = month === 0
                 const showRightMonth = month + 1 === months
 
@@ -50,25 +50,7 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                     <table className="LemonCalendar__month" key={month} data-attr="lemon-calendar-month">
                         <thead>
                             <tr>
-                                {showLeftMonth && (
-                                    <th>
-                                        <LemonButton
-                                            status="stealth"
-                                            fullWidth
-                                            data-attr="lemon-calendar-month-previous"
-                                            onClick={() => {
-                                                const newDate = dayjs(firstMonth)
-                                                    .subtract(1, 'month')
-                                                    .format('YYYY-MM-DD')
-                                                setFirstMonth(newDate)
-                                                props.onFirstMonthChanged?.(newDate)
-                                            }}
-                                        >
-                                            <IconChevronLeft />
-                                        </LemonButton>
-                                    </th>
-                                )}
-                                <th colSpan={7 - (showLeftMonth ? 1 : 0) - (showRightMonth ? 1 : 0)}>
+                                <th className="relative" colSpan={7}>
                                     <LemonButton
                                         status="muted"
                                         fullWidth
@@ -77,24 +59,40 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                         className="text-xs font-bold text-muted uppercase cursor-default"
                                     >
                                         {startOfMonth.format('MMMM')} {startOfMonth.year()}
-                                    </LemonButton>
-                                </th>
-                                {showRightMonth && (
-                                    <th>
+                                    </LemonButton>{' '}
+                                    {showLeftMonth && (
                                         <LemonButton
                                             status="stealth"
-                                            fullWidth
-                                            data-attr="lemon-calendar-month-next"
+                                            data-attr="lemon-calendar-month-previous"
+                                            className="absolute-left"
                                             onClick={() => {
-                                                const newDate = dayjs(firstMonth).add(1, 'month').format('YYYY-MM-DD')
-                                                setFirstMonth(newDate)
-                                                props.onFirstMonthChanged?.(newDate)
+                                                const newDate = dayjs(leftmostMonth)
+                                                    .subtract(1, 'month')
+                                                    .format('YYYY-MM-DD')
+                                                setLeftmostMonth(newDate)
+                                                props.onLeftmostMonthChanged?.(newDate)
+                                            }}
+                                        >
+                                            <IconChevronLeft />
+                                        </LemonButton>
+                                    )}
+                                    {showRightMonth && (
+                                        <LemonButton
+                                            status="stealth"
+                                            data-attr="lemon-calendar-month-next"
+                                            className="absolute-right"
+                                            onClick={() => {
+                                                const newDate = dayjs(leftmostMonth)
+                                                    .add(1, 'month')
+                                                    .format('YYYY-MM-DD')
+                                                setLeftmostMonth(newDate)
+                                                props.onLeftmostMonthChanged?.(newDate)
                                             }}
                                         >
                                             <IconChevronRight />
                                         </LemonButton>
-                                    </th>
-                                )}
+                                    )}
+                                </th>
                             </tr>
                             <tr>
                                 {range(0, 7).map((day) => (
