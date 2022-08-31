@@ -1,4 +1,4 @@
-import { LemonCalendar, LemonCalendarProps } from 'lib/components/LemonCalendar/LemonCalendar'
+import { LemonCalendar } from 'lib/components/LemonCalendar/LemonCalendar'
 import React, { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -8,7 +8,6 @@ export interface LemonCalendarSelectProps {
     value?: string | null
     onChange: (date: string) => void
     months?: number
-    getLemonButtonProps?: LemonCalendarProps['getLemonButtonProps']
     onClose?: () => void
 }
 
