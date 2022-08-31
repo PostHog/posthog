@@ -129,10 +129,6 @@ class PersonSerializer(serializers.HyperlinkedModelSerializer):
         return representation
 
 
-def should_paginate(results, limit: Union[str, int]) -> bool:
-    return len(results) > int(limit) - 1
-
-
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: Type[ActorBaseQuery]
 
@@ -209,7 +205,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
 
-        _should_paginate = should_paginate(actor_ids, filter.limit)
+        _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
             format_query_params_absolute_url(request, filter.offset - filter.limit)
@@ -463,7 +459,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         if not results_package:
             return response.Response(data=[])
 
-        people, next_url, initial_url = results_package["result"]
+        people, next_url, initial_url, missing_persons = results_package["result"]
 
         return response.Response(
             data={
@@ -472,27 +468,29 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 "initial": initial_url,
                 "is_cached": results_package.get("is_cached"),
                 "last_refresh": results_package.get("last_refresh"),
+                "missing_persons": missing_persons,
             }
         )
 
     @cached_function
     def calculate_funnel_persons(
         self, request: request.Request
-    ) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
+            return {"result": ([], None, None, False)}
 
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
 
         funnel_actor_class = get_funnel_actor_class(filter)
 
-        actors, serialized_actors = funnel_actor_class(filter, self.team).get_actors()
+        actors, serialized_actors, raw_count = funnel_actor_class(filter, self.team).get_actors()
         initial_url = format_query_params_absolute_url(request, 0)
+        # TODO: Change this to use raw_count
         next_url = paginated_result(actors, request, filter.offset, filter.limit)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
     @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, **kwargs) -> response.Response:
@@ -504,7 +502,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         if not results_package:
             return response.Response(data=[])
 
-        people, next_url, initial_url = results_package["result"]
+        people, next_url, initial_url, missing_persons = results_package["result"]
 
         return response.Response(
             data={
@@ -513,13 +511,16 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 "initial": initial_url,
                 "is_cached": results_package.get("is_cached"),
                 "last_refresh": results_package.get("last_refresh"),
+                "missing_persons": missing_persons,
             }
         )
 
     @cached_function
-    def calculate_path_persons(self, request: request.Request) -> Dict[str, Tuple[List, Optional[str], Optional[str]]]:
+    def calculate_path_persons(
+        self, request: request.Request
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         if request.user.is_anonymous or not self.team:
-            return {"result": ([], None, None)}
+            return {"result": ([], None, None, False)}
 
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
@@ -531,12 +532,13 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, serialized_actors = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        people, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        # TODO: Use raw_count
         next_url = paginated_result(serialized_actors, request, filter.offset, filter.limit)
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
-        return {"result": (serialized_actors, next_url, initial_url)}
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:

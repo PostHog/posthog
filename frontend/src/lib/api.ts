@@ -41,6 +41,7 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+    missing_persons?: number
 }
 
 export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {

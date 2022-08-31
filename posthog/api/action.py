@@ -195,19 +195,18 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
 
         entity = get_target_entity(filter)
 
-        actors, serialized_actors = TrendsActors(team, entity, filter).get_actors()
+        actors, serialized_actors, raw_count = TrendsActors(team, entity, filter).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
+        limit = filter.limit or 100
         offset = filter.offset
-        if len(actors) > 100 and next_url:
+        if raw_count >= limit and next_url:
             if "offset" in next_url:
                 next_url = next_url[1:]
-                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + limit))
             else:
-                next_url = request.build_absolute_uri(
-                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-                )
+                next_url = f"{next_url}{'&' if '?' in next_url else '?'}offset={offset+limit}"
         else:
             next_url = None
 
@@ -227,9 +226,10 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
 
         return Response(
             {
-                "results": [{"people": serialized_actors[0:100], "count": len(serialized_actors[0:100])}],
+                "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
                 "next": next_url,
                 "previous": current_url[1:],
+                "missing_persons": raw_count - len(serialized_actors),
             }
         )
 
