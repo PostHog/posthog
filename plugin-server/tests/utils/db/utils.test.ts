@@ -8,8 +8,8 @@ describe('personInitialAndUTMProperties()', () => {
             $current_url: 'https://test.com',
             $os: 'Mac OS X',
             $browser_version: '95',
-            $initial_referring_domain: 'https://google.com',
-            $initial_referrer_url: 'https://google.com/?q=posthog',
+            $referring_domain: 'https://google.com',
+            $referrer: 'https://google.com/?q=posthog',
             utm_medium: 'twitter',
             gclid: 'GOOGLE ADS ID',
             $elements: [
@@ -24,8 +24,8 @@ describe('personInitialAndUTMProperties()', () => {
             $current_url: 'https://test.com',
             $os: 'Mac OS X',
             $browser_version: '95',
-            $initial_referring_domain: 'https://google.com',
-            $initial_referrer_url: 'https://google.com/?q=posthog',
+            $referring_domain: 'https://google.com',
+            $referrer: 'https://google.com/?q=posthog',
             utm_medium: 'twitter',
             gclid: 'GOOGLE ADS ID',
             $elements: [
@@ -45,6 +45,8 @@ describe('personInitialAndUTMProperties()', () => {
                 $initial_browser_version: '95',
                 $initial_utm_medium: 'twitter',
                 $initial_gclid: 'GOOGLE ADS ID',
+                $initial_referring_domain: 'https://google.com',
+                $initial_referrer: 'https://google.com/?q=posthog',
             },
         })
     })

@@ -23,7 +23,14 @@ from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    cleanup_materialized_columns,
+    snapshot_clickhouse_queries,
+)
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
@@ -586,6 +593,33 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
 
+        materialize("events", "some_mat_prop2", table_column="person_properties")
+        materialize("events", "some_mat_prop3", table_column="group2_properties")
+        string_expr = get_property_string_expr(
+            "events", "some_mat_prop2", "x", "properties", materialised_table_column="person_properties"
+        )
+        self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
+
+        string_expr = get_property_string_expr(
+            "events",
+            "some_mat_prop3",
+            "x",
+            "properties",
+            table_alias="e",
+            materialised_table_column="group2_properties",
+        )
+        self.assertEqual(string_expr, ('e."mat_gp2_some_mat_prop3"', True))
+
+        string_expr = get_property_string_expr(
+            "events",
+            "some_mat_prop3",
+            "'x'",
+            "gp_props_alias",
+            table_alias="e",
+            materialised_table_column="group1_properties",
+        )
+        self.assertEqual(string_expr, ("replaceRegexpAll(JSONExtractRaw(e.gp_props_alias, 'x'), '^\"|\"$', '')", False))
+
 
 @pytest.mark.django_db
 def test_parse_prop_clauses_defaults(snapshot):
@@ -681,6 +715,7 @@ TEST_BREAKDOWN_PROCESSING = [
 @pytest.mark.django_db
 @pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
+    clean_up_materialised_columns,
     breakdown: Union[str, List[str]],
     table: TableWithProperties,
     query_alias: Literal["prop", "value"],
@@ -692,20 +727,99 @@ def test_breakdown_query_expression(
     assert actual == expected
 
 
+TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
+    (
+        ["$browser"],
+        "events",
+        "value",
+        "properties",
+        "person_properties",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', '')) AS value",
+        'array("mat_pp_$browser") AS value',
+    ),
+    (
+        ["$browser", "$browser_version"],
+        "events",
+        "prop",
+        "properties",
+        "group2_properties",
+        "array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop",
+        """array("mat_gp2_$browser",replaceRegexpAll(JSONExtractRaw(properties, '$browser_version'), '^\"|\"$', '')) AS prop""",
+    ),
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "breakdown, table, query_alias, column, materialise_column, expected_with, expected_without",
+    TEST_BREAKDOWN_PROCESSING_MATERIALIZED,
+)
+def test_breakdown_query_expression_materialised(
+    clean_up_materialised_columns,
+    breakdown: Union[str, List[str]],
+    table: TableWithProperties,
+    query_alias: Literal["prop", "value"],
+    column: str,
+    materialise_column: str,
+    expected_with: str,
+    expected_without: str,
+):
+    materialize(table, breakdown[0], table_column="properties")
+    actual = get_single_or_multi_property_string_expr(
+        breakdown, table, query_alias, column, materialised_table_column=materialise_column
+    )
+
+    assert actual == expected_with
+
+    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+    actual = get_single_or_multi_property_string_expr(
+        breakdown, table, query_alias, column, materialised_table_column=materialise_column
+    )
+
+    assert actual == expected_without
+
+
 @pytest.fixture
 def test_events(db, team) -> List[UUID]:
     return [
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "test@posthog.com"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"email": "mongo@example.com"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "some_val"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": "50"},),
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"attr": 5},),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"email": "test@posthog.com"},
+            group2_properties={"email": "test@posthog.com"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"email": "mongo@example.com"},
+            group2_properties={"email": "mongo@example.com"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"attr": "some_val"},
+            group2_properties={"attr": "some_val"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"attr": "50"},
+            group2_properties={"attr": "50"},
+        ),
+        _create_event(
+            event="$pageview", team=team, distinct_id="whatever", properties={"attr": 5}, group2_properties={"attr": 5}
+        ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             # unix timestamp in seconds
             properties={"unix_timestamp": int(datetime(2021, 4, 1, 18).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(2021, 4, 1, 18).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -713,69 +827,86 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             # unix timestamp in seconds
             properties={"unix_timestamp": int(datetime(2021, 4, 1, 19).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(2021, 4, 1, 19).timestamp())},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"long_date": f"{datetime(2021, 4, 1, 18):%Y-%m-%d %H:%M:%S%z}"},
+            group2_properties={"long_date": f"{datetime(2021, 4, 1, 18):%Y-%m-%d %H:%M:%S%z}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"long_date": f"{datetime(2021, 4, 1, 19):%Y-%m-%d %H:%M:%S%z}"},
+            group2_properties={"long_date": f"{datetime(2021, 4, 1, 19):%Y-%m-%d %H:%M:%S%z}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"short_date": f"{datetime(2021, 4, 4):%Y-%m-%d}"},
+            group2_properties={"short_date": f"{datetime(2021, 4, 4):%Y-%m-%d}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"short_date": f"{datetime(2021, 4, 6):%Y-%m-%d}"},
+            group2_properties={"short_date": f"{datetime(2021, 4, 6):%Y-%m-%d}"},
         ),
         # unix timestamp in seconds with fractions of a second
-        _create_event(event="$pageview", team=team, distinct_id="whatever", properties={"sdk_$time": 1639427152.339},),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"sdk_$time": 1639427152.339},
+            group2_properties={"sdk_$time": 1639427152.339},
+        ),
         # unix timestamp in milliseconds
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"unix_timestamp_milliseconds": 1641977394339},
+            group2_properties={"unix_timestamp_milliseconds": 1641977394339},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"rfc_822_time": "Wed, 02 Oct 2002 15:00:00 +0200"},
+            group2_properties={"rfc_822_time": "Wed, 02 Oct 2002 15:00:00 +0200"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"iso_8601_$time": f"{datetime(2021, 4, 1, 19):%Y-%m-%dT%H:%M:%S%Z}"},
+            group2_properties={"iso_8601_$time": f"{datetime(2021, 4, 1, 19):%Y-%m-%dT%H:%M:%S%Z}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"full_date_increasing_$time": f"{datetime(2021, 4, 1, 19):%d-%m-%Y %H:%M:%S}"},
+            group2_properties={"full_date_increasing_$time": f"{datetime(2021, 4, 1, 19):%d-%m-%Y %H:%M:%S}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"with_slashes_$time": f"{datetime(2021, 4, 1, 19):%Y/%m/%d %H:%M:%S}"},
+            group2_properties={"with_slashes_$time": f"{datetime(2021, 4, 1, 19):%Y/%m/%d %H:%M:%S}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
+            group2_properties={"with_slashes_increasing_$time": f"{datetime(2021, 4, 1, 19):%d/%m/%Y %H:%M:%S}"},
         ),
         _create_event(
             event="$pageview",
@@ -784,6 +915,7 @@ def test_events(db, team) -> List[UUID]:
             # seven digit unix timestamp in seconds - 7840800
             # Clickhouse cannot parse this. It isn't matched in tests from TEST_PROPERTIES
             properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(1970, 4, 1, 18).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -791,6 +923,7 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             # nine digit unix timestamp in seconds - 323460000
             properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
+            group2_properties={"unix_timestamp": int(datetime(1980, 4, 1, 18).timestamp())},
         ),
         _create_event(
             # matched by exact date test
@@ -798,6 +931,7 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             properties={"date_only": f"{datetime(2021, 4, 1):%d/%m/%Y}"},
+            group2_properties={"date_only": f"{datetime(2021, 4, 1):%d/%m/%Y}"},
         ),
         _create_event(
             # should not be matched by exact date test
@@ -805,6 +939,7 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             properties={"date_only": f"{datetime(2021, 4, 1, 11):%d/%m/%Y}"},
+            group2_properties={"date_only": f"{datetime(2021, 4, 1, 11):%d/%m/%Y}"},
         ),
         _create_event(
             # not matched by exact date test
@@ -812,18 +947,23 @@ def test_events(db, team) -> List[UUID]:
             team=team,
             distinct_id="whatever",
             properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
+            group2_properties={"date_only": f"{datetime(2021, 4, 2):%d/%m/%Y}"},
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"date_only_matched_against_date_and_time": f"{datetime(2021, 3, 31, 18):%d/%m/%Y %H:%M:%S}"},
+            group2_properties={
+                "date_only_matched_against_date_and_time": f"{datetime(2021, 3, 31, 18):%d/%m/%Y %H:%M:%S}"
+            },
         ),
         _create_event(
             event="$pageview",
             team=team,
             distinct_id="whatever",
             properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
+            group2_properties={"date_only_matched_against_date_and_time": int(datetime(2021, 3, 31, 14).timestamp())},
         ),
         _create_event(
             event="$pageview",
@@ -831,6 +971,9 @@ def test_events(db, team) -> List[UUID]:
             distinct_id="whatever",
             # include milliseconds, to prove they're ignored in the query
             properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
+            group2_properties={
                 "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 18, 12, 12, 12):%d/%m/%Y %H:%M:%S.%f}"
             },
         ),
@@ -842,8 +985,19 @@ def test_events(db, team) -> List[UUID]:
             properties={
                 "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
             },
+            group2_properties={
+                "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
+            },
         ),
     ]
+
+
+@pytest.fixture
+def clean_up_materialised_columns():
+    yield
+
+    # after test cleanup
+    cleanup_materialized_columns()
 
 
 TEST_PROPERTIES = [
@@ -1010,7 +1164,7 @@ TEST_PROPERTIES = [
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract(test_events, property, expected_event_indexes, team):
+def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, property, expected_event_indexes, team):
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
     uuids = list(
         sorted(
@@ -1030,14 +1184,46 @@ def test_prop_filter_json_extract(test_events, property, expected_event_indexes,
 
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract_materialized(test_events, property, expected_event_indexes, team):
-    materialize("events", "attr")
-    materialize("events", "email")
+def test_prop_filter_json_extract_materialized(
+    test_events, clean_up_materialised_columns, property, expected_event_indexes, team
+):
     materialize("events", property.key)
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 
     assert "JSONExtract" not in query
+
+    uuids = list(
+        sorted(
+            [
+                str(uuid)
+                for (uuid,) in sync_execute(
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}", {"team_id": team.pk, **params}
+                )
+            ]
+        )
+    )
+    expected = list(sorted([test_events[index] for index in expected_event_indexes]))
+
+    assert uuids == expected
+
+
+@pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
+@freeze_time("2021-04-01T01:00:00.000Z")
+def test_prop_filter_json_extract_person_on_events_materialized(
+    test_events, clean_up_materialised_columns, property, expected_event_indexes, team
+):
+    # simulates a group property being materialised
+    materialize("events", property.key, table_column="group2_properties")
+
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+    # this query uses the `properties` column, thus the materialized column is different.
+    assert ("JSON" in query) or ("AND 1 = 2" == query)
+
+    query, params = prop_filter_json_extract(
+        property, 0, allow_denormalized_props=True, use_event_column="group2_properties"
+    )
+    assert "JSON" not in query
 
     uuids = list(
         sorted(

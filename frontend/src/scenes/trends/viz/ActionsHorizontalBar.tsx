@@ -78,7 +78,6 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labelGroupType={labelGroupType}
             datasets={data}
             labels={data[0].labels}
-            insightNumericId={insight.id}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
             aggregationAxisFormat={insight.filters?.aggregation_axis_format}
