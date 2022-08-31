@@ -380,7 +380,6 @@ export function addHistoricalEventsExportCapabilityV2(
 
         let events: PluginEvent[] = []
 
-        let fetchEventsError: Error | null = null
         try {
             events = await fetchEventsForInterval(
                 hub.db,
@@ -391,33 +390,53 @@ export function addHistoricalEventsExportCapabilityV2(
                 EVENTS_PER_RUN
             )
         } catch (error) {
-            fetchEventsError = error
             Sentry.captureException(error)
-        }
-
-        let exportEventsError: Error | null = null
-
-        if (fetchEventsError) {
-            await processError(hub, pluginConfig, fetchEventsError)
+            await processError(hub, pluginConfig, error)
             await stopExport('Failed fetching events. Stopping export - please try again later.', {
                 type: PluginLogEntryType.Error,
             })
             return
-        } else {
-            if (events.length > 0) {
-                try {
-                    await methods.exportEvents!(events)
-                } catch (error) {
-                    exportEventsError = error
-                }
-            }
         }
 
-        if (exportEventsError instanceof RetryError) {
+        if (events.length > 0) {
+            try {
+                await methods.exportEvents!(events)
+
+                createLog(
+                    `Successfully processed events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
+                        payload.timestampCursor,
+                        payload.timestampCursor + payload.fetchTimeInterval
+                    )}.`,
+                    { type: PluginLogEntryType.Debug }
+                )
+
+                const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
+
+                await meta.jobs
+                    .exportHistoricalEventsV2({
+                        ...payload,
+                        retriesPerformedSoFar: 0,
+                        timestampCursor,
+                        offset,
+                        fetchTimeInterval,
+                    } as ExportHistoricalEventsJobPayload)
+                    .runIn(1, 'seconds')
+            } catch (error) {
+                await handleExportError(error, payload, events.length)
+            }
+        }
+    }
+
+    async function handleExportError(
+        error: Error,
+        payload: ExportHistoricalEventsJobPayload,
+        eventCount: number
+    ): Promise<void> {
+        if (error instanceof RetryError) {
             const nextRetrySeconds = retryDelaySeconds(payload.retriesPerformedSoFar)
 
             createLog(
-                `Failed processing events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
+                `Failed processing events ${payload.offset}-${payload.offset + eventCount} from ${dateRange(
                     payload.timestampCursor,
                     payload.timestampCursor + payload.fetchTimeInterval
                 )}. Retrying in ${nextRetrySeconds}s`,
@@ -432,32 +451,9 @@ export function addHistoricalEventsExportCapabilityV2(
                     retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
                 } as ExportHistoricalEventsJobPayload)
                 .runIn(nextRetrySeconds, 'seconds')
-        } else if (exportEventsError) {
-            await processError(hub, pluginConfig, exportEventsError)
-            await stopExport(`exportEvents returned unknown error, stopping export. error=${exportEventsError}`)
-            return
         } else {
-            const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
-
-            await meta.jobs
-                .exportHistoricalEventsV2({
-                    ...payload,
-                    retriesPerformedSoFar: 0,
-                    timestampCursor,
-                    offset,
-                    fetchTimeInterval,
-                } as ExportHistoricalEventsJobPayload)
-                .runIn(1, 'seconds')
-        }
-
-        if (events.length > 0 && !exportEventsError) {
-            createLog(
-                `Successfully processed events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
-                    payload.timestampCursor,
-                    payload.timestampCursor + payload.fetchTimeInterval
-                )}.`,
-                { type: PluginLogEntryType.Debug }
-            )
+            await processError(hub, pluginConfig, error)
+            await stopExport(`exportEvents returned unknown error, stopping export. error=${error}`)
         }
     }
 
