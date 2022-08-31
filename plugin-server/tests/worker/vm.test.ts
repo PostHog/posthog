@@ -1152,13 +1152,17 @@ describe('vm tests', () => {
 
             // enqueued again
             expect(mockEnqueue).toHaveBeenCalledTimes(2)
-            expect(mockEnqueue).toHaveBeenLastCalledWith('pluginJob', {
-                payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
-                pluginConfigId: 39,
-                pluginConfigTeam: 2,
-                timestamp: expect.any(Number),
-                type: 'exportEventsWithRetry',
-            })
+            expect(mockEnqueue).toHaveBeenLastCalledWith(
+                'pluginJob',
+                {
+                    payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
+                    pluginConfigId: 39,
+                    pluginConfigTeam: 2,
+                    timestamp: expect.any(Number),
+                    type: 'exportEventsWithRetry',
+                },
+                { key: 'plugin', tag: '?' }
+            )
             const jobPayload2 = mockEnqueue.mock.calls[1][1].payload
 
             // run the job a second time
@@ -1279,23 +1283,28 @@ describe('vm tests', () => {
             }
             await delay(1010)
 
-            expect(fetch).toHaveBeenCalledTimes(15)
+            expect(fetch).toHaveBeenCalledTimes(20)
             expect((fetch as any).mock.calls).toEqual([
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=890&count=7'],
-                ['https://export.com/?length=255&count=2'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
+                ['https://export.com/?length=866&count=5'],
             ])
         })
 
@@ -1336,7 +1345,7 @@ describe('vm tests', () => {
 
             expect(fetch).toHaveBeenCalledTimes(100)
             expect((fetch as any).mock.calls).toEqual(
-                Array.from(Array(100)).map(() => ['https://export.com/?length=128&count=1'])
+                Array.from(Array(100)).map(() => ['https://export.com/?length=174&count=1'])
             )
         })
 
