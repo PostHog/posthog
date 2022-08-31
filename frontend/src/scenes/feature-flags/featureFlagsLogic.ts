@@ -7,6 +7,7 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { toParams } from 'lib/utils'
+import { LemonSelectOption } from 'lib/components/LemonSelect'
 
 export enum FeatureFlagsTabs {
     OVERVIEW = 'overview',
@@ -14,8 +15,8 @@ export enum FeatureFlagsTabs {
 }
 
 export interface FeatureFlagsFilters {
-    active: boolean
-    created_by: string
+    active?: string
+    created_by?: string
 }
 
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
@@ -34,7 +35,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
-                const params = values.filters
+                const params = values.filters || {}
                 const response = await api.get(
                     `api/projects/${values.currentTeamId}/feature_flags/?${toParams(params)}`
                 )
@@ -81,9 +82,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         }
                     }
                 })
-                const response = [{ label: 'Any user', value: 'all' }]
+                const response: LemonSelectOption<string>[] = [{ label: 'Any user', value: 'any' }]
                 for (const [email, first_name] of Object.entries(creators)) {
-                    response.push({ label: first_name, value: email })
+                    response.push({ label: first_name, value: email } as LemonSelectOption<string>)
                 }
                 return response
             },
@@ -111,8 +112,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
             },
         ],
         filters: [
-            // null as Partial<SavedInsightFilters> | null,
-            null as Partial<FeatureFlagsFilters> | null,
+            {} as Partial<FeatureFlagsFilters> | null,
             {
                 setFeatureFlagsFilters: (state, { filters, replace }) => {
                     if (replace) {

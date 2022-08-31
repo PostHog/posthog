@@ -153,42 +153,56 @@ function OverViewTab(): JSX.Element {
     return (
         <>
             <div>
-                <div className="mb-4">
+                <div className="flex justify-between mb-4">
                     <LemonInput
                         type="search"
                         placeholder="Search for feature flags"
                         onChange={setSearchTerm}
                         value={searchTerm}
                     />
-                    <div>
-                        <span>Status</span>
+                    <div className="flex items-center gap-2">
+                        <span>
+                            <b>Status</b>
+                        </span>
                         <LemonSelect
                             onChange={(status) => {
-                                if (status === 'all') {
-                                    const { active, ...restFilters } = filters
-                                    setFeatureFlagsFilters(restFilters, true)
-                                } else {
-                                    setFeatureFlagsFilters({ active: status })
+                                if (status) {
+                                    if (status === 'all') {
+                                        if (filters) {
+                                            const { active, ...restFilters } = filters
+                                            setFeatureFlagsFilters(restFilters, true)
+                                        }
+                                    } else {
+                                        setFeatureFlagsFilters({ active: status })
+                                    }
                                 }
                             }}
                             options={[
                                 { label: 'All', value: 'all' },
-                                { label: 'Enabled', value: true },
-                                { label: 'Disabled', value: false },
+                                { label: 'Enabled', value: 'true' },
+                                { label: 'Disabled', value: 'false' },
                             ]}
                             value="all"
+                            dropdownMaxContentWidth
                         />
-                        <span>Created by</span>
+                        <span className="ml-1">
+                            <b>Created by</b>
+                        </span>
                         <LemonSelect
                             onChange={(user) => {
-                                if (user === 'all') {
-                                    const { created_by, ...restFilters } = filters
-                                    setFeatureFlagsFilters(restFilters, true)
-                                } else {
-                                    setFeatureFlagsFilters({ created_by: user })
+                                if (user) {
+                                    if (user === 'any') {
+                                        if (filters) {
+                                            const { created_by, ...restFilters } = filters
+                                            setFeatureFlagsFilters(restFilters, true)
+                                        }
+                                    } else {
+                                        setFeatureFlagsFilters({ created_by: user })
+                                    }
                                 }
                             }}
                             options={uniqueCreators}
+                            value="any"
                         />
                     </div>
                 </div>
