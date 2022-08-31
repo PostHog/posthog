@@ -5,7 +5,8 @@
     @include screen($md) {
         opacity: 0.8;
         position: absolute;
-        top: 0px;
+        top: 50%;
+        margin-top: -300px;
         left: -380px;
         width: 240px;
         padding: 1rem 0;
