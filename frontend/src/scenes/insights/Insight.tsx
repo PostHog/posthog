@@ -110,9 +110,15 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
                         onSave={(value) => setInsightMetadata({ name: value })}
-                        saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
-                        mode={!canEditInsight ? 'view' : undefined}
+                        // lock into edit without buttons when insight is editing
+                        mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
+                        onChange={(value) => {
+                            if (canEditInsight && insightMode === ItemMode.Edit) {
+                                // in edit mode will save when insight saves
+                                setInsightMetadata({ name: value })
+                            }
+                        }}
                         data-attr="insight-name"
                         notice={
                             !canEditInsight
@@ -241,13 +247,21 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     <>
                         {!!(canEditInsight || insight.description) && (
                             <EditableField
+                                className="my-3"
                                 multiline
                                 name="description"
                                 value={insight.description || ''}
                                 placeholder="Description (optional)"
                                 onSave={(value) => setInsightMetadata({ description: value })}
                                 maxLength={400} // Sync with Insight model
-                                mode={!canEditInsight ? 'view' : undefined}
+                                // lock into edit without buttons when insight is editing
+                                mode={!canEditInsight ? 'view' : insightMode === ItemMode.Edit ? 'edit' : undefined}
+                                onChange={(value) => {
+                                    if (canEditInsight && insightMode === ItemMode.Edit) {
+                                        // in edit mode will save when insight saves
+                                        setInsightMetadata({ description: value })
+                                    }
+                                }}
                                 data-attr="insight-description"
                                 compactButtons
                                 paywall={!hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION)}

@@ -8,13 +8,12 @@ import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { Tooltip } from '../Tooltip'
 
-interface EditableFieldProps {
+export interface EditableFieldProps {
     /** What this field stands for. */
     name: string
     value: string
     onChange?: (value: string) => void
     onSave?: (value: string) => void
-    saveOnBlur?: boolean
     placeholder?: string
     minLength?: number
     maxLength?: number
@@ -41,7 +40,6 @@ export function EditableField({
     value,
     onChange,
     onSave,
-    saveOnBlur = false,
     placeholder,
     minLength,
     maxLength,
@@ -122,15 +120,6 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
-                                    onBlur={
-                                        saveOnBlur
-                                            ? () => {
-                                                  if (tentativeValue !== value) {
-                                                      save()
-                                                  }
-                                              }
-                                            : undefined
-                                    }
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
@@ -145,15 +134,6 @@ export function EditableField({
                                         onChange?.(e.target.value)
                                         setTentativeValue(e.target.value)
                                     }}
-                                    onBlur={
-                                        saveOnBlur
-                                            ? () => {
-                                                  if (tentativeValue !== value) {
-                                                      save()
-                                                  }
-                                              }
-                                            : undefined
-                                    }
                                     onKeyDown={handleKeyDown}
                                     placeholder={placeholder}
                                     minLength={minLength}
