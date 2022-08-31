@@ -30,6 +30,7 @@ import { DateTime } from 'luxon'
 import {
     Hub,
     ISOTimestamp,
+    JobSpec,
     PluginConfig,
     PluginConfigVMInternalResponse,
     PluginLogEntry,
@@ -52,6 +53,28 @@ export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
 export const EXPORT_COORDINATION_KEY = 'EXPORT_COORDINATION'
 
 const INTERFACE_JOB_NAME = 'Export historical events V2'
+
+const JOB_SPEC: JobSpec = {
+    payload: {
+        dateFrom: {
+            title: 'Export start date',
+            type: 'date',
+            required: true,
+        },
+        dateTo: {
+            title: 'Export end date (not inclusive)',
+            type: 'date',
+            required: true,
+        },
+        parallelism: {
+            title: 'Parallelism',
+            type: 'number',
+            required: true,
+            default: 1,
+            staff_only: true,
+        },
+    },
+}
 
 export interface TestFunctions {
     exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
@@ -148,7 +171,9 @@ export function addHistoricalEventsExportCapabilityV2(
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
 
     if (!(INTERFACE_JOB_NAME in currentPublicJobs)) {
-        hub.promiseManager.trackPromise(hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, {}))
+        hub.promiseManager.trackPromise(
+            hub.db.addOrUpdatePublicJob(pluginConfig.plugin_id, INTERFACE_JOB_NAME, JOB_SPEC)
+        )
     }
 
     const oldRunEveryMinute = tasks.schedule.runEveryMinute?.exec
