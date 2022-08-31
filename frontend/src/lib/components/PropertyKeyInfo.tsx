@@ -746,8 +746,8 @@ export function PropertyKeyInfo({
 
     // By this point, property is a PH defined property
     const innerContent = (
-        <span className="property-key-info align-item-center">
-            {!disableIcon && !!data && <span className="property-key-info-logo w-24" />}
+        <span className="property-key-info flex items-center">
+            {!disableIcon && !!data && <span className="property-key-info-logo w-6" />}
             <Typography.Text
                 ellipsis={ellipsis}
                 style={{
