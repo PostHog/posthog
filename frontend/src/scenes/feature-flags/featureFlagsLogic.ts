@@ -13,6 +13,11 @@ export enum FeatureFlagsTabs {
     HISTORY = 'history',
 }
 
+export interface FeatureFlagsFilters {
+    active: boolean
+    created_by: string
+}
+
 export const featureFlagsLogic = kea<featureFlagsLogicType>({
     path: ['scenes', 'feature-flags', 'featureFlagsLogic'],
     connect: {
@@ -23,14 +28,16 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         deleteFlag: (id: number) => ({ id }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setActiveTab: (tabKey: FeatureFlagsTabs) => ({ tabKey }),
-        setFeatureFlagsFilters: (filters, replace?: boolean) => ({ filters, replace }),
+        setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
     },
     loaders: ({ values }) => ({
         featureFlags: {
             __default: [] as FeatureFlagType[],
             loadFeatureFlags: async () => {
                 const params = values.filters
-                const response = await api.get(`api/projects/${values.currentTeamId}/feature_flags/?${toParams(params)}`)
+                const response = await api.get(
+                    `api/projects/${values.currentTeamId}/feature_flags/?${toParams(params)}`
+                )
                 return response.results as FeatureFlagType[]
             },
             updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
@@ -74,14 +81,12 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         }
                     }
                 })
-                const response = [
-                    { label: "Any user", value: "all" }
-                ]
+                const response = [{ label: 'Any user', value: 'all' }]
                 for (const [email, first_name] of Object.entries(creators)) {
                     response.push({ label: first_name, value: email })
                 }
                 return response
-            }
+            },
         ],
     },
     reducers: {
@@ -107,14 +112,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
         ],
         filters: [
             // null as Partial<SavedInsightFilters> | null,
-            null,
+            null as Partial<FeatureFlagsFilters> | null,
             {
                 setFeatureFlagsFilters: (state, { filters, replace }) => {
                     if (replace) {
                         return { ...filters }
                     }
                     return { ...state, ...filters }
-                }
+                },
                 // cleanFilters({
                 //     ...(merge ? state || {} : {}),
                 //     ...filters,
@@ -127,7 +132,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
     listeners: ({ actions }) => ({
         setFeatureFlagsFilters: () => {
             actions.loadFeatureFlags()
-        }
+        },
     }),
     actionToUrl: ({ values }) => ({
         setActiveTab: () => {

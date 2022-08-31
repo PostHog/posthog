@@ -29,7 +29,8 @@ export const scene: SceneExport = {
 
 function OverViewTab(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } = useValues(featureFlagsLogic)
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
+        useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
@@ -96,12 +97,17 @@ function OverViewTab(): JSX.Element {
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => {
-                                        featureFlag.id ? updateFeatureFlag({ id: featureFlag.id, payload: { active: !featureFlag.active } }) : null
+                                        featureFlag.id
+                                            ? updateFeatureFlag({
+                                                  id: featureFlag.id,
+                                                  payload: { active: !featureFlag.active },
+                                              })
+                                            : null
                                     }}
                                     id={`feature-flag-${featureFlag.id}-switch`}
                                     fullWidth
                                 >
-                                    {featureFlag.active ? "Disable" : "Enable"} feature flag
+                                    {featureFlag.active ? 'Disable' : 'Enable'} feature flag
                                 </LemonButton>
                                 {featureFlag.id && (
                                     <LemonButton status="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
@@ -158,27 +164,32 @@ function OverViewTab(): JSX.Element {
                         <span>Status</span>
                         <LemonSelect
                             onChange={(status) => {
-                                if (status === "all") {
+                                if (status === 'all') {
                                     const { active, ...restFilters } = filters
                                     setFeatureFlagsFilters(restFilters, true)
                                 } else {
                                     setFeatureFlagsFilters({ active: status })
                                 }
                             }}
-                            options={[{ label: "All", value: "all" }, { label: "Enabled", value: true }, { label: "Disabled", value: false }]}
+                            options={[
+                                { label: 'All', value: 'all' },
+                                { label: 'Enabled', value: true },
+                                { label: 'Disabled', value: false },
+                            ]}
                             value="all"
                         />
                         <span>Created by</span>
                         <LemonSelect
                             onChange={(user) => {
-                                if (user === "all") {
+                                if (user === 'all') {
                                     const { created_by, ...restFilters } = filters
                                     setFeatureFlagsFilters(restFilters, true)
                                 } else {
                                     setFeatureFlagsFilters({ created_by: user })
                                 }
                             }}
-                            options={uniqueCreators} />
+                            options={uniqueCreators}
+                        />
                     </div>
                 </div>
             </div>
@@ -240,11 +251,10 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
         if (properties?.length > 0) {
             return (
                 <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
-                    {rollout_percentage != null && <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>}
-                    <PropertyFiltersDisplay
-                        filters={properties}
-                        style={{ margin: 0, flexDirection: 'row' }}
-                    />
+                    {rollout_percentage != null && (
+                        <span style={{ flexShrink: 0, marginRight: 5 }}>{rollout_percentage}% of</span>
+                    )}
+                    <PropertyFiltersDisplay filters={properties} style={{ margin: 0, flexDirection: 'row' }} />
                 </div>
             )
         } else if (rollout_percentage !== null) {
@@ -254,5 +264,5 @@ export function groupFilters(groups: FeatureFlagGroupType[]): JSX.Element | stri
             return 'All users'
         }
     }
-    return "Multiple groups"
+    return 'Multiple groups'
 }
