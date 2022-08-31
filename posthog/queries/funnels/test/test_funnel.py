@@ -48,7 +48,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-            _, serialized_result = ClickhouseFunnelActors(person_filter, self.team).get_actors()
+            _, serialized_result, _ = ClickhouseFunnelActors(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
 

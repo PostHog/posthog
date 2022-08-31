@@ -61,7 +61,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
         person_filter = filter.with_data(
             {"path_start_key": path_start, "path_end_key": path_end, "path_dropoff_key": path_dropoff}
         )
-        _, serialized_actors = PathsActors(person_filter, self.team, funnel_filter).get_actors()
+        _, serialized_actors, _ = PathsActors(person_filter, self.team, funnel_filter).get_actors()
         return [row["id"] for row in serialized_actors]
 
     def test_step_limit(self):
@@ -2988,7 +2988,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
@@ -3050,7 +3050,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [[]], [actor["matched_recordings"] for actor in serialized_actors],
@@ -3099,7 +3099,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [
@@ -3161,7 +3161,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [], [actor["matched_recordings"] for actor in serialized_actors],
@@ -3177,7 +3177,7 @@ class TestClickhousePaths(paths_test_factory(Paths)):  # type: ignore
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [

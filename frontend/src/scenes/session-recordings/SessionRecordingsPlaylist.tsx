@@ -96,7 +96,7 @@ export function SessionRecordingsPlaylist({ personUUID }: SessionRecordingsTable
             </div>
             <div className="SessionRecordingPlaylist__right-column">
                 {activeSessionRecordingId ? (
-                    <div className="border rounded">
+                    <div className="border rounded h-full">
                         <SessionRecordingPlayerV3 playerKey="playlist" sessionRecordingId={activeSessionRecordingId} />
                     </div>
                 ) : sessionRecordingsResponseLoading ? (

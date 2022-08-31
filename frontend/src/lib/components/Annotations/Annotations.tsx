@@ -1,5 +1,5 @@
 import React from 'react'
-import { annotationsLogic } from './annotationsLogic'
+import { insightAnnotationsLogic } from './insightAnnotationsLogic'
 import { useValues, useActions } from 'kea'
 import { AnnotationMarker } from './AnnotationMarker'
 import { AnnotationType, AnnotationScope } from '~/types'
@@ -10,12 +10,12 @@ interface AnnotationsProps {
     leftExtent: number
     interval: number
     topExtent: number
-    insightNumericId?: number
     color: string | null
     accessoryColor: string | null
     currentDateMarker?: string | null
     onClick: () => void
     onClose: () => void
+    timezone: string
 }
 
 export function Annotations({
@@ -23,46 +23,41 @@ export function Annotations({
     leftExtent,
     interval,
     topExtent,
-    insightNumericId,
     onClick,
     color,
     accessoryColor,
     onClose,
     currentDateMarker,
+    timezone,
 }: AnnotationsProps): JSX.Element {
-    const logic = annotationsLogic({ insightNumericId })
-    const { diffType, groupedAnnotations } = useValues(logic)
-    const { createAnnotation, deleteAnnotation, deleteGlobalAnnotation, createGlobalAnnotation } = useActions(logic)
+    // insightAnnotationsLogic's props must be bound using BindLogic - this is so that we can avoid prop drilling here
+    const { intervalUnit, groupedAnnotations } = useValues(insightAnnotationsLogic)
+    const { createAnnotation, deleteAnnotation } = useActions(insightAnnotationsLogic)
 
     const onCreate =
         (date: string) =>
         (input: string, applyAll: boolean): void => {
-            if (applyAll) {
-                createGlobalAnnotation(input, date, insightNumericId)
-            } else {
-                createAnnotation(input, date)
-            }
+            createAnnotation({
+                content: input,
+                date_marker: dayjs(date).tz(timezone).toISOString(),
+                scope: applyAll ? AnnotationScope.Project : AnnotationScope.Insight,
+            })
         }
 
     const markers: JSX.Element[] = []
 
     const makeAnnotationMarker = (index: number, date: string, annotationsToMark: AnnotationType[]): JSX.Element => (
         <AnnotationMarker
-            insightNumericId={insightNumericId}
             elementId={date}
-            label={dayjs(date).format('MMMM Do YYYY')}
+            label={dayjs(date).format('MMMM Do YYYY HH:mm')}
             key={index}
             left={index * interval + leftExtent - 12.5}
             top={topExtent}
             annotations={annotationsToMark}
             onCreate={onCreate(date)}
-            onDelete={(data: AnnotationType) => {
+            onDelete={(annotationToDelete: AnnotationType) => {
                 annotationsToMark.length === 1 && onClose?.()
-                if (data.scope !== AnnotationScope.Insight) {
-                    deleteGlobalAnnotation(data.id)
-                } else {
-                    deleteAnnotation(data.id)
-                }
+                deleteAnnotation(annotationToDelete)
             }}
             onClick={onClick}
             onClose={onClose}
@@ -83,14 +78,11 @@ export function Annotations({
 
     dates &&
         dates.forEach((date: string, index: number) => {
-            const chosenTime = dayjs(date).startOf(diffType as dayjs.OpUnitType)
+            const chosenTime = dayjs(date).startOf(intervalUnit)
             const groupedAnnotationKey = chosenTime.format('YYYY-MM-DD')
             const annotations = groupedAnnotations[groupedAnnotationKey] || []
 
-            if (diffType === 'minute') {
-                const minuteKey = chosenTime.format('YYYY-MM-DDTHH:mm')
-                filterAnnotations(annotations, minuteKey, index)
-            } else if (diffType === 'hour') {
+            if (intervalUnit === 'hour') {
                 const hourKey = chosenTime.format('YYYY-MM-DDTHH')
                 filterAnnotations(annotations, hourKey, index)
             } else if (annotations.length) {
