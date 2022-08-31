@@ -44,7 +44,7 @@ from posthog.settings import CLICKHOUSE_REPLICATION
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
-persons_ordering_int: int = 0
+persons_ordering_int: int = 1
 
 
 def _setup_test_data(klass):

@@ -174,6 +174,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 ) => ({
                     people: [],
                     count: 0,
+                    missingPersons: 0,
                     action,
                     label,
                     day: date_from,
@@ -184,6 +185,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value, crossDataset, seriesId }) => ({
                     people: [],
                     count: 0,
+                    missingPersons: 0,
                     day: date_from,
                     label,
                     action,
@@ -360,6 +362,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 const peopleResult = {
                     people: actors?.results[0]?.people,
                     count: actors?.results[0]?.count || 0,
+                    missingPersons: actors?.missing_persons || 0,
                     action,
                     label,
                     day: date_from,
@@ -399,6 +402,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 return {
                     people: people?.results[0]?.people,
                     count: people?.results[0]?.count || 0,
+                    missingPersons: people?.missing_persons || 0,
                     label,
                     funnelStep,
                     breakdown_value,
@@ -414,6 +418,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 if (values.people) {
                     const {
                         people: currPeople,
+                        missingPersons: currMissingPersons,
                         count,
                         action,
                         label,
@@ -433,6 +438,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     return {
                         people: [...currPeople, ...people.results[0]?.people],
                         count: count + people.results[0]?.count,
+                        missingPersons: currMissingPersons + (people.missing_persons || 0),
                         action,
                         label,
                         day,

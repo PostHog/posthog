@@ -29,7 +29,7 @@
        AND timestamp <= toDateTime('2020-01-12 23:59:59')
        AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---

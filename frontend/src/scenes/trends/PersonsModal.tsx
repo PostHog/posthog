@@ -24,6 +24,7 @@ import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingBu
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/components/AlertMessage'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
 
@@ -169,6 +170,19 @@ export function PersonsModal({
                 }
                 width={600}
             >
+                {people && !!people.missingPersons && (
+                    <AlertMessage type="info" className="mb-2">
+                        {people.missingPersons + 1}{' '}
+                        {people.missingPersons > 1
+                            ? `${aggregationTargetLabel.plural} are`
+                            : `${aggregationTargetLabel.singular} is`}{' '}
+                        not shown because they've been lost.{' '}
+                        <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
+                            Read more here for when this can happen
+                        </a>
+                        .
+                    </AlertMessage>
+                )}
                 <LemonInput
                     type="search"
                     placeholder="Search for persons by email, name, or ID"
