@@ -12,6 +12,11 @@ export interface LemonCalendarRangeProps {
     onClose?: () => void
 }
 
+/** Used to calculate how many calendars fit on the screen */
+const WIDTH_OF_ONE_CALENDAR_MONTH = 300
+/** Number of calendars to display if `typeof window === undefined` */
+const CALENDARS_IF_NO_WINDOW = 2
+
 export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCalendarRangeProps): JSX.Element {
     // Keep a sanitised and cached copy of the selected range
     const [valueStart, valueEnd] = [
@@ -33,15 +38,16 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
     }, [valueStart, rangeStart, valueEnd, rangeEnd])
 
     // How many months fit on the screen, capped between 1..2
-    function getMaxMonthCount(): number {
-        const width = typeof window === undefined ? 1024 : window.innerWidth
-        return Math.min(Math.max(1, Math.floor(width / 300)), 2)
+    function getMonthCount(): number {
+        const width =
+            typeof window === undefined ? WIDTH_OF_ONE_CALENDAR_MONTH * CALENDARS_IF_NO_WINDOW : window.innerWidth
+        return Math.min(Math.max(1, Math.floor(width / WIDTH_OF_ONE_CALENDAR_MONTH)), 2)
     }
-    const [autoMonthCount, setAutoMonthCount] = useState(getMaxMonthCount())
+    const [autoMonthCount, setAutoMonthCount] = useState(getMonthCount())
     useEffect(() => {
         const listener = (): void => {
-            if (autoMonthCount !== getMaxMonthCount()) {
-                setAutoMonthCount(getMaxMonthCount())
+            if (autoMonthCount !== getMonthCount()) {
+                setAutoMonthCount(getMonthCount())
             }
         }
         window.addEventListener('resize', listener)
