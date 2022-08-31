@@ -605,3 +605,21 @@
         list-style-type: #{$list_style_type};
     }
 }
+
+// Custom utilities (e.g. non-tailwind)
+
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        rgba(190, 190, 190, 0.2) 25%,
+        rgba(129, 129, 129, 0.24) 37%,
+        rgba(190, 190, 190, 0.2) 63%
+    );
+    background-size: auto;
+    background-size: 400% 100%;
+    animation: lemon-skeleton-loading 1.4s ease infinite;
+    border-radius: var(--radius);
+    height: 24px;
+}
+
+// End Custom utilities
