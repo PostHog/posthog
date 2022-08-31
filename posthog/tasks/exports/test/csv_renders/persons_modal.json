@@ -153,6 +153,6 @@
             }
         ],
         "next": null,
-        "previous": "api/projects/1/actions/people/?breakdown_attribution_type=first_touch&date_from=2022-07-15T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_to=2022-07-15T00%3A00%3A00%2B00%3A00&include_recordings=true"
+        "previous": "api/projects/1/persons/trends/?breakdown_attribution_type=first_touch&date_from=2022-07-15T00%3A00%3A00%2B00%3A00&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+null%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+%22weekly_active%22%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=week&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&entity_math=weekly_active&date_to=2022-07-15T00%3A00%3A00%2B00%3A00&include_recordings=true"
     }
 }
