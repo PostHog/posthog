@@ -486,6 +486,7 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     function nextCursor(payload: ExportHistoricalEventsJobPayload, eventCount: number): OffsetParams {
+        // More on the same time window
         if (eventCount === EVENTS_PER_RUN) {
             return {
                 timestampCursor: payload.timestampCursor,
@@ -505,6 +506,7 @@ export function addHistoricalEventsExportCapabilityV2(
             nextFetchInterval = Math.max(Math.floor(payload.fetchTimeInterval / 1.2), TEN_MINUTES)
         }
 
+        // If we would end up fetching too many events next time, reduce fetch interval
         if (nextCursor + nextFetchInterval > payload.endTime) {
             nextFetchInterval = payload.endTime - nextCursor
         }
