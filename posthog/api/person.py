@@ -9,7 +9,6 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
-    Union,
     cast,
 )
 
@@ -23,7 +22,6 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
-from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
@@ -486,8 +484,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         actors, serialized_actors, raw_count = funnel_actor_class(filter, self.team).get_actors()
         initial_url = format_query_params_absolute_url(request, 0)
-        # TODO: Change this to use raw_count
-        next_url = paginated_result(actors, request, filter.offset, filter.limit)
+        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
         # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
@@ -533,8 +530,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
         people, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
-        # TODO: Use raw_count
-        next_url = paginated_result(serialized_actors, request, filter.offset, filter.limit)
+        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
         initial_url = format_query_params_absolute_url(request, 0)
 
         # cached_function expects a dict with the key result
@@ -548,10 +544,16 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         entity = get_target_entity(filter)
 
-        actors, serialized_actors = TrendsActors(team, entity, filter).get_actors()
-        next_url = paginated_result(serialized_actors, request, filter.offset, filter.limit)
+        actors, serialized_actors, raw_count = TrendsActors(team, entity, filter).get_actors()
+        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
-        return response.Response({"results": [{"people": serialized_actors, "count": len(actors)}], "next": next_url})
+        return response.Response(
+            {
+                "results": [{"people": serialized_actors, "count": len(actors)}],
+                "next": next_url,
+                "missing_persons": raw_count - len(serialized_actors),
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
@@ -580,7 +582,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         people = self.lifecycle_class().get_people(
             target_date=target_date_parsed, filter=filter, team=team, lifecycle_type=lifecycle_type,
         )
-        next_url = paginated_result(people, request, filter.offset, filter.limit)
+        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
     @action(methods=["GET"], detail=False)
@@ -601,7 +603,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         else:
             people = self.retention_class(base_uri=base_uri).actors(filter, team)
 
-        next_url = paginated_result(people, request, filter.offset, filter.limit)
+        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
 
         return response.Response({"result": people, "next": next_url})
 
@@ -619,14 +621,14 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         target_entity = get_target_entity(filter)
 
         people = self.stickiness_class().people(target_entity, filter, team, request)
-        next_url = paginated_result(people, request, filter.offset, filter.limit)
+        next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 
 
 def paginated_result(
-    entites: Union[List[Any], ReturnDict], request: request.Request, offset: int = 0, limit: int = DEFAULT_PAGE_LIMIT,
+    request: request.Request, count: int, offset: int = 0, limit: int = DEFAULT_PAGE_LIMIT,
 ) -> Optional[str]:
-    return format_paginated_url(request, offset, limit) if len(entites) >= limit else None
+    return format_paginated_url(request, offset, limit) if count >= limit else None
 
 
 T = TypeVar("T", Filter, PathFilter, RetentionFilter, StickinessFilter)
