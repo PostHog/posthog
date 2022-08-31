@@ -12,6 +12,7 @@
         flex-wrap: wrap;
         flex-direction: row;
         background-color: var(--bg-light);
+        z-index: 0;
 
         .player-container {
             height: 100%;

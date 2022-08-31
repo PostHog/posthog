@@ -167,6 +167,7 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                     )}
                 </Row>
             </Row>
+            <LemonDivider className="my-0" />
         </div>
     )
 }
