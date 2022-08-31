@@ -64,7 +64,8 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.util import get_earliest_timestamp
-from posthog.settings import EE_AVAILABLE
+from posthog.rate_limit import DestroyClickhouseModelThrottle
+from posthog.settings import EE_AVAILABLE, RATE_LIMIT_ENABLED
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
 
@@ -163,6 +164,8 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
+
+    throttle_classes = [DestroyClickhouseModelThrottle] if RATE_LIMIT_ENABLED else []
 
     def get_queryset(self):
         queryset = super().get_queryset()

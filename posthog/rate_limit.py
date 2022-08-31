@@ -24,3 +24,13 @@ class PassThroughBurstRateThrottle(PassThroughThrottle):
 
 class PassThroughSustainedRateThrottle(PassThroughThrottle):
     scope = "sustained"
+
+
+class DestroyClickhouseModelThrottle(UserRateThrottle):
+    rate = "10/hour"
+
+    def allow_request(self, request, view):
+        # Only throttle DELETE requests
+        if request.method == "DELETE":
+            return super().allow_request(request, view)
+        return True
