@@ -25,7 +25,7 @@ from posthog.utils import SingletonDecorator
 
 KAFKA_PRODUCER_RETRIES = 5
 
-logger = get_logger(__name__)
+logger = get_logger(__file__)
 
 
 class TestKafkaProducer:

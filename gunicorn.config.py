@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import logging
 import os
 import socket
 import struct
@@ -9,7 +8,6 @@ import sys
 import threading
 import time
 
-import structlog
 from prometheus_client import CollectorRegistry, Gauge, multiprocess, start_http_server
 
 loglevel = "error"
@@ -25,6 +23,29 @@ grateful_timeout = 120
 
 
 METRICS_UPDATE_INTERVAL_SECONDS = int(os.getenv("GUNICORN_METRICS_UPDATE_SECONDS", 5))
+
+
+def on_starting(server):
+    print(
+        """
+\x1b[1;34m"""
+        + r"""
+ _____          _   _    _
+|  __ \        | | | |  | |
+| |__) |__  ___| |_| |__| | ___   __ _
+|  ___/ _ \/ __| __|  __  |/ _ \ / _` |
+| |  | (_) \__ \ |_| |  | | (_) | (_| |
+|_|   \___/|___/\__|_|  |_|\___/ \__, |
+                                  __/ |
+                                 |___/
+"""
+        + """
+\x1b[0m
+"""
+    )
+    print("Server running on \x1b[4mhttp://{}:{}\x1b[0m".format(*server.address[0]))
+    print("Questions? Please shoot us an email at \x1b[4mhey@posthog.com\x1b[0m")
+    print("\nTo stop, press CTRL + C")
 
 
 def when_ready(server):
@@ -166,78 +187,3 @@ class WorkerMonitor(threading.Thread):
             pending_requests.labels(pid=self.worker.pid).set(len(self.worker.futures))
 
             time.sleep(METRICS_UPDATE_INTERVAL_SECONDS)
-
-
-LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
-
-# Setup stdlib logging to be handled by Structlog
-def add_pid_and_tid(
-    logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
-) -> structlog.types.EventDict:
-    event_dict["pid"] = os.getpid()
-    event_dict["tid"] = threading.get_ident()
-    return event_dict
-
-
-pre_chain = [
-    # Add the log level and a timestamp to the event_dict if the log entry
-    # is not from structlog.
-    structlog.stdlib.add_log_level,
-    structlog.stdlib.add_logger_name,
-    add_pid_and_tid,
-    structlog.processors.TimeStamper(fmt="iso"),
-]
-
-
-# This is a copy the default logging config for gunicorn but with additions to:
-#
-#  1. non propagate loggers to the root handlers (otherwise we get duplicate log
-#     lines)
-#  2. use structlog for processing of log records
-#
-# See
-# https://github.com/benoitc/gunicorn/blob/0b953b803786997d633d66c0f7c7b290df75e07c/gunicorn/glogging.py#L48
-# for the default log settings.
-logconfig_dict = {
-    "version": 1,
-    "disable_existing_loggers": True,
-    "formatters": {
-        "default": {
-            "()": structlog.stdlib.ProcessorFormatter,
-            "processor": structlog.dev.ConsoleRenderer(colors=True),
-            "foreign_pre_chain": pre_chain,
-        },
-        "json": {
-            "()": structlog.stdlib.ProcessorFormatter,
-            "processor": structlog.processors.JSONRenderer(),
-            "foreign_pre_chain": pre_chain,
-        },
-    },
-    "root": {"level": "INFO", "handlers": ["console"]},
-    "loggers": {
-        "gunicorn.error": {
-            "level": "INFO",
-            "handlers": ["error_console"],
-            "propagate": False,
-            "qualname": "gunicorn.error",
-        },
-        "gunicorn.access": {
-            "level": "INFO",
-            "handlers": ["console"],
-            "propagate": False,
-            "qualname": "gunicorn.access",
-        },
-    },
-    "handlers": {
-        "error_console": {
-            "class": "logging.StreamHandler",
-            "formatter": LOGGING_FORMATTER_NAME,
-            "stream": "ext://sys.stderr",
-        },
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": LOGGING_FORMATTER_NAME,
-            "stream": "ext://sys.stdout",
-        },
-    },
-}

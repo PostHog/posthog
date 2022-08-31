@@ -17,7 +17,6 @@ from typing import Dict, List
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
 
-from posthog.settings.logs import *
 from posthog.settings.base_variables import *
 
 from posthog.settings.access import *
@@ -29,6 +28,7 @@ from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
+from posthog.settings.logs import *
 from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *

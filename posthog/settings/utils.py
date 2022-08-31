@@ -3,9 +3,9 @@ from typing import Any, Callable, List, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.utils import str_to_bool
+from posthog.utils import print_warning, str_to_bool
 
-__all__ = ["get_from_env", "get_list", "str_to_bool"]
+__all__ = ["print_warning", "get_from_env", "get_list", "str_to_bool"]
 
 
 def get_from_env(key: str, default: Any = None, *, optional: bool = False, type_cast: Optional[Callable] = None) -> Any:
