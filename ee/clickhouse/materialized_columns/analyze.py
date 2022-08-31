@@ -132,7 +132,6 @@ def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
         """,
         {"since": since_hours_ago, "min_query_time": min_query_time},
     )
-
     return [Query(query, query_duration_ms, min_query_time) for query, query_duration_ms in raw_queries]
 
 
