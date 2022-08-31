@@ -46,7 +46,7 @@ export function NewActionButton(): JSX.Element {
                     </>
                 }
             >
-                {!appUrlsVisible && (
+                {!appUrlsVisible ? (
                     <div className="space-y-2">
                         <LemonButton
                             type="secondary"
@@ -71,8 +71,9 @@ export function NewActionButton(): JSX.Element {
                             From event or pageview
                         </LemonButton>
                     </div>
+                ) : (
+                    <AuthorizedUrls />
                 )}
-                {appUrlsVisible && <AuthorizedUrls />}
             </LemonModal>
         </>
     )
