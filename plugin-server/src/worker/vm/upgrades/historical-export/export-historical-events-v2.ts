@@ -409,22 +409,22 @@ export function addHistoricalEventsExportCapabilityV2(
                     )}.`,
                     { type: PluginLogEntryType.Debug }
                 )
-
-                const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
-
-                await meta.jobs
-                    .exportHistoricalEventsV2({
-                        ...payload,
-                        retriesPerformedSoFar: 0,
-                        timestampCursor,
-                        offset,
-                        fetchTimeInterval,
-                    } as ExportHistoricalEventsJobPayload)
-                    .runIn(1, 'seconds')
             } catch (error) {
                 await handleExportError(error, payload, events.length)
             }
         }
+
+        const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
+
+        await meta.jobs
+            .exportHistoricalEventsV2({
+                ...payload,
+                retriesPerformedSoFar: 0,
+                timestampCursor,
+                offset,
+                fetchTimeInterval,
+            } as ExportHistoricalEventsJobPayload)
+            .runIn(1, 'seconds')
     }
 
     async function handleExportError(
