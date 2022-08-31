@@ -350,11 +350,12 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     actions.setUrl(pathsParams)
                 } else {
-                    actors = await api.actions.getPeople(
+                    const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
-                        filters,
-                        searchTerm
+                        filters
                     )
+
+                    actors = await api.get(`api/person/trends/?${filterParams}${searchTermParam}`)
                 }
                 breakpoint()
                 const peopleResult = {

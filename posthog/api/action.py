@@ -184,6 +184,8 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
         return Response({"results": actions_list})
 
+    # NOTE: Deprecated in favour of `persons/trends` endpoint
+    # Once the old way of exporting CSVs is removed, this endpoint can be removed
     @action(methods=["GET"], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team

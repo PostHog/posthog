@@ -71,7 +71,7 @@ def trend_test_factory(trends):
             if data.get("events", None):
                 data.update({"events": json.dumps(data["events"])})
             response = self.client.get(
-                f"/api/projects/{self.team.id}/actions/people/",
+                f"/api/projects/{self.team.id}/persons/trends/",
                 data={**data, ENTITY_TYPE: entity.type, ENTITY_ID: entity.id,},
             ).json()
             return response["results"][0]["people"]
