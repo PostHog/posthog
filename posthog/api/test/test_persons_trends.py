@@ -44,7 +44,7 @@ def _create_session_recording_event(team_id, distinct_id, session_id, timestamp,
     )
 
 
-class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
+class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, use_time=False):
         _create_action(team=self.team, name="no events")
 
@@ -896,6 +896,38 @@ class TestActionPeople(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
         )
+
+    @snapshot_clickhouse_queries
+    def test_trends_people_endpoint_filters_search(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"email": "ben@posthog.com"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-09T14:00:00Z",
+        )
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"email": "neil@posthog.com"})
+        _create_event(
+            team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T14:00:00Z",
+        )
+
+        params = {
+            "date_from": "2020-01-08",
+            "date_to": "2020-01-12",
+            ENTITY_TYPE: "events",
+            ENTITY_ID: "$pageview",
+            "display": TRENDS_CUMULATIVE,
+            "breakdown_type": "event",
+            "breakdown_value": "",
+            "breakdown": "key",
+            "include_recordings": "true",
+        }
+
+        people = self.client.get(f"/api/projects/{self.team.id}/persons/trends/", data=params,).json()
+        assert len(people["results"][0]["people"]) == 2
+
+        params["search"] = "ben"
+
+        people = self.client.get(f"/api/projects/{self.team.id}/persons/trends/", data=params,).json()
+        assert len(people["results"][0]["people"]) == 1
 
     def _test_interval(self, date_from, interval, timestamps):
         for index, ts in enumerate(timestamps):

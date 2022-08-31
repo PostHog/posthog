@@ -183,31 +183,3 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-
-    @freeze_time("2021-01-21T20:00:00.000Z")
-    def test_person_query_filters_based_on_search(self):
-        _create_person(team_id=self.team.pk, distinct_ids=["u1"], properties={"email": "ben@posthog.com"})
-        _create_event(event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now())
-
-        _create_person(team_id=self.team.pk, distinct_ids=["u2"], properties={"email": "neil@posthog.com"})
-        _create_event(event="pageview", distinct_id="u2", team=self.team, timestamp=timezone.now())
-
-        event = {
-            "id": "pageview",
-            "name": "pageview",
-            "type": "events",
-            "order": 0,
-        }
-        filter = Filter(
-            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-22T00:00:00Z", "events": [event]}
-        )
-        entity = Entity(event)
-        _, serialized_actors = TrendsActors(self.team, entity, filter).get_actors()
-
-        assert len(serialized_actors) == 2
-
-        filter = filter.with_data({"search": "ben"})
-        _, serialized_actors = TrendsActors(self.team, entity, filter).get_actors()
-
-        assert len(serialized_actors) == 1
-        assert serialized_actors[0].get("distinct_ids", None) == ["u1"]
