@@ -59,9 +59,9 @@ export interface LineGraphProps {
 }
 
 interface LineGraphCSSProperties extends React.CSSProperties {
-    '--chart-left-px': number
-    '--chart-height-px': number
-    '--chart-interval-px': number
+    '--line-graph-area-left-px': number
+    '--line-graph-area-eight-px': number
+    '--line-graph-area-interval-px': number
 }
 
 export function ensureTooltipElement(): HTMLElement {
@@ -114,12 +114,12 @@ export function LineGraph_({
     const chartRef = useRef<HTMLCanvasElement | null>(null)
     const myLineChart = useRef<Chart<ChartType, any, string>>()
 
+    const { width: graphWidth, height: graphHeight } = useResizeObserver({ ref: chartRef })
+
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
-
-    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: chartRef })
 
     useEffect(() => {
         buildChart()
@@ -134,7 +134,7 @@ export function LineGraph_({
     }, [])
 
     // Calculate chart content coordinates for annotations overlay positioning
-    const [chartLeftPx, chartHeightPx, chartIntervalPx] = useMemo<[number, number, number]>(() => {
+    const [graphAreaLeft, graphAreaHeight, graphAreaInterval] = useMemo<[number, number, number]>(() => {
         if (myLineChart.current) {
             let boundaryLeftExtent = myLineChart.current.scales.x.left
             const boundaryRightExtent = myLineChart.current.scales.x.right
@@ -151,7 +151,7 @@ export function LineGraph_({
         } else {
             return [0, 0, 0]
         }
-    }, [myLineChart.current, chartWidth, chartHeight])
+    }, [myLineChart.current, graphWidth, graphHeight])
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
@@ -583,9 +583,9 @@ export function LineGraph_({
             data-attr={dataAttr}
             style={
                 {
-                    '--chart-left-px': chartLeftPx,
-                    '--chart-height-px': chartHeightPx,
-                    '--chart-interval-px': chartIntervalPx,
+                    '--line-graph-area-left-px': graphAreaLeft,
+                    '--line-graph-area-height-px': graphAreaHeight,
+                    '--line-graph-area-interval-px': graphAreaInterval,
                 } as LineGraphCSSProperties
             }
         >

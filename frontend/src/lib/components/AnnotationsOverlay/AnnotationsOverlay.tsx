@@ -37,21 +37,21 @@ interface AnnotationsBadgeProps {
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
-    '--annotation-badge-index': number
-    '--annotation-badge-scale': number
+    '--annotations-badge-index': number
+    '--annotations-badge-scale': number
 }
 
 function AnnotationsBadge({ index, annotations }: AnnotationsBadgeProps): JSX.Element {
     const [isHoveredOver, setIsHoveredOver] = useState(false)
 
-    // eslint-disable-next-line react/forbid-dom-props
     return (
         <div
             className="AnnotationsBadge"
+            // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
-                    '--annotation-badge-index': index,
-                    '--annotation-badge-scale': annotations.length || isHoveredOver ? 1 : 0,
+                    '--annotations-badge-index': index,
+                    '--annotations-badge-scale': annotations.length || isHoveredOver ? 1 : 0,
                 } as AnnotationsOverlayCSSProperties
             }
             onMouseEnter={() => setIsHoveredOver(true)}

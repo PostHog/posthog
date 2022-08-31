@@ -1,19 +1,19 @@
 .AnnotationsOverlay {
     position: absolute;
-    top: calc(var(--chart-height-px) * 1px);
-    left: calc(var(--chart-left-px) * 1px);
+    top: calc(var(--line-graph-area-height-px) * 1px);
+    left: calc(var(--line-graph-area-left-px) * 1px);
 }
 
 .AnnotationsBadge {
     position: absolute;
-    margin-left: calc(var(--chart-interval-px) * var(--annotation-badge-index) * 1px);
+    margin-left: calc(var(--line-graph-area-interval-px) * var(--annotations-badge-index) * 1px);
     transform: translate(-50%, -50%);
     cursor: pointer;
 
     > .LemonBubble {
         transition: transform 150ms ease-out; // Same as LemonBubble's transition
         // Override .LemonBubble--position-self-centered
-        transform: scale(var(--annotation-badge-scale));
+        transform: scale(var(--annotations-badge-scale));
         transform-origin: center;
     }
 }
