@@ -167,6 +167,7 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
     const operatorOptions = operators.map((op) => ({
         label: allOperatorsMapping[op || PropertyOperator.Exact],
         value: op || PropertyOperator.Exact,
+        element: <span className="operator-value-option" />,
     }))
     return (
         <LemonSelect
