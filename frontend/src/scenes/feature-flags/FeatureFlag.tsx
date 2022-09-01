@@ -144,6 +144,15 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 }
                             />
                             <Divider />
+                            {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                                <AlertMessage type="warning">
+                                    This feature flag is linked to an experiment. It's recommended to only make changes
+                                    to this flag{' '}
+                                    <Link to={urls.experiment(featureFlag.experiment_set[0])}>
+                                        using the experiment creation screen.
+                                    </Link>
+                                </AlertMessage>
+                            )}
                             <Row gutter={16} style={{ marginBottom: 32 }}>
                                 <Col span={12} className="space-y-4">
                                     <Field
