@@ -18,7 +18,7 @@
        AND timestamp >= toDateTime('2021-01-21 00:00:00')
        AND timestamp <= toDateTime('2021-01-21 23:59:59') )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---
@@ -54,7 +54,7 @@
        AND timestamp >= toDateTime('2021-01-21 00:00:00')
        AND timestamp <= toDateTime('2021-01-21 23:59:59') )
   GROUP BY actor_id
-  LIMIT 200
+  LIMIT 100
   OFFSET 0
   '
 ---

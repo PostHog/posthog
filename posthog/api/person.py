@@ -4,7 +4,9 @@ from typing import (
     Any,
     Callable,
     Dict,
+    List,
     Optional,
+    Tuple,
     Type,
     TypeVar,
     cast,
@@ -447,16 +449,34 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return Response(status=204)
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
+    def _respond_with_cached_results(self, results_package: Dict[str, Tuple[List, Optional[str], Optional[str], int]]):
+        if not results_package:
+            return response.Response(data=[])
+
+        actors, next_url, initial_url, missing_persons = results_package["result"]
+
+        return response.Response(
+            data={
+                "results": [{"people": actors, "count": len(actors)}],
+                "next": next_url,
+                "initial": initial_url,
+                "missing_persons": missing_persons,
+                "is_cached": results_package.get("is_cached"),
+                "last_refresh": results_package.get("last_refresh"),
+            }
+        )
 
     @action(methods=["GET", "POST"], detail=False)
     def funnel(self, request: request.Request, **kwargs) -> response.Response:
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
-        return _respond_with_cached_results(self.calculate_funnel_persons(request))
+        return self._respond_with_cached_results(self.calculate_funnel_persons(request))
 
     @cached_function
-    def calculate_funnel_persons(self, request: request.Request) -> Dict[str, Dict[str, Any]]:
+    def calculate_funnel_persons(
+        self, request: request.Request
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
         funnel_actor_class = get_funnel_actor_class(filter)
@@ -465,24 +485,20 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         initial_url = format_query_params_absolute_url(request, 0)
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
 
-        return {
-            "result": {
-                "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
-                "next": next_url,
-                "initial": initial_url,
-                "missing_persons": raw_count - len(serialized_actors),
-            }
-        }
+        # cached_function expects a dict with the key result
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
     @action(methods=["GET", "POST"], detail=False)
     def path(self, request: request.Request, **kwargs) -> response.Response:
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
-        return _respond_with_cached_results(self.calculate_funnel_persons(request))
+        return self._respond_with_cached_results(self.calculate_path_persons(request))
 
     @cached_function
-    def calculate_path_persons(self, request: request.Request) -> Dict[str, Dict[str, Any]]:
+    def calculate_path_persons(
+        self, request: request.Request
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         filter = PathFilter(request=request, data={"insight": INSIGHT_PATHS}, team=self.team)
         filter = prepare_actor_query_filter(filter)
 
@@ -493,42 +509,34 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        people, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        actors, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
         initial_url = format_query_params_absolute_url(request, 0)
 
-        return {
-            "result": {
-                "results": [{"people": people, "count": len(people)}],
-                "next": next_url,
-                "initial": initial_url,
-                "missing_persons": raw_count - len(serialized_actors),
-            }
-        }
+        # cached_function expects a dict with the key result
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
     @action(methods=["GET"], detail=False)
     def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
-        return _respond_with_cached_results(self.calculate_trends_persons(request))
+        return self._respond_with_cached_results(self.calculate_trends_persons(request))
 
     @cached_function
-    def calculate_trends_persons(self, request: request.Request) -> Dict[str, Dict[str, Any]]:
+    def calculate_trends_persons(
+        self, request: request.Request
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         filter = Filter(request=request, team=self.team)
         filter = prepare_actor_query_filter(filter)
         entity = get_target_entity(filter)
 
         actors, serialized_actors, raw_count = TrendsActors(self.team, entity, filter).get_actors()
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
+        initial_url = format_query_params_absolute_url(request, 0)
 
-        return {
-            "result": {
-                "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
-                "next": next_url,
-                "missing_persons": raw_count - len(serialized_actors),
-            }
-        }
+        # cached_function expects a dict with the key result
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:
@@ -604,19 +612,6 @@ def paginated_result(
     request: request.Request, count: int, offset: int = 0, limit: int = DEFAULT_PAGE_LIMIT,
 ) -> Optional[str]:
     return format_paginated_url(request, offset, limit) if count >= limit else None
-
-
-def _respond_with_cached_results(results_package: Dict[str, Dict[str, Any]]):
-    if not results_package:
-        return response.Response(data=[])
-
-    return response.Response(
-        data={
-            **results_package["result"],
-            "is_cached": results_package.get("is_cached"),
-            "last_refresh": results_package.get("last_refresh"),
-        }
-    )
 
 
 T = TypeVar("T", Filter, PathFilter, RetentionFilter, StickinessFilter)
