@@ -14,7 +14,6 @@ import { groupsModel } from '~/models/groupsModel'
 
 export interface PersonModalLogicProps {
     url: string
-    closeModal?: () => void
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
@@ -25,6 +24,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
         setSearchTerm: (search: string) => ({ search }),
         saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
         resetActors: () => true,
+        closeModal: () => true,
+        setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
@@ -73,6 +74,19 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 setSearchTerm: (_, { search }) => search,
             },
         ],
+        isModalOpen: [
+            true,
+            {
+                closeModal: () => false,
+            },
+        ],
+        isCohortModalOpen: [
+            false,
+            {
+                setIsCohortModalOpen: (_, { isOpen }) => isOpen,
+                closeModal: () => false,
+            },
+        ],
     })),
 
     listeners(({ actions, props }) => ({
@@ -98,6 +112,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             })
 
             const filters = fromParamsGivenUrl('?' + qs)
+            actions.setIsCohortModalOpen(false)
             actions.reportCohortCreatedFromPersonsModal(filters)
         },
     })),
@@ -120,7 +135,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actions.loadActors({ url: props.url })
     }),
 
-    urlToAction(({ props, cache }) => ({
+    urlToAction(({ cache, actions }) => ({
         '*': (_a, _b, _c, { pathname }) => {
             if (!cache['lastPathname']) {
                 cache['lastPathname'] = pathname
@@ -128,7 +143,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             }
             // If we click anything that navigates us away, close the modal but allowing for changes in hash
             if (cache['lastPathname'] !== pathname) {
-                props.closeModal?.()
+                actions.closeModal()
             }
         },
     })),

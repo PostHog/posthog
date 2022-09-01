@@ -37,28 +37,23 @@ export interface PersonsModalProps {
 
 function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {
     const [selectedUrlIndex, setSelectedUrlIndex] = useState(urlsIndex || 0)
-    const [isOpen, setIsOpen] = useState(true)
-    const [cohortModalOpen, setCohortModalOpen] = useState(false)
     const originalUrl = (urls || [])[selectedUrlIndex]?.value || _url || ''
 
     const logic = personsModalLogic({
         url: originalUrl,
-        closeModal: () => {
-            setIsOpen(false)
-            setCohortModalOpen(false)
-        },
     })
 
-    const { actors, actorsResponseLoading, actorsResponse, searchTerm, actorLabel } = useValues(logic)
-    const { loadActors, setSearchTerm, saveCohortWithUrl } = useActions(logic)
+    const { actors, actorsResponseLoading, actorsResponse, searchTerm, actorLabel, isCohortModalOpen, isModalOpen } =
+        useValues(logic)
+    const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
     const { openSessionPlayer, closeSessionPlayer } = useActions(sessionPlayerDrawerLogic)
 
     return (
         <>
             <LemonModal
                 title={''}
-                isOpen={isOpen}
-                onClose={() => setIsOpen(false)}
+                isOpen={isModalOpen}
+                onClose={closeModal}
                 onAfterClose={onAfterClose}
                 simple
                 width={600}
@@ -156,7 +151,7 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                 </div>
                 <LemonModal.Footer>
                     <LemonButton
-                        onClick={() => setCohortModalOpen(true)}
+                        onClick={() => setIsCohortModalOpen(true)}
                         icon={<IconSave />}
                         type="secondary"
                         data-attr="person-modal-save-as-cohort"
@@ -184,8 +179,8 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
             </LemonModal>
             <SaveCohortModal
                 onSave={(title) => saveCohortWithUrl(title)}
-                onCancel={() => setCohortModalOpen(false)}
-                isOpen={cohortModalOpen}
+                onCancel={() => setIsCohortModalOpen(false)}
+                isOpen={isCohortModalOpen}
             />
             <SessionPlayerDrawer onClose={() => closeSessionPlayer()} />
         </>
