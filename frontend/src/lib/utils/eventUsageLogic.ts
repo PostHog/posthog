@@ -82,7 +82,6 @@ interface RecordingViewedProps {
 }
 
 export interface RecordingViewedSummaryAnalytics {
-    played_duration_ms?: number
     viewed_time_ms?: number
     recording_duration_ms?: number
     recording_age_days?: number
@@ -91,7 +90,7 @@ export interface RecordingViewedSummaryAnalytics {
     first_snapshot_and_meta_load_time_ms?: number
     all_snapshots_load_time_ms?: number
     rrweb_warning_count: number
-    error_count: number
+    error_count_during_recording_playback: number
 }
 
 function flattenProperties(properties: AnyPropertyFilter[]): string[] {
@@ -949,7 +948,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture('recording console logs viewed', { log_count: logCount })
         },
         reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
-            posthog.capture('recording viewed summary', { recordingViewedSummary })
+            posthog.capture('recording viewed summary', { ...recordingViewedSummary })
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {

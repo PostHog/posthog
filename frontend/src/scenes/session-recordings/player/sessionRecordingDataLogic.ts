@@ -148,7 +148,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
-    reducers(({ cache, values }) => ({
+    reducers(({ cache }) => ({
         filters: [
             {} as Partial<RecordingEventsFilters>,
             {
@@ -184,8 +184,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadFirstSnapshotTimeMs: [
             null as number | null,
             {
-                loadRecordingSnapshotsSuccess: () => {
-                    return cache.loadStartTime && values.loadFirstSnapshotTimeMs === null
+                loadRecordingSnapshotsSuccess: (prevLoadFirstSnapshotTimeMs) => {
+                    return cache.loadStartTime && prevLoadFirstSnapshotTimeMs === null
                         ? performance.now() - cache.loadStartTime
                         : null
                 },

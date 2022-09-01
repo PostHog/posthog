@@ -528,7 +528,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         : undefined,
                 all_snapshots_load_time_ms: values.loadAllSnapshotsTimeMs ?? undefined,
                 rrweb_warning_count: values.warningCount,
-                error_count: values.errorCount,
+                error_count_during_recording_playback: values.errorCount,
             })
         },
         afterMount: () => {
