@@ -46,7 +46,6 @@ import { TimestampBoundaries } from '../utils/utils'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
-const EVENTS_TIME_INTERVAL = TEN_MINUTES
 export const EVENTS_PER_RUN = 500
 
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
@@ -262,7 +261,7 @@ export function addHistoricalEventsExportCapabilityV2(
                         offset: 0,
                         retriesPerformedSoFar: 0,
                         exportId: params.id,
-                        fetchTimeInterval: EVENTS_TIME_INTERVAL,
+                        fetchTimeInterval: hub.HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW,
                         statusKey: `EXPORT_DATE_STATUS_${startDate}`,
                     }
                     await startChunk(payload, 0)
@@ -371,11 +370,10 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
-        if (payload.retriesPerformedSoFar >= 15) {
-            const message = `Exporting chunk ${dateRange(
-                payload.startTime,
-                payload.endTime
-            )} failed after 15 retries. Stopping export.`
+        if (payload.retriesPerformedSoFar >= hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT) {
+            const message = `Exporting chunk ${dateRange(payload.startTime, payload.endTime)} failed after ${
+                hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT
+            } retries. Stopping export.`
             await stopExport(message, { type: PluginLogEntryType.Error })
             await processError(hub, pluginConfig, message)
             return
@@ -524,11 +522,17 @@ export function addHistoricalEventsExportCapabilityV2(
         let nextFetchInterval = payload.fetchTimeInterval
         // If we're fetching too small of a window at a time, increase window to fetch
         if (payload.offset === 0 && eventCount < EVENTS_PER_RUN * 0.5) {
-            nextFetchInterval = Math.min(Math.floor(payload.fetchTimeInterval * 1.2), TWELVE_HOURS)
+            nextFetchInterval = Math.min(
+                Math.floor(payload.fetchTimeInterval * hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER),
+                TWELVE_HOURS
+            )
         }
         // If time window seems too large, reduce it
         if (payload.offset > 2 * EVENTS_PER_RUN) {
-            nextFetchInterval = Math.max(Math.floor(payload.fetchTimeInterval / 1.2), TEN_MINUTES)
+            nextFetchInterval = Math.max(
+                Math.floor(payload.fetchTimeInterval / hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER),
+                TEN_MINUTES
+            )
         }
 
         // If we would end up fetching too many events next time, reduce fetch interval

@@ -147,7 +147,6 @@ export interface PluginsServerConfig extends Record<string, any> {
     PERSON_INFO_TO_REDIS_TEAMS: string
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    HISTORICAL_EXPORTS_ENABLED: boolean
     OBJECT_STORAGE_ENABLED: boolean
     OBJECT_STORAGE_ENDPOINT: string
     OBJECT_STORAGE_ACCESS_KEY_ID: string
@@ -156,6 +155,10 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_BUCKET: string
     PLUGIN_SERVER_MODE: 'ingestion' | 'async' | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
+    HISTORICAL_EXPORTS_ENABLED: boolean
+    HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
+    HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
+    HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
 }
 
 export interface Hub extends PluginsServerConfig {
