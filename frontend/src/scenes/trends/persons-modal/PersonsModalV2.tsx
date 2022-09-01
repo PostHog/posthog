@@ -32,7 +32,7 @@ export interface PersonsModalProps {
         label: string | JSX.Element
         value: string
     }[]
-    title: JSX.Element | string | ((actorLabel: string) => JSX.Element | string)
+    title: React.ReactNode | ((actorLabel: string) => React.ReactNode)
 }
 
 function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: PersonsModalProps): JSX.Element {

@@ -35,7 +35,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorsResponse: [
             null as CountedPaginatedResponse<ActorType> | null,
             {
-                loadActors: async ({ url, clear = false }: { url: string; clear?: boolean }) => {
+                loadActors: async ({ url, clear }: { url: string; clear?: boolean }) => {
                     url += '&include_recordings=true'
 
                     if (values.searchTerm) {
@@ -63,10 +63,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actors: [
             [] as ActorType[],
             {
-                loadActorsSuccess: (state, { actorsResponse }) => {
-                    console.log({ actorsResponse })
-                    return [...state, ...(actorsResponse?.results || [])]
-                },
+                loadActorsSuccess: (state, { actorsResponse }) => [...state, ...(actorsResponse?.results || [])],
                 resetActors: () => [],
             },
         ],

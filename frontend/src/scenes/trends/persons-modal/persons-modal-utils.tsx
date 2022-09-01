@@ -185,6 +185,8 @@ export const buildPeopleUrl = ({
         const cleanedParams = cleanFilters(filters)
         const pathParams = toParams(cleanedParams)
 
+        console.log({ pathParams, filters })
+
         return `api/person/path/?${pathParams}`
     } else {
         return `api/projects/@current/actions/people?${parsePeopleParams(
