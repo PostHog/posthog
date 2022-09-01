@@ -227,8 +227,6 @@ if RATE_LIMIT_ENABLED or TEST:
     ]
     REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {"burst": "120/minute", "sustained": "1000/hour"}
 
-DESTROY_CLICKHOUSE_MODEL_THROTTLE_RATE = get_from_env("DESTROY_CLICKHOUSE_MODEL_THROTTLE_RATE", "20/hour")
-
 SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
