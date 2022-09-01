@@ -151,7 +151,7 @@ class TrendsTotalVolume:
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
-                        "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                        "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                     },
                 }
             ]
@@ -186,7 +186,7 @@ class TrendsTotalVolume:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/actions/people/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url

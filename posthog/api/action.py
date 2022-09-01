@@ -18,12 +18,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.trends.person import TrendsActors
+from posthog.queries.trends.trends_actors import TrendsActors
 
 from .forbid_destroy_model import ForbidDestroyModel
 from .person import get_person_name
@@ -184,10 +184,15 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
         return Response({"results": actions_list})
 
+    # NOTE: Deprecated in favour of `persons/trends` endpoint
+    # Once the old way of exporting CSVs is removed, this endpoint can be removed
     @action(methods=["GET"], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request, team=self.team)
+        if not filter.limit:
+            filter = filter.with_data({LIMIT: 200})
+
         entity = get_target_entity(filter)
 
         actors, serialized_actors, raw_count = TrendsActors(team, entity, filter).get_actors()

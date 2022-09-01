@@ -497,6 +497,10 @@ class SearchMixin(BaseParamMixin):
         search = self._data.get("search", None)
         return search
 
+    @include_dict
+    def search_to_dict(self):
+        return {"search": self.search} if self.search else {}
+
 
 class DistinctIdMixin(BaseParamMixin):
     """

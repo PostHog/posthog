@@ -9,7 +9,7 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.session_recording_event.util import create_session_recording_event
-from posthog.queries.trends.person import TrendsActors
+from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
