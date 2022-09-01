@@ -1,5 +1,4 @@
 import { RetryError } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/react'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
@@ -81,7 +80,6 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                     await hub.promiseManager.awaitPromisesIfNeeded()
                 } else {
                     await catchFn?.(error)
-                    Sentry.captureException(error, { extra: { attempt, maxAttempts } })
                     hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
                 }
             }
