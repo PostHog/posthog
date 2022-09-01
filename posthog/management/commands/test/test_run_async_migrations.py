@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from django.core.management import call_command
 from semantic_version.base import Version
@@ -7,11 +9,11 @@ from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION
 pytestmark = pytest.mark.django_db
 
 
-def test_run_async_migrations_doesnt_raise(capsys):
+def test_run_async_migrations_doesnt_raise():
     call_command("run_async_migrations")
 
 
-def test_plan_includes_all_migrations_except_past_max_version(capsys):
+def test_plan_includes_all_migrations_except_past_max_version(caplog):
     """
     Plan should give us all the migrations that haven't run. But it also should
     not return migrations that are still within the posthog_min_version,
@@ -20,40 +22,53 @@ def test_plan_includes_all_migrations_except_past_max_version(capsys):
     migrations via the UI.
     """
     call_command("run_async_migrations", "--plan")
-    stderr = capsys.readouterr().err
+    output = "\n".join([rec.message for rec in caplog.records])
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
         if POSTHOG_VERSION > Version(migration.posthog_max_version):
-            assert migration_name in stderr
+            assert migration_name in output
         else:
-            assert migration_name not in stderr
+            assert migration_name not in output
 
 
-def test_check_with_pending_migrations(capsys):
-    # By default, no mgirations are run, so this should raise
+def test_check_with_pending_migrations(caplog):
+    # By default, no migrations are run, so this should raise
     with pytest.raises(SystemExit):
         call_command("run_async_migrations", "--check")
 
     # Ensure that it did not try to auto-complete migrations, using the first
     # migration as a test case
     call_command("run_async_migrations", "--plan")
-    stderr = capsys.readouterr().err
-    assert "0001" in stderr
+    output = "\n".join([rec.message for rec in caplog.records])
+    assert "0001" in output
 
 
-def test_check_with_no_pending_migrations(capsys):
+def test_check_with_no_pending_migrations():
     # Running the migrations first, then checking should result in an exit
     # code of zero
     call_command("run_async_migrations")
     call_command("run_async_migrations", "--check")
 
 
-def test_auto_complete(capsys):
+def test_auto_complete(caplog):
     """
     Based on the status of `is_required` for each migration, it is possible that
     some incomplete migrations can be trivially applied by creating and marking
     the migration as complete.
     """
-    call_command("run_async_migrations", "--auto-complete-trivial")
-    stderr = capsys.readouterr().err
+    # First validate the 0001 is present
     call_command("run_async_migrations", "--plan")
-    assert "0001" not in stderr
+    output = "\n".join([rec.message for rec in caplog.records])
+    assert "0001" in output
+
+    call_command("run_async_migrations", "--auto-complete-trivial")
+
+    # And after running, it shouldn't be
+    caplog.clear()
+    call_command("run_async_migrations", "--plan")
+    output = "\n".join([rec.message for rec in caplog.records])
+    assert "0001" not in output
+
+
+@pytest.fixture(autouse=True)
+def set_log_level(caplog):
+    caplog.set_level(logging.INFO)
