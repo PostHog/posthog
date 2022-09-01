@@ -34,6 +34,8 @@ app.conf.broker_pool_limit = 0
 
 app.steps["worker"].add(DjangoStructLogInitStep)
 
+# just to have change detected
+
 
 @setup_logging.connect
 def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> None:
