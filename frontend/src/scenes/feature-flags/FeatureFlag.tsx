@@ -254,7 +254,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     data-attr="cancel-feature-flag"
                                     type="secondary"
                                     onClick={() => {
-                                        router.actions.push(urls.featureFlags())
+                                        if (isEditingFlag) {
+                                            editFeatureFlag(false)
+                                            loadFeatureFlag()
+                                        } else {
+                                            router.actions.push(urls.featureFlags())
+                                        }
                                     }}
                                     disabled={featureFlagLoading}
                                 >
@@ -883,7 +888,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
         aggregationTargetName,
         featureFlag,
     } = useValues(featureFlagLogic)
-    const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled, duplicateVariant } =
+    const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
