@@ -28,6 +28,7 @@ export function LemonBubble({
         <CSSTransition in={!hide} timeout={150} classNames="LemonBubble-" mountOnEnter unmountOnExit>
             <span
                 className={clsx('LemonBubble', `LemonBubble--${size}`, `LemonBubble--position-${position}`)}
+                style={{ color: 'red' }}
                 title={String(count)}
             >
                 {text}
