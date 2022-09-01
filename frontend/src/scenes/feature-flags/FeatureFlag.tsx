@@ -1089,15 +1089,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </Col>
                                     <Col span={2}>
                                         <Row>
-                                            <LemonButton
-                                                icon={<IconCopy />}
-                                                status="primary-alt"
-                                                data-attr={`show-prop-duplicate-${index}`}
-                                                noPadding
-                                                onClick={() => {
-                                                    duplicateVariant(index)
-                                                }}
-                                            />
                                             {variants.length > 1 && (
                                                 <LemonButton
                                                     icon={<IconDelete />}

@@ -194,22 +194,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         },
                     }
                 },
-                duplicateVariant: (state, { index }) => {
-                    if (!state) {
-                        return state
-                    }
-                    const variants = [...(state.filters.multivariate?.variants || [])]
-                    return {
-                        ...state,
-                        filters: {
-                            ...state.filters,
-                            multivariate: {
-                                ...(state.filters.multivariate || {}),
-                                variants: [...variants, variants[index]],
-                            },
-                        },
-                    }
-                },
                 removeVariant: (state, { index }) => {
                     if (!state) {
                         return state
