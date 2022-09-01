@@ -162,7 +162,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (insightId === 'new') {
                     values.insightCache?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new', values.currentTeam.test_account_filters_default_checked),
+                            ...createEmptyInsight(
+                                'new',
+                                values.currentTeam?.test_account_filters_default_checked || false
+                            ),
                             ...(filters ? { filters: cleanFilters(filters || {}) } : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                         },
