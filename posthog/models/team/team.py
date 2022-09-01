@@ -111,9 +111,7 @@ class Team(UUIDClassicModel):
     access_control: models.BooleanField = models.BooleanField(default=False)
 
     test_account_filters: models.JSONField = models.JSONField(default=list)
-    test_account_filters_default_checked: models.BooleanField = models.BooleanField(
-        null=True, blank=True, default=False
-    )
+    test_account_filters_default_checked: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     path_cleaning_filters: models.JSONField = models.JSONField(default=list, null=True, blank=True)
     timezone: models.CharField = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
