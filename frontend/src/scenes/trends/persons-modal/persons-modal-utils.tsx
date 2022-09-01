@@ -142,7 +142,8 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     return toParams({ ...params, ...restParams })
 }
 
-export const buildFunnelPeopleUrl = ({
+// NOTE: Ideally this should be built server side and returned in `persons_urls` but for those that don't support it we can built it on the frontend
+export const buildPeopleUrl = ({
     label,
     action,
     filters,
@@ -176,15 +177,6 @@ export const buildFunnelPeopleUrl = ({
                 funnel_step: funnelStep,
                 ...(breakdown_value !== undefined && { funnel_step_breakdown: breakdown_value }),
             }
-
-            // // getting property correlations from funnel
-            // if (params.funnel_custom_steps) {
-            //     eventUsageLogic.actions.reportCorrelationInteraction(
-            //         FunnelCorrelationResultsType.Properties,
-            //         'person modal',
-            //         filters.funnel_correlation_person_entity
-            //     )
-            // }
         }
         const cleanedParams = cleanFilters(params)
         const funnelParams = toParams(cleanedParams)

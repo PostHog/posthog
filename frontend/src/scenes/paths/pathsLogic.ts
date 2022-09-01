@@ -9,7 +9,7 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
-import { buildFunnelPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export const DEFAULT_STEP_LIMIT = 5
@@ -78,7 +78,7 @@ export const pathsLogic = kea<pathsLogicType>({
             actions.setFilter({ exclude_events: exclusions })
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
-            const personsUrl = buildFunnelPeopleUrl({
+            const personsUrl = buildPeopleUrl({
                 label: path_dropoff_key || path_start_key || path_end_key || 'Pageview',
                 date_from: '',
                 date_to: '',

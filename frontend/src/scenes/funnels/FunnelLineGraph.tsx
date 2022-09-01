@@ -9,7 +9,7 @@ import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModalV2'
-import { buildFunnelPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 export function FunnelLineGraph({
     inSharedMode,
@@ -72,7 +72,7 @@ export function FunnelLineGraph({
                               pointValue: dataset?.data?.[index] ?? undefined, // TODO: Remove
                           }
 
-                          const url = buildFunnelPeopleUrl(props)
+                          const url = buildPeopleUrl(props)
                           if (url) {
                               openPersonsModal({
                                   url,
