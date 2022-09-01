@@ -458,7 +458,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             actors, next_url, initial_url, missing_persons = results_package["result"]
         else:
             actors, next_url, initial_url = results_package["result"]
-            missing_persons = False
+            missing_persons = 0
 
         return response.Response(
             data={
