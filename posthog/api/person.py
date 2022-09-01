@@ -1,14 +1,6 @@
 import json
 from datetime import datetime
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Optional,
-    Type,
-    TypeVar,
-    cast,
-)
+from typing import Any, Callable, Dict, Optional, Type, TypeVar, cast
 
 from django.db.models import Prefetch
 from drf_spectacular.types import OpenApiTypes
