@@ -1,6 +1,6 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
-import { convertPropertiesToPropertyGroup, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, toParams } from 'lib/utils'
 import React from 'react'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import {
@@ -14,7 +14,7 @@ import {
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { getSeriesColor } from 'lib/colors'
+import { getBarColorFromStatus, getSeriesColor } from 'lib/colors'
 
 export const funnelTitle = (props: {
     step: number
@@ -61,6 +61,7 @@ export const urlsForDatasets = (
                         }
                         showCountedByTag={showCountedByTag}
                         hasMultipleSeries={hasMultipleSeries}
+                        showEventName
                     />
                 ),
             })) || []
@@ -72,18 +73,22 @@ export const urlsForDatasets = (
             ?.map((dataset) => ({
                 value: dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url || '',
                 label: (
-                    <>
-                        <InsightLabel
-                            seriesColor={getSeriesColor(dataset.id)}
-                            action={dataset.action}
-                            breakdownValue={
-                                dataset.breakdown_value === '' ? 'None' : dataset.breakdown_value?.toString()
-                            }
-                            showCountedByTag={showCountedByTag}
-                            hasMultipleSeries={hasMultipleSeries}
-                        />
-                        {/* {dataset.action.status} */}
-                    </>
+                    <InsightLabel
+                        seriesColor={
+                            dataset.status ? getBarColorFromStatus(dataset.status) : getSeriesColor(dataset.id)
+                        }
+                        action={dataset.action}
+                        breakdownValue={
+                            dataset.status
+                                ? capitalizeFirstLetter(dataset.status)
+                                : dataset.breakdown_value === ''
+                                ? 'None'
+                                : dataset.breakdown_value?.toString()
+                        }
+                        showCountedByTag={showCountedByTag}
+                        hasMultipleSeries={hasMultipleSeries}
+                        showEventName
+                    />
                 ),
             }))
             .filter((x) => x.value) || []
@@ -120,9 +125,6 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
         params.stickiness_days = date_from as number
     } else if (params.display === ChartDisplayType.ActionsLineGraphCumulative) {
         params.date_to = date_from as string
-    } else if (filters.insight === InsightType.LIFECYCLE) {
-        params.date_from = filters.date_from
-        params.date_to = filters.date_to
     } else {
         params.date_from = date_from as string
         params.date_to = date_to as string
@@ -155,12 +157,6 @@ export const buildPeopleUrl = ({
     if (filters.funnel_correlation_person_entity) {
         const cleanedParams = cleanFilters(filters)
         return `api/person/funnel/correlation/?${cleanedParams}`
-    } else if (filters.insight === InsightType.LIFECYCLE) {
-        const filterParams = parsePeopleParams(
-            { label, action, target_date: date_from, lifecycle_type: breakdown_value },
-            filters
-        )
-        return `api/person/lifecycle/?${filterParams}`
     } else if (filters.insight === InsightType.STICKINESS) {
         const filterParams = parsePeopleParams({ label, action, date_from, date_to, breakdown_value }, filters)
         return `api/person/stickiness/?${filterParams}`
@@ -184,8 +180,6 @@ export const buildPeopleUrl = ({
     } else if (filters.insight === InsightType.PATHS) {
         const cleanedParams = cleanFilters(filters)
         const pathParams = toParams(cleanedParams)
-
-        console.log({ pathParams, filters })
 
         return `api/person/path/?${pathParams}`
     } else {

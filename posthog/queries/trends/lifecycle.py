@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Callable, Dict, List, Tuple
-
+from typing import Any, Callable, Dict, List, Tuple
+import pytz
 from django.db.models.query import Prefetch
-
+import urllib
 from posthog.client import sync_execute
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params
@@ -16,6 +16,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.trends.sql import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.queries.util import parse_timestamps
+from posthog.utils import encode_get_request_params
 
 # Lifecycle takes an event/action, time range, interval and for every period, splits the users who did the action into 4:
 #
@@ -47,6 +48,9 @@ class Lifecycle:
                 label = "{} - {}".format(entity.name, val[2])
                 additional_values = {"label": label, "status": val[2]}
                 parsed_result = parse_response(val, filter, additional_values=additional_values)
+                parsed_result.update(
+                    {"persons_urls": self._get_persons_urls(filter, entity, parsed_result["days"], val[2])}
+                )
                 res.append(parsed_result)
 
             return res
@@ -74,6 +78,25 @@ class Lifecycle:
         from posthog.api.person import PersonSerializer
 
         return PersonSerializer(people, many=True).data
+
+    def _get_persons_urls(self, filter: Filter, entity: Entity, times: List[str], status) -> List[Dict[str, Any]]:
+        persons_url = []
+        for target_date in times:
+            filter_params = filter.to_params()
+            extra_params = {
+                "entity_id": entity.id,
+                "entity_type": entity.type,
+                "entity_math": entity.math,
+                "target_date": target_date,
+                "entity_order": entity.order,
+                "lifecycle_type": status,
+            }
+
+            parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
+            persons_url.append(
+                {"filter": extra_params, "url": f"api/person/lifecycle/?{urllib.parse.urlencode(parsed_params)}",}
+            )
+        return persons_url
 
 
 class LifecycleEventQuery(EventQuery):
