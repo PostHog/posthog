@@ -10,11 +10,13 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect({
         logic: [eventUsageLogic],
+        values: [teamLogic, ['currentTeam']],
     }),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -160,7 +162,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 if (insightId === 'new') {
                     values.insightCache?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight('new'),
+                            ...createEmptyInsight('new', values.currentTeam.test_account_filters_default_checked),
                             ...(filters ? { filters: cleanFilters(filters || {}) } : {}),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                         },

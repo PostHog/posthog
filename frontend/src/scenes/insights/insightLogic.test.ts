@@ -610,16 +610,51 @@ describe('insightLogic', () => {
         })
     })
 
-    test('keeps saved name, description, tags', async () => {
+    test('can default filter test accounts to on', async () => {
         logic = insightLogic({
             dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43), filters: API_FILTERS },
+            cachedInsight: { ...createEmptyInsight(Insight43, true), filters: API_FILTERS },
         })
         logic.mount()
 
+        const expectedPartialInsight = {
+            name: '',
+            description: '',
+            tags: [],
+            filters: {
+                filter_test_accounts: true,
+                events: [{ id: 3 }],
+                insight: 'TRENDS',
+                properties: [{ key: 'a', operator: 'exact', type: 'a', value: 'a' }],
+            },
+        }
         await expectLogic(logic).toMatchValues({
-            insight: partial({ name: '', description: '', tags: [] }),
-            savedInsight: partial({ name: '', description: '', tags: [] }),
+            insight: partial(expectedPartialInsight),
+            savedInsight: partial(expectedPartialInsight),
+            insightChanged: false,
+        })
+    })
+
+    test('keeps saved name, description, tags', async () => {
+        logic = insightLogic({
+            dashboardItemId: Insight43,
+            cachedInsight: { ...createEmptyInsight(Insight43, false), filters: API_FILTERS },
+        })
+        logic.mount()
+
+        const expectedPartialInsight = {
+            name: '',
+            description: '',
+            tags: [],
+            filters: {
+                events: [{ id: 3 }],
+                insight: 'TRENDS',
+                properties: [{ key: 'a', operator: 'exact', type: 'a', value: 'a' }],
+            },
+        }
+        await expectLogic(logic).toMatchValues({
+            insight: partial(expectedPartialInsight),
+            savedInsight: partial(expectedPartialInsight),
             insightChanged: false,
         })
 

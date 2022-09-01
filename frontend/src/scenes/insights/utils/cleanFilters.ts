@@ -230,7 +230,7 @@ export function cleanFilters(
         cleanBreakdownParams(cleanSearchParams, filters, featureFlags || {})
 
         if (Object.keys(filters).length === 0 || (!filters.actions && !filters.events)) {
-            cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts()
+            cleanSearchParams.filter_test_accounts = defaultFilterTestAccounts(filters.filter_test_accounts)
         }
 
         // TODO: Deprecated; should be removed once backend is updated

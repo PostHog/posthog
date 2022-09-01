@@ -44,8 +44,8 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
-export const defaultFilterTestAccounts = (): boolean => {
-    return localStorage.getItem('default_filter_test_accounts') === 'true' || false
+export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
+    return localStorage.getItem('default_filter_test_accounts') === 'true' || current_filter_test_accounts
 }
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
@@ -55,14 +55,20 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
     )
 }
 
-export const createEmptyInsight = (insightId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
-    short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
-    name: '',
-    description: '',
-    tags: [],
-    filters: {},
-    result: null,
-})
+export const createEmptyInsight = (
+    insightId: InsightShortId | `new-${string}` | 'new',
+    filterTestAccounts: boolean
+): Partial<InsightModel> => {
+    console.log('create empty insight with filter test accounts set to: ', filterTestAccounts)
+    return {
+        short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
+        name: '',
+        description: '',
+        tags: [],
+        filters: filterTestAccounts ? { filter_test_accounts: true } : {},
+        result: null,
+    }
+}
 
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
@@ -72,7 +78,7 @@ export const insightLogic = kea<insightLogicType>({
     connect: {
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeamId', 'currentTeam'],
             featureFlagLogic,
             ['featureFlags'],
             groupsModel,
@@ -151,7 +157,11 @@ export const insightLogic = kea<insightLogicType>({
     }),
     loaders: ({ actions, cache, values, props }) => ({
         insight: [
-            props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
+            props.cachedInsight ??
+                createEmptyInsight(
+                    props.dashboardItemId || 'new',
+                    values.currentTeam?.test_account_filters_default_checked || false
+                ),
             {
                 loadInsight: async ({ shortId }) => {
                     const response = await api.get(
@@ -250,7 +260,7 @@ export const insightLogic = kea<insightLogicType>({
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                     const params = { ...filters, ...(refresh ? { refresh: true } : {}), client_query_id: queryId }
-
+                    console.log(filters)
                     const dashboardItemId = props.dashboardItemId
                     actions.startQuery(queryId)
                     if (dashboardItemId && dashboardsModel.isMounted()) {
