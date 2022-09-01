@@ -1,8 +1,6 @@
 from typing import Dict, Optional, Tuple, cast
 
 from posthog.models.filters.filter import Filter
-from posthog.models.filters.path_filter import PathFilter
-from posthog.models.team.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.paths.paths import Paths
 

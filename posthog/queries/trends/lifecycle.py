@@ -2,7 +2,6 @@ import urllib
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
-import pytz
 from django.db.models.query import Prefetch
 
 from posthog.client import sync_execute
