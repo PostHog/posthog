@@ -586,18 +586,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertCountEqual(clickhouse_people, [(person.uuid,) for person in people])
 
-        distinct_id_rows = PersonDistinctId.objects.all().order_by("person_id")
-        pdis = sync_execute(
-            "SELECT person_id, distinct_id FROM person_distinct_id FINAL WHERE team_id = %(team_id)s",
-            {"team_id": self.team.pk},
-        )
-        self.assertCountEqual(pdis, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
-
         pdis2 = sync_execute(
-            "SELECT person_id, distinct_id FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
+            "SELECT person_id, distinct_id, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s",
             {"team_id": self.team.pk},
         )
-        self.assertCountEqual(pdis2, [(pdi.person.uuid, pdi.distinct_id) for pdi in distinct_id_rows])
+
+        self.assertEqual(len(pdis2), PersonDistinctId.objects.count())
+
+        for person in people:
+            self.assertEqual(len(person.distinct_ids), 1)
+            matching_row = next(row for row in pdis2 if row[0] == person.uuid)
+            self.assertEqual(matching_row, (person.uuid, person.distinct_ids[0], 0))
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_patch_user_property_activity(self):
