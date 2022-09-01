@@ -1,13 +1,16 @@
 import os
 
 import posthoganalytics
+import structlog
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token, print_warning
+from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token
 from posthog.version import VERSION
+
+logger = structlog.get_logger(__name__)
 
 
 class PostHogConfig(AppConfig):
@@ -56,6 +59,6 @@ class PostHogConfig(AppConfig):
         from posthog.async_migrations.setup import setup_async_migrations
 
         if SKIP_ASYNC_MIGRATIONS_SETUP:
-            print_warning(["Skipping async migrations setup. This is unsafe in production!"])
+            logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
             setup_async_migrations()
