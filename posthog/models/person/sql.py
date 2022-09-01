@@ -389,6 +389,15 @@ GROUP BY tupleElement(keysAndValues, 1)
 ORDER BY count DESC, key ASC
 """
 
+GET_EVENT_PROPERTIES_COUNT = """
+SELECT tupleElement(keysAndValues, 1) as key, count(*) as count
+FROM events
+ARRAY JOIN JSONExtractKeysAndValuesRaw({column_name}) as keysAndValues
+WHERE team_id = %(team_id)s
+GROUP BY tupleElement(keysAndValues, 1)
+ORDER BY count DESC, key ASC
+"""
+
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT
     {id_field} AS actor_id

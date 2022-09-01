@@ -1,9 +1,10 @@
 import logging
 import os
+import threading
 
 import structlog
 
-from posthog.settings.base_variables import TEST
+from posthog.settings.base_variables import DEBUG, TEST
 
 # Setup logging
 LOGGING_FORMATTER_NAME = os.getenv("LOGGING_FORMATTER_NAME", "default")
@@ -21,7 +22,7 @@ LOGGING = {
     "formatters": {
         "default": {
             "()": structlog.stdlib.ProcessorFormatter,
-            "processor": structlog.dev.ConsoleRenderer(colors=False),
+            "processor": structlog.dev.ConsoleRenderer(colors=DEBUG),
         },
         "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer(),},
     },
@@ -46,12 +47,21 @@ LOGGING = {
 }
 
 
+def add_pid_and_tid(
+    logger: logging.Logger, method_name: str, event_dict: structlog.types.EventDict
+) -> structlog.types.EventDict:
+    event_dict["pid"] = os.getpid()
+    event_dict["tid"] = threading.get_ident()
+    return event_dict
+
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
+        add_pid_and_tid,
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,

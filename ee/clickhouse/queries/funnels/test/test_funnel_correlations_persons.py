@@ -114,7 +114,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "TrUe",
             }
         )
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], success_target_persons)
 
@@ -126,7 +126,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], failure_target_persons)
 
@@ -137,7 +137,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "False",
             }
         )
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_fail.uuid)])
 
@@ -148,7 +148,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "trUE",
             }
         )
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(person_succ.uuid)])
 
@@ -159,7 +159,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": None,
             }
         )
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual(
             [str(val["id"]) for val in serialized_actors], [*success_target_persons, str(person_fail.uuid)]
@@ -172,7 +172,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": None,
             }
         )
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual(
             [str(val["id"]) for val in serialized_actors], [*failure_target_persons, str(person_succ.uuid)]
@@ -253,7 +253,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "TrUe",
             }
         )
-        _, serialized_actors = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertCountEqual([str(val["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
 
@@ -301,7 +301,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "True",
             }
         )
-        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
@@ -337,7 +337,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "False",
             }
         )
-        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
@@ -394,7 +394,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "True",
             }
         )
-        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertEqual(results[0]["id"], p1.uuid)
         self.assertEqual(
@@ -489,7 +489,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "True",
             }
         )
-        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], p1.uuid)
@@ -525,7 +525,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "False",
             }
         )
-        _, results = FunnelCorrelationActors(filter, self.team).get_actors()
+        _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         self.assertEqual(results[0]["id"], p2.uuid)
         self.assertEqual(

@@ -16,6 +16,7 @@ import {
     InsightModel,
     IntegrationType,
     LicenseType,
+    OrganizationType,
     PluginLogEntry,
     PropertyDefinition,
     SharingConfigurationType,
@@ -24,7 +25,7 @@ import {
     TeamType,
     UserType,
 } from '~/types'
-import { getCurrentTeamId } from './utils/logics'
+import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
@@ -41,6 +42,7 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+    missing_persons?: number
 }
 
 export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
@@ -115,16 +117,18 @@ class ApiRequest {
 
     // API-aware endpoint composition
 
-    // # Organizations
+    // # Utils
+    public current(): ApiRequest {
+        return this.addPathComponent('@current')
+    }
 
+    // # Organizations
     public organizations(): ApiRequest {
         return this.addPathComponent('organizations')
     }
 
-    // # Current
-
-    public current(): ApiRequest {
-        return this.addPathComponent('@current')
+    public organizationsDetail(id: OrganizationType['id'] = getCurrentOrganizationId()): ApiRequest {
+        return this.organizations().addPathComponent(id)
     }
 
     // # Projects
@@ -136,6 +140,23 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    // # Insights
+    public insights(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('insights')
+    }
+
+    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent(id)
+    }
+
+    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.insights(teamId).addPathComponent('activity')
+    }
+
+    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('sharing')
+    }
+
     // # Plugins
     public plugins(): ApiRequest {
         return this.addPathComponent('plugins')
@@ -143,6 +164,10 @@ class ApiRequest {
 
     public pluginLogs(pluginConfigId: number): ApiRequest {
         return this.addPathComponent('plugin_configs').addPathComponent(pluginConfigId).addPathComponent('logs')
+    }
+
+    public pluginsActivity(): ApiRequest {
+        return this.organizations().current().plugins().addPathComponent('activity')
     }
 
     // # Actions
@@ -279,26 +304,6 @@ class ApiRequest {
 
     public license(id: LicenseType['id']): ApiRequest {
         return this.licenses().addPathComponent(id)
-    }
-
-    public insights(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insights')
-    }
-
-    public insightsActivity(teamId?: TeamType['id']): ApiRequest {
-        return this.insights(teamId).addPathComponent('activity')
-    }
-
-    public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insights(teamId).addPathComponent(id)
-    }
-
-    public insightSharing(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insight(id, teamId).addPathComponent('sharing')
-    }
-
-    public pluginsActivity(): ApiRequest {
-        return this.organizations().current().plugins().addPathComponent('activity')
     }
 
     // # Subscriptions
@@ -748,9 +753,6 @@ const api = {
             data: Pick<AnnotationType, 'date_marker' | 'scope' | 'content'>
         ): Promise<AnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
-        },
-        async restore(annotationId: AnnotationType['id']): Promise<AnnotationType> {
-            return await new ApiRequest().annotation(annotationId).update({ data: { deleted: false } })
         },
         async list(): Promise<PaginatedResponse<AnnotationType>> {
             return await new ApiRequest().annotations().get()

@@ -54,7 +54,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         _create_session_recording_event(self.team.pk, "user_one", "s1b", timezone.now() + timedelta(days=1))
 
         filter = Filter(data={"funnel_to_step": 1, **filter_data})
-        _, results = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
         self.assertEqual([person["id"] for person in results], [persons["user_one"].uuid])
         self.assertEqual([person["matched_recordings"][0]["session_id"] for person in results], ["s1b"])
 
@@ -73,7 +73,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         _create_session_recording_event(self.team.pk, "user_one", "s1c", timezone.now() + timedelta(days=1))
 
         filter = Filter(data=filter_data)
-        _, results = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
         self.assertEqual([person["id"] for person in results], [persons["user_one"].uuid])
         self.assertEqual([person["matched_recordings"][0]["session_id"] for person in results], ["s1c"])
 
@@ -90,6 +90,6 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         _create_session_recording_event(self.team.pk, "user_one", "s1a", timezone.now() + timedelta(days=1))
 
         filter = Filter(data={**filter_data, "drop_off": True})
-        _, results = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
+        _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
         self.assertEqual([person["id"] for person in results], [persons["user_one"].uuid])
         self.assertEqual([person["matched_recordings"][0].get("session_id") for person in results], ["s1a"])

@@ -68,6 +68,7 @@
     align-items: center;
     justify-content: flex-start;
     padding: 0.5rem;
+    background-color: var(--primary-bg-hover);
 
     .drag-handle {
         color: var(--default);
