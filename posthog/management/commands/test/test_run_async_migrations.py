@@ -49,7 +49,7 @@ def test_check_with_no_pending_migrations():
     call_command("run_async_migrations", "--check")
 
 
-def test_auto_complete(caplog):
+def test_skip_noop_migrations(caplog):
     """
     Based on the status of `is_required` for each migration, it is possible that
     some incomplete migrations can be trivially applied by creating and marking
@@ -60,7 +60,7 @@ def test_auto_complete(caplog):
     output = "\n".join([rec.message for rec in caplog.records])
     assert "0001" in output
 
-    call_command("run_async_migrations", "--auto-complete-trivial")
+    call_command("run_async_migrations", "--skip-noop-migrations")
 
     # And after running, it shouldn't be
     caplog.clear()

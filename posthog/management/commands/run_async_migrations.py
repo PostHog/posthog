@@ -44,9 +44,9 @@ class Command(BaseCommand):
             "--plan", action="store_true", help="Show the async migrations that will run",
         )
         parser.add_argument(
-            "--auto-complete-trivial",
+            "--skip-noop-migrations",
             action="store_true",
-            help="For any migrations that would be trivial to apply, mark them as complete.",
+            help="For any migrations that would be no-ops to apply, mark them as complete.",
         )
 
     def handle(self, *args, **options):
@@ -57,8 +57,8 @@ class Command(BaseCommand):
             handle_check(necessary_migrations)
         elif options["plan"]:
             handle_plan(necessary_migrations)
-        elif options["auto_complete_trivial"]:
-            handle_auto_complete_trivial()
+        elif options["skip_noop_migrations"]:
+            handle_skip_noop_migrations()
         else:
             handle_run(necessary_migrations)
 
@@ -136,9 +136,9 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
         )
 
 
-def handle_auto_complete_trivial():
+def handle_skip_noop_migrations():
     """
-    Some migrations are trivial to apply, i.e. they would not have any effect on
+    Some migrations are no-ops to apply, i.e. they would not have any effect on
     schema or data within ClickHouse, thus, assuming their dependencies are
     already complete, we can complete them also.
     """
