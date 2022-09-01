@@ -39,7 +39,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagsTabs } from './featureFlagsLogic'
 import { flagActivityDescriber } from './activityDescriptions'
-import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopup/utils'
+import { genericOperatorToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
 export const scene: SceneExport = {
@@ -1255,9 +1255,20 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 ) : (
                                                     <span style={{ width: 14 }}>&</span>
                                                 )}
-                                                <span className="simple-tag tag-light-blue">{property.key} </span>
+                                                <span className="simple-tag tag-light-blue text-primary-alt">
+                                                    {property.key}{' '}
+                                                </span>
                                                 <span>{genericOperatorToHumanName(property.operator)} </span>
-                                                <span>{propertyValueToHumanName(property.value)}</span>
+                                                {[...(Array.isArray(property.value) ? property.value : [])].map(
+                                                    (val, idx) => (
+                                                        <span
+                                                            key={idx}
+                                                            className="simple-tag tag-light-blue text-primary-alt"
+                                                        >
+                                                            {val}
+                                                        </span>
+                                                    )
+                                                )}
                                             </Row>
                                         </>
                                     ))}
