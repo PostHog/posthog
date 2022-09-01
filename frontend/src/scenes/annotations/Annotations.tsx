@@ -3,9 +3,9 @@ import { useValues, useActions } from 'kea'
 import {
     annotationScopeToLevel,
     annotationScopeToName,
-    annotationsPageLogic,
+    annotationModalLogic,
     ANNOTATION_DAYJS_FORMAT,
-} from './annotationsPageLogic'
+} from './annotationModalLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationType, AnnotationScope, InsightShortId } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -24,15 +24,15 @@ import { AnnotationModal } from './AnnotationModal'
 
 export const scene: SceneExport = {
     component: Annotations,
-    logic: annotationsPageLogic,
+    logic: annotationModalLogic,
 }
 
 export function Annotations(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationsPageLogic)
+    const { annotations, annotationsLoading, next, loadingNext } = useValues(annotationModalLogic)
     const { loadAnnotationsNext, openModalToCreateAnnotation, openModalToEditAnnotation } =
-        useActions(annotationsPageLogic)
+        useActions(annotationModalLogic)
 
     const columns: LemonTableColumns<AnnotationType> = [
         {
@@ -115,7 +115,11 @@ export function Annotations(): JSX.Element {
                     </>
                 }
                 buttons={
-                    <LemonButton type="primary" data-attr="create-annotation" onClick={openModalToCreateAnnotation}>
+                    <LemonButton
+                        type="primary"
+                        data-attr="create-annotation"
+                        onClick={() => openModalToCreateAnnotation()}
+                    >
                         New annotation
                     </LemonButton>
                 }

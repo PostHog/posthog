@@ -1,19 +1,54 @@
 .AnnotationsOverlay {
     position: absolute;
-    top: calc(var(--line-graph-area-height-px) * 1px);
-    left: calc(var(--line-graph-area-left-px) * 1px);
+    top: var(--line-graph-area-height);
+    left: var(--line-graph-area-left);
 }
 
 .AnnotationsBadge {
     position: absolute;
-    margin-left: calc(var(--line-graph-area-interval-px) * var(--annotations-badge-index) * 1px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: calc(var(--line-graph-area-interval) * var(--annotations-badge-index));
+    height: 3rem;
+    width: var(--line-graph-area-interval);
+    border: none;
+    background: none;
     transform: translate(-50%, -50%);
     cursor: pointer;
+    -webkit-appearance: none !important;
 
     > .LemonBubble {
-        transition: transform 150ms ease-out; // Same as LemonBubble's transition
+        transition: transform 150ms ease; // Same as LemonBubble's transition
         // Override .LemonBubble--position-self-centered
         transform: scale(var(--annotations-badge-scale));
         transform-origin: center;
     }
+}
+
+.AnnotationsPopover {
+    --annotations-popover-width: 24rem;
+    --annotations-popover-max-left: calc(var(--line-graph-width) - var(--annotations-popover-width));
+    transition: top 200ms ease, left 200ms ease;
+    position: absolute;
+    left: calc(
+        clamp(
+                0px,
+                calc(
+                    var(--line-graph-area-left) + var(--annotations-overlay-active-badge-left) -
+                        var(--annotations-popover-width) / 2
+                ),
+                var(--annotations-popover-max-left)
+            ) - var(--line-graph-area-left)
+    );
+    top: calc(var(--annotations-overlay-active-badge-top) - 1.25rem);
+    min-width: var(--annotations-popover-width);
+    max-width: var(--annotations-popover-width);
+    margin: 0;
+    max-height: none;
+    background: #fff;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    transform: translateY(-100%) !important;
+    box-shadow: var(--shadow-elevation);
 }

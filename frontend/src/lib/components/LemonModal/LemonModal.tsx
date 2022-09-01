@@ -14,20 +14,32 @@ export type LemonModalFooterProps = {
     children?: React.ReactNode
 }
 
-export interface LemonModalProps {
+interface LemonModalPropsBase {
     children?: React.ReactNode
-    isOpen: boolean
-    onClose: () => void
-    onAfterClose?: () => void
+    onClose?: () => void
     width?: number | string
-    inline?: boolean
     title: string | JSX.Element
     description?: string | JSX.Element
     footer?: React.ReactNode
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    className?: string
 }
+
+interface LemonModalPropsInline extends LemonModalPropsBase {
+    inline: boolean
+    isOpen?: never
+    onAfterClose?: never
+}
+
+interface LemonModalPropsProper extends LemonModalPropsBase {
+    inline?: never
+    isOpen: boolean
+    onAfterClose?: () => void
+}
+
+export type LemonModalProps = LemonModalPropsInline | LemonModalPropsProper
 
 export const LemonModalHeader = ({ children, className }: LemonModalContentProps): JSX.Element => {
     return <header className={clsx('LemonModal__header', className)}>{children}</header>
@@ -44,7 +56,7 @@ export const LemonModalContent = ({ children, className }: LemonModalContentProp
 export function LemonModal({
     width,
     children,
-    isOpen,
+    isOpen = true,
     onClose,
     onAfterClose,
     title,
@@ -52,6 +64,7 @@ export function LemonModal({
     footer,
     inline,
     simple,
+    className,
     closable = true,
 }: LemonModalProps): JSX.Element {
     const modalContent = (
@@ -88,7 +101,7 @@ export function LemonModal({
         </>
     )
     return inline ? (
-        <div className="LemonModal ReactModal__Content--after-open">{modalContent}</div>
+        <div className={clsx('LemonModal ReactModal__Content--after-open', className)}>{modalContent}</div>
     ) : (
         <Modal
             isOpen={isOpen}
@@ -97,7 +110,7 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className="LemonModal"
+            className={clsx('LemonModal', className)}
             overlayClassName="LemonModal__overlay"
             style={{
                 content: {

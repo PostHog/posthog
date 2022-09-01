@@ -4,7 +4,7 @@ import { useMocks } from '~/mocks/jest'
 import { annotationsModel } from '~/models/annotationsModel'
 import { initKeaTests } from '~/test/init'
 import { AnnotationScope, AnnotationType, InsightShortId, IntervalType } from '~/types'
-import { insightAnnotationsLogic } from './insightAnnotationsLogic'
+import { annotationsOverlayLogic } from './annotationsOverlayLogic'
 
 jest.spyOn(Storage.prototype, 'getItem')
 
@@ -142,8 +142,8 @@ function useInsightMock(interval: string = 'day', timezone: string = 'UTC') {
     })
 }
 
-describe('insightAnnotationsLogic', () => {
-    let logic: ReturnType<typeof insightAnnotationsLogic.build>
+describe('annotationsOverlayLogic', () => {
+    let logic: ReturnType<typeof annotationsOverlayLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -172,7 +172,7 @@ describe('insightAnnotationsLogic', () => {
     it('loads annotations on mount', async () => {
         useInsightMock()
 
-        logic = insightAnnotationsLogic({
+        logic = annotationsOverlayLogic({
             dashboardItemId: MOCK_INSIGHT_SHORT_ID,
             insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
         })
@@ -184,7 +184,7 @@ describe('insightAnnotationsLogic', () => {
         it('returns annotations scoped to the insight for a saved insight', async () => {
             useInsightMock()
 
-            logic = insightAnnotationsLogic({
+            logic = annotationsOverlayLogic({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                 insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
             })
@@ -210,7 +210,7 @@ describe('insightAnnotationsLogic', () => {
         it('returns annotations scoped to the project for a new insight', async () => {
             useInsightMock()
 
-            logic = insightAnnotationsLogic({ dashboardItemId: 'new', insightNumericId: 'new' })
+            logic = annotationsOverlayLogic({ dashboardItemId: 'new', insightNumericId: 'new' })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID })).toDispatchActions([
@@ -384,7 +384,7 @@ describe('insightAnnotationsLogic', () => {
                 it(`groups correctly by ${interval} with ${timezone} as insight timezone`, async () => {
                     useInsightMock(interval, timezone)
 
-                    logic = insightAnnotationsLogic({
+                    logic = annotationsOverlayLogic({
                         dashboardItemId: MOCK_INSIGHT_SHORT_ID,
                         insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
                     })

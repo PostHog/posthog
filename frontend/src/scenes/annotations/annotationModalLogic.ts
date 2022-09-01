@@ -4,8 +4,8 @@ import { AnnotationScope, AnnotationType } from '~/types'
 import { forms } from 'kea-forms'
 import { dayjs } from 'lib/dayjs'
 import { annotationsModel } from '~/models/annotationsModel'
-
-import type { annotationsPageLogicType } from './annotationsPageLogicType'
+import type { annotationModalLogicType } from './annotationModalLogicType'
+import { teamLogic } from 'scenes/teamLogic'
 
 export const ANNOTATION_DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -27,17 +27,22 @@ export interface AnnotationModalForm {
     content: AnnotationType['content']
 }
 
-export const annotationsPageLogic = kea<annotationsPageLogicType>([
-    path(['scenes', 'annotations', 'annotationsPageLogic']),
+export const annotationModalLogic = kea<annotationModalLogicType>([
+    path(['scenes', 'annotations', 'annotationModalLogic']),
     connect({
         actions: [
             annotationsModel,
             ['loadAnnotationsNext', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
         ],
-        values: [annotationsModel, ['annotations', 'annotationsLoading', 'next', 'loadingNext']],
+        values: [
+            annotationsModel,
+            ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
+            teamLogic,
+            ['timezone'],
+        ],
     }),
     actions({
-        openModalToCreateAnnotation: () => true,
+        openModalToCreateAnnotation: (initialDate?: dayjs.Dayjs) => ({ initialDate }),
         openModalToEditAnnotation: (annotation: AnnotationType) => ({ annotation }),
         closeModal: true,
     }),
@@ -66,8 +71,11 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
                 content,
             })
         },
-        openModalToCreateAnnotation: () => {
+        openModalToCreateAnnotation: ({ initialDate }) => {
             actions.resetAnnotationModal()
+            if (initialDate) {
+                actions.setAnnotationModalValue('dateMarker', initialDate)
+            }
         },
     })),
     forms(({ actions, values }) => ({
@@ -85,7 +93,7 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
                     const updatedAnnotation = await api.annotations.update(values.existingModalAnnotation.id, {
-                        date_marker: dateMarker.toISOString(),
+                        date_marker: dateMarker.tz(values.timezone).toISOString(),
                         content,
                         scope,
                     })
@@ -93,7 +101,7 @@ export const annotationsPageLogic = kea<annotationsPageLogicType>([
                 } else {
                     // annotationsModel's createAnnotationGenerically inlined so that isAnnotationModalSubmitting works
                     const createdAnnotation = await api.annotations.create({
-                        date_marker: dateMarker.toISOString(),
+                        date_marker: dateMarker.tz(values.timezone).toISOString(),
                         content,
                         scope,
                     })

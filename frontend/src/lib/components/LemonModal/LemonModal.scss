@@ -26,7 +26,6 @@
 
 .LemonModal {
     position: relative;
-    display: inline-block;
     max-width: 80%;
     min-width: 480px;
     width: min-content;
@@ -34,7 +33,6 @@
     border-radius: var(--radius);
     background-color: #fff;
     box-shadow: 0 16px 16px -16px rgba(0, 0, 0, 0.35);
-
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     display: flex;
     flex-direction: col;

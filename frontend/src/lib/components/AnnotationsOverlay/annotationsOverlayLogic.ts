@@ -1,8 +1,8 @@
-import { dayjs } from 'lib/dayjs'
-import { kea, path, selectors, key, props, connect, listeners, actions } from 'kea'
+import { dayjs, Dayjs } from 'lib/dayjs'
+import { kea, path, selectors, key, props, connect, listeners, actions, reducers } from 'kea'
 import { groupBy } from 'lib/utils'
 import { AnnotationScope, InsightModel, IntervalType } from '~/types'
-import type { insightAnnotationsLogicType } from './insightAnnotationsLogicType'
+import type { annotationsOverlayLogicType } from './annotationsOverlayLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
 
@@ -11,16 +11,20 @@ export interface InsightAnnotationsLogicProps {
     insightNumericId: InsightModel['id'] | 'new'
 }
 
-/** Internal format for grouping annotations. */
-export const ANNOTATIONS_INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
+/** Internal format for annotation groups. */
+const INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT: Record<IntervalType, string> = {
     hour: 'YYYY-MM-DD HH',
     day: 'YYYY-MM-DD',
     week: 'YYYY-MM-DD',
     month: 'YYYY-MM',
 }
 
-export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
-    path((key) => ['lib', 'components', 'Annotations', 'insightAnnotationsLogic', key]),
+export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
+    return date.format(INTERVAL_UNIT_TO_INTERNAL_DAYJS_FORMAT[intervalUnit])
+}
+
+export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
+    path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({} as InsightAnnotationsLogicProps),
     key(({ insightNumericId }) => insightNumericId),
     connect({
@@ -29,6 +33,33 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
     }),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
+        activateDate: (date: Dayjs, badgeCoordinates: [number, number]) => ({ date, badgeCoordinates }),
+        deactivateDate: true,
+        lockDate: true,
+        unlockDate: true,
+    }),
+    reducers({
+        activeDate: [
+            null as Dayjs | null,
+            {
+                activateDate: (_, { date }) => date,
+                deactivateDate: () => null,
+                unlockDate: () => null,
+            },
+        ],
+        activeBadgeCoordinates: [
+            null as [number, number] | null,
+            {
+                activateDate: (_, { badgeCoordinates }) => badgeCoordinates,
+            },
+        ],
+        isDateLocked: [
+            false,
+            {
+                lockDate: () => true,
+                unlockDate: () => false,
+            },
+        ],
     }),
     listeners(({ actions, props }) => ({
         createAnnotation: async ({ annotationData }) => {
@@ -54,14 +85,19 @@ export const insightAnnotationsLogic = kea<insightAnnotationsLogicType>([
         groupedAnnotations: [
             (s) => [s.relevantAnnotations, s.intervalUnit, s.timezone],
             (annotations, intervalUnit, timezone) => {
-                const format = ANNOTATIONS_INTERVAL_UNIT_TO_DAYJS_FORMAT[intervalUnit]
                 return groupBy(annotations, (annotation) => {
                     let datetime = dayjs.utc(annotation['date_marker'])
                     if (timezone !== 'UTC') {
                         datetime = datetime.tz(timezone) // If the target is non-UTC, perform conversion
                     }
-                    return datetime.startOf(intervalUnit).format(format)
+                    return datetime.startOf(intervalUnit).format(determineAnnotationsDateGroup(datetime, intervalUnit))
                 })
+            },
+        ],
+        popoverAnnotations: [
+            (s) => [s.groupedAnnotations, s.activeDate, s.intervalUnit],
+            (groupedAnnotations, activeDate, intervalUnit) => {
+                return (activeDate && groupedAnnotations[determineAnnotationsDateGroup(activeDate, intervalUnit)]) || []
             },
         ],
     })),

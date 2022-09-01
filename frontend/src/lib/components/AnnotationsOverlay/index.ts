@@ -1,2 +1,2 @@
 export * from './AnnotationsOverlay'
-export * from './insightAnnotationsLogic'
+export * from './annotationsOverlayLogic'

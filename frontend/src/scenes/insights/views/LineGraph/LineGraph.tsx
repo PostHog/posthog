@@ -21,7 +21,7 @@ import CrosshairPlugin, { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs'
 import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
-import { AnnotationsOverlay, insightAnnotationsLogic } from 'lib/components/AnnotationsOverlay'
+import { AnnotationsOverlay, annotationsOverlayLogic } from 'lib/components/AnnotationsOverlay'
 import './LineGraph.scss'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -59,9 +59,10 @@ export interface LineGraphProps {
 }
 
 interface LineGraphCSSProperties extends React.CSSProperties {
-    '--line-graph-area-left-px': number
-    '--line-graph-area-height-px': number
-    '--line-graph-area-interval-px': number
+    '--line-graph-area-left': string
+    '--line-graph-area-height': string
+    '--line-graph-area-interval': string
+    '--line-graph-width': string
 }
 
 export function ensureTooltipElement(): HTMLElement {
@@ -127,6 +128,8 @@ export function LineGraph_({
         if (myLineChart) {
             let boundaryLeftExtent = myLineChart.scales.x.left
             const boundaryRightExtent = myLineChart.scales.x.right
+            // NOTE: If there are lots of points on the X axis, Chart.js only renders a tick once n data points
+            // so that the axis is readable. We use that mechanism to aggregate annotations for readability too.
             const boundaryTicks = myLineChart.scales.x.ticks.length
             const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
             let boundaryInterval = boundaryDelta / (boundaryTicks - 1)
@@ -569,15 +572,16 @@ export function LineGraph_({
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
-                    '--line-graph-area-left-px': graphAreaLeft,
-                    '--line-graph-area-height-px': graphAreaHeight,
-                    '--line-graph-area-interval-px': graphAreaInterval,
+                    '--line-graph-area-left': `${graphAreaLeft}px`,
+                    '--line-graph-area-height': `${graphAreaHeight}px`,
+                    '--line-graph-area-interval': `${graphAreaInterval}px`,
+                    '--line-graph-width': `${graphWidth}px`,
                 } as LineGraphCSSProperties
             }
         >
             <canvas ref={chartRef} />
             <BindLogic
-                logic={insightAnnotationsLogic}
+                logic={annotationsOverlayLogic}
                 props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
             >
                 <AnnotationsOverlay
