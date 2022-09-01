@@ -15,13 +15,17 @@ def test_plan_includes_all_migrations_except_past_max_version(capsys):
     """
     Plan should give us all the migrations that haven't run. But it also should
     not return migrations that are still within the posthog_min_version,
-    posthog_max_version range (at least this is the functionality at the moment).
+    posthog_max_version range. This is to ensure that the application is able to
+    boot within the version range and thus the administrator is able to trigger
+    migrations via the UI.
     """
     call_command("run_async_migrations", "--plan")
     stderr = capsys.readouterr().err
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
         if POSTHOG_VERSION > Version(migration.posthog_max_version):
             assert migration_name in stderr
+        else:
+            assert migration_name not in stderr
 
 
 def test_check_with_pending_migrations(capsys):
