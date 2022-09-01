@@ -173,8 +173,8 @@ describe('funnelLogic', () => {
                 '/api/projects/:team/insights/trend/': { results: ['trends result from api'] },
                 '/api/projects/:team/groups_types/': [],
                 '/some/people/url': { results: [{ people: [] }] },
-                '/api/person/funnel': { results: [], next: null },
-                '/api/projects/@current/persons/properties': [
+                '/api/projects/:team/persons/funnel': { results: [], next: null },
+                '/api/projects/:team/persons/properties': [
                     { name: 'some property', count: 20 },
                     { name: 'another property', count: 10 },
                     { name: 'third property', count: 5 },

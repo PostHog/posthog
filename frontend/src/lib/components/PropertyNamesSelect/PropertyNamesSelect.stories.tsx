@@ -9,7 +9,7 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/person/properties': [
+                '/api/projects/:team_id/persons/properties': [
                     { id: 1, name: 'Property A', count: 10 },
                     { id: 2, name: 'Property B', count: 20 },
                     { id: 3, name: 'Property C', count: 30 },
