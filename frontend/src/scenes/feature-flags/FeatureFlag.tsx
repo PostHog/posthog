@@ -153,6 +153,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </Link>
                                 </AlertMessage>
                             )}
+                            <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag." />
                             <Row gutter={16} style={{ marginBottom: 32 }}>
                                 <Col span={12} className="space-y-4">
                                     <Field
@@ -426,7 +427,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </Link>
                                 </AlertMessage>
                             )}
-                            <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
+                            <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag." />
                             <h3 className="l3 mt-4">General configuration</h3>
                             <div className="text-muted mb-4">
                                 General settings for your feature flag and integration instructions.
