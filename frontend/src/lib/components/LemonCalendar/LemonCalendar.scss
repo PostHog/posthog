@@ -3,16 +3,18 @@
     --lemon-calendar-day-width: 40px;
     --lemon-calendar-today-radius: 2px;
 
+    .LemonCalendar__month > thead > tr:first-child > th,
+    .LemonCalendar__month > tbody > tr > td {
+        padding: calc(var(--lemon-calendar-row-gap) / 2) 0;
+    }
+
+    .LemonCalendar__month > thead > tr:first-child > th:first-child,
+    .LemonCalendar__month > thead > tr:first-child > th:last-child,
+    .LemonCalendar__month > tbody > tr > td {
+        width: var(--lemon-calendar-day-width);
+    }
+
     .LemonCalendar__month tr {
-        td,
-        th {
-            padding: calc(var(--lemon-calendar-row-gap) / 2) 0;
-        }
-        td,
-        th:first-child,
-        th:last-child {
-            width: var(--lemon-calendar-day-width);
-        }
         .LemonButton {
             &.rounded-none {
                 border-radius: 0px;
