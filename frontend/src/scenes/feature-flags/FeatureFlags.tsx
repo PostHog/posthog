@@ -212,7 +212,6 @@ function OverViewTab(): JSX.Element {
                 columns={columns}
                 rowKey="key"
                 loading={featureFlagsLoading}
-                defaultSorting={{ columnKey: 'key', order: 1 }}
                 pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}
                 data-attr="feature-flag-table"
