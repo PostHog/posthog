@@ -2,7 +2,7 @@ import { initKea } from '~/initKea'
 import { testUtilsPlugin } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
 import posthog from 'posthog-js'
-import { AppContext } from '~/types'
+import { AppContext, TeamType } from '~/types'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -12,10 +12,10 @@ process.on('unhandledRejection', (err) => {
     console.warn(err)
 })
 
-export function initKeaTests(mountCommonLogic = true): void {
+export function initKeaTests(mountCommonLogic = true, teamForWindowContext: TeamType = MOCK_DEFAULT_TEAM): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
-        current_team: MOCK_DEFAULT_TEAM,
+        current_team: teamForWindowContext,
         ...window.POSTHOG_APP_CONTEXT,
     } as unknown as AppContext
     posthog.init('no token', {

@@ -17,12 +17,14 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { combineUrl, router } from 'kea-router'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 const API_FILTERS = {
     insight: InsightType.TRENDS as InsightType,
@@ -38,7 +40,7 @@ const Insight500 = '500' as InsightShortId
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
@@ -127,7 +129,11 @@ describe('insightLogic', () => {
                 },
             },
         })
-        initKeaTests()
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+        teamLogic.mount()
+        await expectLogic(teamLogic)
+            .toFinishAllListeners()
+            .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
     })
 
     it('requires props', () => {
@@ -442,7 +448,7 @@ describe('insightLogic', () => {
                 await expectLogic(logic)
                     .toDispatchActions(['loadInsight', 'loadInsightFailure'])
                     .toMatchValues({
-                        insight: partial({ short_id: '500', result: null, filters: {} }),
+                        insight: partial({ short_id: '500', result: null, filters: { filter_test_accounts: true } }),
                         filters: {},
                         maybeShowErrorMessage: true,
                     })
@@ -612,25 +618,22 @@ describe('insightLogic', () => {
 
     test('can default filter test accounts to on', async () => {
         logic = insightLogic({
-            dashboardItemId: Insight43,
-            cachedInsight: { ...createEmptyInsight(Insight43, true), filters: API_FILTERS },
+            dashboardItemId: 'new',
         })
         logic.mount()
 
         const expectedPartialInsight = {
-            name: '',
             description: '',
+            filters: { filter_test_accounts: true },
+            name: '',
+            result: null,
+            short_id: undefined,
             tags: [],
-            filters: {
-                filter_test_accounts: true,
-                events: [{ id: 3 }],
-                insight: 'TRENDS',
-                properties: [{ key: 'a', operator: 'exact', type: 'a', value: 'a' }],
-            },
         }
+
         await expectLogic(logic).toMatchValues({
             insight: partial(expectedPartialInsight),
-            savedInsight: partial(expectedPartialInsight),
+            savedInsight: {},
             insightChanged: false,
         })
     })
