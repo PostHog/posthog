@@ -120,12 +120,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                     }
                     return { ...state, ...filters }
                 },
-                // cleanFilters({
-                //     ...(merge ? state || {} : {}),
-                //     ...filters,
-                //     // Reset page on filter change EXCEPT if it's page or view that's being updated
-                //     ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
-                // }),
             },
         ],
     },
