@@ -257,6 +257,10 @@ export const personsModalLogic = kea<personsModalLogicType>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
+                const includeRecordingsParam = values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]
+                    ? '&include_recordings=true'
+                    : ''
+
                 let actors: PaginatedResponse<{
                     people: ActorType[]
                     count: number
@@ -318,10 +322,6 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
-                    let includeRecordingsParam = ''
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = '&include_recordings=true'
-                    }
                     actors = await api.create(
                         `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
                     )
@@ -329,10 +329,6 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)
 
-                    let includeRecordingsParam = ''
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = '&include_recordings=true'
-                    }
                     actors = await api.create(
                         `api/person/path/?${includeRecordingsParam}${searchTermParam}`,
                         cleanedParams
@@ -357,7 +353,9 @@ export const personsModalLogic = kea<personsModalLogicType>({
                         filters
                     )
 
-                    actors = await api.get(`api/person/trends/?${filterParams}${searchTermParam}`)
+                    actors = await api.get(
+                        `api/person/trends/?${includeRecordingsParam}${filterParams}${searchTermParam}`
+                    )
                 }
                 breakpoint()
                 const peopleResult = {
