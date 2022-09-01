@@ -1,0 +1,55 @@
+import pytest
+from django.core.management import call_command
+from semantic_version.base import Version
+
+from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, POSTHOG_VERSION
+
+pytestmark = pytest.mark.django_db
+
+
+def test_run_async_migrations_doesnt_raise(capsys):
+    call_command("run_async_migrations")
+
+
+def test_plan_includes_all_migrations_except_past_max_version(capsys):
+    """
+    Plan should give us all the migrations that haven't run. But it also should
+    not return migrations that are still within the posthog_min_version,
+    posthog_max_version range (at least this is the functionality at the moment).
+    """
+    call_command("run_async_migrations", "--plan")
+    stderr = capsys.readouterr().err
+    for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
+        if POSTHOG_VERSION > Version(migration.posthog_max_version):
+            assert migration_name in stderr
+
+
+def test_check_with_pending_migrations(capsys):
+    # By default, no mgirations are run, so this should raise
+    with pytest.raises(SystemExit):
+        call_command("run_async_migrations", "--check")
+
+    # Ensure that it did not try to auto-complete migrations, using the first
+    # migration as a test case
+    call_command("run_async_migrations", "--plan")
+    stderr = capsys.readouterr().err
+    assert "0001" in stderr
+
+
+def test_check_with_no_pending_migrations(capsys):
+    # Running the migrations first, then checking should result in an exit
+    # code of zero
+    call_command("run_async_migrations")
+    call_command("run_async_migrations", "--check")
+
+
+def test_auto_complete(capsys):
+    """
+    Based on the status of `is_required` for each migration, it is possible that
+    some incomplete migrations can be trivially applied by creating and marking
+    the migration as complete.
+    """
+    call_command("run_async_migrations", "--auto-complete-trivial")
+    stderr = capsys.readouterr().err
+    call_command("run_async_migrations", "--plan")
+    assert "0001" not in stderr

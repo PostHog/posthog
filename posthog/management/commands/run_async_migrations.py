@@ -27,15 +27,8 @@ def get_necessary_migrations() -> Sequence[AsyncMigration]:
 
         sm = setup_model(migration_name, definition)
 
-        is_migration_required = ALL_ASYNC_MIGRATIONS[migration_name].is_required()
-
-        if is_migration_required:
-            if POSTHOG_VERSION > Version(sm.posthog_max_version):
-                necessary_migrations.append(sm)
-        else:
-            dependency_ok, _ = is_migration_dependency_fulfilled(migration_name)
-            if dependency_ok:
-                complete_migration(sm)
+        if POSTHOG_VERSION > Version(sm.posthog_max_version):
+            necessary_migrations.append(sm)
 
     return necessary_migrations
 
@@ -50,6 +43,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--plan", action="store_true", help="Show the async migrations that will run",
         )
+        parser.add_argument(
+            "--auto-complete-trivial",
+            action="store_true",
+            help="For any migrations that would be trivial to apply, mark them as complete.",
+        )
 
     def handle(self, *args, **options):
         setup_async_migrations(ignore_posthog_version=True)
@@ -59,6 +57,8 @@ class Command(BaseCommand):
             handle_check(necessary_migrations)
         elif options["plan"]:
             handle_plan(necessary_migrations)
+        elif options["auto_complete_trivial"]:
+            handle_auto_complete_trivial(necessary_migrations)
         else:
             handle_run(necessary_migrations)
 
@@ -122,3 +122,17 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
                 "\n".join((f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations))
             )
         )
+
+
+def handle_auto_complete_trivial(necessary_migrations: Sequence[AsyncMigration]):
+    """
+    Some migrations are trivial to apply, i.e. they would not have any effect on
+    schema or data within ClickHouse, thus, assuming their dependencies are
+    already complete, we can complete them also.
+    """
+    for migration in necessary_migrations:
+        is_required = ALL_ASYNC_MIGRATIONS[migration.name].is_required()
+        if is_required:
+            dependency_ok, _ = is_migration_dependency_fulfilled(migration.name)
+            if dependency_ok:
+                complete_migration(migration)
