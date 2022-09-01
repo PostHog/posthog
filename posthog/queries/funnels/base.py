@@ -383,7 +383,7 @@ class ClickhouseFunnelBase(ABC):
         return f"if({' AND '.join(conditions)}, {curr_index}, {self._get_sorting_condition(curr_index - 1, max_steps)})"
 
     def _get_inner_event_query(
-        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False,
+        self, entities=None, entity_name="events", skip_entity_filter=False, skip_step_filter=False
     ) -> str:
         entities_to_use = entities or self._filter.entities
 
@@ -527,7 +527,7 @@ class ClickhouseFunnelBase(ABC):
                 return ""
 
             self.params.update(action_params)
-            content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters,)
+            content_sql = "{actions_query} {filters}".format(actions_query=action_query, filters=filters)
         else:
             if entity.id not in self.params[entity_name]:
                 self.params[entity_name].append(entity.id)
@@ -724,7 +724,7 @@ class ClickhouseFunnelBase(ABC):
             else:
                 properties_field = f"group_properties_{self._filter.breakdown_group_type_index}"
                 expression, _ = get_property_string_expr(
-                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field,
+                    table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
                 )
             basic_prop_selector = f"{expression} AS prop_basic"
 
@@ -791,7 +791,7 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             use_all_funnel_entities = (
                 self._filter.breakdown_attribution_type
-                in [BreakdownAttributionType.FIRST_TOUCH, BreakdownAttributionType.LAST_TOUCH,]
+                in [BreakdownAttributionType.FIRST_TOUCH, BreakdownAttributionType.LAST_TOUCH]
                 or self._filter.funnel_order_type == FunnelOrderType.UNORDERED
             )
             first_entity = self._filter.entities[0]

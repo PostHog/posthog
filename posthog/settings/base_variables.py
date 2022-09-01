@@ -13,7 +13,7 @@ TEST = (
 DEMO = get_from_env("DEMO", False, type_cast=str_to_bool)  # Whether this is a managed demo environment
 SELF_CAPTURE = get_from_env("SELF_CAPTURE", DEBUG and not DEMO, type_cast=str_to_bool)
 E2E_TESTING = get_from_env(
-    "E2E_TESTING", False, type_cast=str_to_bool,
+    "E2E_TESTING", False, type_cast=str_to_bool
 )  # whether the app is currently running for E2E tests
 BENCHMARK = get_from_env("BENCHMARK", False, type_cast=str_to_bool)
 if E2E_TESTING:

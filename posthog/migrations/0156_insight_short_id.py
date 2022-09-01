@@ -23,7 +23,9 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="dashboarditem", name="short_id", field=models.CharField(blank=True, max_length=12),
+            model_name="dashboarditem",
+            name="short_id",
+            field=models.CharField(blank=True, max_length=12),
         ),
         migrations.RunPython(create_short_ids, migrations.RunPython.noop),
         migrations.AlterField(
@@ -31,5 +33,8 @@ class Migration(migrations.Migration):
             name="short_id",
             field=models.CharField(blank=True, max_length=12, default=posthog.utils.generate_short_id),
         ),
-        migrations.AlterUniqueTogether(name="dashboarditem", unique_together={("team", "short_id")},),
+        migrations.AlterUniqueTogether(
+            name="dashboarditem",
+            unique_together={("team", "short_id")},
+        ),
     ]

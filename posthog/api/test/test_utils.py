@@ -114,7 +114,7 @@ class TestUtils(BaseTest):
     def test_get_target_entity(self):
         request = lambda url: cast(Any, RequestFactory().get(url))
         filter = Filter(
-            data={"entity_id": "$pageview", "entity_type": "events", "events": [{"id": "$pageview", "type": "events"}],}
+            data={"entity_id": "$pageview", "entity_type": "events", "events": [{"id": "$pageview", "type": "events"}]}
         )
         entity = get_target_entity(filter)
 
@@ -141,11 +141,7 @@ class TestUtils(BaseTest):
 
     def test_check_definition_ids_inclusion_field_sql(self):
 
-        definition_ids = [
-            "",
-            None,
-            '["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]',
-        ]
+        definition_ids = ["", None, '["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]']
 
         expected_ids_list = [[], [], ["1fcefbef-7ea1-42fd-abca-4848b53133c0", "c8452399-8a10-4142-864d-6f2ca8c65154"]]
 

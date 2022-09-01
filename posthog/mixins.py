@@ -14,7 +14,7 @@ def log_deletion_metadata_to_posthog(func):
     def wrapper(*args, **kwargs):
         instance = args[0].get_object()
         user = args[1].user
-        metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata",) else {}
+        metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata") else {}
 
         func_result = func(*args, **kwargs)
 

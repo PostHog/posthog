@@ -24,23 +24,23 @@ LOGGING = {
             "()": structlog.stdlib.ProcessorFormatter,
             "processor": structlog.dev.ConsoleRenderer(colors=DEBUG),
         },
-        "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer(),},
+        "json": {"()": structlog.stdlib.ProcessorFormatter, "processor": structlog.processors.JSONRenderer()},
     },
-    "filters": {"filter_statsd": {"()": "posthog.settings.logs.FilterStatsd",}},
+    "filters": {"filter_statsd": {"()": "posthog.settings.logs.FilterStatsd"}},
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": LOGGING_FORMATTER_NAME,
             "filters": ["filter_statsd"],
         },
-        "null": {"class": "logging.NullHandler",},
+        "null": {"class": "logging.NullHandler"},
     },
     "root": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     "loggers": {
         "django": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
         "django.server": {"handlers": ["null"]},  # blackhole Django server logs (this is only needed in DEV)
         "django.utils.autoreload": {
-            "handlers": ["null"],
+            "handlers": ["null"]
         },  # blackhole Django autoreload logs (this is only needed in DEV)
         "axes": {"handlers": ["console"], "level": DEFAULT_LOG_LEVEL},
     },

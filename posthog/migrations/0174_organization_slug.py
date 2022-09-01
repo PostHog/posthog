@@ -41,6 +41,8 @@ class Migration(migrations.Migration):
         ),
         migrations.RunPython(slugify_all, migrations.RunPython.noop),
         migrations.AlterField(
-            model_name="organization", name="slug", field=LowercaseSlugField(max_length=MAX_SLUG_LENGTH, unique=True),
+            model_name="organization",
+            name="slug",
+            field=LowercaseSlugField(max_length=MAX_SLUG_LENGTH, unique=True),
         ),
     ]

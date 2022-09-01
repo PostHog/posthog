@@ -99,14 +99,12 @@ class SlackIntegration(object):
             "is_enterprise_install": res.get("is_enterprise_install"),
         }
 
-        sensitive_config = {
-            "access_token": res.get("access_token"),
-        }
+        sensitive_config = {"access_token": res.get("access_token")}
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="slack",
-            defaults={"config": config, "sensitive_config": sensitive_config, "created_by": created_by,},
+            defaults={"config": config, "sensitive_config": sensitive_config, "created_by": created_by},
         )
 
         return integration

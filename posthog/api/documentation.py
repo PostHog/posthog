@@ -190,7 +190,7 @@ def custom_postprocessing_hook(result, generator, request, public):
             paths[path][method] = definition
     return {
         **result,
-        "info": {"title": "PostHog API", "version": None, "description": "",},
+        "info": {"title": "PostHog API", "version": None, "description": ""},
         "paths": paths,
-        "x-tagGroups": [{"name": "All endpoints", "tags": sorted(list(set(all_tags)))},],
+        "x-tagGroups": [{"name": "All endpoints", "tags": sorted(list(set(all_tags)))}],
     }

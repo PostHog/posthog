@@ -140,7 +140,7 @@ def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, ve
         p.produce(
             topic=KAFKA_PERSON_DISTINCT_ID,
             sql=INSERT_PERSON_DISTINCT_ID2,
-            data={"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "version": version,},
+            data={"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "version": version},
         )
 
 

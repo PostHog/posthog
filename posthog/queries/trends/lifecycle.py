@@ -143,7 +143,7 @@ class LifecycleEventQuery(EventQuery):
 
     @cached_property
     def _person_query(self):
-        return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"],)
+        return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=["created_at"])
 
     def _get_date_filter(self):
         _, _, date_params = parse_timestamps(filter=self._filter, team=self._team)

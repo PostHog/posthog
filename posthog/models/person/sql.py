@@ -44,7 +44,7 @@ PERSONS_TABLE_SQL = lambda: (
 )
 
 KAFKA_PERSONS_TABLE_SQL = lambda: PERSONS_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields="",
+    table_name="kafka_" + PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, engine=kafka_engine(KAFKA_PERSON), extra_fields=""
 )
 
 # You must include the database here because of a bug in clickhouse
@@ -64,7 +64,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    table_name=PERSONS_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
 )
 
 GET_LATEST_PERSON_SQL = """
@@ -150,7 +150,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSONS_DISTINCT_ID_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    table_name=PERSONS_DISTINCT_ID_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
 )
 
 #
@@ -208,7 +208,7 @@ _offset,
 _partition
 FROM {database}.kafka_{table_name}
 """.format(
-    table_name=PERSON_DISTINCT_ID2_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE,
+    table_name=PERSON_DISTINCT_ID2_TABLE, cluster=CLICKHOUSE_CLUSTER, database=CLICKHOUSE_DATABASE
 )
 
 #
@@ -264,11 +264,11 @@ COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.forma
 )
 
 SELECT_PERSONS_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
-    table_name=PERSONS_TABLE,
+    table_name=PERSONS_TABLE
 )
 
 SELECT_PERSON_DISTINCT_ID2S_OF_TEAM = """SELECT * FROM {table_name} WHERE team_id = %(source_team_id)s""".format(
-    table_name=PERSON_DISTINCT_ID2_TABLE,
+    table_name=PERSON_DISTINCT_ID2_TABLE
 )
 
 #
@@ -468,7 +468,7 @@ GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES = """
     GROUP BY property_key"""
 
 GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES = GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
-    table_name=PERSONS_TABLE, properties_column="properties",
+    table_name=PERSONS_TABLE, properties_column="properties"
 )
 
 GET_PERSON_COUNT_FOR_TEAM = "SELECT count() AS count FROM person WHERE team_id = %(team_id)s"

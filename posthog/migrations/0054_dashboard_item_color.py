@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="dashboarditem", name="color", field=models.CharField(blank=True, max_length=400, null=True),
+            model_name="dashboarditem",
+            name="color",
+            field=models.CharField(blank=True, max_length=400, null=True),
         ),
     ]

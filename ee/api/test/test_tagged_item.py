@@ -18,7 +18,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -35,7 +35,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
 
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
@@ -60,7 +60,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
 
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/", {"name": "Default", "pinned": "true"})
@@ -79,7 +79,7 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
 
         response = self.client.post(
@@ -94,12 +94,12 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3,
+            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7), max_users=3
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard", created_by=self.user)
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"tags": ["a", "b", "a"]}
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])

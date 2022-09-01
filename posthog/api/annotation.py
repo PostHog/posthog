@@ -52,7 +52,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         project = Team.objects.get(id=self.context["team_id"])
         annotation = Annotation.objects.create(
-            organization=project.organization, team=project, created_by=request.user, **validated_data,
+            organization=project.organization, team=project, created_by=request.user, **validated_data
         )
         return annotation
 

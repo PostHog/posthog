@@ -15,7 +15,7 @@ class TestBase(APIBaseTest):
         compared_filter = determine_compared_filter(filter)
 
         self.assertIsInstance(compared_filter, PathFilter)
-        self.assertDictContainsSubset({"date_from": "2020-05-15", "date_to": "2020-05-22",}, compared_filter.to_dict())
+        self.assertDictContainsSubset({"date_from": "2020-05-15", "date_to": "2020-05-22"}, compared_filter.to_dict())
 
 
 class TestMatchProperties(TestCase):

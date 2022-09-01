@@ -70,7 +70,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             organization=self.organization, name="Contoso", archive=base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
         )
 
-        (plugin_json_file, index_ts_file, frontend_tsx_file,) = PluginSourceFile.objects.sync_from_plugin_archive(
+        (plugin_json_file, index_ts_file, frontend_tsx_file) = PluginSourceFile.objects.sync_from_plugin_archive(
             test_plugin
         )
 
@@ -87,7 +87,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         )
 
         # First time - create
-        (plugin_json_file, index_ts_file, frontend_tsx_file,) = PluginSourceFile.objects.sync_from_plugin_archive(
+        (plugin_json_file, index_ts_file, frontend_tsx_file) = PluginSourceFile.objects.sync_from_plugin_archive(
             test_plugin
         )
 
@@ -98,7 +98,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertIsNone(frontend_tsx_file)
 
         # Second time - update
-        (plugin_json_file, index_ts_file, frontend_tsx_file,) = PluginSourceFile.objects.sync_from_plugin_archive(
+        (plugin_json_file, index_ts_file, frontend_tsx_file) = PluginSourceFile.objects.sync_from_plugin_archive(
             test_plugin
         )
 
@@ -116,7 +116,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             archive=base64.b64decode(HELLO_WORLD_PLUGIN_RAW_WITH_INDEX_TS_BUT_UNDEFINED_MAIN),
         )
 
-        (plugin_json_file, index_ts_file, frontend_tsx_file,) = PluginSourceFile.objects.sync_from_plugin_archive(
+        (plugin_json_file, index_ts_file, frontend_tsx_file) = PluginSourceFile.objects.sync_from_plugin_archive(
             test_plugin
         )
 
@@ -134,7 +134,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             archive=base64.b64decode(HELLO_WORLD_PLUGIN_RAW_WITHOUT_ANY_INDEX_TS_BUT_FRONTEND_TSX),
         )
 
-        (plugin_json_file, index_ts_file, frontend_tsx_file,) = PluginSourceFile.objects.sync_from_plugin_archive(
+        (plugin_json_file, index_ts_file, frontend_tsx_file) = PluginSourceFile.objects.sync_from_plugin_archive(
             test_plugin
         )
 
@@ -165,7 +165,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             archive=base64.b64decode(HELLO_WORLD_PLUGIN_RAW_WITH_INDEX_TS_BUT_UNDEFINED_MAIN),
         )
 
-        (plugin_json_file, index_ts_file, frontend_tsx_file,) = PluginSourceFile.objects.sync_from_plugin_archive(
+        (plugin_json_file, index_ts_file, frontend_tsx_file) = PluginSourceFile.objects.sync_from_plugin_archive(
             test_plugin
         )
 
@@ -178,7 +178,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         test_plugin.archive = base64.b64decode(HELLO_WORLD_PLUGIN_RAW_WITHOUT_ANY_INDEX_TS_BUT_FRONTEND_TSX)
         test_plugin.save()
 
-        (plugin_json_file, index_ts_file, frontend_tsx_file,) = PluginSourceFile.objects.sync_from_plugin_archive(
+        (plugin_json_file, index_ts_file, frontend_tsx_file) = PluginSourceFile.objects.sync_from_plugin_archive(
             test_plugin
         )
 
