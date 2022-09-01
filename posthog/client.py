@@ -148,7 +148,7 @@ def sync_execute(
     flush=True,
     client_query_id: Optional[str] = None,
     client_query_team_id: Optional[int] = None,
-):
+) -> Optional[Any]:
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events

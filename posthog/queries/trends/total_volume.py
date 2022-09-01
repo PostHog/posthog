@@ -1,6 +1,6 @@
 import urllib.parse
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List
 
 import pytz
 
@@ -25,7 +25,7 @@ from posthog.utils import encode_get_request_params
 
 
 class TrendsTotalVolume:
-    def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+    def _total_volume_query(self, entity: Entity, filter: Filter, team: Team):
 
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
@@ -116,7 +116,7 @@ class TrendsTotalVolume:
             )
             return final_query, params, self._parse_total_volume_result(filter, entity, team)
 
-    def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team) -> Callable:
+    def _parse_total_volume_result(self, filter: Filter, entity: Entity, team: Team):
         def _parse(result: List) -> List:
             parsed_results = []
             if result is not None:

@@ -39,7 +39,7 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
-    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, Dict, Callable]:
+    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity):
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             sql, params, parse_function = TrendsBreakdown(
                 entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled

@@ -1,23 +1,30 @@
+import abc
 import math
 from itertools import accumulate
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.client import sync_execute
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
+from posthog.models.entity import Entity
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.queries.trends.util import parse_response
 
 
-class TrendsFormula:
+class TrendsFormula(abc.ABC):
+    def _get_sql_for_entity(
+        self, filter: Filter, team: Team, entity: Entity
+    ) -> Tuple[str, Dict[str, Any], Callable[[List[Any]], List[Any]]]:
+        ...
+
     def _run_formula_query(self, filter: Filter, team: Team):
         letters = [chr(65 + i) for i in range(0, len(filter.entities))]
         queries = []
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
-            sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
+            sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)
             sql = sql.replace("%(", f"%({idx}_")
             entity_params = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)

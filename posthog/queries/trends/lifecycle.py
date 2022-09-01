@@ -1,6 +1,6 @@
 import urllib
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List
 
 from django.db.models.query import Prefetch
 
@@ -31,7 +31,7 @@ from posthog.utils import encode_get_request_params
 
 
 class Lifecycle:
-    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team):
         event_query, event_params = LifecycleEventQuery(
             team=team, filter=filter, using_person_on_events=team.actor_on_events_querying_enabled
         ).get_query()

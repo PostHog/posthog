@@ -99,7 +99,7 @@ class TrendsBreakdown:
             else "person_id",
         )
 
-    def get_query(self) -> Tuple[str, Dict, Callable]:
+    def get_query(self):
         interval_annotation = get_trunc_func_ch(self.filter.interval)
         num_intervals, seconds_in_interval, round_interval = get_time_diff(
             self.filter.interval, self.filter.date_from, self.filter.date_to, self.team_id
