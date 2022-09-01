@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
-import { Col, SelectProps } from 'antd'
+import { Col } from 'antd'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -13,7 +13,7 @@ import {
 import { PropertyValue } from './PropertyValue'
 import { ColProps } from 'antd/lib/col'
 import { dayjs } from 'lib/dayjs'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 export interface OperatorValueSelectProps {
     type?: string
@@ -24,12 +24,12 @@ export interface OperatorValueSelectProps {
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
-    operatorSelectProps?: Omit<SelectProps<any>, 'onChange'>
+    operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
 }
 
-interface OperatorSelectProps extends SelectProps<any> {
+interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
