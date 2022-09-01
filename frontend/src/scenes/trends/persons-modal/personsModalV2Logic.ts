@@ -19,7 +19,7 @@ export interface PersonModalLogicProps {
 export const personsModalLogic = kea<personsModalLogicType>([
     path(['scenes', 'trends', 'personsModalLogicV2']),
     props({} as PersonModalLogicProps),
-    key((props) => `${props.url}` || ''),
+    key((props) => props.url),
     actions({
         setSearchTerm: (search: string) => ({ search }),
         saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
@@ -141,7 +141,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 cache['lastPathname'] = pathname
                 return
             }
-            // If we click anything that navigates us away, close the modal but allowing for changes in hash
+            // If we click anything that navigates us away, close the modal but
+            // allowing for changes in hash due to the SessionsRecordings Modal
             if (cache['lastPathname'] !== pathname) {
                 actions.closeModal()
             }
