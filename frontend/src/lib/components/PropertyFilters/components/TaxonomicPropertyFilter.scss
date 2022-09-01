@@ -130,13 +130,21 @@
         display: flex;
         justify-content: space-between;
         overflow: hidden;
+        color: black;
+
+        .LemonIcon {
+            color: var(--muted-alt);
+        }
+
         .property-key-info {
             width: auto;
             text-overflow: ellipsis;
             overflow: hidden;
         }
+
         &.add-filter {
             width: max-content;
+            font-weight: 400;
         }
     }
 
