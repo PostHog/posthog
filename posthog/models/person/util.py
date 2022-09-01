@@ -17,7 +17,6 @@ from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, 
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
-    DELETE_PERSON_BY_ID,
     INSERT_PERSON_BULK_SQL,
     INSERT_PERSON_DISTINCT_ID,
     INSERT_PERSON_DISTINCT_ID2,
@@ -102,7 +101,9 @@ def create_person(
     properties: Optional[Dict] = {},
     sync: bool = False,
     is_identified: bool = False,
+    is_deleted: bool = False,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
+    created_at: Optional[datetime.datetime] = None,
 ) -> str:
     if uuid:
         uuid = str(uuid)
@@ -117,12 +118,18 @@ def create_person(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
+    if created_at is None:
+        created_at = timestamp
+    else:
+        created_at = created_at.astimezone(pytz.utc)
+
     data = {
         "id": str(uuid),
         "team_id": team_id,
         "properties": json.dumps(properties),
         "is_identified": int(is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "is_deleted": int(is_deleted),
+        "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "version": version,
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -154,21 +161,16 @@ def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
 
 
-# TODO: implement a safe mechanism for deleting this person's events
-def delete_person(person: Person, delete_distinct_ids=False) -> None:
-    timestamp = now()
-
-    data = {
-        "id": person.uuid,
-        "team_id": person.team.id,
-        "properties": "{}",
-        "is_identified": int(person.is_identified),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        "version": int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
-    }
-
-    sync_execute(DELETE_PERSON_BY_ID, data)
+def delete_person(person: Person) -> None:
+    create_person(
+        uuid=str(person.uuid),
+        team_id=person.team.id,
+        properties={},
+        created_at=person.created_at,
+        is_identified=person.is_identified,
+        version=int(person.version or 0) + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
+        is_deleted=True,
+    )
 
 
 def delete_ch_distinct_ids(distinct_ids: List[str], person_uuid: str, team_id: int):

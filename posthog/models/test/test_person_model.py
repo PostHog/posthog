@@ -83,10 +83,10 @@ class TestPerson(BaseTest):
         person = Person.objects.create(team=self.team)
         delete_person(person)
         ch_persons = sync_execute(
-            "SELECT version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
+            "SELECT toString(id), version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual(ch_persons, [(100, 1, "{}")])
+        self.assertEqual(ch_persons, [(str(person.uuid), 100, 1, "{}")])
 
     def test_delete_ch_distinct_ids(self):
         person = Person.objects.create(team=self.team, distinct_ids=["distinct_id1"])
