@@ -54,7 +54,7 @@ export const urlsForDatasets = (
                 value: dataset?.personsValues?.[i]?.url || '',
                 label: (
                     <InsightLabel
-                        seriesColor={getSeriesColor(action.order)}
+                        seriesColor={dataset?.backgroundColor?.[i] || getSeriesColor(action.order)}
                         action={action}
                         breakdownValue={
                             dataset.breakdownValues?.[i] === '' ? 'None' : dataset.breakdownValues?.[i]?.toString()

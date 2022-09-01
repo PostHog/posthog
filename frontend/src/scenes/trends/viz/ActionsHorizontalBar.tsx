@@ -11,6 +11,7 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { openPersonsModal } from '../persons-modal/PersonsModalV2'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 
 type DataSet = any
 
@@ -87,7 +88,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                 !showPersonsModal || insight.filters?.formula
                     ? undefined
                     : (point) => {
-                          const { value: pointValue, index, points, seriesId } = point
+                          const { value: pointValue, index, points, seriesId, crossDataset } = point
 
                           const dataset = points.referencePoint.dataset
 
@@ -108,15 +109,18 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                               pointValue,
                               seriesId,
                           }
-                          const personsUrl = dataset.persons_urls?.[index].url || dataset.personsValues?.[index]?.url
-                          if (personsUrl) {
+                          const urls = urlsForDatasets(crossDataset, index)
+                          const selectedUrl = urls[index]?.value
+
+                          if (selectedUrl) {
                               loadPeopleFromUrl({
                                   ...params,
-                                  url: personsUrl,
+                                  url: selectedUrl,
                               })
 
                               openPersonsModal({
-                                  url: personsUrl,
+                                  urlsIndex: index,
+                                  urls,
                                   title: <PropertyKeyInfo value={label || ''} disablePopover />,
                               })
                           } else {
