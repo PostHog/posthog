@@ -1,7 +1,6 @@
 import json
 
 from freezegun import freeze_time
-from rest_framework.test import APIRequestFactory
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
 from posthog.models import Filter
