@@ -128,7 +128,7 @@ services:
 
     asyncmigrationscheck:
         <<: *worker
-        command: python manage.py run_async_migrations --check
+        command: python manage.py run-async_migrations --auto-complete-trivial && python manage.py run_async_migrations --check
         restart: 'no'
         scale: 0
 
