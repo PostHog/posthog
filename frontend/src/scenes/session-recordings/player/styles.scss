@@ -227,24 +227,10 @@
 }
 // Session player v3 can exist inside of a modal
 .session-player-wrapper-v3 {
-    width: calc(100vw - 2rem) !important;
+    width: calc(100vw - 2rem);
     max-width: 880px;
     height: calc(100vh - 2rem);
-    top: 1rem;
     padding: 0;
-    overflow-y: auto;
-
-    .session-drawer-body {
-        height: 100%;
-
-        .player-sidebar {
-            height: 100%;
-            min-height: 20rem;
-            width: 100%;
-            padding: 0;
-            border: none;
-        }
-    }
 }
 
 .ant-drawer.session-player-wrapper-v2 {

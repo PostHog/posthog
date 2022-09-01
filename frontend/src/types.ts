@@ -2028,4 +2028,5 @@ export enum YesOrNoResponse {
 export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
+    includeMeta?: boolean
 }

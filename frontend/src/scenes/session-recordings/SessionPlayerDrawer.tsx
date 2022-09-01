@@ -11,7 +11,8 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { PlayerMetaV3 } from './player/PlayerMeta'
 
 interface SessionPlayerDrawerProps {
     isPersonPage?: boolean
@@ -25,17 +26,23 @@ export function SessionPlayerDrawer({ isPersonPage = false, onClose }: SessionPl
 
     if (isSessionRecordingsPlayerV3) {
         return (
-            <LemonModal title={''} isOpen={!!activeSessionRecordingId} onClose={onClose} simple>
-                <div className="session-player-wrapper-v3">
-                    <div className="session-drawer-body">
+            <LemonModal isOpen={!!activeSessionRecordingId} onClose={onClose} simple title={''}>
+                <header className="border-b">
+                    {activeSessionRecordingId ? (
+                        <PlayerMetaV3 playerKey="drawer" sessionRecordingId={activeSessionRecordingId} />
+                    ) : null}
+                </header>
+                <LemonModal.Content>
+                    <div className="session-player-wrapper-v3">
                         {activeSessionRecordingId && (
                             <SessionRecordingPlayerV3
                                 playerKey="drawer"
                                 sessionRecordingId={activeSessionRecordingId}
+                                includeMeta={false}
                             />
                         )}
                     </div>
-                </div>
+                </LemonModal.Content>
             </LemonModal>
         )
     }
