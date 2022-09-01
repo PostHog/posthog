@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { BindLogic, useValues } from 'kea'
 import {
@@ -105,7 +105,7 @@ export function LineGraph_({
     const { aggregationLabel } = useValues(groupsModel)
 
     const chartRef = useRef<HTMLCanvasElement | null>(null)
-    const myLineChart = useRef<Chart<ChartType, any, string>>()
+    const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
 
     const { width: graphWidth, height: graphHeight } = useResizeObserver({ ref: chartRef })
 
@@ -113,10 +113,6 @@ export function LineGraph_({
     const isHorizontal = type === GraphType.HorizontalBar
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Pie]
-
-    useEffect(() => {
-        buildChart()
-    }, [datasets, hiddenLegendKeys])
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -128,10 +124,10 @@ export function LineGraph_({
 
     // Calculate chart content coordinates for annotations overlay positioning
     const [graphAreaLeft, graphAreaHeight, graphAreaInterval] = useMemo<[number, number, number]>(() => {
-        if (myLineChart.current) {
-            let boundaryLeftExtent = myLineChart.current.scales.x.left
-            const boundaryRightExtent = myLineChart.current.scales.x.right
-            const boundaryTicks = myLineChart.current.scales.x.ticks.length
+        if (myLineChart) {
+            let boundaryLeftExtent = myLineChart.scales.x.left
+            const boundaryRightExtent = myLineChart.scales.x.right
+            const boundaryTicks = myLineChart.scales.x.ticks.length
             const boundaryDelta = boundaryRightExtent - boundaryLeftExtent
             let boundaryInterval = boundaryDelta / (boundaryTicks - 1)
             if (type === GraphType.Bar) {
@@ -139,12 +135,12 @@ export function LineGraph_({
                 boundaryInterval = boundaryDelta / boundaryTicks
                 boundaryLeftExtent += boundaryInterval / 2
             }
-            const boundaryTopExtent = myLineChart.current.scales.x.top
+            const boundaryTopExtent = myLineChart.scales.x.top
             return [boundaryLeftExtent, boundaryTopExtent, boundaryInterval]
         } else {
             return [0, 0, 0]
         }
-    }, [myLineChart.current, graphWidth, graphHeight])
+    }, [myLineChart, graphWidth, graphHeight])
 
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
@@ -171,13 +167,8 @@ export function LineGraph_({
         }
     }
 
-    function buildChart(): void {
-        const myChartRef = chartRef.current?.getContext('2d')
-
-        if (typeof myLineChart.current !== 'undefined') {
-            myLineChart.current.destroy()
-        }
-
+    // Build chart
+    useEffect(() => {
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             if (isHorizontal || type === GraphType.Pie) {
@@ -562,12 +553,14 @@ export function LineGraph_({
             }
         }
 
-        myLineChart.current = new Chart(myChartRef as ChartItem, {
+        const newChart = new Chart(chartRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
         })
-    }
+        setMyLineChart(newChart)
+        return () => newChart.destroy()
+    }, [datasets, hiddenLegendKeys])
 
     return (
         <div
@@ -587,7 +580,9 @@ export function LineGraph_({
                 logic={insightAnnotationsLogic}
                 props={{ dashboardItemId: insightProps.dashboardItemId, insightNumericId: insight.id || 'new' }}
             >
-                <AnnotationsOverlay dates={datasets[0]?.days?.map((day) => dayjs(day))} />
+                <AnnotationsOverlay
+                    dates={myLineChart ? myLineChart.scales.x.ticks.map(({ label }) => dayjs(label as string)) : []}
+                />
             </BindLogic>
         </div>
     )
