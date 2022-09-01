@@ -320,7 +320,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     const funnelParams = toParams(cleanedParams)
                     let includeRecordingsParam = ''
                     if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = 'include_recordings=true&'
+                        includeRecordingsParam = '&include_recordings=true'
                     }
                     actors = await api.create(
                         `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
@@ -331,7 +331,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
 
                     let includeRecordingsParam = ''
                     if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_IN_INSIGHTS]) {
-                        includeRecordingsParam = 'include_recordings=true&'
+                        includeRecordingsParam = '&include_recordings=true'
                     }
                     actors = await api.create(
                         `api/person/path/?${includeRecordingsParam}${searchTermParam}`,
@@ -352,11 +352,12 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     actions.setUrl(pathsParams)
                 } else {
-                    actors = await api.actions.getPeople(
+                    const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
-                        filters,
-                        searchTerm
+                        filters
                     )
+
+                    actors = await api.get(`api/person/trends/?${filterParams}${searchTermParam}`)
                 }
                 breakpoint()
                 const peopleResult = {
