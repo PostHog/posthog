@@ -31,6 +31,7 @@ class TestFilter(BaseTest):
                 "interval": "",
                 "actions": [],
                 "date_from": "2020-01-01T20:00:00Z",
+                "search": "query",
             }
         )
         self.assertCountEqual(
@@ -44,6 +45,7 @@ class TestFilter(BaseTest):
                 "interval",
                 "smoothing_intervals",
                 "breakdown_attribution_type",
+                "search",
             ],
         )
 

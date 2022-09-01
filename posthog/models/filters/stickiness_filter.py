@@ -17,6 +17,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SearchMixin,
     ShownAsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
@@ -40,6 +41,7 @@ class StickinessFilter(
     ShownAsMixin,
     InsightMixin,
     SimplifyFilterMixin,
+    SearchMixin,
     LimitMixin,
     ClientQueryIdMixin,
     BaseFilter,

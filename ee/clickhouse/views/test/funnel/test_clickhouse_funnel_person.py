@@ -5,6 +5,7 @@ from django.core.cache import cache
 from rest_framework import status
 
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -140,6 +141,9 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
+        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            return
+
         cache.clear()
         self._create_sample_data(20, delete=True)
         request_data = {
