@@ -223,7 +223,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     authentication event, use this to ensure that feature flags are not
                                                     reset after a person is identified. This ensures the experience for
                                                     the anonymous person is carried forward to the authenticated person.
-                                                    Currently supported for posthog-js only.
                                                 </div>
                                             </div>
                                         )}
@@ -496,7 +495,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     authentication event, use this to ensure that feature flags are not
                                                     reset after a person is identified. This ensures the experience for
                                                     the anonymous person is carried forward to the authenticated person.
-                                                    Currently supported for posthog-js only.
                                                 </div>
                                             </div>
                                         )}
