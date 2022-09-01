@@ -44,7 +44,7 @@ class Command(BaseCommand):
             "--plan", action="store_true", help="Show the async migrations that will run",
         )
         parser.add_argument(
-            "--skip-noop-migrations",
+            "--complete-noop-migrations",
             action="store_true",
             help="For any migrations that would be no-ops to apply, mark them as complete.",
         )
@@ -57,8 +57,8 @@ class Command(BaseCommand):
             handle_check(necessary_migrations)
         elif options["plan"]:
             handle_plan(necessary_migrations)
-        elif options["skip_noop_migrations"]:
-            handle_skip_noop_migrations()
+        elif options["complete_noop_migrations"]:
+            handle_complete_noop_migrations()
         else:
             handle_run(necessary_migrations)
 
@@ -136,7 +136,7 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
         )
 
 
-def handle_skip_noop_migrations():
+def handle_complete_noop_migrations():
     """
     Some migrations are no-ops to apply, i.e. they would not have any effect on
     schema or data within ClickHouse, thus, assuming their dependencies are
