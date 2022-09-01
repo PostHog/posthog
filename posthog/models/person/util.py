@@ -184,19 +184,15 @@ def delete_person(person: Person) -> None:
     )
 
 
-def delete_ch_distinct_ids(distinct_ids: List[str], person_uuid: str, team_id: int):
-    distinct_id_inserts = []
-    distinct_id_map: Dict[str, str] = {}
-    for i, distinct_id in enumerate(distinct_ids):
-        is_deleted = 1
-        version = 0
-        distinct_id_key = f"distinct_id_{i}"
-        distinct_id_map[distinct_id_key] = distinct_id
-        distinct_id_inserts.append(
-            f"(%({distinct_id_key})s, '{person_uuid}', {team_id}, {is_deleted}, {version}, now(), 0, 0)"
+def delete_ch_distinct_ids(person: Person):
+    for distinct_id in person.distinct_ids:
+        create_person_distinct_id(
+            team_id=person.team_id,
+            distinct_id=distinct_id,
+            person_id=str(person.uuid),
+            version=0,  # this is incorrect, see https://github.com/PostHog/posthog/issues/11590
+            is_deleted=True,
         )
-
-    sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), distinct_id_map)
 
 
 def count_duplicate_distinct_ids_for_team(team_id: Union[str, int]) -> Dict:

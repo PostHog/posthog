@@ -97,9 +97,9 @@ class TestPerson(BaseTest):
         )
         self.assertEqual(ch_distinct_ids, [(0, 0)])
 
-        delete_ch_distinct_ids(person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id)
+        delete_ch_distinct_ids(person)
         ch_distinct_ids = sync_execute(
-            "SELECT version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
+            "SELECT toString(person_id), version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
         )
-        self.assertEqual(ch_distinct_ids, [(0, 1)])
+        self.assertEqual(ch_distinct_ids, [(str(person.uuid), 0, 1)])

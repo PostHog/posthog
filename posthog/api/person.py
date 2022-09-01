@@ -219,9 +219,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             person_id = person.id
 
             delete_person(person=person)
-            delete_ch_distinct_ids(
-                person_uuid=str(person.uuid), distinct_ids=person.distinct_ids, team_id=person.team_id
-            )
+            delete_ch_distinct_ids(person=person)
             if "delete_events" in request.GET:
                 AsyncDeletion.objects.create(
                     deletion_type=DeletionType.Person,
