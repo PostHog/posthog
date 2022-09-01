@@ -4,7 +4,7 @@ from rest_framework import request, response
 from rest_framework.decorators import action
 
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from posthog.api.person import PersonViewSet, _respond_with_cached_results
+from posthog.api.person import PersonViewSet
 from posthog.constants import FUNNEL_CORRELATION_PERSON_LIMIT, FUNNEL_CORRELATION_PERSON_OFFSET, INSIGHT_FUNNELS
 from posthog.decorators import cached_function
 from posthog.models import Filter
@@ -17,7 +17,7 @@ class EnterprisePersonViewSet(PersonViewSet):
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
-        return _respond_with_cached_results(self.calculate_funnel_correlation_persons(request))
+        return self._respond_with_cached_results(self.calculate_funnel_correlation_persons(request))
 
     @cached_function
     def calculate_funnel_correlation_persons(self, request: request.Request) -> Dict[str, Dict[str, Any]]:
