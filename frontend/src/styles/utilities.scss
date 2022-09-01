@@ -306,18 +306,6 @@
     position: absolute;
 }
 
-.absolute-left {
-    position: absolute !important;
-    bottom: 0;
-    left: 0;
-}
-
-.absolute-right {
-    position: absolute !important;
-    bottom: 0;
-    right: 0;
-}
-
 // Flex
 .flex {
     display: flex;
@@ -510,6 +498,15 @@
 .rounded-none {
     border-radius: 0px;
 }
+.rounded-r-none {
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+.rounded-l-none {
+    border-top-left-radius: 0px;
+    border-bottom-left-radius: 0px;
+}
+
 .rounded-sm {
     border-radius: 0.125rem; /* 2px */
 }

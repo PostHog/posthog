@@ -1,20 +1,44 @@
 .LemonCalendar {
-    .LemonCalendar__month > tbody > tr > td {
-        width: 40px;
-    }
-    .LemonCalendar__today {
-        --lemon-calendar-today-radius: 2px;
+    --lemon-calendar-row-gap: 2px;
+    --lemon-calendar-day-width: 40px;
+    --lemon-calendar-today-radius: 2px;
 
-        position: relative;
-        &::after {
-            position: absolute;
-            bottom: 5px;
-            left: calc(50% - var(--lemon-calendar-today-radius));
-            content: '';
-            border-radius: 100%;
-            width: calc(var(--lemon-calendar-today-radius) * 2);
-            height: calc(var(--lemon-calendar-today-radius) * 2);
-            background: currentcolor;
+    .LemonCalendar__month tr {
+        td,
+        th {
+            padding: calc(var(--lemon-calendar-row-gap) / 2) 0;
+        }
+        td,
+        th:first-child,
+        th:last-child {
+            width: var(--lemon-calendar-day-width);
+        }
+        .LemonButton {
+            &.rounded-none {
+                border-radius: 0px;
+            }
+            &.rounded-r-none {
+                border-top-right-radius: 0px;
+                border-bottom-right-radius: 0px;
+            }
+            &.rounded-l-none {
+                border-top-left-radius: 0px;
+                border-bottom-left-radius: 0px;
+            }
+        }
+        .LemonCalendar__today {
+            position: relative;
+
+            &::after {
+                position: absolute;
+                bottom: 5px;
+                left: calc(50% - var(--lemon-calendar-today-radius));
+                content: '';
+                border-radius: 100%;
+                width: calc(var(--lemon-calendar-today-radius) * 2);
+                height: calc(var(--lemon-calendar-today-radius) * 2);
+                background: currentcolor;
+            }
         }
     }
 }

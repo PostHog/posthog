@@ -29,9 +29,9 @@ MultipleMonths.args = {
 
 export const CustomStyles = BasicTemplate.bind({})
 CustomStyles.args = {
-    getLemonButtonProps: (date, _, defaultProps) => {
+    getLemonButtonProps: ({ date, props }) => {
         return {
-            ...defaultProps,
+            ...props,
             active: dayjs(date).day() % 2 === 0,
             status: dayjs(date).date() % 10 === 0 ? 'primary' : 'stealth',
             type: dayjs(date).date() % 10 === 0 ? 'primary' : undefined,

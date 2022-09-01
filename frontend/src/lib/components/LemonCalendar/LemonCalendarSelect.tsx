@@ -34,11 +34,11 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
                     onDateClick={setSelectValue}
                     leftmostMonth={selectValue}
                     months={months}
-                    getLemonButtonProps={(date, _, defaultProps) => {
+                    getLemonButtonProps={({ date, props }) => {
                         if (date === selectValue) {
-                            return { ...defaultProps, status: 'primary', type: 'primary' }
+                            return { ...props, status: 'primary', type: 'primary' }
                         }
-                        return defaultProps
+                        return props
                     }}
                 />
             </div>

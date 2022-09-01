@@ -3,7 +3,8 @@ import React, { useEffect, useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
-import { formatDateRange } from 'lib/utils'
+import { formatDate, formatDateRange } from 'lib/utils'
+import clsx from 'clsx'
 
 export interface LemonCalendarRangeProps {
     value?: [string, string] | null
@@ -106,13 +107,35 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                     leftmostMonth={leftmostMonth}
                     onLeftmostMonthChanged={setLeftmostMonth}
                     months={shownMonths}
-                    getLemonButtonProps={(date, _, defaultProps) => {
+                    getLemonButtonProps={({ date, props, dayIndex }) => {
                         if (date === rangeStart || date === rangeEnd) {
-                            return { ...defaultProps, status: 'primary', type: 'primary' }
+                            return {
+                                ...props,
+                                className:
+                                    date === rangeStart && date === rangeEnd
+                                        ? props.className
+                                        : clsx(props.className, {
+                                              'rounded-r-none': date === rangeStart && dayIndex < 6,
+                                              'rounded-l-none': date === rangeEnd && dayIndex > 0,
+                                          }),
+                                status: 'primary',
+                                type: 'primary',
+                            }
                         } else if (rangeStart && rangeEnd && date > rangeStart && date < rangeEnd) {
-                            return { ...defaultProps, active: true }
+                            return {
+                                ...props,
+                                className: clsx(
+                                    props.className,
+                                    dayIndex === 0
+                                        ? 'rounded-r-none'
+                                        : dayIndex === 6
+                                        ? 'rounded-l-none'
+                                        : 'rounded-none'
+                                ),
+                                active: true,
+                            }
                         }
-                        return defaultProps
+                        return props
                     }}
                 />
             </div>
@@ -120,7 +143,11 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                 {shownMonths > 1 && rangeStart && rangeEnd && (
                     <div className="flex-1">
                         <span className="text-muted">Selected period:</span>{' '}
-                        <span>{formatDateRange(dayjs(rangeStart), dayjs(rangeEnd))}</span>
+                        <span>
+                            {rangeStart === rangeEnd
+                                ? formatDate(dayjs(rangeStart))
+                                : formatDateRange(dayjs(rangeStart), dayjs(rangeEnd))}
+                        </span>
                     </div>
                 )}
                 <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-range-cancel">

@@ -14,9 +14,17 @@ export interface LemonCalendarProps {
     /** Called if the user changed the month in the calendar */
     onLeftmostMonthChanged?: (date: string) => void
     /** Use custom LemonButton properties for each date */
-    getLemonButtonProps?: (date: string, month: string, defaultProps: LemonButtonProps) => LemonButtonProps
+    getLemonButtonProps?: (opts: GetLemonButtonPropsOpts) => LemonButtonProps
     /** Number of months */
     months?: number
+}
+
+export interface GetLemonButtonPropsOpts {
+    date: string
+    month: string
+    props: LemonButtonProps
+    dayIndex: number
+    weekIndex: number
 }
 
 const dayLabels = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa']
@@ -50,19 +58,11 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                     <table className="LemonCalendar__month" key={month} data-attr="lemon-calendar-month">
                         <thead>
                             <tr>
-                                <th className="relative" colSpan={7}>
-                                    <LemonButton
-                                        status="muted"
-                                        fullWidth
-                                        center
-                                        data-attr={`lemon-calendar-month-title-${month}`}
-                                        className="text-xs font-bold text-muted uppercase cursor-default"
-                                    >
-                                        {startOfMonth.format('MMMM')} {startOfMonth.year()}
-                                    </LemonButton>{' '}
+                                <th className="relative">
                                     {showLeftMonth && (
                                         <LemonButton
                                             status="stealth"
+                                            fullWidth
                                             data-attr="lemon-calendar-month-previous"
                                             className="absolute-left"
                                             onClick={() => {
@@ -76,9 +76,23 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                             <IconChevronLeft />
                                         </LemonButton>
                                     )}
+                                </th>
+                                <th className="relative" colSpan={5}>
+                                    <LemonButton
+                                        status="muted"
+                                        fullWidth
+                                        center
+                                        data-attr={`lemon-calendar-month-title-${month}`}
+                                        className="text-xs font-bold text-muted uppercase cursor-default"
+                                    >
+                                        {startOfMonth.format('MMMM')} {startOfMonth.year()}
+                                    </LemonButton>{' '}
+                                </th>
+                                <th className="relative">
                                     {showRightMonth && (
                                         <LemonButton
                                             status="stealth"
+                                            fullWidth
                                             data-attr="lemon-calendar-month-next"
                                             className="absolute-right"
                                             onClick={() => {
@@ -115,8 +129,13 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                             }),
                                         }
                                         const buttonProps =
-                                            props.getLemonButtonProps?.(stringDate, stringMonth, defaultProps) ??
-                                            defaultProps
+                                            props.getLemonButtonProps?.({
+                                                dayIndex: day,
+                                                weekIndex: week,
+                                                date: stringDate,
+                                                month: stringMonth,
+                                                props: defaultProps,
+                                            }) ?? defaultProps
                                         return (
                                             <td key={day}>
                                                 <LemonButton

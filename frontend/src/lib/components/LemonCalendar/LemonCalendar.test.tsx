@@ -129,7 +129,7 @@ describe('LemonCalendar', () => {
         const { container } = render(
             <LemonCalendar
                 leftmostMonth="2020-02-20"
-                getLemonButtonProps={(date, month, defaultProps) => {
+                getLemonButtonProps={({ date, month, props: defaultProps }) => {
                     const props = { ...defaultProps }
                     if (date === '2020-02-14') {
                         props['data-attr'] = 's6brap2ev'

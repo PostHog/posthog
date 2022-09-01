@@ -12,10 +12,7 @@ export default {
 } as ComponentMeta<typeof LemonCalendarRange>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCalendarRangeProps) => {
-    const [value, setValue] = useState([
-        dayjs().subtract(10, 'day').format('YYYY-MM-DD'),
-        dayjs().subtract(4, 'day').format('YYYY-MM-DD'),
-    ] as [string, string] | null)
+    const [value, setValue] = useState(['2022-08-11', '2022-08-26'] as [string, string] | null)
     const [visible, setVisible] = useState(true)
 
     return (
