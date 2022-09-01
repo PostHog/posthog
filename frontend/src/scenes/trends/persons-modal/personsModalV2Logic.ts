@@ -109,17 +109,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
         actorLabel: [
             (s) => [s.actors, s.aggregationLabel],
             (actors, aggregationLabel) => {
-                console.log({ actors })
                 const firstResult = actors[0]
 
                 if (!firstResult) {
-                    return 'results'
+                    return { singular: 'result', plural: 'results' }
                 }
-                if (isGroupType(firstResult)) {
-                    return aggregationLabel(firstResult.group_type_index).plural
-                } else {
-                    return 'persons'
-                }
+                return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
             },
         ],
     }),

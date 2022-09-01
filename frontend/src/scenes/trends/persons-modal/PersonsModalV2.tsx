@@ -22,6 +22,7 @@ import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
 import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
 import { RecordingWatchedSource } from 'lib/utils/eventUsageLogic'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export interface PersonsModalProps {
     onAfterClose?: () => void
@@ -63,9 +64,22 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                 width={600}
             >
                 <LemonModal.Header>
-                    <h3>{typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel)) : title}</h3>
+                    <h3>{typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel.plural)) : title}</h3>
                 </LemonModal.Header>
                 <div className="px-6 py-2">
+                    {actorsResponse && !!actorsResponse.missing_persons && (
+                        <AlertMessage type="info" className="mb-2">
+                            {actorsResponse.missing_persons}{' '}
+                            {actorsResponse.missing_persons > 1
+                                ? `${actorLabel.plural} are`
+                                : `${actorLabel.singular} is`}{' '}
+                            not shown because they've been lost.{' '}
+                            <a href="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
+                                Read more here for when this can happen
+                            </a>
+                            .
+                        </AlertMessage>
+                    )}
                     <LemonInput
                         type="search"
                         placeholder="Search for persons by email, name, or ID"
@@ -92,20 +106,21 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                         {actorsResponseLoading ? (
                             <>
                                 <Spinner />
-                                <span>Loading {actorLabel}...</span>
+                                <span>Loading {actorLabel.plural}...</span>
                             </>
                         ) : (
                             <span>
                                 {actorsResponse?.next ? 'More than ' : ''}
                                 <b>
-                                    {actorsResponse?.total_count} unique {actorLabel}
+                                    {actorsResponse?.total_count} unique{' '}
+                                    {actorsResponse?.total_count === 1 ? actorLabel.singular : actorLabel.plural}
                                 </b>
                             </span>
                         )}
                     </div>
                 </div>
-                <LemonModal.Content>
-                    <div className="relative min-h-20 space-y-2">
+                <div className="px-6 overflow-hidden flex flex-col">
+                    <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {actors && actors.length > 0 ? (
                             <>
                                 {actors.map((x) => (
@@ -121,24 +136,24 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
                         ) : actorsResponseLoading ? (
                             <Skeleton title={false} />
                         ) : (
-                            <div className="text-center">
-                                We couldn't find any matching {actorLabel} for this data point.
+                            <div className="text-center p-5">
+                                We couldn't find any matching {actorLabel.plural} for this data point.
+                            </div>
+                        )}
+
+                        {actorsResponse?.next && (
+                            <div className="m-4 flex justify-center">
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
+                                    loading={actorsResponseLoading}
+                                >
+                                    Load more {actorLabel.plural}
+                                </LemonButton>
                             </div>
                         )}
                     </div>
-
-                    {actorsResponse?.next && (
-                        <div className="m-4 flex justify-center">
-                            <LemonButton
-                                type="primary"
-                                onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
-                                loading={actorsResponseLoading}
-                            >
-                                Load more {actorLabel}
-                            </LemonButton>
-                        </div>
-                    )}
-                </LemonModal.Content>
+                </div>
                 <LemonModal.Footer>
                     <LemonButton
                         onClick={() => setCohortModalOpen(true)}
@@ -202,7 +217,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="border rounded overflow-hidden">
+        <div className="border rounded overflow-hidden bg-white">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
