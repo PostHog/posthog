@@ -77,14 +77,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 const creators = {}
                 featureFlags.forEach((flag: FeatureFlagType) => {
                     if (flag.created_by) {
-                        if (!creators[flag.created_by.email]) {
-                            creators[flag.created_by.email] = flag.created_by.first_name
+                        if (!creators[flag.created_by.id]) {
+                            creators[flag.created_by.id] = flag.created_by.first_name
                         }
                     }
                 })
                 const response: LemonSelectOption<string>[] = [{ label: 'Any user', value: 'any' }]
-                for (const [email, first_name] of Object.entries(creators)) {
-                    response.push({ label: first_name, value: email } as LemonSelectOption<string>)
+                for (const [id, first_name] of Object.entries(creators)) {
+                    response.push({ label: first_name, value: id } as LemonSelectOption<string>)
                 }
                 return response
             },
