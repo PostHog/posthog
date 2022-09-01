@@ -81,16 +81,15 @@ interface RecordingViewedProps {
     recording_width?: number
 }
 
-interface RecordingViewedSummaryAnalytics {
-    played_duration_ms: number
-    viewed_duration_ms: number
-    recording_duration_ms: number
-    recording_age_days: number
-    meta_data_load_time_ms: number
-    first_snapshot_load_time_ms: number
-    first_snapshot_and_meta_load_time_ms: number
-    all_snapshots_load_time_ms: number
-    rrweb_node_warning_count: number
+export interface RecordingViewedSummaryAnalytics {
+    played_duration_ms?: number
+    viewed_time_ms?: number
+    recording_duration_ms?: number
+    recording_age_days?: number
+    meta_data_load_time_ms?: number
+    first_snapshot_load_time_ms?: number
+    first_snapshot_and_meta_load_time_ms?: number
+    all_snapshots_load_time_ms?: number
     rrweb_warning_count: number
     error_count: number
 }

@@ -24,7 +24,7 @@ export function loadPostHogJS(): void {
                 api_host: window.JS_POSTHOG_HOST,
                 _capture_metrics: true,
                 rageclick: true,
-                debug: false, //window.JS_POSTHOG_SELF_CAPTURE,
+                debug: window.JS_POSTHOG_SELF_CAPTURE,
                 persistence: 'localStorage+cookie',
                 _capture_performance: true,
                 enable_recording_console_log: true,

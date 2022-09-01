@@ -514,7 +514,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 window.removeEventListener('error', cache.errorHandler)
             }
             eventUsageLogic.actions.reportRecordingViewedSummary({
-                // source: ,
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData.metadata.recordingDurationMs,
                 recording_age_days: Math.floor(
