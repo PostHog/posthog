@@ -69,6 +69,29 @@ describe('eventsTableLogic', () => {
         initKeaTests()
     })
 
+    describe('when loaded on a person page', () => {
+        const personUrl = urls.person('first-part|second-part')
+
+        beforeEach(() => {
+            logic = eventsTableLogic({
+                key: 'test-person-key',
+                sceneUrl: personUrl,
+            })
+            logic.mount()
+        })
+
+        it('sets a key', () => {
+            expect(logic.key).toEqual('all-test-person-key-/person/first-part%7Csecond-part')
+        })
+
+        it('triggers url to action', async () => {
+            // before https://github.com/PostHog/posthog/pull/11585 any sceneURLs with encoded characters
+            // e.g. `|` becoming `%7C` could not trigger `urlToAction` for this logic
+            router.actions.push(personUrl)
+            await expectLogic(logic).toDispatchActions(['setProperties'])
+        })
+    })
+
     describe('when loaded on events page', () => {
         beforeEach(() => {
             router.actions.push(urls.events())

@@ -1,14 +1,18 @@
-.ph-graph-tooltip {
+.InsightTooltipWrapper {
+    position: absolute;
+    transition: all 0.4s;
+    z-index: var(--z-graph-tooltip);
+    pointer-events: none;
+}
+
+.InsightTooltip {
     overflow: hidden;
     border: 1px solid var(--border);
     box-shadow: var(--shadow-elevation);
     font-size: 0.8125rem;
-    z-index: var(--z-graph-tooltip);
-    transition: all 0.4s;
     max-width: 30rem;
     border-radius: var(--radius);
     background: var(--bg-light);
-    position: absolute;
     pointer-events: none;
 
     .LemonRow {
@@ -56,7 +60,7 @@
                 }
             }
         }
-        .LemonTable__content > table > tbody {
+        .LemonTable__content > table {
             .datum-label-column {
                 font-weight: 600;
                 display: flex;

@@ -123,7 +123,7 @@ def _get_queries(since_hours_ago: int, min_query_time: int) -> List[Query]:
         FROM system.query_log
         WHERE
             query NOT LIKE '%%query_log%%'
-            AND query LIKE '/* request:%%'
+            AND (query LIKE '/* user_id:%%' OR query LIKE '/* request:%%')
             AND query NOT LIKE '%%INSERT%%'
             AND type = 'QueryFinish'
             AND query_start_time > now() - toIntervalHour(%(since)s)

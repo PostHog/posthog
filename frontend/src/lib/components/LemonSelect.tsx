@@ -113,7 +113,7 @@ export function LemonSelect<T>({
                 popup={{
                     ref: popup?.ref,
                     overlay: sections.map((section, i) => (
-                        <React.Fragment key={i}>
+                        <div key={i} className="space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
                                     <h5>{section.title}</h5>
@@ -144,7 +144,7 @@ export function LemonSelect<T>({
                                 </LemonButton>
                             ))}
                             {i < sections.length - 1 ? <LemonDivider /> : null}
-                        </React.Fragment>
+                        </div>
                     )),
                     sameWidth: dropdownMatchSelectWidth,
                     placement: dropdownPlacement,

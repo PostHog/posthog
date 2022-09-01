@@ -173,6 +173,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 ) => ({
                     people: [],
                     count: 0,
+                    missingPersons: 0,
                     action,
                     label,
                     day: date_from,
@@ -183,6 +184,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 loadPeopleFromUrl: (_, { label, date_from = '', action, breakdown_value, crossDataset, seriesId }) => ({
                     people: [],
                     count: 0,
+                    missingPersons: 0,
                     day: date_from,
                     label,
                     action,
@@ -254,6 +256,8 @@ export const personsModalLogic = kea<personsModalLogicType>({
     loaders: ({ actions, values }) => ({
         people: {
             loadPeople: async ({ peopleParams }, breakpoint) => {
+                const includeRecordingsParam = '&include_recordings=true'
+
                 let actors: PaginatedResponse<{
                     people: ActorType[]
                     count: number
@@ -315,15 +319,12 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
-                    const includeRecordingsParam = '&include_recordings=true'
-
                     actors = await api.get(
                         `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
                     )
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)
-                    const includeRecordingsParam = '&include_recordings=true'
 
                     actors = await api.get(`api/person/path/?${includeRecordingsParam}${pathParams}${searchTermParam}`)
 
@@ -341,16 +342,20 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     }
                     actions.setUrlParams(pathsParams)
                 } else {
-                    actors = await api.actions.getPeople(
+                    const filterParams = parsePeopleParams(
                         { label, action, date_from, date_to, breakdown_value },
-                        filters,
-                        searchTerm
+                        filters
+                    )
+
+                    actors = await api.get(
+                        `api/person/trends/?${includeRecordingsParam}${filterParams}${searchTermParam}`
                     )
                 }
                 breakpoint()
                 const peopleResult = {
                     people: actors?.results[0]?.people,
                     count: actors?.results[0]?.count || 0,
+                    missingPersons: actors?.missing_persons || 0,
                     action,
                     label,
                     day: date_from,
@@ -386,6 +391,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 return {
                     people: people?.results[0]?.people,
                     count: people?.results[0]?.count || 0,
+                    missingPersons: people?.missing_persons || 0,
                     label,
                     funnelStep,
                     breakdown_value,
@@ -401,6 +407,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                 if (values.people) {
                     const {
                         people: currPeople,
+                        missingPersons: currMissingPersons,
                         count,
                         action,
                         label,
@@ -420,6 +427,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     return {
                         people: [...currPeople, ...people.results[0]?.people],
                         count: count + people.results[0]?.count,
+                        missingPersons: currMissingPersons + (people.missing_persons || 0),
                         action,
                         label,
                         day,

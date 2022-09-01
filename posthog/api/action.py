@@ -18,7 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
 from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
+from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
@@ -184,25 +184,29 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         actions_list: List[Dict[Any, Any]] = self.serializer_class(actions, many=True, context={"request": request}).data  # type: ignore
         return Response({"results": actions_list})
 
+    # NOTE: Deprecated in favour of `persons/trends` endpoint
+    # Once the old way of exporting CSVs is removed, this endpoint can be removed
     @action(methods=["GET"], detail=False)
     def people(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         team = self.team
         filter = Filter(request=request, team=self.team)
+        if not filter.limit:
+            filter = filter.with_data({LIMIT: 100})
+
         entity = get_target_entity(filter)
 
-        actors, serialized_actors = TrendsActors(team, entity, filter).get_actors()
+        actors, serialized_actors, raw_count = TrendsActors(team, entity, filter).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()
+        limit = filter.limit or 100
         offset = filter.offset
-        if len(actors) > 100 and next_url:
+        if raw_count >= limit and next_url:
             if "offset" in next_url:
                 next_url = next_url[1:]
-                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + 100))
+                next_url = next_url.replace("offset=" + str(offset), "offset=" + str(offset + limit))
             else:
-                next_url = request.build_absolute_uri(
-                    "{}{}offset={}".format(next_url, "&" if "?" in next_url else "?", offset + 100)
-                )
+                next_url = f"{next_url}{'&' if '?' in next_url else '?'}offset={offset+limit}"
         else:
             next_url = None
 
@@ -222,9 +226,10 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
 
         return Response(
             {
-                "results": [{"people": serialized_actors[0:100], "count": len(serialized_actors[0:100])}],
+                "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
                 "next": next_url,
                 "previous": current_url[1:],
+                "missing_persons": raw_count - len(serialized_actors),
             }
         )
 

@@ -276,7 +276,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
     }),
 
     urlToAction: ({ actions, values, props }) => ({
-        [props.sceneUrl]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
+        [decodeURI(props.sceneUrl)]: (_: Record<string, any>, searchParams: Record<string, any>): void => {
             actions.setProperties(searchParams.properties || values.properties || {})
 
             if (searchParams.eventFilter) {
