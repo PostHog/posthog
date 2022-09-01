@@ -89,8 +89,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                       }
 
                                       const urls = urlsForDatasets(crossDataset, index)
-                                      const selectedUrl =
-                                          urls[crossDataset?.findIndex((x) => x.id === dataset.id) || 0]?.value
+                                      const selectedUrl = urls[index]?.value
 
                                       if (selectedUrl) {
                                           loadPeopleFromUrl({
@@ -99,7 +98,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
                                           })
                                           openPersonsModal({
                                               urls,
-                                              url: selectedUrl,
+                                              urlsIndex: index,
                                               title: <PropertyKeyInfo value={label || ''} disablePopover />,
                                           })
                                       } else {
