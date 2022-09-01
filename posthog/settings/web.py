@@ -216,7 +216,9 @@ REST_FRAMEWORK = {
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
 
-if get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool) or TEST:
+RATE_LIMIT_ENABLED = get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
+
+if RATE_LIMIT_ENABLED or TEST:
     # These rate limits are applied to all Django views.
     # Note: Ingestion + decide endpoints do not use Django views, so no rate limits are applied
     REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"] = [

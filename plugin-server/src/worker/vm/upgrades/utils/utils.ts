@@ -7,11 +7,11 @@ import { Client } from 'pg'
 import { DB } from '../../../../utils/db/db'
 
 export interface TimestampBoundaries {
-    min: Date | null
-    max: Date | null
+    min: Date
+    max: Date
 }
 
-export interface ExportEventsJobPayload extends Record<string, any> {
+export interface ExportHistoricalEventsJobPayload extends Record<string, any> {
     // The lower bound of the timestamp interval to be processed
     timestampCursor?: number
 
@@ -37,8 +37,8 @@ export type ExportHistoricalEventsUpgrade = Plugin<{
         pgClient: Client
         eventsToIgnore: Set<string>
         sanitizedTableName: string
-        exportHistoricalEvents: (payload: ExportEventsJobPayload) => Promise<void>
-        initTimestampsAndCursor: (payload: ExportEventsJobPayload | undefined) => Promise<void>
+        exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
+        initTimestampsAndCursor: (payload: ExportHistoricalEventsJobPayload | undefined) => Promise<void>
         setTimestampBoundaries: () => Promise<void>
         updateProgressBar: (incrementedCursor: number) => void
         timestampBoundariesForTeam: TimestampBoundaries
@@ -51,11 +51,14 @@ export const clickhouseEventTimestampToDate = (timestamp: string): Date => {
     return new Date(DateTime.fromFormat(timestamp, 'yyyy-MM-dd HH:mm:ss').toISO())
 }
 
-export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): Promise<TimestampBoundaries> => {
+export const fetchTimestampBoundariesForTeam = async (
+    db: DB,
+    teamId: number,
+    column: 'timestamp' | '_timestamp'
+): Promise<TimestampBoundaries | null> => {
     try {
         const clickhouseFetchTimestampsResult = await db.clickhouseQuery(`
-        /* plugin-server:fetchTimestampBoundariesForTeam */
-        SELECT min(_timestamp) as min, max(_timestamp) as max
+        SELECT min(${column}) as min, max(${column}) as max
         FROM events
         WHERE team_id = ${teamId}`)
 
@@ -68,15 +71,9 @@ export const fetchTimestampBoundariesForTeam = async (db: DB, teamId: number): P
         const isValidMin = minDate.getTime() !== new Date(0).getTime()
         const isValidMax = maxDate.getTime() !== new Date(0).getTime()
 
-        return {
-            min: isValidMin ? minDate : null,
-            max: isValidMax ? maxDate : null,
-        }
+        return isValidMin && isValidMax ? { min: minDate, max: maxDate } : null
     } catch (e) {
         Sentry.captureException(e)
-        return {
-            min: null,
-            max: null,
-        }
+        return null
     }
 }

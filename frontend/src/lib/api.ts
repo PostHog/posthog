@@ -2,7 +2,6 @@ import posthog from 'posthog-js'
 import { parsePeopleParams, PeopleParamType } from 'scenes/trends/personsModalLogic'
 import {
     ActionType,
-    ActorType,
     AnnotationType,
     CohortType,
     CombinedEventType,
@@ -42,6 +41,7 @@ export interface PaginatedResponse<T> {
     results: T[]
     next?: string
     previous?: string
+    missing_persons?: number
 }
 
 export interface CountedPaginatedResponse extends PaginatedResponse<ActivityLogItem> {
@@ -396,20 +396,6 @@ const api = {
         },
         async list(params?: string): Promise<PaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
-        },
-        async getPeople(
-            peopleParams: PeopleParamType,
-            filters: Partial<FilterType>,
-            searchTerm?: string
-        ): Promise<PaginatedResponse<{ people: ActorType[]; count: number }>> {
-            return await new ApiRequest()
-                .actions()
-                .withAction('people')
-                .withQueryString(
-                    parsePeopleParams(peopleParams, filters) +
-                        (searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : '')
-                )
-                .get()
         },
         async getCount(actionId: ActionType['id']): Promise<number> {
             return (await new ApiRequest().actionsDetail(actionId).withAction('count').get()).count
