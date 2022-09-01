@@ -45,6 +45,7 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
+    // if the current _gloabal_ value is true respect that over any local preference
     return localStorage.getItem('default_filter_test_accounts') === 'true' || current_filter_test_accounts
 }
 
@@ -58,17 +59,14 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
 export const createEmptyInsight = (
     insightId: InsightShortId | `new-${string}` | 'new',
     filterTestAccounts: boolean
-): Partial<InsightModel> => {
-    console.log('create empty insight with filter test accounts set to: ', filterTestAccounts)
-    return {
-        short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
-        name: '',
-        description: '',
-        tags: [],
-        filters: filterTestAccounts ? { filter_test_accounts: true } : {},
-        result: null,
-    }
-}
+): Partial<InsightModel> => ({
+    short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
+    name: '',
+    description: '',
+    tags: [],
+    filters: filterTestAccounts ? { filter_test_accounts: true } : {},
+    result: null,
+})
 
 export const insightLogic = kea<insightLogicType>({
     props: {} as InsightLogicProps,
@@ -260,7 +258,7 @@ export const insightLogic = kea<insightLogicType>({
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
                     const params = { ...filters, ...(refresh ? { refresh: true } : {}), client_query_id: queryId }
-                    console.log(filters)
+
                     const dashboardItemId = props.dashboardItemId
                     actions.startQuery(queryId)
                     if (dashboardItemId && dashboardsModel.isMounted()) {
