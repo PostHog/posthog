@@ -67,19 +67,7 @@ export async function startPluginsServer(
     let httpServer: Server | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
-    let shutdownStatus = 0
-
     async function closeJobs(): Promise<void> {
-        shutdownStatus += 1
-        if (shutdownStatus === 2) {
-            status.info('🔁', 'Try again to shut down forcibly')
-            return
-        }
-        if (shutdownStatus >= 3) {
-            status.info('❗️', 'Shutting down forcibly!')
-            void piscina?.destroy()
-            process.exit()
-        }
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
         cancelAllScheduledJobs()
