@@ -515,11 +515,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             eventUsageLogic.actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
-                recording_duration_ms: values.sessionPlayerData.metadata.recordingDurationMs,
-                recording_age_days: Math.floor(
-                    (Date.now() - values.sessionPlayerData.metadata.segments[0].startTimeEpochMs) /
-                        (1000 * 60 * 60 * 24)
-                ),
+                recording_duration_ms: values.sessionPlayerData?.metadata
+                    ? values.sessionPlayerData.metadata.recordingDurationMs
+                    : undefined,
+                recording_age_days:
+                    values.sessionPlayerData?.metadata && values.sessionPlayerData?.metadata.segments.length > 0
+                        ? Math.floor(
+                              (Date.now() - values.sessionPlayerData.metadata.segments[0].startTimeEpochMs) /
+                                  (1000 * 60 * 60 * 24)
+                          )
+                        : undefined,
                 meta_data_load_time_ms: values.loadMetaTimeMs ?? undefined,
                 first_snapshot_load_time_ms: values.loadFirstSnapshotTimeMs ?? undefined,
                 first_snapshot_and_meta_load_time_ms:
