@@ -11,7 +11,7 @@ import { useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { sessionPlayerDrawerLogic } from './sessionPlayerDrawerLogic'
-import { LemonDivider, LemonModal } from '@posthog/lemon-ui'
+import { LemonModal } from '@posthog/lemon-ui'
 import { PlayerMetaV3 } from './player/PlayerMeta'
 
 interface SessionPlayerDrawerProps {
