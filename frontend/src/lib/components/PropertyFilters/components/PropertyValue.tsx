@@ -189,6 +189,7 @@ export function PropertyValue({
             loading={options[propertyKey]?.status === 'loading'}
             propertyKey={propertyKey}
             {...commonInputProps}
+            className="property-value"
             autoFocus={autoFocus}
             value={value === null ? [] : value}
             mode="multiple"
