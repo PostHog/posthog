@@ -180,6 +180,12 @@ function BoldNumberComparison({ showPersonsModal }: Pick<ChartParams, 'showPerso
                 ) : (
                     <a
                         onClick={() => {
+                            if (previousPeriodSeries.persons?.url) {
+                                openPersonsModal({
+                                    url: previousPeriodSeries.persons?.url,
+                                    title: <PropertyKeyInfo value={previousPeriodSeries.label} disablePopover />,
+                                })
+                            }
                             loadPeople({
                                 action: previousPeriodSeries.action,
                                 label: previousPeriodSeries.label,
