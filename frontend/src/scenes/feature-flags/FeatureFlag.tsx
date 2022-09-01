@@ -529,7 +529,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         <Radio.Group
                                             options={[
                                                 {
-                                                    label: 'Boolean value (A/B test)',
+                                                    label: 'Release toggle (boolean)',
                                                     value: false,
                                                 },
                                                 {
@@ -901,8 +901,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                         Served value:{' '}
                         <b>
                             {featureFlag.filters.multivariate
-                                ? 'String value (Multivariate test)'
-                                : 'Boolean value (A/B test)'}
+                                ? 'Multiple variants with rollout percentages (A/B test)'
+                                : 'Release toggle (boolean)'}
                         </b>
                     </div>
                     {featureFlag.filters.multivariate && (
@@ -965,7 +965,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                             <Radio.Group
                                 options={[
                                     {
-                                        label: 'Boolean value (A/B test)',
+                                        label: 'Release toggle (boolean)',
                                         value: false,
                                     },
                                     {
@@ -985,7 +985,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                             />
                                                         </Link>
                                                     )}
-                                                    String value (Multivariate test){' '}
+                                                    Multiple variants with rollout percentages (A/B test)
                                                 </div>
                                             </Tooltip>
                                         ),
