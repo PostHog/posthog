@@ -38,7 +38,7 @@ class Command(BaseCommand):
             "--min-query-time",
             type=int,
             default=MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
-            help="Minimum query time (ms)9 before a query if considered for optimization. Same as MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME env variable.",
+            help="Minimum query time (ms) before a query if considered for optimization. Same as MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME env variable.",
         )
         parser.add_argument(
             "--analyze-period",

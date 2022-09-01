@@ -30,7 +30,7 @@ export function PluginJobOptions({
                 .filter((jobName) => jobName in publicJobs)
                 .map((jobName) => (
                     <div key={jobName}>
-                        {jobName === 'Export historical events' ? (
+                        {jobName.includes('Export historical events') ? (
                             <Tooltip title="Run this app on all historical events ingested until now">
                                 <i>Export historical events</i>
                             </Tooltip>
