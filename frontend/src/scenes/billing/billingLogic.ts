@@ -1,4 +1,5 @@
-import { kea } from 'kea'
+import { kea, path, actions, connect, reducers, selectors, events, listeners } from 'kea'
+import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
 import { PlanInterface, BillingType } from '~/types'
@@ -23,15 +24,24 @@ export enum BillingAlertType {
     FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
-export const billingLogic = kea<billingLogicType>({
-    path: ['scenes', 'billing', 'billingLogic'],
-    actions: {
+export const billingLogic = kea<billingLogicType>([
+    path(['scenes', 'billing', 'billingLogic']),
+    actions({
         registerInstrumentationProps: true,
-    },
-    connect: {
+        toggleUsageTiers: true,
+    }),
+    connect({
         values: [featureFlagLogic, ['featureFlags']],
-    },
-    loaders: ({ actions, values }) => ({
+    }),
+    reducers({
+        showUsageTiers: [
+            false as boolean,
+            {
+                toggleUsageTiers: (state) => !state,
+            },
+        ],
+    }),
+    loaders(({ actions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -77,8 +87,8 @@ export const billingLogic = kea<billingLogicType>({
                 },
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
         eventAllocation: [(s) => [s.billing], (billing: BillingType) => billing?.event_allocation],
         percentage: [
             (s) => [s.eventAllocation, s.billing],
@@ -160,15 +170,15 @@ export const billingLogic = kea<billingLogicType>({
                 }
             },
         ],
-    },
-    events: ({ actions }) => ({
+    }),
+    events(({ actions }) => ({
         afterMount: () => {
             if (preflightLogic.values.preflight?.cloud) {
                 actions.loadBilling()
             }
         },
-    }),
-    listeners: ({ values }) => ({
+    })),
+    listeners(({ values }) => ({
         subscribeSuccess: ({ billingSubscription }) => {
             if (billingSubscription?.subscription_url) {
                 window.location.href = billingSubscription.subscription_url
@@ -188,5 +198,5 @@ export const billingLogic = kea<billingLogicType>({
                 })
             }
         },
-    }),
-})
+    })),
+])

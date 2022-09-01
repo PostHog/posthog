@@ -1,5 +1,5 @@
-.BillingPage {
-    .plan-description {
+.BillingPlan {
+    .BillingPlan__description {
         ol,
         ul {
             margin-top: 1rem;
@@ -23,12 +23,5 @@
             color: var(--muted);
             margin-top: 1rem;
         }
-    }
-
-    .bill-amount {
-        margin-top: 0.5rem;
-        font-size: 1.2rem;
-        font-weight: bold;
-        text-align: center;
     }
 }
