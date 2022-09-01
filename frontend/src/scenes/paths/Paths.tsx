@@ -307,7 +307,9 @@ export function Paths(): JSX.Element {
 
                                                         <LemonButton
                                                             size="small"
-                                                            onClick={() => openPersonsModal(pathItemCard.name)}
+                                                            onClick={() =>
+                                                                openPersonsModal({ path_start_key: pathItemCard.name })
+                                                            }
                                                         >
                                                             <span className="text-xs">
                                                                 {continuingValue}
@@ -330,11 +332,9 @@ export function Paths(): JSX.Element {
                                                         <LemonButton
                                                             size="small"
                                                             onClick={() =>
-                                                                openPersonsModal(
-                                                                    undefined,
-                                                                    undefined,
-                                                                    pathItemCard.name
-                                                                )
+                                                                openPersonsModal({
+                                                                    path_dropoff_key: pathItemCard.name,
+                                                                })
                                                             }
                                                         >
                                                             <span className="text-xs">
@@ -412,7 +412,9 @@ export function Paths(): JSX.Element {
                                             </div>
                                             <Row style={{ alignSelf: 'center' }}>
                                                 <span
-                                                    onClick={() => openPersonsModal(undefined, pathItemCard.name)}
+                                                    onClick={() =>
+                                                        openPersonsModal({ path_end_key: pathItemCard.name })
+                                                    }
                                                     className="text-primary text-xs"
                                                     style={{ alignSelf: 'center', paddingRight: 4, fontWeight: 500 }}
                                                 >

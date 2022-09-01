@@ -60,11 +60,8 @@ export const pathsLogic = kea<pathsLogicType>({
         setFilter: (filter: Partial<FilterType>) => ({ filter }),
         showPathEvents: (event) => ({ event }),
         updateExclusions: (exclusions: string[]) => ({ exclusions }),
-        openPersonsModal: (path_start_key?: string, path_end_key?: string, path_dropoff_key?: string) => ({
-            path_start_key,
-            path_end_key,
-            path_dropoff_key,
-        }),
+        openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
+            props,
         viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
     },
     listeners: ({ actions, values, props }) => ({
