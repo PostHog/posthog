@@ -2,6 +2,16 @@ import { PropertyGroupFilter, AnyPropertyFilter, EventDefinition, PropertyFilter
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
 
+export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
+    if (!propertyFilter.type && propertyFilter.value) {
+        return {
+            ...propertyFilter,
+            type: 'event',
+        }
+    }
+    return propertyFilter
+}
+
 export function parseProperties(
     input: AnyPropertyFilter[] | PropertyGroupFilter | Record<string, string> | null | undefined
 ): AnyPropertyFilter[] {
