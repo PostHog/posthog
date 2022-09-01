@@ -16,7 +16,7 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { billing } = useValues(billingLogic)
+    const { billing, isSmallScreen } = useValues(billingLogic)
 
     return (
         <div className="flex flex-col space-y-6">
@@ -36,14 +36,22 @@ export function Billing(): JSX.Element {
                     Your plan is <b>currently inactive</b> as you haven't finished setting up your billing information.
                 </AlertMessage>
             )}
-            <div className="flex flex-row space-x-4">
-                <div className="w-2/3">
+            {isSmallScreen && (
+                <div className="flex flex-col space-y-4">
                     <CurrentUsage />
-                </div>
-                <div className="w-1/3">
                     {billing?.plan ? <Plan plan={billing.plan} currentPlan /> : <BillingEnrollment />}
                 </div>
-            </div>
+            )}
+            {!isSmallScreen && (
+                <div className="flex flex-row space-x-4">
+                    <div className="w-2/3">
+                        <CurrentUsage />
+                    </div>
+                    <div className="w-1/3">
+                        {billing?.plan ? <Plan plan={billing.plan} currentPlan /> : <BillingEnrollment />}
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

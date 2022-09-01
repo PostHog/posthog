@@ -11,6 +11,8 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { windowValues } from 'kea-window-values'
+import { getBreakpoint } from 'lib/utils/responsiveUtils'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -40,6 +42,9 @@ export const billingLogic = kea<billingLogicType>([
                 toggleUsageTiers: (state) => !state,
             },
         ],
+    }),
+    windowValues({
+        isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
     }),
     loaders(({ actions, values }) => ({
         billing: [
