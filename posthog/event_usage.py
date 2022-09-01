@@ -47,10 +47,7 @@ def report_user_signed_up(
     # TODO: This should be $set_once as user props.
     posthoganalytics.identify(user.distinct_id, props)
     posthoganalytics.capture(
-        user.distinct_id,
-        "user signed up",
-        properties=props,
-        groups=groups(user.organization, user.team),
+        user.distinct_id, "user signed up", properties=props, groups=groups(user.organization, user.team),
     )
 
 
@@ -77,8 +74,7 @@ def report_user_joined_organization(organization: Organization, current_user: Us
 
 
 def report_user_logged_in(
-    user: User,
-    social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
+    user: User, social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
 ) -> None:
     """
     Reports that a user has logged in to PostHog.
@@ -195,19 +191,14 @@ def report_org_usage_failure(organization_id: str, distinct_id: str, err: str) -
     posthoganalytics.capture(
         distinct_id,
         "organization usage report failure",
-        properties={
-            "error": err,
-        },
+        properties={"error": err,},
         groups={"organization": organization_id, "instance": SITE_URL},
     )
 
 
 def report_user_action(user: User, event: str, properties: Dict = {}):
     posthoganalytics.capture(
-        user.distinct_id,
-        event,
-        properties=properties,
-        groups=groups(user.current_organization, user.current_team),
+        user.distinct_id, event, properties=properties, groups=groups(user.current_organization, user.current_team),
     )
 
 
