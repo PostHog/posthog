@@ -1,8 +1,10 @@
+import urllib
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
+
 import pytz
 from django.db.models.query import Prefetch
-import urllib
+
 from posthog.client import sync_execute
 from posthog.models.entity import Entity
 from posthog.models.entity.util import get_entity_filtering_params

@@ -202,12 +202,12 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-22T00:00:00Z", "events": [event]}
         )
         entity = Entity(event)
-        _, serialized_actors = TrendsActors(self.team, entity, filter).get_actors()
+        _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
         assert len(serialized_actors) == 2
 
         filter = filter.with_data({"search": "ben"})
-        _, serialized_actors = TrendsActors(self.team, entity, filter).get_actors()
+        _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
         assert len(serialized_actors) == 1
         assert serialized_actors[0].get("distinct_ids", None) == ["u1"]
