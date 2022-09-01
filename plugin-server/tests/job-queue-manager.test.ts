@@ -39,8 +39,7 @@ describe('JobQueueManager', () => {
 
     describe('_enqueue()', () => {
         it('enqueues jobs to the first available job queue', async () => {
-            const enqueueSpy = jest.spyOn(jobQueueManager.jobQueues[0], 'enqueue')
-            jobQueueManager.jobQueues[1] = { enqueue: jest.fn() } as any
+            jobQueueManager.jobQueues = [{ enqueue: jest.fn() } as any, { enqueue: jest.fn() } as any]
 
             await jobQueueManager._enqueue(JobName.PLUGIN_JOB, { type: 'foo', timestamp: Date.now() } as EnqueuedJob)
 
@@ -48,7 +47,7 @@ describe('JobQueueManager', () => {
             expect(jobQueueManager.jobQueues[0].enqueue).toHaveBeenCalled()
             expect(jobQueueManager.jobQueues[1].enqueue).not.toHaveBeenCalled()
 
-            enqueueSpy.mockImplementationOnce(() => {
+            jobQueueManager.jobQueues[0].enqueue = jest.fn(() => {
                 throw new Error()
             })
             await jobQueueManager._enqueue(JobName.PLUGIN_JOB, { type: 'foo', timestamp: Date.now() } as EnqueuedJob)
@@ -58,7 +57,7 @@ describe('JobQueueManager', () => {
         })
 
         it('throws a RetryError if it cannot enqueue the job on any queue', async () => {
-            jest.spyOn(jobQueueManager.jobQueues[0], 'enqueue').mockImplementationOnce(() => {
+            jobQueueManager.jobQueues[0].enqueue = jest.fn(() => {
                 throw new Error()
             })
 
