@@ -252,7 +252,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
 
     // show the search string that was used to make the results, not what it currently is
     const searchString = insights.filters?.search || null
-    const { title, description } = SAVED_INSIGHTS_COPY[tab]
+    const { title, description } = SAVED_INSIGHTS_COPY[tab] ?? {}
 
     return (
         <div className="saved-insight-empty-state">

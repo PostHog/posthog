@@ -12,6 +12,7 @@
         flex-wrap: wrap;
         flex-direction: row;
         background-color: var(--bg-light);
+        z-index: 0;
 
         .player-container {
             height: 100%;
@@ -225,42 +226,11 @@
     }
 }
 // Session player v3 can exist inside of a modal
-.ant-modal.session-player-wrapper-v3 {
-    width: calc(100vw - 2rem) !important;
+.session-player-wrapper-v3 {
+    width: calc(100vw - 2rem);
     max-width: 880px;
     height: calc(100vh - 2rem);
-    top: 1rem;
     padding: 0;
-
-    .ant-modal-content {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-
-        .ant-modal-header {
-            padding: 0;
-            border-color: var(--border);
-            flex-shrink: 0;
-        }
-
-        .ant-modal-body {
-            padding: 0;
-            overflow-y: auto;
-            flex: 1;
-
-            .session-drawer-body {
-                height: 100%;
-
-                .player-sidebar {
-                    height: 100%;
-                    min-height: 20rem;
-                    width: 100%;
-                    padding: 0;
-                    border: none;
-                }
-            }
-        }
-    }
 }
 
 .ant-drawer.session-player-wrapper-v2 {

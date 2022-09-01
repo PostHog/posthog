@@ -172,7 +172,7 @@ export function PersonsModal({
             >
                 {people && !!people.missingPersons && (
                     <AlertMessage type="info" className="mb-2">
-                        {people.missingPersons + 1}{' '}
+                        {people.missingPersons}{' '}
                         {people.missingPersons > 1
                             ? `${aggregationTargetLabel.plural} are`
                             : `${aggregationTargetLabel.singular} is`}{' '}
