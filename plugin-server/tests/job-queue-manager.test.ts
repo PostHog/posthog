@@ -18,6 +18,7 @@ const mockHub: Hub = {
 describe('JobQueueManager', () => {
     let jobQueueManager: JobQueueManager
     beforeEach(() => {
+        jest.clearAllMocks()
         jobQueueManager = new JobQueueManager(mockHub)
     })
 
