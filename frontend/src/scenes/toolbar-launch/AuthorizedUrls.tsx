@@ -13,6 +13,7 @@ import { Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
 import Typography from 'antd/lib/typography'
+import './AuthorizedUrls.scss'
 
 interface AuthorizedUrlsTableInterface {
     pageKey?: string
@@ -124,7 +125,7 @@ export function AuthorizedUrls({ pageKey, actionId }: AuthorizedUrlsTableInterfa
                                         )}
                                         <Typography.Text
                                             ellipsis={{ tooltip: keyedAppURL.url }}
-                                            className="text-muted-alt flex-1"
+                                            className="text-muted-alt flex-1 break-word"
                                         >
                                             {keyedAppURL.url}
                                         </Typography.Text>
