@@ -51,7 +51,7 @@ if TEST:
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
-        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), sign=-1)
+        create_person_distinct_id(instance.team.pk, instance.distinct_id, str(instance.person.uuid), is_deleted=True)
 
     try:
         from freezegun import freeze_time
@@ -138,17 +138,28 @@ def create_person(
     return uuid
 
 
-def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, sign=1) -> None:
-    data = {"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "_sign": sign}
+def create_person_distinct_id(team_id: int, distinct_id: str, person_id: str, version=0, is_deleted=False) -> None:
     p = ClickhouseProducer()
     if not fetch_person_distinct_id2_ready():
+        data = {
+            "distinct_id": distinct_id,
+            "person_id": person_id,
+            "team_id": team_id,
+            "_sign": -1 if is_deleted else 1,
+        }
         p.produce(topic=KAFKA_PERSON_UNIQUE_ID, sql=INSERT_PERSON_DISTINCT_ID, data=data)
-    if sign == 1:
-        p.produce(
-            topic=KAFKA_PERSON_DISTINCT_ID,
-            sql=INSERT_PERSON_DISTINCT_ID2,
-            data={"distinct_id": distinct_id, "person_id": person_id, "team_id": team_id, "version": version,},
-        )
+
+    p.produce(
+        topic=KAFKA_PERSON_DISTINCT_ID,
+        sql=INSERT_PERSON_DISTINCT_ID2,
+        data={
+            "distinct_id": distinct_id,
+            "person_id": person_id,
+            "team_id": team_id,
+            "version": version,
+            "is_deleted": int(is_deleted),
+        },
+    )
 
 
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QuerySet:

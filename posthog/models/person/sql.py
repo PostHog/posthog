@@ -325,7 +325,7 @@ INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)
 """
 
 INSERT_PERSON_DISTINCT_ID2 = """
-INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, 0, %(version)s, now(), 0, 0 VALUES
+INSERT INTO person_distinct_id2 (distinct_id, person_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
 """
 
 BULK_INSERT_PERSON_DISTINCT_ID2 = """

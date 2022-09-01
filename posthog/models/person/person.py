@@ -73,7 +73,7 @@ class Person(models.Model):
                     team_id=self.team_id,
                     distinct_id=distinct_id,
                     person_id=str(person.uuid),
-                    sign=1,
+                    is_deleted=False,
                     version=pdi.version,
                 )
                 create_person(team_id=self.team_id, uuid=str(person.uuid), version=person.version or 0)
