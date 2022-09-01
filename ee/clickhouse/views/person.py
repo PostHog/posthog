@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Dict, List, Optional, Tuple
 
 from rest_framework import request, response
 from rest_framework.decorators import action
@@ -20,7 +20,9 @@ class EnterprisePersonViewSet(PersonViewSet):
         return self._respond_with_cached_results(self.calculate_funnel_correlation_persons(request))
 
     @cached_function
-    def calculate_funnel_correlation_persons(self, request: request.Request) -> Dict[str, Dict[str, Any]]:
+    def calculate_funnel_correlation_persons(
+        self, request: request.Request
+    ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         if not filter.correlation_person_limit:
             filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
@@ -42,14 +44,7 @@ class EnterprisePersonViewSet(PersonViewSet):
         )
         initial_url = format_query_params_absolute_url(request, 0)
 
-        return {
-            "result": {
-                "results": [{"people": serialized_actors, "count": len(serialized_actors)}],
-                "next": next_url,
-                "initial": initial_url,
-                "missing_persons": raw_count - len(serialized_actors),
-            }
-        }
+        return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
 
 class LegacyEnterprisePersonViewSet(EnterprisePersonViewSet):
