@@ -58,7 +58,7 @@ class Command(BaseCommand):
         elif options["plan"]:
             handle_plan(necessary_migrations)
         elif options["auto_complete_trivial"]:
-            handle_auto_complete_trivial(necessary_migrations)
+            handle_auto_complete_trivial()
         else:
             handle_run(necessary_migrations)
 
@@ -136,15 +136,20 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
         )
 
 
-def handle_auto_complete_trivial(necessary_migrations: Sequence[AsyncMigration]):
+def handle_auto_complete_trivial():
     """
     Some migrations are trivial to apply, i.e. they would not have any effect on
     schema or data within ClickHouse, thus, assuming their dependencies are
     already complete, we can complete them also.
     """
-    for migration in necessary_migrations:
-        is_required = ALL_ASYNC_MIGRATIONS[migration.name].is_required()
+    for migration_name, definition in sorted(ALL_ASYNC_MIGRATIONS.items()):
+        if is_async_migration_complete(migration_name):
+            continue
+
+        sm = setup_model(migration_name, definition)
+
+        is_required = ALL_ASYNC_MIGRATIONS[migration_name].is_required()
         if not is_required:
-            dependency_ok, _ = is_migration_dependency_fulfilled(migration.name)
+            dependency_ok, _ = is_migration_dependency_fulfilled(migration_name)
             if dependency_ok:
-                complete_migration(migration)
+                complete_migration(sm)
