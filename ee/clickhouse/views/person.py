@@ -44,6 +44,7 @@ class EnterprisePersonViewSet(PersonViewSet):
         )
         initial_url = format_query_params_absolute_url(request, 0)
 
+        # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
 
 
