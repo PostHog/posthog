@@ -8,14 +8,7 @@ import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/
 import './PersonsModal.scss'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import {
-    IconArrowDropDown,
-    IconPersonFilled,
-    IconPlay,
-    IconSave,
-    IconUnfoldLess,
-    IconUnfoldMore,
-} from 'lib/components/icons'
+import { IconArrowDropDown, IconPlay, IconSave, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
@@ -62,118 +55,117 @@ function PersonsModalV2({ url: _url, urlsIndex, urls, title, onAfterClose }: Per
     return (
         <>
             <LemonModal
-                title={typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel)) : title}
+                title={''}
                 isOpen={isOpen}
                 onClose={() => setIsOpen(false)}
                 onAfterClose={onAfterClose}
-                description={
-                    <>
-                        <LemonInput
-                            type="search"
-                            placeholder="Search for persons by email, name, or ID"
-                            fullWidth
-                            value={searchTerm}
-                            onChange={setSearchTerm}
-                            className="my-2"
-                        />
-
-                        {urls ? (
-                            <LemonSelect
-                                fullWidth
-                                className="mb-2"
-                                value={selectedUrlIndex}
-                                onChange={(v) => v && setSelectedUrlIndex(v)}
-                                options={(urls || []).map((url, index) => ({
-                                    value: index,
-                                    label: url.label,
-                                }))}
-                            />
-                        ) : null}
-
-                        <div className="flex items-center gap-2 text-muted">
-                            {actorsResponseLoading ? (
-                                <>
-                                    <Spinner />
-                                    <span>Loading {actorLabel}...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <IconPersonFilled className="text-xl" />
-                                    <span>
-                                        This list contains {actorsResponse?.next ? 'more than ' : ''}
-                                        <b>
-                                            {actorsResponse?.total_count} unique {actorLabel}
-                                        </b>
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    </>
-                }
-                footer={
-                    <>
-                        {
-                            <LemonButton
-                                onClick={() => setCohortModalOpen(true)}
-                                icon={<IconSave />}
-                                type="secondary"
-                                data-attr="person-modal-save-as-cohort"
-                                disabled={actorsResponse?.total_count === 0}
-                            >
-                                Save as cohort
-                            </LemonButton>
-                        }
-                        <LemonButton
-                            icon={<DownloadOutlined />}
-                            type="secondary"
-                            onClick={() => {
-                                triggerExport({
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: {
-                                        path: originalUrl,
-                                    },
-                                })
-                            }}
-                            data-attr="person-modal-download-csv"
-                            disabled={actorsResponse?.total_count === 0}
-                        >
-                            Download CSV
-                        </LemonButton>
-                    </>
-                }
+                simple
                 width={600}
             >
-                <div className="relative min-h-20 space-y-2">
-                    {actors && actors.length > 0 ? (
-                        <>
-                            {actors.map((x) => (
-                                <ActorRow
-                                    key={x.id}
-                                    actor={x}
-                                    onOpenRecording={(id) => openSessionPlayer(id, RecordingWatchedSource.PersonModal)}
-                                />
-                            ))}
-                        </>
-                    ) : actorsResponseLoading ? (
-                        <Skeleton title={false} />
-                    ) : (
-                        <div className="text-center">
-                            We couldn't find any matching {actorLabel} for this data point.
+                <LemonModal.Header>
+                    <h3>{typeof title === 'function' ? title(capitalizeFirstLetter(actorLabel)) : title}</h3>
+                </LemonModal.Header>
+                <div className="px-6 py-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for persons by email, name, or ID"
+                        fullWidth
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        className="my-2"
+                    />
+
+                    {urls ? (
+                        <LemonSelect
+                            fullWidth
+                            className="mb-2"
+                            value={selectedUrlIndex}
+                            onChange={(v) => v && setSelectedUrlIndex(v)}
+                            options={(urls || []).map((url, index) => ({
+                                value: index,
+                                label: url.label,
+                            }))}
+                        />
+                    ) : null}
+
+                    <div className="flex items-center gap-2 text-muted">
+                        {actorsResponseLoading ? (
+                            <>
+                                <Spinner />
+                                <span>Loading {actorLabel}...</span>
+                            </>
+                        ) : (
+                            <span>
+                                {actorsResponse?.next ? 'More than ' : ''}
+                                <b>
+                                    {actorsResponse?.total_count} unique {actorLabel}
+                                </b>
+                            </span>
+                        )}
+                    </div>
+                </div>
+                <LemonModal.Content>
+                    <div className="relative min-h-20 space-y-2">
+                        {actors && actors.length > 0 ? (
+                            <>
+                                {actors.map((x) => (
+                                    <ActorRow
+                                        key={x.id}
+                                        actor={x}
+                                        onOpenRecording={(id) =>
+                                            openSessionPlayer(id, RecordingWatchedSource.PersonModal)
+                                        }
+                                    />
+                                ))}
+                            </>
+                        ) : actorsResponseLoading ? (
+                            <Skeleton title={false} />
+                        ) : (
+                            <div className="text-center">
+                                We couldn't find any matching {actorLabel} for this data point.
+                            </div>
+                        )}
+                    </div>
+
+                    {actorsResponse?.next && (
+                        <div className="m-4 flex justify-center">
+                            <LemonButton
+                                type="primary"
+                                onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
+                                loading={actorsResponseLoading}
+                            >
+                                Load more {actorLabel}
+                            </LemonButton>
                         </div>
                     )}
-                </div>
-
-                {actorsResponse?.next && (
-                    <div className="m-4 flex justify-center">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
-                            loading={actorsResponseLoading}
-                        >
-                            Load more {actorLabel}
-                        </LemonButton>
-                    </div>
-                )}
+                </LemonModal.Content>
+                <LemonModal.Footer>
+                    <LemonButton
+                        onClick={() => setCohortModalOpen(true)}
+                        icon={<IconSave />}
+                        type="secondary"
+                        data-attr="person-modal-save-as-cohort"
+                        disabled={actorsResponse?.total_count === 0}
+                    >
+                        Save as cohort
+                    </LemonButton>
+                    <LemonButton
+                        icon={<DownloadOutlined />}
+                        type="secondary"
+                        onClick={() => {
+                            triggerExport({
+                                export_format: ExporterFormat.CSV,
+                                export_context: {
+                                    path: originalUrl,
+                                },
+                            })
+                        }}
+                        data-attr="person-modal-download-csv"
+                        disabled={actorsResponse?.total_count === 0}
+                    >
+                        Download CSV
+                    </LemonButton>
+                </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
                 onSave={(title) => saveCohortWithUrl(title)}
