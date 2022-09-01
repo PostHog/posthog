@@ -128,7 +128,7 @@ export function LemonSelect<T>({
                                     sideIcon={option.sideIcon}
                                     tooltip={option.tooltip}
                                     onClick={() => {
-                                        if (option.value != localValue) {
+                                        if (option.value !== localValue) {
                                             onChange?.(option.value ?? null)
                                             setLocalValue(option.value)
                                         }
@@ -160,7 +160,7 @@ export function LemonSelect<T>({
                 {...buttonProps}
             >
                 <span>
-                    {allOptions.find((o) => o.value == localValue)?.label ?? localValue ?? (
+                    {allOptions.find((o) => o.value === localValue)?.label ?? localValue ?? (
                         <span className="text-muted">{placeholder}</span>
                     )}
                 </span>
