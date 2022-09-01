@@ -320,13 +320,13 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     const cleanedParams = cleanFilters(params)
                     const funnelParams = toParams(cleanedParams)
                     actors = await api.get(
-                        `api/person/funnel/?${includeRecordingsParam}${funnelParams}${searchTermParam}`
+                        `api/person/funnel/?${funnelParams}${searchTermParam}${includeRecordingsParam}`
                     )
                 } else if (filters.insight === InsightType.PATHS) {
                     const cleanedParams = cleanFilters(filters)
                     const pathParams = toParams(cleanedParams)
 
-                    actors = await api.get(`api/person/path/?${includeRecordingsParam}${pathParams}${searchTermParam}`)
+                    actors = await api.get(`api/person/path/?${pathParams}${searchTermParam}${includeRecordingsParam}`)
 
                     // Manually populate URL data so that cohort creation can use this information
                     const pathsParams = {
@@ -348,7 +348,7 @@ export const personsModalLogic = kea<personsModalLogicType>({
                     )
 
                     actors = await api.get(
-                        `api/person/trends/?${includeRecordingsParam}${filterParams}${searchTermParam}`
+                        `api/person/trends/?${filterParams}${searchTermParam}${includeRecordingsParam}`
                     )
                 }
                 breakpoint()
