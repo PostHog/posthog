@@ -69,29 +69,41 @@ def handle_check(necessary_migrations: Sequence[AsyncMigration]):
 
     if necessary_migrations:
         logger.critical(
-            "Stopping PostHog!",
-            f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:",
-            *(f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations),
-            "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+            "\n".join(
+                [
+                    "Stopping PostHog!",
+                    f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:",
+                    *(f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations),
+                    "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+                ]
+            )
         )
         exit(1)
 
     running_migrations = get_async_migrations_by_status([MigrationStatus.Running, MigrationStatus.Starting])
     if running_migrations.exists():
         logger.critical(
-            "Stopping PostHog!",
-            f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding",
-            "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+            "\n".join(
+                [
+                    "Stopping PostHog!",
+                    f"Async migration {running_migrations[0].name} is currently running. If you're trying to update PostHog, wait for it to finish before proceeding",
+                    "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+                ]
+            )
         )
         exit(1)
 
     errored_migrations = get_async_migrations_by_status([MigrationStatus.Errored])
     if errored_migrations.exists():
         logger.error(
-            f"Stopping PostHog!",
-            "Some async migrations are currently in an 'Errored' state. If you're trying to update PostHog, please make sure they complete successfully first:",
-            *(f"- {migration.name}" for migration in errored_migrations),
-            "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+            "\n".join(
+                [
+                    f"Stopping PostHog!",
+                    "Some async migrations are currently in an 'Errored' state. If you're trying to update PostHog, please make sure they complete successfully first:",
+                    *(f"- {migration.name}" for migration in errored_migrations),
+                    "See more in Docs: https://posthog.com/docs/self-host/configure/async-migrations/overview",
+                ]
+            )
         )
         exit(1)
 
@@ -132,7 +144,7 @@ def handle_auto_complete_trivial(necessary_migrations: Sequence[AsyncMigration])
     """
     for migration in necessary_migrations:
         is_required = ALL_ASYNC_MIGRATIONS[migration.name].is_required()
-        if is_required:
+        if not is_required:
             dependency_ok, _ = is_migration_dependency_fulfilled(migration.name)
             if dependency_ok:
                 complete_migration(migration)

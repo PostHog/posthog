@@ -8,6 +8,10 @@ python manage.py migrate_clickhouse
 # manually within the UI. See https://posthog.com/docs/runbook/async-migrations
 # for details.
 python manage.py run_async_migrations --auto-complete-trivial
+
+# NOTE: this check should not fail if a migration isn't complete but within the
+# given async migration posthog version range, thus this should not block e.g.
+# k8s pod deployments.
 python manage.py run_async_migrations --check
 
 python manage.py sync_replicated_schema
