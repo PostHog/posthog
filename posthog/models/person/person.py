@@ -70,9 +70,6 @@ class Person(models.Model):
                 from posthog.models.person.util import create_person, create_person_distinct_id
 
                 create_person_distinct_id(
-                    team_id=self.team_id, distinct_id=distinct_id, person_id=str(self.uuid), sign=-1
-                )
-                create_person_distinct_id(
                     team_id=self.team_id,
                     distinct_id=distinct_id,
                     person_id=str(person.uuid),
