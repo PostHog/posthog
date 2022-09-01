@@ -35,6 +35,7 @@ const API_FILTERS = {
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
 const Insight43 = '43' as InsightShortId
+const Insight44 = '44' as InsightShortId
 const Insight500 = '500' as InsightShortId
 
 describe('insightLogic', () => {
@@ -58,6 +59,12 @@ describe('insightLogic', () => {
                     id: 43,
                     short_id: Insight43,
                     result: ['result 43'],
+                    filters: API_FILTERS,
+                },
+                '/api/projects/:team/insights/44/': {
+                    id: 44,
+                    short_id: Insight44,
+                    result: ['result 44'],
                     filters: API_FILTERS,
                 },
                 '/api/projects/:team/insights/': (req) => {
@@ -743,22 +750,6 @@ describe('insightLogic', () => {
             })
     })
 
-    test('will not save with empty filters', async () => {
-        jest.spyOn(Sentry, 'captureException')
-        logic = insightLogic({
-            dashboardItemId: Insight42,
-            filters: { insight: InsightType.FUNNELS },
-        })
-        logic.mount()
-
-        logic.actions.setInsight({ id: 42, short_id: Insight42, filters: {} }, {})
-        logic.actions.saveInsight()
-        expect(Sentry.captureException).toHaveBeenCalledWith(
-            new Error('Will not override empty filters in saveInsight.'),
-            expect.any(Object)
-        )
-    })
-
     describe('filterPropertiesCount selector', () => {
         const standardPropertyFilter = { value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }
         const cases: {
@@ -791,22 +782,26 @@ describe('insightLogic', () => {
             },
         ]
 
-        it.each(cases)('returns the correct count for filter properties', ({ properties, count }) => {
-            logic = insightLogic({
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    short_id: Insight42,
-                    results: ['cached result'],
-                    filters: {
-                        insight: InsightType.TRENDS,
-                        events: [{ id: 2 }],
-                        properties,
+        cases.forEach(({ properties, count }) => {
+            it(`returns the correct count (${count}) for filter properties "${JSON.stringify(
+                properties
+            )}"`, async () => {
+                logic = insightLogic({
+                    dashboardItemId: Insight44,
+                    cachedInsight: {
+                        short_id: Insight44,
+                        results: ['cached result'],
+                        filters: {
+                            insight: InsightType.TRENDS,
+                            events: [{ id: 2 }],
+                            properties,
+                        },
                     },
-                },
-            })
-            logic.mount()
-            expectLogic(logic).toMatchValues({
-                filterPropertiesCount: count,
+                })
+                logic.mount()
+                await expectLogic(logic).toMatchValues({
+                    filterPropertiesCount: count,
+                })
             })
         })
     })
@@ -955,5 +950,21 @@ describe('insightLogic', () => {
             logic.mount()
             expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
         })
+    })
+
+    it('will not save with empty filters', async () => {
+        jest.spyOn(Sentry, 'captureException')
+        logic = insightLogic({
+            dashboardItemId: '4578' as InsightShortId,
+            cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+        })
+        logic.mount()
+
+        logic.actions.setInsight({ id: 4578, short_id: '4578' as InsightShortId, filters: {} }, {})
+        logic.actions.saveInsight()
+        expect(Sentry.captureException).toHaveBeenCalledWith(
+            new Error('Will not override empty filters in saveInsight.'),
+            expect.any(Object)
+        )
     })
 })

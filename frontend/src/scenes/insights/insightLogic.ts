@@ -807,6 +807,7 @@ export const insightLogic = kea<insightLogicType>({
             try {
                 if (insightNumericId && emptyFilters(values.insight.filters)) {
                     const error = new Error('Will not override empty filters in saveInsight.')
+
                     Sentry.captureException(error, {
                         extra: {
                             filters: JSON.stringify(values.insight.filters),
