@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.constants import FUNNEL_PATH_AFTER_STEP, INSIGHT_FUNNELS, INSIGHT_PATHS
 from posthog.models.cohort import Cohort
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -163,6 +164,9 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.person.util.delete_person")
     def test_basic_pagination_with_deleted(self, delete_person_patch):
+        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            return
+
         cache.clear()
         self._create_sample_data(20, delete=True)
         request_data = {
