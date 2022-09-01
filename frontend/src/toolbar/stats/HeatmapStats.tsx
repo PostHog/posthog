@@ -26,8 +26,7 @@ export function HeatmapStats(): JSX.Element {
                     </div>
                     <div className="flex items-center gap-2">
                         <DateFilter
-                            defaultValue="Last 7 days"
-                            dateFrom={heatmapFilter.date_from}
+                            dateFrom={heatmapFilter.date_from ?? '-7d'}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
                             getPopupContainer={getShadowRootPopupContainer}

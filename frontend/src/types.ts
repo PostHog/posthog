@@ -1768,7 +1768,7 @@ export interface VersionType {
     release_date?: string
 }
 
-export interface dateMappingOption {
+export interface DateMappingOption {
     key: string
     inactive?: boolean // Options removed due to low usage (see relevant PR); will not show up for new insights but will be kept for existing
     values: string[]
@@ -2029,4 +2029,5 @@ export enum YesOrNoResponse {
 export interface SessionRecordingPlayerProps {
     sessionRecordingId: SessionRecordingId
     playerKey: string
+    includeMeta?: boolean
 }
