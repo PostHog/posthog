@@ -1,4 +1,5 @@
 import { RetryError } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/react'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
@@ -24,7 +25,6 @@ export interface RetryParams {
 }
 
 export interface MetricsDefinition {
-    metricPrefix: string
     metricName: string
     metricTags?: Record<string, string>
 }
@@ -35,7 +35,6 @@ export type RetriableFunctionPayload = RetriableFunctionDefinition &
 
 function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, attempt = 1): Promise<void> {
     const {
-        metricPrefix,
         metricName,
         metricTags = {},
         hub,
@@ -69,10 +68,7 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                 }
                 if (error instanceof RetryError && attempt < maxAttempts) {
                     const nextRetryMs = getNextRetryMs(retryBaseMs, retryMultiplier, attempt)
-                    hub.statsd?.increment(`${metricPrefix}.${metricName}.RETRY`, {
-                        ...metricTags,
-                        attempt: attempt.toString(),
-                    })
+                    hub.statsd?.increment(`${metricName}.RETRY`, metricTags)
                     nextIterationPromise = new Promise((resolve, reject) =>
                         setTimeout(() => {
                             // This is not awaited directly so that attempts beyond the first one don't stall the payload queue
@@ -85,10 +81,8 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
                     await hub.promiseManager.awaitPromisesIfNeeded()
                 } else {
                     await catchFn?.(error)
-                    hub.statsd?.increment(`${metricPrefix}.${metricName}.ERROR`, {
-                        ...metricTags,
-                        attempt: attempt.toString(),
-                    })
+                    Sentry.captureException(error, { extra: { attempt, maxAttempts } })
+                    hub.statsd?.increment(`${metricName}.ERROR`, metricTags)
                 }
             }
             if (!nextIterationPromise) {
@@ -101,12 +95,12 @@ function iterateRetryLoop(retriableFunctionPayload: RetriableFunctionPayload, at
 /** Run function with `RetryError` handling. */
 export async function runRetriableFunction(retriableFunctionPayload: RetriableFunctionPayload): Promise<void> {
     const timer = new Date()
-    const { hub, finallyFn, metricPrefix, metricName, metricTags = {} } = retriableFunctionPayload
+    const { hub, finallyFn, metricName, metricTags = {} } = retriableFunctionPayload
     await iterateRetryLoop({
         ...retriableFunctionPayload,
         finallyFn: async (attempts) => {
             await finallyFn?.(attempts)
-            hub.statsd?.timing(`${metricPrefix}.${metricName}`, timer, metricTags)
+            hub.statsd?.timing(`${metricName}`, timer, metricTags)
         },
     })
 }

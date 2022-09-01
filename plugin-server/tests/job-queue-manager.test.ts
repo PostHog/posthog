@@ -7,6 +7,7 @@ import { JobQueueManager } from './../src/main/job-queues/job-queue-manager'
 import { EnqueuedJob, Hub, JobName } from './../src/types'
 
 jest.mock('../src/utils/retries')
+jest.mock('../src/utils/status')
 
 const mockHub: Hub = {
     instanceId: new UUID('F8B2F832-6639-4596-ABFC-F9664BC88E84'),
@@ -17,7 +18,6 @@ const mockHub: Hub = {
 describe('JobQueueManager', () => {
     let jobQueueManager: JobQueueManager
     beforeEach(() => {
-        jest.clearAllMocks()
         jobQueueManager = new JobQueueManager(mockHub)
     })
 
@@ -27,10 +27,9 @@ describe('JobQueueManager', () => {
             expect(runRetriableFunction).toHaveBeenCalled()
             const runRetriableFunctionArgs = jest.mocked(runRetriableFunction).mock.calls[0][0]
 
-            expect(runRetriableFunctionArgs.metricPrefix).toEqual('enqueueJob')
-            expect(runRetriableFunctionArgs.metricName).toEqual('pluginJob')
+            expect(runRetriableFunctionArgs.metricName).toEqual('job_queues_enqueue')
             expect(runRetriableFunctionArgs.payload).toEqual({ type: 'foo' })
-            expect(runRetriableFunctionArgs.metricTags).toEqual({ pluginServerMode: 'full' })
+            expect(runRetriableFunctionArgs.metricTags).toEqual({ jobName: 'pluginJob', pluginServerMode: 'full' })
             expect(runRetriableFunctionArgs.tryFn).not.toBeUndefined()
             expect(runRetriableFunctionArgs.catchFn).not.toBeUndefined()
             expect(runRetriableFunctionArgs.finallyFn).toBeUndefined()
@@ -39,7 +38,7 @@ describe('JobQueueManager', () => {
 
     describe('_enqueue()', () => {
         it('enqueues jobs to the first available job queue', async () => {
-            jobQueueManager.jobQueues[0].enqueue = jest.fn()
+            const enqueueSpy = jest.spyOn(jobQueueManager.jobQueues[0], 'enqueue')
             jobQueueManager.jobQueues[1] = { enqueue: jest.fn() } as any
 
             await jobQueueManager._enqueue(JobName.PLUGIN_JOB, { type: 'foo', timestamp: Date.now() } as EnqueuedJob)
@@ -48,7 +47,7 @@ describe('JobQueueManager', () => {
             expect(jobQueueManager.jobQueues[0].enqueue).toHaveBeenCalled()
             expect(jobQueueManager.jobQueues[1].enqueue).not.toHaveBeenCalled()
 
-            jobQueueManager.jobQueues[0].enqueue = jest.fn(() => {
+            enqueueSpy.mockImplementationOnce(() => {
                 throw new Error()
             })
             await jobQueueManager._enqueue(JobName.PLUGIN_JOB, { type: 'foo', timestamp: Date.now() } as EnqueuedJob)
@@ -58,7 +57,7 @@ describe('JobQueueManager', () => {
         })
 
         it('throws a RetryError if it cannot enqueue the job on any queue', async () => {
-            jobQueueManager.jobQueues[0].enqueue = jest.fn(() => {
+            jest.spyOn(jobQueueManager.jobQueues[0], 'enqueue').mockImplementationOnce(() => {
                 throw new Error()
             })
 

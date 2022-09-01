@@ -23,8 +23,7 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
                     () =>
                         runRetriableFunction({
                             hub,
-                            metricPrefix: 'plugin',
-                            metricName: 'on_event',
+                            metricName: 'plugin.on_event',
                             metricTags: {
                                 plugin: pluginConfig.plugin?.name ?? '?',
                                 teamId: event.team_id.toString(),
@@ -55,8 +54,7 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
                     () =>
                         runRetriableFunction({
                             hub,
-                            metricPrefix: 'plugin',
-                            metricName: 'on_snapshot',
+                            metricName: 'plugin.on_snapshot',
                             metricTags: {
                                 plugin: pluginConfig.plugin?.name ?? '?',
                                 teamId: event.team_id.toString(),

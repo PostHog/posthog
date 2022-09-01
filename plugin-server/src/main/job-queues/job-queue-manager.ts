@@ -2,7 +2,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { TaskList } from 'graphile-worker'
 
-import { EnqueuedJob, Hub, JobName, JobQueue, JobQueueType } from '../../types'
+import { EnqueuedJob, Hub, JobQueue, JobQueueType } from '../../types'
 import { instrument } from '../../utils/metrics'
 import { runRetriableFunction } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -65,19 +65,19 @@ export class JobQueueManager implements JobQueue {
         await instrument(
             this.pluginsServer.statsd,
             {
-                metricName: jobName === JobName.PLUGIN_JOB ? 'vm.enqueuePluginJob' : 'vm.enqueueBufferJob',
+                metricName: 'job_queues_enqueue',
                 key: instrumentationContext?.key ?? '?',
                 tag: instrumentationContext?.tag ?? '?',
-                tags: { pluginServerMode, type: jobType },
+                tags: { jobName, type: jobType },
                 data: { timestamp: job.timestamp, type: jobType, payload: jobPayload },
             },
             () =>
                 runRetriableFunction({
                     hub: this.pluginsServer,
-                    metricPrefix: 'enqueueJob',
-                    metricName: jobName,
+                    metricName: 'job_queues_enqueue',
                     metricTags: {
                         pluginServerMode,
+                        jobName,
                     },
                     tryFn: async () => this._enqueue(jobName, job),
                     catchFn: () => status.error('🔴', 'Exhausted attempts to enqueue job.'),

@@ -1283,6 +1283,8 @@ describe('vm tests', () => {
             }
             await delay(1010)
 
+            // This tests that the requests were broken up correctly according to the exportEventsBufferBytes config
+            // If you add data to the event above you should see more requests, and vice versa
             expect(fetch).toHaveBeenCalledTimes(20)
             expect((fetch as any).mock.calls).toEqual([
                 ['https://export.com/?length=866&count=5'],

@@ -56,8 +56,7 @@ describe('runRetriableFunction', () => {
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
             void runRetriableFunction({
-                metricPrefix: 'plugin',
-                metricName: 'on_foo',
+                metricName: 'plugin.on_foo',
                 hub: mockHub,
                 payload: testEvent,
                 tryFn,
@@ -86,8 +85,7 @@ describe('runRetriableFunction', () => {
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
             void runRetriableFunction({
-                metricPrefix: 'plugin',
-                metricName: 'on_foo',
+                metricName: 'plugin.on_foo',
                 hub: mockHub,
                 payload: testEvent,
                 tryFn,
@@ -115,8 +113,7 @@ describe('runRetriableFunction', () => {
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
             void runRetriableFunction({
-                metricPrefix: 'plugin',
-                metricName: 'on_foo',
+                metricName: 'plugin.on_foo',
                 hub: mockHub,
                 payload: testEvent,
                 tryFn,
@@ -159,8 +156,7 @@ describe('runRetriableFunction', () => {
         const promise = new Promise<number>((resolve) => {
             finallyFn.mockImplementation((attempt: number) => resolve(attempt))
             void runRetriableFunction({
-                metricPrefix: 'plugin',
-                metricName: 'on_foo',
+                metricName: 'plugin.on_foo',
                 hub: mockHub,
                 payload: testEvent,
                 tryFn,
